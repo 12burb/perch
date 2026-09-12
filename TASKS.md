@@ -8,7 +8,7 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
 ## Phase 0 — Foundation
 
 - [x] **0.1** Repo scaffold: Bun workspaces, Turborepo, Biome, strict TS, Changesets, Renovate, PR and issue templates, LICENSE (AGPL-3.0) + MIT licenses in bot-sdk, ui, events, api-client, connectors, templates (CI green on the empty monorepo) — commit `feat(scaffold): bun workspaces, turborepo, biome, strict ts, changesets, renovate` (ADR-0018)
-- [ ] **0.2** Governance files per §9.2 (all present; DCO check enforced)
+- [x] **0.2** Governance files per §9.2 (all present; DCO check enforced) — commit `docs(governance): readme, contributing, conduct, security, governance, pledge, dco check`
 - [ ] **0.3** Dependency resolution: exact package names and versions for §2 from official docs, pinned; DECISIONS entry per non-obvious pick (lockfile committed)
 - [ ] **0.4** Spikes from §9.3, one PR each, outcomes in DECISIONS.md ∥ (every spike has a recorded pass or fallback)
   - [ ] **0.4.1** PTY on Bun
