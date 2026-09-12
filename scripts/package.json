@@ -1,0 +1,11 @@
+{
+  "name": "@perch/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repository scripts: release, sbom, perf audit, seed, and the repo invariant tests.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

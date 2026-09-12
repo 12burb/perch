@@ -1,0 +1,14 @@
+{
+  "name": "@perch/bot-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK for code bots and external bots (spec §5.3, §7.3).",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

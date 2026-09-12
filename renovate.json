@@ -1,0 +1,33 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":pinAllExceptPeerDependencies", ":semanticCommits"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "labels": ["dependencies"],
+  "rangeStrategy": "pin",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Group minor and patch updates into one weekly PR",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "weekly minor and patch updates"
+    },
+    {
+      "description": "Major updates open one PR each so the ADR in docs/dependencies.md can be revisited",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Pinned runtime versions in Dockerfiles and images",
+      "matchDatasources": ["docker"],
+      "pinDigests": true
+    }
+  ],
+  "postUpdateOptions": [],
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  }
+}

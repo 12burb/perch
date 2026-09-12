@@ -1,0 +1,14 @@
+{
+  "name": "@perch/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AI SDK provider registry, model catalog, /v1 handlers, cost tables (spec §3.4).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

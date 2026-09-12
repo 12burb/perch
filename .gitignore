@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# local data and secrets
+.env
+.env.*
+!.env.example
+.perch/data/
+*.pglite/
+data/
+
+# test output
+coverage/
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# generated at build time
+apps/web/src/routeTree.gen.ts
+
+# editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

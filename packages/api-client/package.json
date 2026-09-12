@@ -1,0 +1,14 @@
+{
+  "name": "@perch/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK generated from the OpenAPI document at /api/openapi.json.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
