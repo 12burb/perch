@@ -10,5 +10,14 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9",
+    "zod": "4.6.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10"
   }
 }

@@ -367,3 +367,177 @@ branch never changes. Spike code lives under `spikes/` so each spike stays runna
 ### Consequences
 The human either makes this branch `main` or merges it through one PR once a base branch exists. From Phase 1
 on, the per-task branch and PR workflow of spec §1.11 applies unchanged.
+
+## ADR-0019: TypeScript 7 (the native compiler) is the typechecker
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3
+
+### Context
+Spec §2 asks for strict TypeScript with `noUncheckedIndexedAccess` but pins no version. The registry's
+`latest` is 7.0.2, the Go-native compiler; `@types/bun` 1.4.2 targets it (`ts6.0` tag).
+
+### Decision
+Pin `typescript` 7.0.2 and use it only for `tsc --noEmit` (Bun, Vite, and drizzle-kit transpile with their own
+toolchains). `tsconfig.base.json` uses the TS 6/7 defaults explicitly: `module: ESNext`,
+`moduleResolution: bundler`, `verbatimModuleSyntax`, `types: []` (each workspace opts into `bun` or DOM
+types), no deprecated options.
+
+### Consequences
+Typechecking 22 workspaces takes about two seconds. If a library's declarations break under 7.x, the fallback
+is to pin the last 5.9.x release for that workspace and record it here.
+
+## ADR-0020: Playwright pinned to 1.62.1 so e2e and component tests share one runtime
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3
+
+### Context
+`@playwright/test` latest is 1.63.0 but `@playwright/experimental-ct-react` latest is 1.62.1, and Playwright
+requires the component-testing package and the test runner to match exactly.
+
+### Decision
+Pin both to 1.62.1 until the component-testing package catches up; Renovate bumps them together. Playwright
+is developer tooling and runs under Node in CI (`actions/setup-node`); no shipped Perch code targets Node.
+
+### Consequences
+Chromium must match the pinned version (`playwright install chromium` in CI); locally an
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` override points at a preinstalled build.
+
+## ADR-0021: The ACP SDK is `@agentclientprotocol/sdk`
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3
+
+### Context
+The Agent Client Protocol's TypeScript SDK was first published as `@zed-industries/agent-client-protocol`
+(last 0.4.5) and now lives at `@agentclientprotocol/sdk` (1.4.0).
+
+### Decision
+Pin `@agentclientprotocol/sdk` 1.4.0 in `packages/engines` and `apps/runner`. Spike 0.4.2 validates it on Bun.
+
+### Consequences
+Registry agents are spawned and driven through this package only; the older name is not used.
+
+## ADR-0022: The TypeScript SDK is generated with openapi-typescript and runs on openapi-fetch
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.7
+
+### Context
+Spec §7.1 makes `/api/openapi.json` the source of truth that produces the TypeScript and Python SDKs but
+names no generator.
+
+### Decision
+`packages/api-client` generates `src/schema.d.ts` from the OpenAPI document with `openapi-typescript` 7.13.0
+and exposes a typed client built on `openapi-fetch` 0.17.0 (a 6 KB fetch wrapper, no codegen of runtime
+code). The Python SDK is generated at release time with `openapi-python-client` in the release workflow
+(Python is a release-time tool, not repository code).
+
+### Consequences
+Regenerating the SDK is `bun run --filter @perch/api-client generate`; CI fails when the committed schema
+drifts from the served document.
+
+## ADR-0023: The unified `radix-ui` package instead of per-primitive `@radix-ui/react-*` packages
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.11
+
+### Context
+shadcn/ui now targets the single `radix-ui` package; the per-primitive packages remain but double the
+version surface.
+
+### Decision
+Pin `radix-ui` 1.6.7 in `packages/ui`; shadcn base components import primitives from it.
+
+### Consequences
+One version to bump; tree-shaking keeps the bundle equivalent.
+
+## ADR-0024: drizzle-kit stays on the 0.31 stable line
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.5
+
+### Context
+`drizzle-orm` latest is 0.45.2; `drizzle-kit` latest is 0.31.10 while 1.0 is still a release candidate.
+
+### Decision
+Pin `drizzle-kit` 0.31.10 (dev, `packages/db`) and `drizzle-orm` 0.45.2. Migrations are generated with the
+stable kit and embedded into the packages so the compiled laptop binary needs no migrations folder on disk.
+
+### Consequences
+Renovate opens the 1.0 major as its own PR when it ships; the migration files it produces are reviewed then.
+
+## ADR-0025: UUID v7 comes from `Bun.randomUUIDv7()`
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.5
+
+### Context
+Spec §6 requires uuid v7 primary keys. Bun ships a native generator; the `uuid` package would be one more
+dependency for one function.
+
+### Decision
+`packages/db` exports `newId()` wrapping `Bun.randomUUIDv7()` and uses it as the `$defaultFn` of every `id`
+column. Ids are generated in the application, never by the database, so both drivers behave the same.
+
+### Consequences
+`packages/db` requires the Bun runtime (it already does for PGlite tests); `apps/web` never generates ids.
+
+## ADR-0026: `oauth2-mock-server` is the OIDC test double
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.8
+
+### Context
+Task 0.8 must prove the generic OIDC flow end to end without a real identity provider in CI.
+
+### Decision
+Root dev dependency `oauth2-mock-server` 9.2.0 runs an in-process OpenID provider during the auth Playwright
+spec. It never ships.
+
+### Consequences
+The OIDC spec is hermetic; Clerk-as-login is verified against the same flow with real settings in Phase 2.
+
+## ADR-0027: `t("key")` is an in-house typed lookup, not i18next
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.11
+
+### Context
+Spec §9.1 requires every user-facing string to go through `t("key")` from day one with only `en`. A full i18n
+framework would add runtime, pluralization DSLs, and bundle weight before there is a second locale.
+
+### Decision
+`packages/ui/src/i18n` exports `t(key, params?)` typed against the keys of `en.json`, with `{name}`
+interpolation and a per-locale catalog map. `PERCH_DEFAULT_LOCALE` selects the catalog.
+
+### Consequences
+Adding a locale is adding a JSON file; a missing key is a type error. Pluralization beyond simple `{count}`
+forms is an ADR when it is needed.
+
+## ADR-0028: The CLI publishes to npm as `perch-dev` with the binary `perch`
+
+- Status: accepted
+- Date: 2026-09-12
+- Task: 0.3, 0.14
+
+### Context
+Spec §8 says `npx perch`, but the npm name `perch` is already taken by an unrelated package (1.0.0).
+
+### Decision
+`apps/cli` is published as `perch-dev` (available, matches the `get.perch.dev` installer domain) with
+`bin: { perch: … }`. The installer (`curl -fsSL get.perch.dev | sh`), Homebrew, winget, AUR, and nix remain
+the primary paths; `npx perch-dev@latest init` is the npm path.
+
+### Consequences
+Docs say `npx perch-dev`. If the maintainer obtains the `perch` name, this ADR is superseded.

@@ -41,7 +41,7 @@ Ollama and `--profile tunnel` for a Cloudflare tunnel when you have no public do
 ### Laptop mode (one binary, no Docker)
 
 ```sh
-curl -fsSL https://get.perch.dev | sh   # or: npx perch@latest dev
+curl -fsSL https://get.perch.dev | sh   # or: npx perch-dev@latest dev
 perch dev
 ```
 

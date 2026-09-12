@@ -10,5 +10,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "quickjs-emscripten": "0.32.0",
+    "zod": "4.6.3"
   }
 }

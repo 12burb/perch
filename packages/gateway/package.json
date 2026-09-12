@@ -10,5 +10,16 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.53",
+    "@ai-sdk/google": "4.0.69",
+    "@ai-sdk/groq": "4.0.41",
+    "@ai-sdk/mistral": "4.0.43",
+    "@ai-sdk/openai": "4.0.66",
+    "@ai-sdk/openai-compatible": "3.0.48",
+    "@ai-sdk/xai": "4.0.58",
+    "ai": "7.0.99",
+    "zod": "4.6.3"
   }
 }
