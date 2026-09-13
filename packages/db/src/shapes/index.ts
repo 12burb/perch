@@ -30,6 +30,10 @@ export const API_TOKEN_SCOPES = [
 export const apiTokenScopesSchema = z.array(z.enum(API_TOKEN_SCOPES));
 export type ApiTokenScopes = z.infer<typeof apiTokenScopesSchema>;
 
+// audit_log.details: the audited event's payload (ids and small facts; never a secret or a body)
+export const auditDetailsSchema = z.record(z.string(), z.unknown());
+export type AuditDetails = z.infer<typeof auditDetailsSchema>;
+
 // instance_settings.value
 export const instanceSettingValueSchema = z.union([
   z.string(),

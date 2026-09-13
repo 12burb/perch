@@ -8,6 +8,7 @@ import {
   type BusEvent,
   type BusEventName,
   type BusPayload,
+  type EventMeta,
   parseBusPayload,
   WS_REPLAY_BUFFER,
 } from "@perch/events";
@@ -22,6 +23,8 @@ export type TopicHandler = (event: BusEvent, seq: number) => void | Promise<void
 
 export type PublishOptions = {
   actor?: Actor;
+  /** Request id and client ip for the audit log. */
+  meta?: EventMeta;
   /** WS topics to fan out to; defaults to ws:<workspaceId> when the payload has a workspaceId. */
   topics?: string[];
   /** Override the event id (uuid v7 by default). */
@@ -111,6 +114,7 @@ export class InProcessBus implements Bus {
       payload: parsed,
       topics,
       ...(options.actor ? { actor: options.actor } : {}),
+      ...(options.meta ? { meta: options.meta } : {}),
     };
 
     const seqs: Record<string, number> = {};

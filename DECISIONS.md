@@ -1020,3 +1020,89 @@ crashes on Playwright's `test()`.
 ### Consequences
 `bun run e2e` works from a clean checkout after `bun install` plus a browser. Every browser flow is
 exercised at both spec viewports (§1.7) by default.
+
+## ADR-0051: RBAC v0 is a role matrix plus token scopes in `@perch/policy`, hidden behind not_found for non-members
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.9
+
+### Context
+Spec §6 fixes the three membership roles (owner, admin, member) and §9.1 requires
+`authorize(ctx, action, resource)` from `packages/policy` in every handler, but the spec does not enumerate
+which role may do what, nor how api-token scopes interact with roles. The policy.yaml evaluator (§5.7) is a
+Phase 2 task (2.11) and needs the same entry point.
+
+### Decision
+`@perch/policy` exports a pure `authorize(ctx, action, resource)` over a role matrix (`ROLE_MATRIX`) and
+per-action token scopes (`SCOPE_FOR_ACTION`):
+
+| action | owner | admin | member | token scope |
+|---|---|---|---|---|
+| workspace.read, members.read | yes | yes | yes | read |
+| workspace.update, members.invite, members.update_role, audit.read | yes | yes | no | admin |
+| members.remove | yes | yes | self only | admin |
+| workspace.delete | yes | no | no | admin |
+
+Rules on top of the matrix: only an owner touches owners (removing, demoting, or promoting to owner);
+nobody changes their own role; anyone may remove themselves; the last owner can neither leave nor be
+demoted (a `conflict` with `reason: last_owner`, enforced in the service). `admin` implies `write`
+implies `read`; sessions carry no scopes and are limited by role alone. The api's `authorize()` wrapper
+loads the membership, sets `workspace_id` on the request log, turns `not_member` into `not_found`
+(a workspace's existence is never revealed to outsiders) and every other denial into `forbidden` with
+`details.reason` (`role`, `scope`, `self`) and `details.action`.
+
+### Consequences
+Every new workspace-scoped route adds its action to the matrix and calls `authorize()` first; repositories
+still scope every query by workspace id (§9.1). Instance-level administration (`/api/admin/*`) is a
+separate, later concept and is not modelled as a workspace role.
+
+## ADR-0052: The audit log is an in-process bus subscriber with a workspace-scoped read endpoint
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.9
+
+### Context
+Spec §7.7: "WS fan-out, inbox, webhooks, and audit subscribe to the bus; features never write the audit log
+directly", and `audit.logged` is itself a catalog event. Spec §7.1 lists only `/api/admin/audit`, an
+instance-level endpoint, while task 0.9's criterion is that audit rows appear for workspace actions.
+
+### Decision
+`apps/api/src/audit/subscriber.ts` subscribes to `*` on the bus and writes one `audit_log` row per
+workspace-scoped event (payloads carrying `workspaceId`), then publishes `audit.logged` for it. Excluded
+as ephemeral: `typing`, `presence.changed`, `read_state.updated`, `session.delta`, `session.usage`,
+`usage.recorded`, and `audit.logged` itself (no loops). The target is derived from the event name:
+`member.*` → the user, `workspace.*` → the workspace, otherwise `<head>.*` → `<head>Id` when the payload
+has one. `details` is the payload minus `workspaceId` plus the request id; `ip` and the request id come
+from the envelope's `meta` (ADR-0053); the actor is the envelope's actor or `system`. The bus awaits
+subscribers, so a handler's response is sent only after its audit row exists.
+`GET /api/workspaces/{ws}/audit?before&limit&action` (owners and admins) reads the rows newest first;
+`/api/admin/audit` (instance-wide) arrives with the admin settings work. `audit_log` is migration
+`0003_audit` with exactly the §6 columns (a single `ts`, no updated_at).
+
+### Consequences
+Multi-node deployments (Redis bus, ADR-0005) must run the subscriber on exactly one node or make the insert
+idempotent on the event id; that is part of the Phase 5 bus adapter. Adding an event to the catalog audits
+it automatically unless it is added to the exclusion set.
+
+## ADR-0053: Bus envelopes carry `meta` (request id, client ip) beside the actor
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.9
+
+### Context
+The §6 `audit_log` has an `ip` column, but bus events (§7.7) carry only a payload and an actor; the audit
+subscriber has no request context of its own.
+
+### Decision
+`BusEvent` gains an optional `meta: { requestId?, ip? }` (`eventMetaSchema` in `@perch/events`;
+`PublishOptions.meta` in `@perch/bus`). Handlers build it once with `actorOf(c)` (actor + meta) and pass it
+through services to `bus.publish`; `ip` prefers `X-Forwarded-For`/`X-Real-IP` (set by Caddy) and falls
+back to the socket address. Nothing else from the request (headers, body, tokens) ever enters the
+envelope.
+
+### Consequences
+Every service that publishes takes a `by: ActorContext`; tests can assert audit rows carry the caller and
+ip. WS fan-out (0.10) strips `meta` before sending events to clients.

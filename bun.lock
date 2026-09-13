@@ -29,6 +29,7 @@
         "@perch/db": "workspace:*",
         "@perch/events": "workspace:*",
         "@perch/jobs": "workspace:*",
+        "@perch/policy": "workspace:*",
         "@perch/vault": "workspace:*",
         "better-auth": "1.7.4",
         "dockerode": "5.0.1",

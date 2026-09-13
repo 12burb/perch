@@ -288,6 +288,12 @@ export function isBusEventName(name: string): name is BusEventName {
   return Object.hasOwn(busEventPayloads, name);
 }
 
+/** Request facts the audit log keeps beside the actor (never a token, never a body). */
+export const eventMetaSchema = z
+  .object({ requestId: z.string().optional(), ip: z.string().optional() })
+  .strict();
+export type EventMeta = z.infer<typeof eventMetaSchema>;
+
 /** The envelope every published event travels in. */
 export type BusEvent<T extends BusEventName = BusEventName> = {
   id: string;
@@ -295,6 +301,7 @@ export type BusEvent<T extends BusEventName = BusEventName> = {
   ts: string;
   payload: BusPayload<T>;
   actor?: Actor;
+  meta?: EventMeta;
   /** WS topics the event fans out to (ws:<id>, channel:<id>, session:<id>, inbox:<user>). */
   topics: string[];
 };
@@ -306,6 +313,7 @@ export const busEventEnvelopeSchema = z
     ts: z.iso.datetime(),
     payload: z.unknown(),
     actor: actorSchema.optional(),
+    meta: eventMetaSchema.optional(),
     topics: z.array(z.string()),
   })
   .strict();

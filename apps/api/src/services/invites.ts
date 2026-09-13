@@ -1,8 +1,9 @@
 import type { Bus } from "@perch/bus";
 import type { Db, Invite, MembershipRole, User, Workspace } from "@perch/db";
+import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import { findInviteByHash, insertInvite, markInviteAccepted } from "../repos/invites.ts";
-import { findMembership, findWorkspaceById, insertMembership } from "../repos/workspaces.ts";
+import { findWorkspaceById, insertMembership } from "../repos/workspaces.ts";
 import { hashToken } from "./tokens.ts";
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -13,23 +14,23 @@ function randomInviteToken(): string {
 
 export type CreatedInvite = { invite: Invite; token: string; acceptUrl: string };
 
-/** Owners and admins invite by email; the accept link is returned to the inviter and logged (console transport). */
+/**
+ * Creates an invite. The handler has already authorized `members.invite`; the one rule left here is
+ * that only an owner can invite another owner. The accept link goes back to the inviter (ADR-0046).
+ */
 export async function createInvite(
   db: Db,
   input: {
     workspaceId: string;
     email: string;
     role: MembershipRole;
-    invitedBy: User;
+    inviterRole: MembershipRole;
     publicUrl: string;
     now?: Date;
   },
 ): Promise<CreatedInvite> {
-  const membership = await findMembership(db, input.workspaceId, input.invitedBy.id);
-  if (!membership) throw PerchError.notFound("workspace");
-  if (membership.role === "member") throw PerchError.forbidden("only owners and admins can invite");
-  if (input.role === "owner" && membership.role !== "owner") {
-    throw PerchError.forbidden("only an owner can invite another owner");
+  if (input.role === "owner" && input.inviterRole !== "owner") {
+    throw PerchError.forbidden("only an owner can invite another owner", { reason: "role" });
   }
   const token = randomInviteToken();
   const now = input.now ?? new Date();
@@ -80,7 +81,7 @@ export async function previewInvite(
 export async function acceptInvite(
   db: Db,
   bus: Bus,
-  input: { token: string; user: User; now?: Date },
+  input: { token: string; user: User; by: ActorContext; now?: Date },
 ): Promise<{ workspace: Workspace; role: MembershipRole }> {
   const now = input.now ?? new Date();
   const invite = await findInviteByHash(db, hashToken(input.token));
@@ -102,7 +103,7 @@ export async function acceptInvite(
     await bus.publish(
       "member.added",
       { workspaceId: workspace.id, userId: input.user.id, role: invite.role },
-      { actor: { type: "user", id: input.user.id } },
+      input.by,
     );
   }
   return { workspace, role: invite.role };
