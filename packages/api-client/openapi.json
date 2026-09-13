@@ -116,6 +116,12 @@
               "team"
             ]
           },
+          "setup_complete": {
+            "type": "boolean"
+          },
+          "telemetry": {
+            "type": "boolean"
+          },
           "auth": {
             "type": "object",
             "properties": {
@@ -139,7 +145,122 @@
         "required": [
           "public_url",
           "mode",
+          "setup_complete",
+          "telemetry",
           "auth"
+        ]
+      },
+      "SetupResult": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_slug"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "forbidden",
+                  "validation",
+                  "conflict",
+                  "rate_limited",
+                  "budget_exceeded",
+                  "policy_violation",
+                  "upstream_failed",
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ]
+      },
+      "SetupRequest": {
+        "type": "object",
+        "properties": {
+          "admin": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "email": {
+                "type": "string",
+                "format": "email"
+              },
+              "password": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "name",
+              "email",
+              "password"
+            ]
+          },
+          "workspace": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "public_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "telemetry": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "admin",
+          "workspace",
+          "public_url"
         ]
       },
       "Me": {
@@ -192,48 +313,6 @@
           "tz",
           "avatar_file_id",
           "auth_kind"
-        ]
-      },
-      "Error": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "enum": [
-                  "not_found",
-                  "forbidden",
-                  "validation",
-                  "conflict",
-                  "rate_limited",
-                  "budget_exceeded",
-                  "policy_violation",
-                  "upstream_failed",
-                  "internal"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {
-                "type": "object",
-                "additionalProperties": {}
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ]
-          },
-          "request_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "error",
-          "request_id"
         ]
       },
       "MePatch": {
@@ -815,6 +894,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Instance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/setup": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Complete first-run setup: the admin account, the first workspace, the public URL, telemetry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Setup complete; the admin is signed in (session cookie)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

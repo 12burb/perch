@@ -49,6 +49,12 @@
     "apps/cli": {
       "name": "@perch/cli",
       "version": "0.0.0",
+      "bin": {
+        "perch": "./src/index.ts",
+      },
+      "dependencies": {
+        "@perch/vault": "workspace:*",
+      },
     },
     "apps/runner": {
       "name": "@perch/runner",

@@ -2,12 +2,14 @@ import { t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Outlet, redirect, useParams } from "@tanstack/react-router";
 import { authClient } from "../lib/auth-client.ts";
-import { meQuery, workspacesQuery } from "../lib/queries.ts";
+import { instanceQuery, meQuery, workspacesQuery } from "../lib/queries.ts";
 import { AppShell } from "../shell/app-shell.tsx";
 
 /** Everything behind sign-in renders inside the shell; the workspace comes from the URL when present. */
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ context, location }) => {
+    const instance = await context.queryClient.ensureQueryData(instanceQuery);
+    if (!instance.setup_complete) throw redirect({ to: "/setup" });
     const session = await authClient.getSession();
     if (!session.data) {
       throw redirect({ to: "/sign-in", search: { redirect: location.pathname } });

@@ -115,6 +115,64 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete first-run setup: the admin account, the first workspace, the public URL, telemetry */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SetupRequest"];
+                };
+            };
+            responses: {
+                /** @description Setup complete; the admin is signed in (session cookie) */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SetupResult"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -1044,11 +1102,44 @@ export type components = {
             public_url: string;
             /** @enum {string} */
             mode: "laptop" | "team";
+            setup_complete: boolean;
+            telemetry: boolean;
             auth: {
                 email_password: boolean;
                 passkeys: boolean;
                 oidc: boolean;
             };
+        };
+        SetupResult: {
+            /** Format: uuid */
+            user_id: string;
+            workspace_slug: string;
+        };
+        Error: {
+            error: {
+                /** @enum {string} */
+                code: "not_found" | "forbidden" | "validation" | "conflict" | "rate_limited" | "budget_exceeded" | "policy_violation" | "upstream_failed" | "internal";
+                message: string;
+                details?: {
+                    [key: string]: unknown;
+                };
+            };
+            request_id: string;
+        };
+        SetupRequest: {
+            admin: {
+                name: string;
+                /** Format: email */
+                email: string;
+                password: string;
+            };
+            workspace: {
+                name: string;
+            };
+            /** Format: uri */
+            public_url: string;
+            /** @default false */
+            telemetry: boolean;
         };
         Me: {
             /** Format: uuid */
@@ -1063,17 +1154,6 @@ export type components = {
             avatar_file_id: string | null;
             /** @enum {string} */
             auth_kind: "session" | "token";
-        };
-        Error: {
-            error: {
-                /** @enum {string} */
-                code: "not_found" | "forbidden" | "validation" | "conflict" | "rate_limited" | "budget_exceeded" | "policy_violation" | "upstream_failed" | "internal";
-                message: string;
-                details?: {
-                    [key: string]: unknown;
-                };
-            };
-            request_id: string;
         };
         MePatch: {
             name?: string;

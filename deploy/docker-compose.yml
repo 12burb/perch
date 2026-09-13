@@ -1,0 +1,109 @@
+# Perch (spec §3.1, §8): four containers by default (caddy, api, supervisor, postgres) plus the
+# optional `local` (ollama) and `tunnel` (cloudflared) profiles. `perch init` writes this file next to
+# a filled-in .env; images are pinned to a release by PERCH_IMAGE_TAG.
+name: perch
+
+services:
+  caddy:
+    image: ghcr.io/12burb/perch-caddy:${PERCH_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PERCH_PUBLIC_URL: ${PERCH_PUBLIC_URL}
+      PERCH_PREVIEW_DOMAIN: ${PERCH_PREVIEW_DOMAIN:-}
+      CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
+      CADDY_DNS_TOKEN: ${CADDY_DNS_TOKEN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    image: ghcr.io/12burb/perch-api:${PERCH_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["api"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://perch:${POSTGRES_PASSWORD}@postgres:5432/perch}
+      PERCH_FILES_DIR: /data/files
+    volumes:
+      - files:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/api/health'); process.exit(r.ok ? 0 : 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    expose:
+      - "3000"
+
+  supervisor:
+    image: ghcr.io/12burb/perch-api:${PERCH_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["supervisor"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://perch:${POSTGRES_PASSWORD}@postgres:5432/perch}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      PERCH_RUNNER_IMAGE: ${PERCH_RUNNER_IMAGE:-ghcr.io/12burb/perch-runner:${PERCH_IMAGE_TAG:-latest}}
+    # The supervisor is the only service that mounts the Docker socket (spec §1.6).
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner_homes:/data/homes
+      - projects:/data/projects
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: perch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: perch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perch -d perch"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.34.0
+    profiles: ["local"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    expose:
+      - "11434"
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      caddy:
+        condition: service_started
+
+volumes:
+  files:
+  runner_homes:
+  projects:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  ollama:

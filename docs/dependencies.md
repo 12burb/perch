@@ -105,3 +105,20 @@ only the packages it declares.
 Exact pins everywhere (`scripts/repo-invariants.test.ts` fails on a range). Workspace links use
 `workspace:*`. Renovate groups minor and patch updates weekly and opens majors one at a time behind the
 dependency dashboard.
+
+## Container images (task 0.13, ADR-0058)
+
+Resolved from Docker Hub and PyPI on 2026-09-13; Renovate keeps them current.
+
+| Image / tool | Pin | Where |
+|---|---|---|
+| `oven/bun` | `1.3.11`, `1.3.11-slim` | `deploy/Dockerfile.api` |
+| `node` | `24.21.0-bookworm-slim` (LTS; the `node` binary for Vite in the api build stage) | `deploy/Dockerfile.api` |
+| `ubuntu` | `24.04` | `deploy/Dockerfile.runner` |
+| Node tarball | `24.21.0` (SHASUMS256-verified) | `deploy/Dockerfile.runner` |
+| uv | `0.12.13` | `deploy/Dockerfile.runner` |
+| Playwright Chromium | `1.62.1` | `deploy/Dockerfile.runner` |
+| `caddy` | `2.11.4`, `2.11.4-builder` | `deploy/Dockerfile.caddy` |
+| `pgvector/pgvector` | `0.8.6-pg16` | `deploy/docker-compose.yml` |
+| `ollama/ollama` | `0.34.0` (profile `local`) | `deploy/docker-compose.yml` |
+| `cloudflare/cloudflared` | `2026.9.1` (profile `tunnel`) | `deploy/docker-compose.yml` |

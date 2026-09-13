@@ -1,0 +1,6 @@
+# Perch reverse proxy (spec §8). PERCH_PUBLIC_URL is the site address; Caddy terminates TLS with
+# automatic certificates for public hostnames and serves plain HTTP for localhost/IP addresses.
+{$PERCH_PUBLIC_URL} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}

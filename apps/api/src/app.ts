@@ -14,8 +14,10 @@ import { requestLogger } from "./logging.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMe } from "./routes/me.ts";
+import { registerSetup } from "./routes/setup.ts";
 import { registerVersion } from "./routes/version.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
+import { isSetupComplete } from "./services/setup.ts";
 import type { WsServer } from "./ws/server.ts";
 
 export type AppOptions = {
@@ -55,6 +57,13 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
     return c.json(error.toBody(c.get("requestId") ?? "unknown"), 404);
   });
 
+  // Nobody signs up before the setup wizard has created the admin (ADR-0057).
+  app.post("/api/auth/sign-up/*", async (_c, next) => {
+    if (!(await isSetupComplete(deps.db.db))) {
+      throw PerchError.forbidden("complete setup before signing up", { reason: "setup_required" });
+    }
+    await next();
+  });
   // better-auth owns /api/auth/* (spec §7.1); everything else resolves the caller first.
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
   app.use("/api/*", authenticate(deps));
@@ -67,6 +76,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerHealth(app, deps);
   registerVersion(app, deps);
   registerInstance(app, deps);
+  registerSetup(app, deps);
   registerMe(app, deps);
   registerWorkspaces(app, deps);
 

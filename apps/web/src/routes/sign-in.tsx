@@ -1,13 +1,18 @@
 import { Button, Field, Input, t } from "@perch/ui";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
 import { useInstance } from "../lib/instance.ts";
+import { instanceQuery } from "../lib/queries.ts";
 import { redirectSearch } from "../lib/redirect.ts";
 
 export const Route = createFileRoute("/sign-in")({
   validateSearch: redirectSearch,
+  beforeLoad: async ({ context }) => {
+    const instance = await context.queryClient.ensureQueryData(instanceQuery);
+    if (!instance.setup_complete) throw redirect({ to: "/setup" });
+  },
   component: SignIn,
 });
 

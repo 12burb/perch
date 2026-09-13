@@ -37,4 +37,39 @@ const api = Bun.spawn(["bun", "apps/api/src/index.ts"], {
 const stop = () => api.kill();
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
+
+// The wizard is one-time per database: complete it here (as e2e/00-setup.e2e.ts would through the UI)
+// unless E2E_SETUP=wizard leaves it to that spec, so every other spec starts from a set-up instance.
+if (process.env.E2E_SETUP !== "wizard") {
+  const base = `http://localhost:${port}`;
+  for (let attempt = 0; attempt < 120; attempt++) {
+    try {
+      const health = await fetch(`${base}/api/health`);
+      if (health.ok) break;
+    } catch {
+      // not up yet
+    }
+    await Bun.sleep(500);
+  }
+  const res = await fetch(`${base}/api/setup`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: base },
+    body: JSON.stringify({
+      admin: {
+        name: "E2E Admin",
+        email: "admin@perch.test",
+        password: "admin-passphrase-for-tests",
+      },
+      workspace: { name: "Admin" },
+      public_url: base,
+      telemetry: false,
+    }),
+  });
+  if (res.status !== 201 && res.status !== 409) {
+    console.error(`e2e setup failed: ${res.status} ${await res.text()}`);
+    api.kill();
+    process.exit(1);
+  }
+}
+
 process.exit(await api.exited);

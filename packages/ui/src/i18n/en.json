@@ -208,5 +208,16 @@
   "settings.auditEmpty": "No audit rows yet",
   "settings.auditEmptyHint": "Every change in this workspace is recorded here.",
   "security.scopes": "Scopes",
-  "security.defaultPasskeyName": "This device"
+  "security.defaultPasskeyName": "This device",
+  "setup.title": "Set up Perch",
+  "setup.intro": "One step: your admin account, the first workspace, and how this instance is reached. Sign-ups open once this is done.",
+  "setup.admin": "Admin account",
+  "setup.workspace": "First workspace",
+  "setup.instance": "Instance",
+  "setup.publicUrl": "Public URL (PERCH_PUBLIC_URL)",
+  "setup.publicUrlHint": "The address people will use. It comes from .env; passkeys, callbacks, and links depend on it.",
+  "setup.publicUrlMismatch": "PERCH_PUBLIC_URL is set to {configured}. Change it in .env and restart, or keep the configured value.",
+  "setup.telemetry": "Send a daily anonymous ping (instance id, version, OS, rough size). Off by default.",
+  "setup.telemetryLink": "What is sent",
+  "setup.submit": "Finish setup"
 }
