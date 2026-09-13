@@ -1,0 +1,12 @@
+{
+  "name": "@perch/spike-caddy-wildcard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: Caddy issues a DNS-challenge wildcard certificate for previews",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  }
+}

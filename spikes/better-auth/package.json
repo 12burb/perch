@@ -1,0 +1,19 @@
+{
+  "name": "@perch/spike-better-auth",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: better-auth on Bun with the Drizzle adapter on PGlite: email+password, passkeys, generic OIDC",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "1.7.4",
+    "@electric-sql/pglite": "0.5.8",
+    "better-auth": "1.7.4",
+    "drizzle-orm": "0.45.2",
+    "oauth2-mock-server": "9.2.0"
+  }
+}

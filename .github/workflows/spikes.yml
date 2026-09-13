@@ -1,0 +1,108 @@
+name: Spikes
+
+# Phase 0 spikes (spec §9.3) re-verified per platform. Outcomes live in DECISIONS.md ADR-0029..0038.
+on:
+  pull_request:
+    paths:
+      - "spikes/**"
+      - "bun.lock"
+      - ".github/workflows/spikes.yml"
+  push:
+    branches: [main]
+    paths:
+      - "spikes/**"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spikes-linux:
+    name: All spikes (ubuntu, Docker available)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - name: Place the OpenCode binary (postinstall of an untrusted package)
+        run: bun run --filter @perch/spike-opencode prepare-binary
+      - run: bun test spikes
+        env:
+          PERCH_SPIKE_NODE_PTY: "1"
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+
+  spikes-pty-matrix:
+    name: PTY on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun test spikes/pty
+        env:
+          PERCH_SPIKE_NODE_PTY: "1"
+
+  spikes-caddy:
+    name: Caddy wildcard (needs CADDY_DNS_TOKEN)
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PERCH_PUBLIC_HOST: ${{ vars.PERCH_SPIKE_PUBLIC_HOST }}
+      PERCH_PREVIEW_DOMAIN: ${{ vars.PERCH_SPIKE_PREVIEW_DOMAIN }}
+      CADDY_DNS_PROVIDER: ${{ vars.PERCH_SPIKE_DNS_PROVIDER }}
+      CADDY_DNS_TOKEN: ${{ secrets.CADDY_DNS_TOKEN }}
+      PERCH_ACME_EMAIL: ${{ vars.PERCH_SPIKE_ACME_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Skip without credentials
+        if: ${{ env.CADDY_DNS_TOKEN == '' || env.PERCH_PREVIEW_DOMAIN == '' }}
+        run: echo "CADDY_DNS_TOKEN or PERCH_SPIKE_PREVIEW_DOMAIN not set; spike 0.4.8 stays deferred" && exit 0
+      - name: Issue the wildcard certificate
+        if: ${{ env.CADDY_DNS_TOKEN != '' && env.PERCH_PREVIEW_DOMAIN != '' }}
+        run: |
+          docker compose -f spikes/caddy-wildcard/docker-compose.yml up --build -d
+          sleep 90
+          bun spikes/caddy-wildcard/check.ts
+          docker compose -f spikes/caddy-wildcard/docker-compose.yml down -v
+
+  spikes-cloudflared:
+    name: cloudflared profile (needs TUNNEL_TOKEN)
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
+      PERCH_PUBLIC_URL: ${{ vars.PERCH_SPIKE_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Skip without credentials
+        if: ${{ env.TUNNEL_TOKEN == '' || env.PERCH_PUBLIC_URL == '' }}
+        run: echo "TUNNEL_TOKEN or PERCH_SPIKE_PUBLIC_URL not set; spike 0.4.10 stays deferred" && exit 0
+      - name: Reach the api through the tunnel
+        if: ${{ env.TUNNEL_TOKEN != '' && env.PERCH_PUBLIC_URL != '' }}
+        run: |
+          docker compose -f spikes/cloudflared/docker-compose.yml --profile tunnel up -d
+          sleep 30
+          bun spikes/cloudflared/check.ts
+          docker compose -f spikes/cloudflared/docker-compose.yml --profile tunnel down -v

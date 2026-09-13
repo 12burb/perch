@@ -10,17 +10,17 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
 - [x] **0.1** Repo scaffold: Bun workspaces, Turborepo, Biome, strict TS, Changesets, Renovate, PR and issue templates, LICENSE (AGPL-3.0) + MIT licenses in bot-sdk, ui, events, api-client, connectors, templates (CI green on the empty monorepo) — commit `feat(scaffold): bun workspaces, turborepo, biome, strict ts, changesets, renovate` (ADR-0018)
 - [x] **0.2** Governance files per §9.2 (all present; DCO check enforced) — commit `docs(governance): readme, contributing, conduct, security, governance, pledge, dco check`
 - [x] **0.3** Dependency resolution: exact package names and versions for §2 from official docs, pinned; DECISIONS entry per non-obvious pick (lockfile committed) — commit `chore(deps): resolve and pin the §2 stack` (ADR-0019..0028)
-- [ ] **0.4** Spikes from §9.3, one PR each, outcomes in DECISIONS.md ∥ (every spike has a recorded pass or fallback)
-  - [ ] **0.4.1** PTY on Bun
-  - [ ] **0.4.2** ACP handshake
-  - [ ] **0.4.3** OpenCode SDK
-  - [ ] **0.4.4** PGlite
-  - [ ] **0.4.5** QuickJS sandbox
-  - [ ] **0.4.6** better-auth on Bun
-  - [ ] **0.4.7** dockerode from Bun
-  - [ ] **0.4.8** Caddy wildcard
-  - [ ] **0.4.9** Preview tunnel over a local runner
-  - [ ] **0.4.10** cloudflared profile
+- [x] **0.4** Spikes from §9.3, one PR each, outcomes in DECISIONS.md ∥ (every spike has a recorded pass or fallback) — commit `feat(spikes): phase 0 spikes with recorded outcomes` (ADR-0029..0038; `spikes/README.md`)
+  - [x] **0.4.1** PTY on Bun — fallback: bun-pty (ADR-0029)
+  - [x] **0.4.2** ACP handshake — pass (ADR-0030)
+  - [x] **0.4.3** OpenCode SDK — pass, streamed reply gated on a key (ADR-0031)
+  - [x] **0.4.4** PGlite — pass (ADR-0032)
+  - [x] **0.4.5** QuickJS sandbox — pass (ADR-0033)
+  - [x] **0.4.6** better-auth on Bun — pass at the HTTP level; browser passkeys in 0.8 (ADR-0034)
+  - [x] **0.4.7** dockerode from Bun — deferred to CI (ADR-0035)
+  - [x] **0.4.8** Caddy wildcard — deferred; path mode is the default (ADR-0036)
+  - [x] **0.4.9** Preview tunnel over a local runner — pass (ADR-0037)
+  - [x] **0.4.10** cloudflared profile — deferred; Tailscale documented (ADR-0038)
 - [ ] **0.5** packages/db: Drizzle schema for identity, tenancy, projects, runners, channels, messages, files, instance_settings; Db factory for postgres and pglite; migrations; PGlite test harness (schema tests pass on both drivers)
 - [ ] **0.6** packages/events, bus, jobs, vault with unit tests (queue survives worker crash, cron fires, vault round-trips and rotates)
 - [ ] **0.7** apps/api skeleton: Hono + zod-openapi, error model, request logging, health, version, OpenAPI at /api/openapi.json, generated TS client (GET /api/health typed end to end)

@@ -1,0 +1,25 @@
+# Spike 0.4.8 — run with real DNS credentials:
+#   PERCH_PUBLIC_HOST=perch.example.com PERCH_PREVIEW_DOMAIN=preview.example.com \
+#   CADDY_DNS_PROVIDER=cloudflare CADDY_DNS_TOKEN=... PERCH_ACME_EMAIL=you@example.com \
+#   docker compose -f spikes/caddy-wildcard/docker-compose.yml up --build
+# then: bun spikes/caddy-wildcard/check.ts
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    environment:
+      - PERCH_PUBLIC_HOST
+      - PERCH_PREVIEW_DOMAIN
+      - CADDY_DNS_PROVIDER
+      - CADDY_DNS_TOKEN
+      - PERCH_ACME_EMAIL
+  api:
+    image: hashicorp/http-echo:1.0
+    command: ["-listen=:3000", "-text=perch api stub"]
+volumes:
+  caddy_data: {}

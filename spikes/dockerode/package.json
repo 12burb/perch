@@ -1,0 +1,18 @@
+{
+  "name": "@perch/spike-dockerode",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: dockerode from Bun creates, limits, execs into, and removes a runner container",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "dockerode": "5.0.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "4.0.1"
+  }
+}

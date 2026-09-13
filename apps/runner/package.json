@@ -16,8 +16,8 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@opencode-ai/sdk": "1.18.30",
     "@playwright/mcp": "0.0.80",
+    "bun-pty": "0.4.10",
     "chokidar": "5.0.0",
-    "node-pty": "1.1.0",
     "simple-git": "3.36.0",
     "zod": "4.6.3"
   }

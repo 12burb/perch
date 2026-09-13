@@ -541,3 +541,214 @@ the primary paths; `npx perch-dev@latest init` is the npm path.
 
 ### Consequences
 Docs say `npx perch-dev`. If the maintainer obtains the `perch` name, this ADR is superseded.
+
+## ADR-0029: Spike 0.4.1 — PTY on Bun: node-pty fails, bun-pty is the PTY
+
+- Status: accepted (spike outcome: fallback)
+- Date: 2026-09-13
+- Task: 0.4.1
+
+### Context
+Spec §9.3: node-pty must open a shell, resize, and survive 1,000 writes; the listed fallback is bun-pty per
+platform.
+
+### Decision
+On Bun 1.3.11 / linux x64, `node-pty` 1.1.0 spawns and echoes but `resize()` throws `ioctl(2) failed,
+EBADF` and sustained writes fail with `EBADF`, because Bun's `net.Socket({ fd })` does not keep node-pty's
+master fd usable. `bun-pty` 0.4.10 passes the whole scenario (open, resize, 1,000 writes in ~0.5 s, clean
+exit, kill). bun-pty is the PTY in `apps/runner` on every Unix platform; node-pty is removed from the runner
+and remains only as an opt-in probe in `spikes/pty`. The CI matrix (`spikes.yml`: ubuntu, ubuntu-arm, macOS,
+Windows) records the other platforms; a platform where bun-pty fails and node-pty passes gets a per-platform
+switch and an update to this ADR.
+
+### Consequences
+The terminal (task 1.7) targets bun-pty's API (`spawn`, `onData`, `onExit`, `write`, `resize`, `kill`).
+Windows is verified by the matrix, not here.
+
+## ADR-0030: Spike 0.4.2 — ACP handshake: the SDK works on Bun; real agents gated on credentials
+
+- Status: accepted (spike outcome: pass, real agents deferred to credentials)
+- Date: 2026-09-13
+- Task: 0.4.2
+
+### Context
+Spec §9.3: the ACP SDK client initializes Gemini CLI and Codex, streams a session, and answers a permission.
+
+### Decision
+`@agentclientprotocol/sdk` 1.4.0 is verified on Bun on both halves: a stub agent (`spikes/acp/agent.ts`,
+built with the SDK's agent app over stdio ndjson) and the client (`initialize` → `buildSession` → `prompt` →
+`nextUpdate` → `requestPermission` answered → `end_turn`), with `allow` and `deny` both reaching the agent.
+Gemini CLI and Codex need vendor keys that are not in this environment; the same client runs against any
+registry agent through `PERCH_SPIKE_ACP_AGENT`, and task 1.9's acceptance runs it in CI with secrets.
+
+### Consequences
+The ACP adapter (task 1.9) is built on the fluent `client()` API of SDK 1.4; the deprecated
+`ClientSideConnection` is not used. No SDK pin change was needed (the listed fallback).
+
+## ADR-0031: Spike 0.4.3 — OpenCode SDK: serve, sessions, events, diff work; a streamed reply needs a key
+
+- Status: accepted (spike outcome: pass, credentialed prompt deferred to a key)
+- Date: 2026-09-13
+- Task: 0.4.3
+
+### Context
+Spec §9.3: `opencode serve` + SDK must create a session, send a prompt, stream events, apply a diff, list
+sessions; the fallback is driving OpenCode through ACP only.
+
+### Decision
+`@opencode-ai/sdk` 1.18.30 launches the pinned `opencode` 1.18.30 binary on Bun; session create, list, diff,
+delete, the SSE event stream, and a credential-less prompt (returns, does not hang) all work. The streamed
+reply and post-turn diff run with `OPENAI_API_KEY` or `PERCH_SPIKE_OPENCODE_MODEL`. The OpenCode adapter
+(task 1.10) proceeds; the ACP-only fallback is not taken. The binary is pinned in the runner image; the
+`opencode-ai` npm package is used only by the spike, whose `prepare-binary` script runs its postinstall
+(Bun does not run untrusted install scripts).
+
+### Consequences
+The adapter uses the `/session`, `/session/{id}/message`, `/session/{id}/diff`, and `/event` surface of
+this SDK version; a version bump reruns the spike first.
+
+## ADR-0032: Spike 0.4.4 — PGlite carries the schema in memory; pgvector is a separate package
+
+- Status: accepted (spike outcome: pass)
+- Date: 2026-09-13
+- Task: 0.4.4
+
+### Context
+Spec §9.3: vector, tsvector, and SKIP LOCKED must pass the packages/db suite in memory; the fallback is
+embedded Postgres for laptop mode.
+
+### Decision
+`@electric-sql/pglite` 0.5.8 passes: `vector(1024)` with an HNSW index and `<=>` search, a generated
+`tsvector` column with GIN and `plainto_tsquery`, `citext`, `FOR UPDATE SKIP LOCKED` in a transaction, and
+advisory locks. In this PGlite line pgvector ships as `@electric-sql/pglite-pgvector` 0.0.9 (export `vector`)
+rather than inside the core package; citext comes from `@electric-sql/pglite/contrib/citext`. No embedded
+Postgres.
+
+### Consequences
+`packages/db` depends on `@electric-sql/pglite-pgvector`; the PGlite harness loads both extensions.
+PGlite is single-connection, so concurrent queue claims are tested on the Postgres service container in CI.
+
+## ADR-0033: Spike 0.4.5 — QuickJS sandbox on the sync build with promise-based host tools
+
+- Status: accepted (spike outcome: pass)
+- Date: 2026-09-13
+- Task: 0.4.5
+
+### Context
+Spec §9.3: a code bot runs with a 200 ms CPU budget, no host access, and a tool round trip; the fallback is
+runner containers only.
+
+### Decision
+`quickjs-emscripten` 0.32.0's sync release build (`getQuickJS()`) passes: the interrupt handler stops an
+infinite loop within the budget, no host globals exist inside the sandbox, a 4 MB memory limit throws, and
+host tools are exposed as functions returning a QuickJS promise (`ctx.newPromise()`) settled from the host
+with `runtime.executePendingJobs()`, which gives `await tool(name, args)` inside bot code. The asyncify build
+is not used: on Bun 1.3.11 its runtime disposal fails with `QuickJSRuntime not found when trying to free
+HostRef`.
+
+### Consequences
+`packages/bots` builds the code-bot sandbox on this pattern (task 3.x); runner containers remain the path
+for heavy jobs, not the fallback for all code bots.
+
+## ADR-0034: Spike 0.4.6 — better-auth on Bun with the Drizzle adapter; generic OAuth rides the social routes
+
+- Status: accepted (spike outcome: pass at the HTTP level; browser passkeys in task 0.8)
+- Date: 2026-09-13
+- Task: 0.4.6
+
+### Context
+Spec §9.3: email + password, passkeys, and generic OIDC must pass; the fallback is pinning or patching.
+
+### Decision
+better-auth 1.7.4 + `@better-auth/passkey` 1.7.4 with the Drizzle adapter on PGlite run on Bun through
+`auth.handler(Request)`: sign up, sign in, session, wrong password → 401; passkey registration options and
+listing; generic OIDC with discovery, authorization code + PKCE, callback, and a session carrying the
+provider's claims (against an in-process `oauth2-mock-server`). Two facts shape task 0.8: better-auth 1.7
+registers generic OAuth providers as social providers, so the routes are `POST /sign-in/social` and
+`GET /callback/:providerId` (no `/sign-in/oauth2`); and the `auth_*` tables use better-auth's field names
+verbatim. No pin or patch was needed.
+
+### Consequences
+The WebAuthn ceremony itself (browser + virtual authenticator) is the Playwright spec of task 0.8. The
+`auth_*` Drizzle tables from `spikes/better-auth/schema.ts` move into `packages/db` in task 0.5.
+
+## ADR-0035: Spike 0.4.7 — dockerode from Bun is verified in CI, not in the build environment
+
+- Status: accepted (spike outcome: deferred to CI)
+- Date: 2026-09-13
+- Task: 0.4.7
+
+### Context
+Spec §9.3: the supervisor creates, limits, execs into, and removes a runner container; the fallback is a
+supervisor on Node LTS in its own image. The Phase 0 build environment has no Docker daemon.
+
+### Decision
+The spike is written and skips without a daemon; `.github/workflows/spikes.yml` runs it on the ubuntu runner
+(pull, create with NanoCpus/Memory/PidsLimit, start, exec, stop, remove, nothing left behind). Task 1.2
+reads that result before implementing the supervisor and takes the Node LTS fallback only if CI fails.
+
+### Consequences
+The supervisor entrypoint stays in `apps/api` (Bun) pending the CI outcome; the fallback would move it to
+its own image without changing the runner protocol.
+
+## ADR-0036: Spike 0.4.8 — Caddy wildcard is deferred; path-mode previews are the default
+
+- Status: accepted (spike outcome: deferred; fallback is the default)
+- Date: 2026-09-13
+- Task: 0.4.8
+
+### Context
+Spec §9.3: a DNS-challenge wildcard certificate must issue in CI; the fallback is path-mode previews.
+
+### Decision
+Issuing needs a real domain and a DNS provider token that neither the build environment nor the CI secrets
+have. The spike ships the Caddyfile shape, `Dockerfile.caddy` (Caddy with cloudflare, route53, digitalocean,
+hetzner DNS modules), a compose stack, and `check.ts`; `spikes.yml` runs it on `workflow_dispatch` when
+`CADDY_DNS_TOKEN` and the preview domain variables are set. Until then previews run in path mode
+(`/p/<workspace>/<port>/`), which spec §8 already prescribes whenever `PERCH_PREVIEW_DOMAIN` is unset.
+
+### Consequences
+Task 1.18 ships path mode first and wildcard mode behind `PERCH_PREVIEW_DOMAIN`; the shipped
+`deploy/Dockerfile.caddy` is the spike's image.
+
+## ADR-0037: Spike 0.4.9 — the preview tunnel works: Vite HMR end to end over an outbound runner socket
+
+- Status: accepted (spike outcome: pass)
+- Date: 2026-09-13
+- Task: 0.4.9
+
+### Context
+Spec §9.3: HMR for a Vite app on a local runner must work end to end through the api; the fallback is a
+"local only" badge.
+
+### Decision
+A Bun.serve prototype of §7.6 `http.open` (api mints a stream token, the runner opens
+`/api/runner/stream/<token>`, HTTP as head + body frames, WebSocket upgrades relayed frame by frame with the
+subprotocol preserved) carries a real Vite 8 dev server's `index.html`, transformed modules, the `vite-hmr`
+handshake, and a live update after a file edit. No fallback. The dev server runs under Node in the spike
+because it stands in for the user's project process; Vite does not load under Bun's isolated store, which
+does not affect Perch code.
+
+### Consequences
+Task 1.19 implements `http.open` on the runner protocol with this frame model; task 1.18's path-mode proxy
+and the tunnel share the same relay code.
+
+## ADR-0038: Spike 0.4.10 — cloudflared is deferred; Tailscale Serve/Funnel is the documented alternative
+
+- Status: accepted (spike outcome: deferred)
+- Date: 2026-09-13
+- Task: 0.4.10
+
+### Context
+Spec §9.3: a callback and a webhook must reach the api through the tunnel; the fallback is documenting
+Tailscale.
+
+### Decision
+A Cloudflare tunnel token is not available here or in CI secrets. The spike ships the `tunnel` compose
+profile and `check.ts` (callback-shaped GET and webhook-shaped POST through `PERCH_PUBLIC_URL`), gated in
+`spikes.yml` on `TUNNEL_TOKEN`. `spikes/cloudflared/README.md` documents Tailscale Serve (tailnet HTTPS) and
+Funnel (public HTTPS) as the alternative; both keep `PERCH_PUBLIC_URL` stable, which is all the CIMD document
+and connector callbacks need.
+
+### Consequences
+The setup wizard (task 0.13) lists all four callback options; the tunnel profile stays in the compose file.
