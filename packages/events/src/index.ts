@@ -1,2 +1,6 @@
-// @perch/events — Zod schemas for bus events, WS envelopes, runner JSON-RPC, EngineEvent (spec §7).
-export const packageName = "@perch/events";
+// @perch/events (MIT): the Zod contracts shared by the api, runner, bots, and clients.
+export * from "./bus-events.ts";
+export * from "./engine.ts";
+export * from "./errors.ts";
+export * from "./runner-rpc.ts";
+export * from "./ws.ts";

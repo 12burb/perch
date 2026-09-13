@@ -22,7 +22,7 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
   - [x] **0.4.9** Preview tunnel over a local runner — pass (ADR-0037)
   - [x] **0.4.10** cloudflared profile — deferred; Tailscale documented (ADR-0038)
 - [x] **0.5** packages/db: Drizzle schema for identity, tenancy, projects, runners, channels, messages, files, instance_settings; Db factory for postgres and pglite; migrations; PGlite test harness (schema tests pass on both drivers) — commit `feat(db): drizzle schema, db factory, embedded migrations, pglite harness` (ADR-0039, ADR-0040)
-- [ ] **0.6** packages/events, bus, jobs, vault with unit tests (queue survives worker crash, cron fires, vault round-trips and rotates)
+- [x] **0.6** packages/events, bus, jobs, vault with unit tests (queue survives worker crash, cron fires, vault round-trips and rotates) — commit `feat(core): events catalog, in-process bus, postgres job queue, vault` (ADR-0041)
 - [ ] **0.7** apps/api skeleton: Hono + zod-openapi, error model, request logging, health, version, OpenAPI at /api/openapi.json, generated TS client (GET /api/health typed end to end)
 - [ ] **0.8** Auth: better-auth with Drizzle adapter, email+password, passkeys, generic OIDC, users profile row, invites, api_tokens (Playwright: sign up, sign in with passkey, invite accepted)
 - [ ] **0.9** Workspaces, memberships, RBAC, authorize() middleware, audit log via bus (member cannot read another workspace; audit rows appear)

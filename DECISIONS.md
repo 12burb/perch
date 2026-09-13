@@ -796,3 +796,23 @@ field are indexed, with no duplicated plain-text column. The GIN index sits on t
 Interactive block labels (`text` on buttons, forms, approve/deny) are searchable too, which is what a
 human expects from Slack-style search; the `english` configuration is a Phase 2 setting once locales
 matter (task 2.4).
+
+## ADR-0041: jobs rows carry an optional `key` so cron schedules are upserts
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.6
+
+### Context
+Spec §6 lists the jobs columns (queue, payload, run_at, attempts, max_attempts, locked_by, locked_at,
+last_error, cron) but gives cron rows no stable identity; re-registering a schedule on every boot would
+duplicate rows.
+
+### Decision
+`jobs.key text` (nullable, unique where not null) identifies a schedule; `queue.schedule({ key, cron, … })`
+upserts on it and `unschedule(key)` removes it. One-off jobs leave it null. The rest of the table follows
+the spec exactly; the claim query and the partial `(queue, run_at) where locked_at is null` index are as
+specified.
+
+### Consequences
+A small schema extension recorded here and in `packages/db/src/schema/jobs.ts`; migration `0002_jobs`.

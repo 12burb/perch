@@ -9,9 +9,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
+    "@perch/db": "workspace:*",
     "croner": "10.0.1",
     "drizzle-orm": "0.45.2"
   }

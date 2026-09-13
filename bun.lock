@@ -126,6 +126,9 @@
     "packages/bus": {
       "name": "@perch/bus",
       "version": "0.0.0",
+      "dependencies": {
+        "@perch/events": "workspace:*",
+      },
     },
     "packages/connect": {
       "name": "@perch/connect",
@@ -190,6 +193,7 @@
       "name": "@perch/jobs",
       "version": "0.0.0",
       "dependencies": {
+        "@perch/db": "workspace:*",
         "croner": "10.0.1",
         "drizzle-orm": "0.45.2",
       },

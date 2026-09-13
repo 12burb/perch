@@ -2,14 +2,15 @@
   "name": "@perch/events",
   "version": "0.0.0",
   "private": true,
-  "description": "Zod schemas for bus events, WS envelopes, runner JSON-RPC, EngineEvent (spec §7).",
+  "description": "Zod schemas for bus events, WS envelopes, runner JSON-RPC, EngineEvent (spec \u00a77).",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "zod": "4.6.3"
