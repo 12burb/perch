@@ -91,6 +91,7 @@ only the packages it declares.
 | `arctic` | 3.7.0 | packages/connect | plain OAuth2 providers from manifests |
 | `openapi-fetch` | 0.17.0 | packages/api-client | the generated TypeScript SDK's runtime (ADR-0022) |
 | `openapi-typescript` | 7.13.0 | packages/api-client (dev) | generates the SDK types from `/api/openapi.json` |
+| `typescript` (5.x line) | 5.9.3 | packages/api-client (dev) | the compiler API `openapi-typescript` needs; scoped to this workspace by the isolated linker (ADR-0042) |
 
 ## Deliberately not added
 

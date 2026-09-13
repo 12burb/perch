@@ -816,3 +816,43 @@ specified.
 
 ### Consequences
 A small schema extension recorded here and in `packages/db/src/schema/jobs.ts`; migration `0002_jobs`.
+
+## ADR-0042: The SDK generator runs on TypeScript 5.9 pinned inside packages/api-client
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.7
+
+### Context
+`openapi-typescript` 7.13 builds its output with the TypeScript compiler API (`ts.factory`). The
+TypeScript 7.0 package (ADR-0019) ships the native compiler and no longer exposes that API, so generation
+crashed with `Cannot read properties of undefined (reading 'createKeywordTypeNode')`.
+
+### Decision
+`packages/api-client` declares `typescript` 5.9.3 as its own dev dependency. Bun's isolated linker resolves
+`openapi-typescript`'s peer to that copy inside the workspace while every other workspace keeps 7.0.2 for
+`tsc --noEmit`. No other package touches TypeScript 5.
+
+### Consequences
+`bun run sdk:generate` works from a clean install; Renovate keeps the 5.9 line pinned for this workspace
+until `openapi-typescript` supports the 7.x package, at which point this ADR is superseded.
+
+## ADR-0043: Perch-Version is enforced: an unknown version is a validation error
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.7
+
+### Context
+Spec §7.1 versions the REST contract by the `Perch-Version` header but does not say what happens when a
+client sends a version the server does not know.
+
+### Decision
+The api always answers with `Perch-Version: <current>`. A request without the header gets the current
+contract. A request with a version outside `SUPPORTED_API_VERSIONS` gets a 422 `validation` error listing
+the supported versions, so a client pinned to a future or retired contract fails loudly instead of
+silently getting a different shape. The generated SDK sends the version it was generated from.
+
+### Consequences
+Introducing a breaking contract change means adding a version to the supported list and keeping the old
+behaviour behind it until it is retired with a changeset.

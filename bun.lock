@@ -25,6 +25,11 @@
         "@opentelemetry/api": "1.9.1",
         "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
         "@opentelemetry/sdk-node": "0.222.0",
+        "@perch/bus": "workspace:*",
+        "@perch/db": "workspace:*",
+        "@perch/events": "workspace:*",
+        "@perch/jobs": "workspace:*",
+        "@perch/vault": "workspace:*",
         "better-auth": "1.7.4",
         "dockerode": "5.0.1",
         "drizzle-orm": "0.45.2",
@@ -35,6 +40,7 @@
         "zod": "4.6.3",
       },
       "devDependencies": {
+        "@perch/api-client": "workspace:*",
         "@types/dockerode": "4.0.1",
         "pino-pretty": "13.1.3",
       },
@@ -109,6 +115,7 @@
       },
       "devDependencies": {
         "openapi-typescript": "7.13.0",
+        "typescript": "5.9.3",
       },
     },
     "packages/bot-sdk": {
@@ -2486,6 +2493,8 @@
     "@grpc/grpc-js/@grpc/proto-loader": ["@grpc/proto-loader@0.8.1", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.5.5", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg=="],
 
     "@oslojs/jwt/@oslojs/encoding": ["@oslojs/encoding@0.4.1", "", {}, "sha512-hkjo6MuIK/kQR5CrGNdAPZhS01ZCXuWDRJ187zh6qqF2+yMHZpD9fAYpX8q2bOO6Ryhl3XpCT6kUX76N8hhm4Q=="],
+
+    "@perch/api-client/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@playwright/mcp/playwright": ["playwright@1.63.0-alpha-2026-08-31", "", { "dependencies": { "playwright-core": "1.63.0-alpha-2026-08-31" }, "bin": { "playwright": "cli.js" } }, "sha512-3XAsuznfu8jBVJ4QxdGvBkt0+b8ZFwuwJYyOfiIw5ZjUOrNLNRhKxzLzLuydou3gJ9c6eMwVqgzdiOwhy54Kzw=="],
 
