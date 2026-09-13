@@ -752,3 +752,47 @@ and connector callbacks need.
 
 ### Consequences
 The setup wizard (task 0.13) lists all four callback options; the tunnel profile stays in the compose file.
+
+## ADR-0039: Migrations are embedded as text imports and applied under a session-level advisory lock
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.5
+
+### Context
+Spec §9.1 says migrations are generated with drizzle-kit, committed, and run on boot under an advisory lock.
+The compiled laptop binary has no migrations folder on disk, and drizzle's stock migrators read files
+from disk; nested transactions are not available on PGlite, so a wrapping transaction with
+`pg_advisory_xact_lock` cannot host drizzle's migrator.
+
+### Decision
+`scripts/embed-migrations.ts` regenerates `src/migrations/index.ts` from `drizzle/meta/_journal.json`,
+importing each SQL file with `with { type: "text" }` so Bun embeds it. `migrateOnOneConnection(db)` builds
+drizzle's `MigrationMeta[]` from those sources and calls the dialect's own `migrate` on a database bound to
+exactly one connection, holding `pg_advisory_lock(7331003)` on that connection for the duration; every
+`DbHandle` exposes `migrate()` (PGlite is one connection; Postgres opens a dedicated `max: 1` client).
+`__drizzle_migrations` in the `drizzle` schema remains the record of what was applied.
+
+### Consequences
+`bun run db:generate` is `drizzle-kit generate` followed by the embed step, and CI fails when the embedded
+index drifts from the journal (the invariant test lands with 0.15). Concurrent api instances boot safely.
+
+## ADR-0040: messages.text_search is generated from the jsonb blocks with jsonpath
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.5
+
+### Context
+Spec §6 declares `messages.text_search tsvector generated` but not from which column; the message body
+lives only in the `blocks` jsonb array.
+
+### Decision
+`text_search` is `to_tsvector('english', jsonb_path_query_array(blocks, '$[*].text') || ' ' ||
+jsonb_path_query_array(blocks, '$[*].code'))`: every block's `text` field and every code block's `code`
+field are indexed, with no duplicated plain-text column. The GIN index sits on the generated column.
+
+### Consequences
+Interactive block labels (`text` on buttons, forms, approve/deny) are searchable too, which is what a
+human expects from Slack-style search; the `english` configuration is a Phase 2 setting once locales
+matter (task 2.4).
