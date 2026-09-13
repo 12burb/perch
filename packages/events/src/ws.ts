@@ -58,8 +58,27 @@ export const WS_CONTROL_TYPES = {
   resync: "resync",
   error: "error",
   hello: "hello",
+  /** Sent on subscribing to ws:<id>: who is online in that workspace right now (ADR-0054). */
+  presence_snapshot: "presence_snapshot",
 } as const;
 export type WsControlType = (typeof WS_CONTROL_TYPES)[keyof typeof WS_CONTROL_TYPES];
+
+/** Payloads of the control envelopes (topic "" and seq 0 unless the message is about a topic). */
+export const wsHelloPayloadSchema = z
+  .object({ userId: z.uuid(), replayBuffer: z.number().int().positive(), connectionId: z.string() })
+  .strict();
+export const wsErrorPayloadSchema = z
+  .object({ code: z.string(), message: z.string(), op: z.string().optional() })
+  .strict();
+export const wsPresenceSnapshotPayloadSchema = z
+  .object({
+    workspaceId: z.uuid(),
+    users: z.array(z.object({ userId: z.uuid(), status: z.enum(["online", "away"]) })),
+  })
+  .strict();
+export const wsResyncPayloadSchema = z
+  .object({ oldest: z.number().int(), latest: z.number().int() })
+  .strict();
 
 /** Per-topic replay buffer size (spec §7.2: the last 1,000 events per topic). */
 export const WS_REPLAY_BUFFER = 1000;

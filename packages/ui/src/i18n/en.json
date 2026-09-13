@@ -32,6 +32,7 @@
   "home.workspaces": "Your workspaces",
   "home.createWorkspace": "Create workspace",
   "home.workspaceName": "Workspace name",
+  "home.online": "{count} online",
   "home.role.owner": "Owner",
   "home.role.admin": "Admin",
   "home.role.member": "Member",

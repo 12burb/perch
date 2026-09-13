@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { Button } from "../components/form.tsx";
 import { authClient } from "../lib/auth-client.ts";
+import { resetSocket } from "../lib/ws.ts";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: RootLayout,
@@ -30,6 +31,7 @@ function RootLayout() {
               onClick={async () => {
                 // Leave the guarded page first so its redirect-to-sign-in does not race the sign-out.
                 await navigate({ to: "/sign-in" });
+                resetSocket();
                 await authClient.signOut();
               }}
             >

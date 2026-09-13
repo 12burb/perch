@@ -57,7 +57,7 @@ describe("bus event catalog (spec §7.7)", () => {
     expect(() =>
       parseBusPayload("presence.changed", { workspaceId: wsId, status: "asleep" }),
     ).toThrow();
-    expect(busEventPayloads["typing"].safeParse({ workspaceId: "nope" }).success).toBe(false);
+    expect(busEventPayloads.typing.safeParse({ workspaceId: "nope" }).success).toBe(false);
   });
 });
 

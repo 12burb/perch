@@ -18,6 +18,7 @@ bun src/index.ts supervisor            # Docker supervisor (task 1.2)
 | `src/boot.ts` | env → db (migrations on boot) → bus, vault, queue → app |
 | `src/auth/` | better-auth (`createAuth`: email + password, passkeys, generic OIDC), the `authenticate` / `requireUser` middleware, and `authorize()` (membership + `@perch/policy` decision → not_found / forbidden) |
 | `src/audit/` | the bus subscriber that writes `audit_log` rows for every workspace event (spec §7.7) |
+| `src/ws/` | `/api/ws` (spec §7.2): topic authorization, presence registry, subscribe/resume/typing over the bus |
 | `src/routes/` | one file per resource, each a `createRoute` + handler pair (`/api/me`, `/api/me/tokens`, `/api/workspaces` with members, invites, audit, `/api/invites`, `/api/instance`) |
 | `src/services/` | pure functions over `Db` and `Bus` (profiles, api tokens, workspaces, invites) |
 | `src/repos/` | Drizzle queries, workspace-scoped |

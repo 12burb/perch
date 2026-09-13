@@ -14,6 +14,7 @@ import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createLogger, type Logger } from "./logging.ts";
+import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
   try {
@@ -46,7 +47,11 @@ export type BootOptions = {
   app?: AppOptions;
 };
 
-export type Booted = Deps & { app: ReturnType<typeof createApp>; close: () => Promise<void> };
+export type Booted = Deps & {
+  app: ReturnType<typeof createApp>;
+  ws: WsServer;
+  close: () => Promise<void>;
+};
 
 export async function boot(options: BootOptions = {}): Promise<Booted> {
   const env = options.env ?? loadEnv();
@@ -64,10 +69,12 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const auth = createAuth({ env, db, log });
   const deps: Deps = { env, db, bus, vault, queue, auth, log, version: versionInfo(env) };
   const stopAudit = startAuditSubscriber({ bus, db, log });
-  const app = createApp(deps, options.app);
+  const ws = createWsServer({ bus, db: db.db, log });
+  const app = createApp(deps, { ...options.app, ws });
   return {
     ...deps,
     app,
+    ws,
     close: async () => {
       stopAudit();
       await db.close();

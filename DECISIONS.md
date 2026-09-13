@@ -1106,3 +1106,38 @@ envelope.
 ### Consequences
 Every service that publishes takes a `by: ActorContext`; tests can assert audit rows carry the caller and
 ip. WS fan-out (0.10) strips `meta` before sending events to clients.
+
+## ADR-0054: /api/ws authorizes per topic, sends a presence snapshot on subscribe, and hides the actor
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.10
+
+### Context
+Spec §7.2 fixes the client ops (subscribe, unsubscribe, ping, typing, presence, resume) and the server
+envelope `{ type, topic, seq, ts, payload }`, but not who may subscribe to which topic, how a tab learns
+who is already online, or what happens when a resume falls off the replay buffer.
+
+### Decision
+- Upgrades require a signed-in user (cookie or bearer); otherwise the §7.8 `forbidden` body.
+- Topics are authorized on subscribe: `ws:<id>` needs a membership, `channel:<id>` needs the channel's
+  workspace membership and, for non-public channels, a channel membership, `inbox:<user>` must be the
+  caller's own, `session:<id>` is refused until sessions land (task 1.x). Denials are `error` control
+  envelopes on that topic with `not_found` (hidden existence), `forbidden`, or `validation`.
+- Control envelopes share the §7.2 shape with `topic: ""` and `seq: 0` unless they are about a topic;
+  `subscribed` carries the topic's current seq so a client knows where it stands. Subscribing to
+  `ws:<id>` also sends `presence_snapshot` (`{ workspaceId, users: [{ userId, status }] }`), a control
+  type added to the catalog's `WS_CONTROL_TYPES`.
+- Presence is per user per workspace, counted per connection: a second tab does not re-announce,
+  "online" from any tab beats "away", and only the last tab closing publishes `offline`.
+  `presence.changed` and `typing` are real bus events (spec §7.7) but are not audited (ADR-0052).
+- `resume { topic, after_seq }` replays from the bus buffer in order, then confirms with `subscribed`
+  (`resumed: true, replayed: n`, seq = latest); a seq older than the buffer answers `resync { oldest,
+  latest }` and the client refetches through REST. Typing is rate limited to one event per 1.5 s per
+  channel per connection.
+- Fan-out sends the payload only: the envelope's actor and request meta stay on the server.
+
+### Consequences
+The web client (`apps/web/src/lib/ws.ts`) keeps the last seq per topic and re-subscribes + resumes on
+reconnect, and `usePresence(workspaceId)` is a React external store over the snapshot and changes. One
+in-process presence registry means the Redis bus adapter (Phase 5) must also share presence.

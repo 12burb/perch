@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { Button, Card, ErrorText, Field } from "../components/form.tsx";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import { authClient } from "../lib/auth-client.ts";
+import { usePresence } from "../lib/ws.ts";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -20,6 +21,25 @@ const roleLabel = {
   admin: "home.role.admin",
   member: "home.role.member",
 } as const;
+
+function WorkspaceItem(props: { id: string; name: string; role: "owner" | "admin" | "member" }) {
+  const presence = usePresence(props.id);
+  const online = [...presence.values()].filter((status) => status === "online").length;
+  return (
+    <li
+      data-workspace-id={props.id}
+      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+    >
+      <span className="font-medium">{props.name}</span>
+      <span className="flex items-center gap-3 text-xs text-fg-muted">
+        <span data-testid="online-count" aria-live="polite">
+          {t("home.online", { count: online })}
+        </span>
+        <span>{t(roleLabel[props.role])}</span>
+      </span>
+    </li>
+  );
+}
 
 function Workspaces() {
   const queryClient = useQueryClient();
@@ -56,14 +76,7 @@ function Workspaces() {
         {workspaces.data && workspaces.data.length > 0 ? (
           <ul aria-label={t("home.workspaces")} className="flex flex-col gap-2">
             {workspaces.data.map((ws) => (
-              <li
-                key={ws.id}
-                data-workspace-id={ws.id}
-                className="flex items-center justify-between rounded-md border border-border px-3 py-2"
-              >
-                <span className="font-medium">{ws.name}</span>
-                <span className="text-xs text-fg-muted">{t(roleLabel[ws.role])}</span>
-              </li>
+              <WorkspaceItem key={ws.id} id={ws.id} name={ws.name} role={ws.role} />
             ))}
           </ul>
         ) : null}
