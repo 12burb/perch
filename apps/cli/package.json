@@ -2,7 +2,7 @@
   "name": "@perch/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "The perch binary: init, dev (laptop mode), runner connect, doctor, backup, restore, migrate (spec §2).",
+  "description": "The perch binary: init, dev (laptop mode), runner connect, doctor, backup, restore, migrate (spec \u00a72).",
   "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
@@ -16,6 +16,10 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@perch/api": "workspace:*",
+    "@perch/db": "workspace:*",
+    "@perch/runner": "workspace:*",
     "@perch/vault": "workspace:*"
   }
 }

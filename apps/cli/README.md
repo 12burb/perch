@@ -1,16 +1,23 @@
 # @perch/cli
 
-The `perch` binary (spec §2): `perch init` today; `perch dev` (laptop mode on PGlite), `doctor`,
-`backup`, `restore` arrive with task 0.14, `perch runner connect` with task 1.3. Built per platform with
-`bun build --compile` by the release workflow (0.15).
+The `perch` binary (spec §2): laptop mode and the deployment helpers. Built per platform with
+`bun build --compile` by the release workflow (0.15); from source, `bun apps/cli/src/index.ts <command>`.
+
+| Command | What |
+|---|---|
+| `perch dev [--port 3000] [--host 127.0.0.1] [--data-dir ~/.perch]` | api + web + the in-process runner on PGlite; the master key is generated on first run; open the URL to finish the setup wizard |
+| `perch doctor [--json]` | checks Bun, the data dir, the PGlite database and migrations, the master key, the port, the web build, git, docker; exit 1 when a required check fails |
+| `perch backup [<dir>]` | writes a backup directory: `pglite.tar.gz` (PGlite's own dump), `files/`, `master.key`, `manifest.json`; stop `perch dev` first |
+| `perch restore <dir> [--force]` | restores a backup into the data dir (refuses to overwrite without `--force`) |
+| `perch init --public-url https://… [--preview-domain …]` | writes `.env`, `docker-compose.yml`, and a Caddyfile for docker compose (team mode) |
+
+`perch runner connect` (task 1.3) and `perch migrate --to-compose` come later. The in-process runner
+registers and heartbeats today and answers `ports.list`; the PTY, engines, fs, git, and previews arrive
+with Phase 1 and light up the same link (ADR-0059).
 
 ```sh
-bun apps/cli/src/index.ts init --public-url https://perch.example.com --dir ./perch
-# writes ./perch/.env (generated PERCH_MASTER_KEY and POSTGRES_PASSWORD, telemetry off),
-#        ./perch/docker-compose.yml (pinned images), ./perch/Caddyfile
-cd perch && docker compose up -d   # then open the URL: the setup wizard creates the admin and workspace
+bun run --filter @perch/web build       # once, so perch dev has a web app to serve
+bun apps/cli/src/index.ts dev           # http://127.0.0.1:3000
+bun apps/cli/src/index.ts doctor
+bun apps/cli/src/index.ts backup ./backup-1
 ```
-
-Add `--preview-domain preview.example.com --dns-provider cloudflare --dns-token …` for wildcard previews
-(the Caddyfile gains the `*.{$PERCH_PREVIEW_DOMAIN}` block). In a terminal, missing values are prompted;
-`--yes` makes the command non-interactive.

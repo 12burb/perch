@@ -6,7 +6,10 @@ export const healthResponseSchema = z
     status: z.enum(["ok", "degraded"]).openapi({ example: "ok" }),
     checks: z.object({
       database: z.enum(["ok", "error"]),
+      /** How many runners the api can reach (hosted, local, or the laptop runner). */
+      runners: z.number().int().nonnegative(),
     }),
+    mode: z.enum(["laptop", "team"]),
     ts: z.string().openapi({ example: "2026-09-13T10:00:00.000Z" }),
   })
   .openapi("Health");
@@ -27,7 +30,10 @@ const healthRoute = createRoute({
   },
 });
 
-export function registerHealth(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">): void {
+export function registerHealth(
+  app: OpenAPIHono<AppEnv>,
+  deps: Pick<Deps, "db" | "runners" | "env">,
+): void {
   app.openapi(healthRoute, async (c) => {
     let database: "ok" | "error" = "ok";
     try {
@@ -37,7 +43,8 @@ export function registerHealth(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">)
     }
     const body: HealthResponse = {
       status: database === "ok" ? "ok" : "degraded",
-      checks: { database },
+      checks: { database, runners: deps.runners.size },
+      mode: deps.env.mode,
       ts: new Date().toISOString(),
     };
     return c.json(body, 200);

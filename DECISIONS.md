@@ -1292,3 +1292,44 @@ Phase 0, how Caddy gets its DNS-challenge module, and where the Postgres passwor
 ### Consequences
 Renovate tracks the image tags and the version build args. Anyone can `docker build` the three images from
 the repo root. A different DNS provider means rebuilding the Caddy image with another module.
+
+## ADR-0059: Laptop mode: RunnerLink, the in-process runner stub, directory backups, and what doctor checks
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.14
+
+### Context
+Spec §2 makes `perch` a single binary running api + web + an in-process runner on PGlite; task 0.14 asks
+for `perch dev` with an in-process runner stub, `perch doctor`, and `perch backup|restore`, smoke-tested on
+Linux, macOS, and Windows. The §7.6 protocol is a WebSocket; the in-process runner has no socket. The
+spec does not define the backup format or the doctor's checks.
+
+### Decision
+- `@perch/events` gains `RunnerLink`: a transport-agnostic runner (id, register info, `call(method,
+  params)` for api→runner requests, `onNotification` for runner→api methods, `close`). The api keeps a
+  `RunnerRegistry` (`deps.runners`; heartbeats, load, sessions, per-workspace lookup) and
+  `GET /api/health` reports `checks.runners` and `mode`. Hosted and local runners (tasks 1.2, 1.3) wrap
+  their WebSocket in the same interface.
+- `@perch/runner` exports `createInProcessRunner()`: registers as a `local` runner named after the host,
+  heartbeats, validates every request against §7.6, answers `ports.list` with no ports, and refuses every
+  other method with JSON-RPC -32601 and an `arrives` hint until Phase 1 lands the PTY, engines, fs, git,
+  and preview pieces. `perch dev` attaches it to the booted api.
+- `perch dev` binds 127.0.0.1 by default, uses `~/.perch` (`data/` for PGlite, `files/`, `master.key`),
+  derives `PERCH_PUBLIC_URL` from host and port, runs the jobs worker in-process, and stops on
+  SIGINT/SIGTERM. `--port 0` picks a free port for smoke tests (with a warning, since the public URL
+  then differs).
+- Backups are directories: `pglite.tar.gz` from PGlite's `dumpDataDir()` (consistent because PGlite is
+  single-process; `perch dev` must be stopped), `files/`, `master.key`, and `manifest.json`
+  (`format: perch-backup, version: 1`). `perch restore` loads the tarball through PGlite's
+  `loadDataDir` into a fresh directory, verifies it opens, then swaps it in; it refuses a non-empty data
+  dir without `--force`. No tar or zip dependency; Postgres deployments use `pg_dump` (docs/deploy.md).
+- `perch doctor` checks: Bun ≥ 1.3.11, data dir writable, PGlite opens and migrations are current
+  (applying pending ones), master key presence, port availability, the web build, `git` and `docker`
+  on PATH; required failures exit 1; `--json` for scripts.
+- The laptop smoke test (`apps/cli/test/laptop.test.ts`) spawns `perch dev --port 0`, checks health,
+  the instance facts, the setup page, then doctor, backup, and restore; the OS matrix runs it in CI (0.15).
+
+### Consequences
+`perch migrate --to-compose` (spec §2) can build on the same backup manifest. The binary build must embed
+the web dist and the migrations (text imports already cover the SQL); that is the release workflow's job.

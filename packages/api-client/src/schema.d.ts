@@ -1082,7 +1082,10 @@ export type components = {
             checks: {
                 /** @enum {string} */
                 database: "ok" | "error";
+                runners: number;
             };
+            /** @enum {string} */
+            mode: "laptop" | "team";
             /** @example 2026-09-13T10:00:00.000Z */
             ts: string;
         };

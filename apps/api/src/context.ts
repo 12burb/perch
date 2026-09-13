@@ -5,6 +5,7 @@ import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
 import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
+import type { RunnerRegistry } from "./runners/registry.ts";
 
 /** What every handler can reach through the Hono context. */
 export type AppVariables = {
@@ -27,6 +28,7 @@ export type Deps = {
   vault: Vault;
   queue: Queue;
   auth: Auth;
+  runners: RunnerRegistry;
   log: Logger;
   version: VersionInfo;
 };

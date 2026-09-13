@@ -45,8 +45,9 @@ curl -fsSL https://get.perch.dev | sh   # or: npx perch-dev@latest dev
 perch dev
 ```
 
-Runs api, web, and an in-process runner on PGlite in `~/.perch`. `perch migrate --to-compose` moves a
-laptop instance into the compose stack when a team shows up.
+Runs api, web, and an in-process runner on PGlite in `~/.perch`; `perch doctor` checks the machine,
+`perch backup` / `perch restore` keep the data safe. `perch migrate --to-compose` moves a laptop instance
+into the compose stack when a team shows up.
 
 ### From source
 

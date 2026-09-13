@@ -14,6 +14,7 @@ import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createLogger, type Logger } from "./logging.ts";
+import { RunnerRegistry } from "./runners/registry.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
@@ -67,7 +68,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const vault = createVault({ masterKey: env.masterKey });
   const queue = createQueue({ db: db.db });
   const auth = createAuth({ env, db, log });
-  const deps: Deps = { env, db, bus, vault, queue, auth, log, version: versionInfo(env) };
+  const runners = new RunnerRegistry(bus);
+  const deps: Deps = { env, db, bus, vault, queue, auth, runners, log, version: versionInfo(env) };
   const stopAudit = startAuditSubscriber({ bus, db, log });
   const ws = createWsServer({ bus, db: db.db, log });
   const app = createApp(deps, { ...options.app, ws });
@@ -77,6 +79,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     ws,
     close: async () => {
       stopAudit();
+      await runners.closeAll();
       await db.close();
     },
   };

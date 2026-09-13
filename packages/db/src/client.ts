@@ -48,10 +48,16 @@ export function pgliteDataDir(url: string): string | undefined {
   return resolve(expanded);
 }
 
-/** Opens a PGlite database with the extensions the schema needs (pgvector, citext). */
-export function openPglite(dataDir?: string): PGlite {
+/**
+ * Opens a PGlite database with the extensions the schema needs (pgvector, citext). `loadDataDir`
+ * restores a `dumpDataDir()` tarball into a fresh data directory (perch restore).
+ */
+export function openPglite(dataDir?: string, options: { loadDataDir?: Blob | File } = {}): PGlite {
   const extensions = { vector, citext };
-  return dataDir ? new PGlite(dataDir, { extensions }) : new PGlite({ extensions });
+  const extra = options.loadDataDir ? { loadDataDir: options.loadDataDir } : {};
+  return dataDir
+    ? new PGlite(dataDir, { extensions, ...extra })
+    : new PGlite({ extensions, ...extra });
 }
 
 export async function createDb(options: CreateDbOptions): Promise<DbHandle> {

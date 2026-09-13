@@ -53,6 +53,10 @@
         "perch": "./src/index.ts",
       },
       "dependencies": {
+        "@electric-sql/pglite": "0.5.8",
+        "@perch/api": "workspace:*",
+        "@perch/db": "workspace:*",
+        "@perch/runner": "workspace:*",
         "@perch/vault": "workspace:*",
       },
     },
@@ -63,6 +67,7 @@
         "@agentclientprotocol/sdk": "1.4.0",
         "@modelcontextprotocol/sdk": "1.30.0",
         "@opencode-ai/sdk": "1.18.30",
+        "@perch/events": "workspace:*",
         "@playwright/mcp": "0.0.80",
         "bun-pty": "0.4.10",
         "chokidar": "5.0.0",

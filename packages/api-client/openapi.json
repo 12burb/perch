@@ -48,10 +48,22 @@
                   "ok",
                   "error"
                 ]
+              },
+              "runners": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "required": [
-              "database"
+              "database",
+              "runners"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "laptop",
+              "team"
             ]
           },
           "ts": {
@@ -62,6 +74,7 @@
         "required": [
           "status",
           "checks",
+          "mode",
           "ts"
         ]
       },
