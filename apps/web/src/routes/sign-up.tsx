@@ -1,7 +1,7 @@
-import { t } from "@perch/ui";
+import { Button, Field, Input, t } from "@perch/ui";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { Button, Card, ErrorText, Field } from "../components/form.tsx";
+import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
 import { redirectSearch } from "../lib/redirect.ts";
 
@@ -34,41 +34,47 @@ function SignUp() {
   }
 
   return (
-    <Card title={t("auth.signUpTitle")}>
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        <Field
-          id="name"
-          label={t("auth.name")}
-          inputProps={{ name: "name", required: true, maxLength: 80, autoComplete: "name" }}
-        />
-        <Field
-          id="email"
-          label={t("auth.email")}
-          inputProps={{ name: "email", type: "email", required: true, autoComplete: "email" }}
-        />
-        <Field
-          id="password"
-          label={t("auth.password")}
-          hint={t("auth.passwordHint")}
-          inputProps={{
-            name: "password",
-            type: "password",
-            required: true,
-            minLength: 10,
-            autoComplete: "new-password",
-          }}
-        />
-        <ErrorText>{error}</ErrorText>
-        <Button type="submit" disabled={busy}>
-          {t("auth.signUp")}
-        </Button>
-      </form>
-      <p className="mt-4 text-sm text-fg-muted">
-        {t("auth.haveAccount")}{" "}
-        <Link to="/sign-in" search={redirect ? { redirect } : {}} className="underline">
-          {t("auth.signIn")}
-        </Link>
-      </p>
-    </Card>
+    <AuthLayout>
+      <Card title={t("auth.signUpTitle")}>
+        <form onSubmit={onSubmit} className="flex flex-col gap-3">
+          <Field id="name" label={t("auth.name")}>
+            {(control) => (
+              <Input {...control} name="name" required maxLength={80} autoComplete="name" />
+            )}
+          </Field>
+          <Field id="email" label={t("auth.email")}>
+            {(control) => (
+              <Input {...control} name="email" type="email" required autoComplete="email" />
+            )}
+          </Field>
+          <Field
+            id="password"
+            label={t("auth.password")}
+            hint={t("auth.passwordHint")}
+            error={error}
+          >
+            {(control) => (
+              <Input
+                {...control}
+                name="password"
+                type="password"
+                required
+                minLength={10}
+                autoComplete="new-password"
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary" size="lg" disabled={busy}>
+            {t("auth.signUp")}
+          </Button>
+        </form>
+        <p className="mt-4 text-sm text-fg-muted">
+          {t("auth.haveAccount")}{" "}
+          <Link to="/sign-in" search={redirect ? { redirect } : {}} className="underline">
+            {t("auth.signIn")}
+          </Link>
+        </p>
+      </Card>
+    </AuthLayout>
   );
 }

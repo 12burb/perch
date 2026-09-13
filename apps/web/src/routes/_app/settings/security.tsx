@@ -1,25 +1,26 @@
-import { t } from "@perch/ui";
+import { Button, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { Button, Card, ErrorText, Field } from "../components/form.tsx";
-import { api, RequestFailed, unwrap } from "../lib/api.ts";
-import { authClient } from "../lib/auth-client.ts";
+import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
+import { authClient } from "../../../lib/auth-client.ts";
+import { useAppShell } from "../../../shell/app-shell.tsx";
+import { ModePage } from "../../../shell/mode-page.tsx";
 
-export const Route = createFileRoute("/settings/security")({ component: SecurityPage });
+export const Route = createFileRoute("/_app/settings/security")({ component: SecuritySettings });
 
 const SCOPES = ["read", "write", "admin"] as const;
 type Scope = (typeof SCOPES)[number];
 
-function SecurityPage() {
-  const { data: session, isPending } = authClient.useSession();
-  if (isPending) return <p>{t("common.loading")}</p>;
-  if (!session) return <Navigate to="/sign-in" search={{ redirect: "/settings/security" }} />;
+function SecuritySettings() {
+  const { shell } = useAppShell();
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-6">
-      <Passkeys />
-      <Tokens />
-    </div>
+    <ModePage title={t("settings.security")} shell={shell}>
+      <div className="flex flex-col gap-8 p-4">
+        <Passkeys />
+        <Tokens />
+      </div>
+    </ModePage>
   );
 }
 
@@ -57,12 +58,16 @@ function Passkeys() {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const name = String(new FormData(form).get("name") ?? "").trim() || "This device";
+    const name =
+      String(new FormData(form).get("name") ?? "").trim() || t("security.defaultPasskeyName");
     add.mutate(name, { onSuccess: () => form.reset() });
   }
 
   return (
-    <Card title={t("security.passkeys")}>
+    <section aria-labelledby="passkeys-heading" className="flex max-w-lg flex-col gap-3">
+      <h2 id="passkeys-heading" className="text-md font-semibold">
+        {t("security.passkeys")}
+      </h2>
       {passkeys.data && passkeys.data.length === 0 ? (
         <p className="text-sm text-fg-muted">{t("security.passkeysEmpty")}</p>
       ) : null}
@@ -76,6 +81,7 @@ function Passkeys() {
               <span>{pk.name ?? pk.id}</span>
               <Button
                 variant="danger"
+                size="sm"
                 aria-label={t("security.removePasskey", { name: pk.name ?? pk.id })}
                 onClick={() => remove.mutate(pk.id)}
               >
@@ -85,18 +91,15 @@ function Passkeys() {
           ))}
         </ul>
       ) : null}
-      <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3">
-        <Field
-          id="passkey-name"
-          label={t("security.passkeyName")}
-          inputProps={{ name: "name", maxLength: 80, autoComplete: "off" }}
-        />
-        <ErrorText>{error}</ErrorText>
-        <Button type="submit" disabled={add.isPending}>
+      <form onSubmit={onSubmit} className="flex flex-col gap-3">
+        <Field id="passkey-name" label={t("security.passkeyName")} error={error}>
+          {(control) => <Input {...control} name="name" maxLength={80} autoComplete="off" />}
+        </Field>
+        <Button type="submit" variant="primary" disabled={add.isPending}>
           {t("security.addPasskey")}
         </Button>
       </form>
-    </Card>
+    </section>
   );
 }
 
@@ -119,8 +122,10 @@ function Tokens() {
     onError: (err) => setError(err instanceof RequestFailed ? err.message : t("common.error")),
   });
   const revoke = useMutation({
-    mutationFn: async (id: string) =>
-      unwrap(await api.DELETE("/api/me/tokens/{id}", { params: { path: { id } } })),
+    mutationFn: async (id: string) => {
+      const result = await api.DELETE("/api/me/tokens/{id}", { params: { path: { id } } });
+      if (result.error) throw new RequestFailed(result.response.status, result.error);
+    },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["tokens"] }),
     onError: (err) => setError(err instanceof RequestFailed ? err.message : t("common.error")),
   });
@@ -136,7 +141,10 @@ function Tokens() {
   }
 
   return (
-    <Card title={t("security.tokens")}>
+    <section aria-labelledby="tokens-heading" className="flex max-w-lg flex-col gap-3">
+      <h2 id="tokens-heading" className="text-md font-semibold">
+        {t("security.tokens")}
+      </h2>
       {tokens.data && tokens.data.length === 0 ? (
         <p className="text-sm text-fg-muted">{t("security.tokensEmpty")}</p>
       ) : null}
@@ -149,10 +157,11 @@ function Tokens() {
             >
               <span>
                 {token.name}{" "}
-                <span className="text-xs text-fg-muted">{token.scopes.join(", ")}</span>
+                <span className="text-sm text-fg-muted">{token.scopes.join(", ")}</span>
               </span>
               <Button
                 variant="danger"
+                size="sm"
                 aria-label={t("security.revokeToken", { name: token.name })}
                 onClick={() => revoke.mutate(token.id)}
               >
@@ -163,33 +172,32 @@ function Tokens() {
         </ul>
       ) : null}
       {created ? (
-        <div className="mt-4 rounded border border-warning p-3">
+        <div className="rounded border border-warning p-3">
           <p className="text-sm">{t("security.tokenShownOnce")}</p>
           <output className="mt-2 block break-all font-mono text-sm" data-testid="created-token">
             {created}
           </output>
         </div>
       ) : null}
-      <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3">
-        <Field
-          id="token-name"
-          label={t("security.tokenName")}
-          inputProps={{ name: "name", required: true, maxLength: 80, autoComplete: "off" }}
-        />
+      <form onSubmit={onSubmit} className="flex flex-col gap-3">
+        <Field id="token-name" label={t("security.tokenName")} error={error}>
+          {(control) => (
+            <Input {...control} name="name" required maxLength={80} autoComplete="off" />
+          )}
+        </Field>
         <fieldset className="flex flex-wrap gap-4">
-          <legend className="mb-1 text-sm font-medium">Scopes</legend>
+          <legend className="mb-1 text-sm font-medium">{t("security.scopes")}</legend>
           {SCOPES.map((scope) => (
-            <label key={scope} className="flex items-center gap-2 text-sm">
+            <label key={scope} className="flex min-h-touch items-center gap-2 text-sm">
               <input type="checkbox" name={`scope-${scope}`} defaultChecked={scope !== "admin"} />
               {t(`security.scope.${scope}`)}
             </label>
           ))}
         </fieldset>
-        <ErrorText>{error}</ErrorText>
-        <Button type="submit" disabled={create.isPending}>
+        <Button type="submit" variant="primary" disabled={create.isPending}>
           {t("security.createToken")}
         </Button>
       </form>
-    </Card>
+    </section>
   );
 }

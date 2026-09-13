@@ -1184,3 +1184,39 @@ them, which primitives library backs the shadcn base, or how component tests are
 Later components (MessageList, Thread, DiffView, Board, …) extend this package and its CT suite; the
 tokens are the only place colors are defined. Fonts are declared (Inter/Geist, JetBrains Mono) but not
 bundled yet; the system stack stands in until the fonts ship with the web app.
+
+## ADR-0056: The web shell's URLs, shell state per mode, and committed screenshots
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.12
+
+### Context
+Spec §4 fixes the shell, the six rail tabs, the mobile tab bar (Home, Work, Inbox, Code, More), empty
+states, and "widths/state remembered per mode", and says every object has a stable URL, but not the URL
+scheme, where user settings live, or what a brand-new user sees before the demo workspace (0.13) exists.
+The task asks for 390 px and 1440 px screenshots "in the PR", and this delivery has no PR (ADR-0018).
+
+### Decision
+- URLs: `/$workspace/$mode` with the workspace slug and `mode ∈ home | code | work | bots | inbox |
+  search`; `/$workspace/settings` for workspace settings; `/settings/profile` and `/settings/security`
+  for the account (workspace independent, rendered in the shell with the last workspace); `/welcome`
+  to create a (first or another) workspace; `/` redirects to the remembered workspace's Home, the first
+  membership, or `/welcome`. Sign-in, sign-up, and invite pages stand alone outside the shell.
+- Route data: `_app` checks the session in `beforeLoad` (redirect to `/sign-in?redirect=…`) and
+  preloads `me` and the memberships through the query client; `$workspace` resolves the slug once
+  (`notFound` otherwise) and passes the workspace down as route context.
+- Shell state (sidebar, panel, drawer) is stored in `localStorage` under `perch.shell.<mode>`; mobile
+  sheets are transient. The last workspace is stored under `perch.workspace`.
+- Mobile "More" is a bottom sheet with Bots, Search, the workspace switcher, Profile, Security,
+  Workspace settings, and Sign out. The rail's account button opens the same entries as a dialog.
+- Home shows the members with live presence (0.10) until channels arrive; every other mode renders its
+  sidebar sections and a one-line empty state that names the phase that fills it.
+- The e2e shell spec (`e2e/shell.e2e.ts`) runs axe with the page-level rules on every page and, with
+  `E2E_SCREENSHOTS=1`, writes the 1440 px and 390 px screenshots to `docs/screenshots/0.12/`, which are
+  committed in place of PR attachments.
+
+### Consequences
+Later phases add routes under `/$workspace/<mode>/…` (channels, projects, items) without moving anything;
+the demo workspace (0.13) replaces `/welcome` as the first-run landing. Screenshots are regenerated with
+the same command when the shell changes.

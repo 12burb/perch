@@ -1,10 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, unwrap } from "./api.ts";
+import { instanceQuery } from "./queries.ts";
 
 export function useInstance() {
-  return useQuery({
-    queryKey: ["instance"],
-    queryFn: async () => unwrap(await api.GET("/api/instance")),
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  return useQuery(instanceQuery);
 }

@@ -1,42 +1,22 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { createWorkspace, PASSWORD, secondBrowser, signUp, uniqueEmail } from "./helpers.ts";
 
 /**
  * Task 0.10 acceptance (spec §7.2): two tabs see each other's presence over /api/ws, and a tab that
  * reconnects resumes from its last seq (the server side of resume is covered in apps/api/test/ws.test.ts).
  */
 
-const PASSWORD = "correct horse battery staple";
-
-function uniqueEmail(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
-
-async function signUp(page: Page, name: string, email: string): Promise<void> {
-  await page.goto("/sign-up");
-  await page.getByLabel("Name").fill(name);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByTestId("signed-in-as")).toHaveText(`Signed in as ${name}`);
-}
-
-async function secondBrowser(browser: Browser): Promise<Page> {
-  const context = await browser.newContext();
-  return context.newPage();
-}
-
 test("two tabs see each other's presence in a shared workspace", async ({ page, browser }) => {
   await signUp(page, "Dawn", uniqueEmail("dawn"));
   const workspaceName = `Presence ${Date.now()}`;
-  await page.getByLabel("Workspace name").fill(workspaceName);
-  await page.getByRole("button", { name: "Create workspace" }).click();
-  const item = page
-    .getByRole("list", { name: "Your workspaces" })
-    .getByRole("listitem")
-    .filter({ hasText: workspaceName });
-  await expect(item.getByTestId("online-count")).toHaveText("1 online");
-  const workspaceId = await item.getAttribute("data-workspace-id");
+  const slug = await createWorkspace(page, workspaceName);
+  await expect(page.getByTestId("online-count")).toHaveText("1 online");
 
+  const workspaceId = await page.evaluate(async () => {
+    const res = await fetch("/api/workspaces");
+    const body = (await res.json()) as { workspaces: Array<{ id: string; slug: string }> };
+    return body.workspaces[0]?.id ?? "";
+  });
   const inviteeEmail = uniqueEmail("julius");
   const invited = await page.request.post(`/api/workspaces/${workspaceId}/invites`, {
     data: { email: inviteeEmail, role: "member" },
@@ -51,22 +31,15 @@ test("two tabs see each other's presence in a shared workspace", async ({ page, 
   await julius.getByLabel("Password").fill(PASSWORD);
   await julius.getByRole("button", { name: "Create account" }).click();
   await julius.getByRole("button", { name: "Accept invite" }).click();
-  const juliusItem = julius
-    .getByRole("list", { name: "Your workspaces" })
-    .getByRole("listitem")
-    .filter({ hasText: workspaceName });
-  await expect(juliusItem.getByTestId("online-count")).toHaveText("2 online");
-  await expect(item.getByTestId("online-count")).toHaveText("2 online");
+  await expect(julius).toHaveURL(new RegExp(`/${slug}/home$`));
+  await expect(julius.getByTestId("online-count")).toHaveText("2 online");
+  await expect(page.getByTestId("online-count")).toHaveText("2 online");
 
   // A second tab for Dawn changes nothing (presence is per user); closing Julius drops him.
   const dawnTab2 = await page.context().newPage();
-  await dawnTab2.goto("/");
-  const tab2Item = dawnTab2
-    .getByRole("list", { name: "Your workspaces" })
-    .getByRole("listitem")
-    .filter({ hasText: workspaceName });
-  await expect(tab2Item.getByTestId("online-count")).toHaveText("2 online");
+  await dawnTab2.goto(`/${slug}/home`);
+  await expect(dawnTab2.getByTestId("online-count")).toHaveText("2 online");
   await julius.context().close();
-  await expect(item.getByTestId("online-count")).toHaveText("1 online");
-  await expect(tab2Item.getByTestId("online-count")).toHaveText("1 online");
+  await expect(page.getByTestId("online-count")).toHaveText("1 online");
+  await expect(dawnTab2.getByTestId("online-count")).toHaveText("1 online");
 });

@@ -10,14 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as AppWorkspaceRouteImport } from './routes/_app/$workspace'
+import { Route as AppWelcomeRouteImport } from './routes/_app/welcome'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
-import { Route as SettingsSecurityRouteImport } from './routes/settings.security'
+import { Route as AppWorkspaceModeRouteImport } from './routes/_app/$workspace/$mode'
+import { Route as AppWorkspaceSettingsRouteImport } from './routes/_app/$workspace/settings'
+import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings/profile'
+import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -30,60 +40,126 @@ const SignUpRoute = SignUpRouteImport.update({
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
+  id: '/$workspace',
+  path: '/$workspace',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWelcomeRoute = AppWelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
+  getParentRoute: () => AppRoute,
+} as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
   id: '/invite/$token',
   path: '/invite/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+const AppWorkspaceModeRoute = AppWorkspaceModeRouteImport.update({
+  id: '/$mode',
+  path: '/$mode',
+  getParentRoute: () => AppWorkspaceRoute,
+} as any)
+const AppWorkspaceSettingsRoute = AppWorkspaceSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppWorkspaceRoute,
+} as any)
+const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
+  id: '/settings/profile',
+  path: '/settings/profile',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsSecurityRoute = AppSettingsSecurityRouteImport.update({
   id: '/settings/security',
   path: '/settings/security',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/$workspace': typeof AppWorkspaceRouteWithChildren
+  '/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/settings/security': typeof SettingsSecurityRoute
+  '/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/$workspace/settings': typeof AppWorkspaceSettingsRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/$workspace': typeof AppWorkspaceRouteWithChildren
+  '/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/settings/security': typeof SettingsSecurityRoute
+  '/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/$workspace/settings': typeof AppWorkspaceSettingsRoute
+  '/settings/profile': typeof AppSettingsProfileRoute
+  '/settings/security': typeof AppSettingsSecurityRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/_app/$workspace': typeof AppWorkspaceRouteWithChildren
+  '/_app/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/settings/security': typeof SettingsSecurityRoute
+  '/_app/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/_app/$workspace/settings': typeof AppWorkspaceSettingsRoute
+  '/_app/settings/profile': typeof AppSettingsProfileRoute
+  '/_app/settings/security': typeof AppSettingsSecurityRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/sign-in' | '/sign-up' | '/invite/$token' | '/settings/security'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sign-in' | '/sign-up' | '/invite/$token' | '/settings/security'
-  id:
-    | '__root__'
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/$workspace'
+    | '/welcome'
     | '/invite/$token'
+    | '/$workspace/$mode'
+    | '/$workspace/settings'
+    | '/settings/profile'
     | '/settings/security'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/sign-in'
+    | '/sign-up'
+    | '/$workspace'
+    | '/welcome'
+    | '/invite/$token'
+    | '/$workspace/$mode'
+    | '/$workspace/settings'
+    | '/settings/profile'
+    | '/settings/security'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/sign-in'
+    | '/sign-up'
+    | '/_app/$workspace'
+    | '/_app/welcome'
+    | '/invite/$token'
+    | '/_app/$workspace/$mode'
+    | '/_app/$workspace/settings'
+    | '/_app/settings/profile'
+    | '/_app/settings/security'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   InviteTokenRoute: typeof InviteTokenRoute
-  SettingsSecurityRoute: typeof SettingsSecurityRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -93,6 +169,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -109,6 +192,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/$workspace': {
+      id: '/_app/$workspace'
+      path: '/$workspace'
+      fullPath: '/$workspace'
+      preLoaderRoute: typeof AppWorkspaceRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/welcome': {
+      id: '/_app/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof AppWelcomeRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/invite/$token': {
       id: '/invite/$token'
       path: '/invite/$token'
@@ -116,22 +213,73 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/security': {
-      id: '/settings/security'
+    '/_app/$workspace/$mode': {
+      id: '/_app/$workspace/$mode'
+      path: '/$mode'
+      fullPath: '/$workspace/$mode'
+      preLoaderRoute: typeof AppWorkspaceModeRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
+    '/_app/$workspace/settings': {
+      id: '/_app/$workspace/settings'
+      path: '/settings'
+      fullPath: '/$workspace/settings'
+      preLoaderRoute: typeof AppWorkspaceSettingsRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
+    '/_app/settings/profile': {
+      id: '/_app/settings/profile'
+      path: '/settings/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AppSettingsProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/security': {
+      id: '/_app/settings/security'
       path: '/settings/security'
       fullPath: '/settings/security'
-      preLoaderRoute: typeof SettingsSecurityRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSettingsSecurityRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppWorkspaceRouteChildren {
+  AppWorkspaceModeRoute: typeof AppWorkspaceModeRoute
+  AppWorkspaceSettingsRoute: typeof AppWorkspaceSettingsRoute
+}
+
+const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
+  AppWorkspaceModeRoute: AppWorkspaceModeRoute,
+  AppWorkspaceSettingsRoute: AppWorkspaceSettingsRoute,
+}
+
+const AppWorkspaceRouteWithChildren = AppWorkspaceRoute._addFileChildren(
+  AppWorkspaceRouteChildren,
+)
+
+interface AppRouteChildren {
+  AppWorkspaceRoute: typeof AppWorkspaceRouteWithChildren
+  AppWelcomeRoute: typeof AppWelcomeRoute
+  AppSettingsProfileRoute: typeof AppSettingsProfileRoute
+  AppSettingsSecurityRoute: typeof AppSettingsSecurityRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppWorkspaceRoute: AppWorkspaceRouteWithChildren,
+  AppWelcomeRoute: AppWelcomeRoute,
+  AppSettingsProfileRoute: AppSettingsProfileRoute,
+  AppSettingsSecurityRoute: AppSettingsSecurityRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   InviteTokenRoute: InviteTokenRoute,
-  SettingsSecurityRoute: SettingsSecurityRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

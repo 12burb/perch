@@ -1,15 +1,19 @@
-import { type Browser, expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+import {
+  createWorkspace,
+  isMobile,
+  openAccountMenu,
+  PASSWORD,
+  secondBrowser,
+  signOut,
+  signUp,
+  uniqueEmail,
+} from "./helpers.ts";
 
 /**
  * Task 0.8 acceptance (spec §11): sign up, sign in with a passkey, invite accepted — in a real
  * browser at 1440 px and 390 px. Passkeys use Chromium's virtual authenticator over CDP.
  */
-
-const PASSWORD = "correct horse battery staple";
-
-function uniqueEmail(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
-}
 
 async function addVirtualAuthenticator(page: Page): Promise<void> {
   const cdp = await page.context().newCDPSession(page);
@@ -26,33 +30,24 @@ async function addVirtualAuthenticator(page: Page): Promise<void> {
   });
 }
 
-async function signUp(page: Page, name: string, email: string): Promise<void> {
-  await page.goto("/sign-up");
-  await page.getByLabel("Name").fill(name);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByTestId("signed-in-as")).toHaveText(`Signed in as ${name}`);
-}
-
-test("sign up, add a passkey, sign out, sign in with the passkey", async ({ page }) => {
+test("sign up, add a passkey, sign out, sign in with the passkey", async ({ page }, info) => {
+  const mobile = isMobile(info.project.name);
   await addVirtualAuthenticator(page);
-  const email = uniqueEmail("dawn");
-  await signUp(page, "Dawn", email);
+  await signUp(page, "Dawn", uniqueEmail("dawn"));
+  await expect(page.getByRole("heading", { name: "Create your first workspace" })).toBeVisible();
 
-  await page.getByRole("link", { name: "Security" }).click();
-  await expect(page.getByRole("heading", { name: "Passkeys" })).toBeVisible();
+  await openAccountMenu(page, mobile);
+  await page.getByRole("dialog").getByRole("link", { name: "Security" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
   await page.getByLabel("Passkey name").fill("test authenticator");
   await page.getByRole("button", { name: "Add passkey" }).click();
   await expect(page.getByRole("list", { name: "Passkeys" }).getByRole("listitem")).toHaveCount(1);
   await expect(page.getByRole("list", { name: "Passkeys" })).toContainText("test authenticator");
 
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { name: "Sign in to Perch" })).toBeVisible();
-
+  await signOut(page, mobile);
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   await expect(page.getByTestId("signed-in-as")).toHaveText("Signed in as Dawn");
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/welcome$/);
 });
 
 test("an api token is shown once and lists without its secret", async ({ page }) => {
@@ -75,22 +70,17 @@ test("an invite is accepted by the invited email in a second browser", async ({
 }) => {
   await signUp(page, "Dawn", uniqueEmail("owner"));
   const workspaceName = `The Nest ${Date.now()}`;
-  await page.getByLabel("Workspace name").fill(workspaceName);
-  await page.getByRole("button", { name: "Create workspace" }).click();
-  const item = page.getByRole("list", { name: "Your workspaces" }).getByRole("listitem");
-  await expect(item).toContainText(workspaceName);
-  const workspaceId = await item.getAttribute("data-workspace-id");
-  expect(workspaceId).toBeTruthy();
+  const slug = await createWorkspace(page, workspaceName);
 
-  const inviteeEmail = uniqueEmail("julius");
-  const invited = await page.request.post(`/api/workspaces/${workspaceId}/invites`, {
-    data: { email: inviteeEmail, role: "member" },
-  });
-  expect(invited.status()).toBe(201);
-  const { accept_url } = (await invited.json()) as { accept_url: string };
-  const acceptPath = new URL(accept_url).pathname;
+  // The owner invites from workspace settings; the accept link is shown for sharing by hand.
+  await page.goto(`/${slug}/settings`);
+  await page.getByLabel("Email").fill(uniqueEmail("julius").replace(/^julius/, "julius"));
+  const inviteeEmail = await page.getByLabel("Email").inputValue();
+  await page.getByRole("button", { name: "Create invite" }).click();
+  const acceptUrl = (await page.getByTestId("invite-link").textContent()) ?? "";
+  const acceptPath = new URL(acceptUrl).pathname;
 
-  const inviteePage = await openSecondBrowser(browser);
+  const inviteePage = await secondBrowser(browser);
   await inviteePage.goto(acceptPath);
   await expect(inviteePage.getByTestId("invite-body")).toContainText(workspaceName);
   await inviteePage.getByRole("link", { name: "Create an account to accept" }).click();
@@ -100,13 +90,10 @@ test("an invite is accepted by the invited email in a second browser", async ({
   await inviteePage.getByRole("button", { name: "Create account" }).click();
   await expect(inviteePage).toHaveURL(new RegExp(`${acceptPath}$`));
   await inviteePage.getByRole("button", { name: "Accept invite" }).click();
-  const joined = inviteePage.getByRole("list", { name: "Your workspaces" }).getByRole("listitem");
-  await expect(joined).toContainText(workspaceName);
-  await expect(joined).toContainText("Member");
+  await expect(inviteePage.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  const members = inviteePage.getByRole("list", { name: "Members" });
+  await expect(members).toContainText("Julius");
+  await expect(members).toContainText("Member");
+  await expect(members).toContainText("Dawn");
   await inviteePage.context().close();
 });
-
-async function openSecondBrowser(browser: Browser): Promise<Page> {
-  const context = await browser.newContext();
-  return context.newPage();
-}

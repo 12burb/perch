@@ -1,7 +1,7 @@
-import { t } from "@perch/ui";
+import { Button, Field, Input, t } from "@perch/ui";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { Button, Card, ErrorText, Field } from "../components/form.tsx";
+import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
 import { useInstance } from "../lib/instance.ts";
 import { redirectSearch } from "../lib/redirect.ts";
@@ -52,49 +52,52 @@ function SignIn() {
   }
 
   return (
-    <Card title={t("auth.signInTitle")}>
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        <Field
-          id="email"
-          label={t("auth.email")}
-          inputProps={{
-            name: "email",
-            type: "email",
-            required: true,
-            autoComplete: "username webauthn",
-          }}
-        />
-        <Field
-          id="password"
-          label={t("auth.password")}
-          inputProps={{
-            name: "password",
-            type: "password",
-            required: true,
-            autoComplete: "current-password",
-          }}
-        />
-        <ErrorText>{error}</ErrorText>
-        <Button type="submit" disabled={busy}>
-          {t("auth.signIn")}
-        </Button>
-      </form>
-      <div className="mt-4 flex flex-col gap-2">
-        <Button variant="secondary" onClick={withPasskey} disabled={busy}>
-          {t("auth.withPasskey")}
-        </Button>
-        {instance.data?.auth.oidc ? (
-          <Button variant="secondary" onClick={withOidc} disabled={busy}>
-            {t("auth.withOidc")}
+    <AuthLayout>
+      <Card title={t("auth.signInTitle")}>
+        <form onSubmit={onSubmit} className="flex flex-col gap-3">
+          <Field id="email" label={t("auth.email")}>
+            {(control) => (
+              <Input
+                {...control}
+                name="email"
+                type="email"
+                required
+                autoComplete="username webauthn"
+              />
+            )}
+          </Field>
+          <Field id="password" label={t("auth.password")} error={error}>
+            {(control) => (
+              <Input
+                {...control}
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary" size="lg" disabled={busy}>
+            {t("auth.signIn")}
           </Button>
-        ) : null}
-      </div>
-      <p className="mt-4 text-sm text-fg-muted">
-        {t("auth.noAccount")}{" "}
-        <Link to="/sign-up" search={redirect ? { redirect } : {}} className="underline">
-          {t("auth.signUp")}
-        </Link>
-      </p>
-    </Card>
+        </form>
+        <div className="mt-4 flex flex-col gap-2">
+          <Button variant="secondary" size="lg" onClick={withPasskey} disabled={busy}>
+            {t("auth.withPasskey")}
+          </Button>
+          {instance.data?.auth.oidc ? (
+            <Button variant="secondary" size="lg" onClick={withOidc} disabled={busy}>
+              {t("auth.withOidc")}
+            </Button>
+          ) : null}
+        </div>
+        <p className="mt-4 text-sm text-fg-muted">
+          {t("auth.noAccount")}{" "}
+          <Link to="/sign-up" search={redirect ? { redirect } : {}} className="underline">
+            {t("auth.signUp")}
+          </Link>
+        </p>
+      </Card>
+    </AuthLayout>
   );
 }
