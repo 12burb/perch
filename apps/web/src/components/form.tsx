@@ -19,7 +19,7 @@ export function Field(props: {
       <input
         id={props.id}
         aria-describedby={hintId}
-        className="rounded-md border border-border bg-bg-elevated px-3 py-2 text-base text-fg"
+        className="rounded border border-border bg-surface px-3 py-2 text-base text-fg"
         {...props.inputProps}
       />
       {props.hint ? (
@@ -41,9 +41,9 @@ export function Button({
     <button
       type={rest.type ?? "button"}
       className={cn(
-        "inline-flex min-h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-medium disabled:opacity-60",
+        "inline-flex min-h-10 items-center justify-center rounded px-4 py-2 text-sm font-medium disabled:opacity-60",
         variant === "primary" && "bg-accent text-accent-fg",
-        variant === "secondary" && "border border-border bg-bg-elevated text-fg",
+        variant === "secondary" && "border border-border bg-surface text-fg",
         variant === "danger" && "border border-danger text-danger",
         className,
       )}
@@ -65,7 +65,7 @@ export function Card({ title, children }: { title: string; children: ReactNode }
   return (
     <section
       aria-labelledby={`${title}-heading`}
-      className="w-full max-w-md rounded-lg border border-border bg-bg-elevated p-6 shadow-sm"
+      className="w-full max-w-md rounded-lg border border-border bg-surface p-6 shadow-sm"
     >
       <h1 id={`${title}-heading`} className="mb-4 text-xl font-semibold">
         {title}

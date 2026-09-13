@@ -33,7 +33,8 @@
     "db:migrate": "bun run --filter @perch/db migrate",
     "perf": "echo 'perf audit arrives with task 2.20; bundle budget check lands in 0.15' && exit 0",
     "changeset": "changeset",
-    "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate"
+    "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate",
+    "ct": "bun run --filter @perch/ui test:ct"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

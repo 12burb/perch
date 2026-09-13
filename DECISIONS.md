@@ -1141,3 +1141,46 @@ who is already online, or what happens when a resume falls off the replay buffer
 The web client (`apps/web/src/lib/ws.ts`) keeps the last seq per topic and re-subscribes + resumes on
 reconnect, and `usePresence(workspaceId)` is a React external store over the snapshot and changes. One
 in-process presence registry means the Redis bus adapter (Phase 5) must also share presence.
+
+## ADR-0055: The UI system: token names, the unified radix-ui package, cmdk, and `*.ct.tsx` component tests
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.11
+
+### Context
+Spec §4 fixes the visual language (dark-first + light, neutral surface scale + one accent, semantic color
+only where listed, 13/14 px sans, mono for code, 6 px radius, hairlines, 120–180 ms motion, reduced motion,
+compact/comfortable density) and the component list, but not the CSS variable names, how Tailwind sees
+them, which primitives library backs the shadcn base, or how component tests are laid out.
+
+### Decision
+- Tokens are `--perch-*` custom properties in `@perch/ui/tokens.css`: surfaces `base | surface | raised |
+  overlay`, text `fg | fg-muted | fg-subtle`, `border | border-strong`, one `accent` (+ `accent-fg`,
+  `accent-soft`), and the semantic set `danger`, `warning` (permission amber), `success`, `bot`,
+  `diff-add`, `diff-remove`, and the seven work item states. Light is the `:root` default, dark comes from
+  `prefers-color-scheme` or `data-theme="dark"`, `data-density="compact"` tightens rows and spacing, and
+  reduced motion zeroes the motion tokens. The same file carries the Tailwind v4 `@theme inline` mapping,
+  so apps use `bg-surface`, `text-fg-muted`, `border-border`, `w-rail`, `min-h-touch`, and so on.
+  Apps add `@source "../../../packages/ui/src"` because Tailwind v4 skips linked packages.
+- The shadcn base is hand-written on the unified `radix-ui` package (ADR-0023): Button (cva variants),
+  IconButton (label required), Input, Textarea, Label, Field (ids for hint/error wiring), Separator,
+  Badge/BotBadge, Avatar, Kbd (⌘ on Mac, Ctrl elsewhere), Tooltip, Dialog (center/right/bottom), Sheet.
+- Shell components: Shell (rail | sidebar | main | panel + drawer; below 768 px main only with
+  MobileTabBar, sidebar and panel as sheets), Rail (tablist with arrow keys, workspace switcher, avatar),
+  Sidebar/SidebarSection/SidebarItem, Panel, Drawer (tablist), Peek (right sheet, bottom on phones,
+  "Open full"), CommandPalette (cmdk in a Radix dialog, ⌘K hook that yields to a focused editor
+  selection), Composer skeleton (Enter sends, Shift+Enter newline, Esc cancels, drafts in localStorage per
+  key, toolbar wraps Markdown), EmptyState. Keyboard: ⌘B sidebar, ⌘. panel, ⌘J drawer.
+- `useTheme()` persists theme + density in localStorage and applies the attributes; `initTheme()` can run
+  before React to avoid a flash.
+- Component tests are `src/**/*.ct.tsx` (so `bun test` never loads them), run by
+  `bun run ct` → `playwright test -c playwright-ct.config.ts` in packages/ui at 1440 px and a 390 px
+  mobile profile, with the harness applying theme/density from `hooksConfig`; every test runs axe and
+  expects zero violations. Demo components live in `*.demo.tsx` because CT mounts importable components
+  only.
+
+### Consequences
+Later components (MessageList, Thread, DiffView, Board, …) extend this package and its CT suite; the
+tokens are the only place colors are defined. Fonts are declared (Inter/Geist, JetBrains Mono) but not
+bundled yet; the system stack stands in until the fonts ship with the web app.

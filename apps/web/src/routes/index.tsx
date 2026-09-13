@@ -28,7 +28,7 @@ function WorkspaceItem(props: { id: string; name: string; role: "owner" | "admin
   return (
     <li
       data-workspace-id={props.id}
-      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+      className="flex items-center justify-between gap-3 rounded border border-border px-3 py-2"
     >
       <span className="font-medium">{props.name}</span>
       <span className="flex items-center gap-3 text-xs text-fg-muted">

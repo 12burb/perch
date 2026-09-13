@@ -21,7 +21,9 @@
       "!**/pnpm-lock.yaml",
       "!**/bun.lock",
       "!**/schema.d.ts",
-      "!**/openapi.json"
+      "!**/openapi.json",
+      "!**/playwright/.cache",
+      "!**/blob-report"
     ]
   },
   "formatter": {

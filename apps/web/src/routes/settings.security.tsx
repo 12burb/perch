@@ -71,7 +71,7 @@ function Passkeys() {
           {passkeys.data.map((pk) => (
             <li
               key={pk.id}
-              className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+              className="flex items-center justify-between rounded border border-border px-3 py-2"
             >
               <span>{pk.name ?? pk.id}</span>
               <Button
@@ -145,7 +145,7 @@ function Tokens() {
           {tokens.data.map((token) => (
             <li
               key={token.id}
-              className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+              className="flex items-center justify-between rounded border border-border px-3 py-2"
             >
               <span>
                 {token.name}{" "}
@@ -163,7 +163,7 @@ function Tokens() {
         </ul>
       ) : null}
       {created ? (
-        <div className="mt-4 rounded-md border border-warning p-3">
+        <div className="mt-4 rounded border border-warning p-3">
           <p className="text-sm">{t("security.tokenShownOnce")}</p>
           <output className="mt-2 block break-all font-mono text-sm" data-testid="created-token">
             {created}

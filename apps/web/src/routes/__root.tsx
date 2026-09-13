@@ -14,7 +14,7 @@ function RootLayout() {
   const navigate = useNavigate();
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-bg-elevated px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3">
         <Link to="/" className="font-semibold">
           {t("app.name")}
         </Link>
