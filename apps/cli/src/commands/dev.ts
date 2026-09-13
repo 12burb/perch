@@ -4,12 +4,15 @@
  * browser. Binds 127.0.0.1 unless --host says otherwise.
  */
 import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { boot } from "@perch/api/boot";
 import { loadEnv } from "@perch/api/env";
 import { serve } from "@perch/api/server";
 import { createInProcessRunner } from "@perch/runner";
 import { dataDirFrom, laptopLayout, webDistDir } from "../paths.ts";
+import { pgliteRuntime } from "../pglite-runtime.ts";
+import { webAssets } from "../web-assets.gen.ts";
 
 const HELP = `perch dev [options]
 
@@ -62,10 +65,15 @@ export async function runDev(argv: string[]): Promise<number> {
     ...(values["log-level"] ? { PERCH_LOG_LEVEL: values["log-level"] } : {}),
   });
   const webDist = webDistDir();
-  if (!existsSync(webDist)) {
+  const embedded = Object.keys(webAssets).length > 0;
+  if (!existsSync(join(webDist, "index.html")) && !embedded) {
     console.error(`no web build at ${webDist}; run \`bun run --filter @perch/web build\` first`);
   }
-  const booted = await boot({ env, app: { webDist } });
+  const booted = await boot({
+    env,
+    app: { webDist, ...(embedded ? { webAssets } : {}) },
+    pglite: await pgliteRuntime(),
+  });
   const runner = createInProcessRunner();
   booted.runners.attach(runner);
   runner.heartbeat();

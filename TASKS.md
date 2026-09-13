@@ -31,7 +31,7 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
 - [x] **0.12** apps/web shell: routes for the six rail tabs, mobile tab bar, empty states, profile and workspace settings (390 px and 1440 px screenshots in the PR) — commit `feat(web): the shell with six modes, mobile tab bar, empty states, and settings` (ADR-0056; e2e/shell.e2e.ts; screenshots in docs/screenshots/0.12)
 - [x] **0.13** Deploy: Dockerfile.api, Dockerfile.runner base, compose, Caddyfile, `perch init`, setup wizard (admin, workspace, PERCH_PUBLIC_URL, telemetry checkbox) (fresh Ubuntu VM: docker compose up → wizard → sign in) — commit `feat(deploy): dockerfiles, compose, caddy, perch init, and the setup wizard` (ADR-0057, ADR-0058; apps/api/test/setup.test.ts, apps/cli/test/init.test.ts, e2e/00-setup.e2e.ts; the compose smoke on a fresh VM runs in CI, task 0.15)
 - [x] **0.14** apps/cli skeleton: perch dev on PGlite with in-process runner stub, perch doctor, perch backup|restore (laptop smoke test in CI on Linux, macOS, Windows) — commit `feat(cli): perch dev on PGlite with the in-process runner, doctor, backup, and restore` (ADR-0059; apps/cli/test/laptop.test.ts is the laptop smoke; the macOS and Windows legs run in CI, task 0.15)
-- [ ] **0.15** CI pipeline per §8 including multi-arch image publish on tag and cosign (a tagged pre-release publishes signed images)
+- [x] **0.15** CI pipeline per §8 including multi-arch image publish on tag and cosign (a tagged pre-release publishes signed images) — commit `ci: the §8 pipeline, weekly CodeQL, changesets, and the signed multi-arch release` (ADR-0060; .github/workflows/{ci,codeql,changesets,release}.yml; a tagged pre-release is exercised by the release workflow itself)
 
 ## Phase 1 — IDE core
 

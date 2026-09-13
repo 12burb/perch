@@ -1333,3 +1333,39 @@ spec does not define the backup format or the doctor's checks.
 ### Consequences
 `perch migrate --to-compose` (spec §2) can build on the same backup manifest. The binary build must embed
 the web dist and the migrations (text imports already cover the SQL); that is the release workflow's job.
+
+## ADR-0060: The pipeline: what runs where, the budgets, embedded web assets in the binary, and release semantics
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.15
+
+### Context
+Spec §8 lists the CI steps and the release outputs but not how the jobs split, what "perf audit"
+measures before task 2.20, how a single `perch` binary serves the web app, what the npm package is
+called, or how pre-releases differ.
+
+### Decision
+- `ci.yml` splits into `check` (lint, typecheck, unit tests on PGlite and a Postgres service, SDK
+  drift), `e2e` (web build, perf budgets, component tests, Playwright from the wizard with axe),
+  `laptop-smoke` (Linux, macOS, Windows), and `compose-smoke` (real images, `perch init`, compose, the
+  wizard through Caddy, then Trivy). CodeQL is weekly; DCO per pull request; changesets keep a version
+  pull request on main.
+- Perf budgets (`bun run perf`): initial JS + CSS ≤ 180 KB gzip, total JS ≤ 320 KB gzip, CSS ≤ 48 KB
+  gzip, and one WS envelope ≤ 1 KB for representative presence, typing, message, and session-delta
+  events. Task 2.20 extends this script.
+- The compiled binary embeds the web app: `scripts/embed-web.ts` generates `web-assets.gen.ts` with
+  one `with { type: "file" }` import per dist file, the api serves the map with the SPA fallback
+  (`AppOptions.webAssets`), and the committed placeholder keeps the map empty so source runs serve
+  `apps/web/dist`. The npm package `perch-dev` (bin `perch`) is a Bun-bundled script with `web/` beside
+  it; it needs an installed Bun.
+- Images are `ghcr.io/<owner>/perch-{api,runner,caddy}`, `linux/amd64` + `linux/arm64`, cosign keyless
+  signatures and an attested SPDX SBOM per image. A tag with a pre-release suffix publishes the images
+  tagged with that version only (no `latest`, no `major.minor`), marks the GitHub release as a
+  pre-release, and publishes npm under `next`.
+- Actions are pinned to major tags resolved on 2026-09-13; Renovate pins digests from its first run.
+- Docs deploy is deferred to the docs site (Phase 4); `openapi.json` ships as a release asset.
+
+### Consequences
+A tagged pre-release exercises the whole release path without touching `latest`. The compose smoke is
+the "fresh Ubuntu VM" check for task 0.13.

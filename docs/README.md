@@ -7,6 +7,7 @@
 | [`spec/KICKOFF.md`](spec/KICKOFF.md) | Kickoff prompts for agent sessions |
 | [`dependencies.md`](dependencies.md) | Resolved and pinned package versions (task 0.3) |
 | [`deploy.md`](deploy.md) | Team mode with docker compose: `perch init`, the images, the setup wizard |
+| [`ci.md`](ci.md) | The pull-request pipeline, the release workflow, the perf budgets |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |
 | [`policies/providers.md`](policies/providers.md) | The credential matrix and the three lanes |
 | [`rfcs/`](rfcs/) | RFCs for licensing, runner protocol, Bot API, policy schema, the pledge |

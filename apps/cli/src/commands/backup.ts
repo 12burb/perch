@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { openPglite } from "@perch/db";
 import { dataDirFrom, laptopLayout } from "../paths.ts";
+import { pgliteRuntime } from "../pglite-runtime.ts";
 
 export type Manifest = {
   format: "perch-backup";
@@ -27,7 +28,7 @@ export async function createBackup(dataDir: string, outDir: string): Promise<Man
     throw new Error(`${outDir} exists and is not empty`);
   }
   mkdirSync(outDir, { recursive: true });
-  const pglite = openPglite(layout.pglite);
+  const pglite = openPglite(layout.pglite, await pgliteRuntime());
   try {
     await pglite.waitReady;
     const dump = await pglite.dumpDataDir("gzip");
@@ -77,7 +78,10 @@ export async function restoreBackup(
   const target = existsSync(layout.pglite)
     ? `${layout.pglite}.restore-${Date.now()}`
     : layout.pglite;
-  const pglite = openPglite(target, { loadDataDir: new Blob([new Uint8Array(tarball)]) });
+  const pglite = openPglite(target, {
+    ...(await pgliteRuntime()),
+    loadDataDir: new Blob([new Uint8Array(tarball)]),
+  });
   try {
     await pglite.waitReady;
     await pglite.query("select 1");

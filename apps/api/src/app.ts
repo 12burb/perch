@@ -23,6 +23,8 @@ import type { WsServer } from "./ws/server.ts";
 export type AppOptions = {
   /** Directory of the built web app to serve at /; skipped when it does not exist. */
   webDist?: string;
+  /** Embedded web app (the compiled perch binary): url path → file path readable by Bun.file. */
+  webAssets?: Record<string, string>;
   /** The WebSocket server for /api/ws (spec §7.2); absent in tests that only need HTTP. */
   ws?: WsServer;
 };
@@ -103,11 +105,37 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
       "An api token (SDKs, the MCP server), a pk_ virtual key (/v1, /mcp), or a bot token.",
   });
 
+  // The web app answers everything that is not an api, preview, hook, MCP, or gateway path.
   const webDist = options.webDist;
   if (webDist && existsSync(webDist)) {
-    app.use("/*", serveStatic({ root: webDist }));
-    app.get("/*", serveStatic({ root: webDist, path: "index.html" }));
+    const files = serveStatic({ root: webDist });
+    const index = serveStatic({ root: webDist, path: "index.html" });
+    app.use("/*", (c, next) => (isReservedPath(c.req.path) ? next() : files(c, next)));
+    app.get("/*", (c, next) => (isReservedPath(c.req.path) ? next() : index(c, next)));
+  } else if (options.webAssets?.["/index.html"]) {
+    const assets = options.webAssets;
+    app.get("/*", (c, next) =>
+      isReservedPath(c.req.path) ? next() : serveEmbedded(assets, c.req.path),
+    );
   }
 
   return app;
+}
+
+/** Paths the api owns (spec §7.1, §5.6, §7.5): never answered by the web app's SPA fallback. */
+export function isReservedPath(path: string): boolean {
+  return /^\/(api|p|hooks|mcp|v1)(\/|$)/.test(path);
+}
+
+/** Serves an embedded asset map with the SPA fallback; hashed assets are immutable, index.html is not. */
+export function serveEmbedded(assets: Record<string, string>, path: string): Response {
+  const hit = assets[path];
+  const file = hit ?? assets["/index.html"];
+  if (!file) return new Response("not found", { status: 404 });
+  const headers = new Headers();
+  headers.set(
+    "cache-control",
+    hit && path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+  );
+  return new Response(Bun.file(file), { headers });
 }

@@ -110,3 +110,38 @@ describe("apps/api skeleton (task 0.7)", () => {
     expect(team.allowLoopbackRedirects).toBe(false);
   });
 });
+
+describe("embedded web assets (task 0.15)", () => {
+  test("serves the map with the SPA fallback, immutable hashed assets, and api routes untouched", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "perch-embedded-"));
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>Perch</title>");
+    writeFileSync(join(dir, "assets", "index-abc.js"), "console.log(1)");
+    const embedded = await bootTestApp({}, { setup: false });
+    const { createApp } = await import("../src/app.ts");
+    const app = createApp(embedded, {
+      webDist: "/nonexistent",
+      webAssets: {
+        "/index.html": join(dir, "index.html"),
+        "/assets/index-abc.js": join(dir, "assets", "index-abc.js"),
+      },
+    });
+    const index = await app.request("/");
+    expect(index.status).toBe(200);
+    expect(await index.text()).toContain("<title>Perch</title>");
+    expect(index.headers.get("cache-control")).toBe("no-cache");
+    const asset = await app.request("/assets/index-abc.js");
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toContain("immutable");
+    expect(asset.headers.get("content-type")).toContain("javascript");
+    const deep = await app.request("/the-nest/home");
+    expect(await deep.text()).toContain("<title>Perch</title>");
+    const api = await app.request("/api/nope");
+    expect(api.status).toBe(404);
+    expect(((await api.json()) as { error: { code: string } }).error.code).toBe("not_found");
+    await embedded.close();
+  });
+});

@@ -41,6 +41,8 @@ bun install --frozen-lockfile
 bun run check      # Biome + typecheck + bun test
 bun run dev        # api + web + in-process runner against PGlite
 bun run e2e        # Playwright (e2e/*.e2e.ts; needs `bunx playwright install chromium` once)
+bun run ct         # component tests with axe (packages/ui)
+bun run perf       # bundle and WS envelope budgets (docs/ci.md)
 ```
 
 Bun 1.3.11 (`packageManager` in `package.json`). Node is only needed for tools that run under it in CI.

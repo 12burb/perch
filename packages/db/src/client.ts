@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { PGlite } from "@electric-sql/pglite";
+import { type Extension, PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { vector } from "@electric-sql/pglite-pgvector";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -32,6 +32,8 @@ export type CreateDbOptions = {
   url: string;
   /** postgres.js pool size; ignored for PGlite. */
   maxConnections?: number;
+  /** Embedded PGlite runtime files (the compiled perch binary); ignored for Postgres. */
+  pglite?: PgliteRuntime;
 };
 
 const PGLITE_PREFIX = "pglite://";
@@ -49,21 +51,34 @@ export function pgliteDataDir(url: string): string | undefined {
 }
 
 /**
- * Opens a PGlite database with the extensions the schema needs (pgvector, citext). `loadDataDir`
- * restores a `dumpDataDir()` tarball into a fresh data directory (perch restore).
+ * How PGlite finds its runtime: by default next to its module (pglite.wasm, initdb.wasm, pglite.data,
+ * and the extension tarballs). A compiled perch binary embeds those files and passes them here
+ * (ADR-0060). `loadDataDir` restores a `dumpDataDir()` tarball into a fresh directory (perch restore).
  */
-export function openPglite(dataDir?: string, options: { loadDataDir?: Blob | File } = {}): PGlite {
-  const extensions = { vector, citext };
-  const extra = options.loadDataDir ? { loadDataDir: options.loadDataDir } : {};
-  return dataDir
-    ? new PGlite(dataDir, { extensions, ...extra })
-    : new PGlite({ extensions, ...extra });
+export type PgliteRuntime = {
+  pgliteWasmModule?: WebAssembly.Module;
+  initdbWasmModule?: WebAssembly.Module;
+  fsBundle?: Blob | File;
+  /** Replacements for the default vector and citext extensions (same names, embedded bundles). */
+  extensions?: { vector: Extension; citext: Extension };
+  loadDataDir?: Blob | File;
+};
+
+/** Opens a PGlite database with the extensions the schema needs (pgvector, citext). */
+export function openPglite(dataDir?: string, runtime: PgliteRuntime = {}): PGlite {
+  const { extensions, loadDataDir, ...modules } = runtime;
+  const options = {
+    extensions: extensions ?? { vector, citext },
+    ...(loadDataDir ? { loadDataDir } : {}),
+    ...modules,
+  };
+  return dataDir ? new PGlite(dataDir, options) : new PGlite(options);
 }
 
 export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
   if (isPgliteUrl(options.url)) {
     const dataDir = pgliteDataDir(options.url);
-    const pglite = openPglite(dataDir);
+    const pglite = openPglite(dataDir, options.pglite);
     await pglite.waitReady;
     const db = drizzlePglite(pglite, { schema });
     return {

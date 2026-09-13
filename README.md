@@ -97,6 +97,8 @@ bun install --frozen-lockfile
 bun run check        # Biome + typecheck + bun test
 bun run dev          # api + web + in-process runner against PGlite
 bun run e2e          # Playwright against the laptop-mode server
+bun run ct           # component tests with axe
+bun run perf         # bundle and WS envelope budgets
 bun run build        # production builds
 ```
 

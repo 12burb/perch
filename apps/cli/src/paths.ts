@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -20,7 +21,20 @@ export function laptopLayout(dataDir: string) {
   };
 }
 
-/** The built web app relative to this source tree (the binary embeds it, task 0.15). */
+/**
+ * Where the built web app lives: PERCH_WEB_DIST, the source tree (apps/web/dist), or `web/` next to
+ * the bundled npm script. The compiled binary embeds the app instead (web-assets.gen.ts, ADR-0060).
+ */
 export function webDistDir(): string {
-  return resolve(import.meta.dir, "..", "..", "web", "dist");
+  const candidates = [
+    process.env.PERCH_WEB_DIST,
+    resolve(import.meta.dir, "..", "..", "web", "dist"),
+    resolve(import.meta.dir, "web"),
+  ].filter((c): c is string => typeof c === "string" && c.length > 0);
+  return (
+    candidates.find((c) => existsSync(join(c, "index.html"))) ??
+    candidates[1] ??
+    candidates[0] ??
+    ""
+  );
 }

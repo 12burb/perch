@@ -1,5 +1,8 @@
 name: CI
 
+# Spec §8: install → Biome → typecheck → bun test (PGlite, and Postgres in a service container) →
+# Playwright (compose smoke on Linux; laptop smoke on Linux, macOS, Windows) → axe → perf audit →
+# Trivy on images. CodeQL runs weekly (codeql.yml); DCO on every pull request (dco.yml).
 on:
   pull_request:
   push:
@@ -12,17 +15,147 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  PLAYWRIGHT_VERSION: 1.62.1
+
 jobs:
   check:
-    name: Biome, typecheck, unit tests
+    name: Biome, typecheck, unit tests, SDK drift
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg16
+        env:
+          POSTGRES_USER: perch
+          POSTGRES_PASSWORD: perch
+          POSTGRES_DB: perch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U perch -d perch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
-      - run: bun run test
+      - name: Unit tests (PGlite in memory and the Postgres service)
+        run: bun run test
+        env:
+          PERCH_TEST_DATABASE_URL: postgres://perch:perch@localhost:5432/perch_test
+      - name: SDK drift (openapi.json and the generated client are committed)
+        run: bun run sdk:generate && git diff --exit-code -- packages/api-client
+
+  e2e:
+    name: Playwright, component tests, axe, perf budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run --filter @perch/web build
+      - name: Perf budgets (bundle and WS envelope)
+        run: bun run perf
+      - name: Component tests with axe (packages/ui)
+        run: bun run ct
+      - name: End-to-end from the setup wizard (axe on every page)
+        run: bun run e2e
+        env:
+          CI: "1"
+          E2E_SETUP: wizard
+          E2E_SKIP_BUILD: "1"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+            packages/ui/playwright-report
+            packages/ui/test-results
+          retention-days: 7
+
+  laptop-smoke:
+    name: Laptop smoke on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @perch/web build
+      - name: perch dev, doctor, backup, restore, and the compiled binary
+        run: bun test apps/cli apps/runner
+
+  compose-smoke:
+    name: Compose smoke (docker compose up → wizard → sign in)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the api and caddy images
+        run: |
+          docker build -f deploy/Dockerfile.api -t ghcr.io/12burb/perch-api:ci --build-arg PERCH_VERSION=ci --build-arg PERCH_COMMIT=${{ github.sha }} .
+          docker build -f deploy/Dockerfile.caddy -t ghcr.io/12burb/perch-caddy:ci deploy
+      - run: bun install --frozen-lockfile
+      - name: perch init
+        run: bun apps/cli/src/index.ts init --yes --dir /tmp/perch --public-url http://localhost --image-tag ci
+      - name: docker compose up
+        working-directory: /tmp/perch
+        run: |
+          docker compose up -d caddy api postgres
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost/api/health >/dev/null; then break; fi
+            sleep 3
+          done
+          curl -fsS http://localhost/api/health
+      - name: The setup wizard, then sign in
+        run: bun scripts/compose-smoke.ts http://localhost
+      - name: Logs and teardown
+        if: always()
+        working-directory: /tmp/perch
+        run: |
+          docker compose logs --no-color api caddy | tail -n 200
+          docker compose down -v
+      - name: Trivy (api image and the repository)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ghcr.io/12burb/perch-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

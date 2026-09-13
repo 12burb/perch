@@ -31,10 +31,12 @@
     "build": "turbo run build",
     "db:generate": "bun run --filter @perch/db generate",
     "db:migrate": "bun run --filter @perch/db migrate",
-    "perf": "echo 'perf audit arrives with task 2.20; bundle budget check lands in 0.15' && exit 0",
+    "perf": "bun scripts/perf-budget.ts",
     "changeset": "changeset",
     "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate",
-    "ct": "bun run --filter @perch/ui test:ct"
+    "ct": "bun run --filter @perch/ui test:ct",
+    "build:cli": "bun scripts/build-cli.ts",
+    "version": "changeset version && bun install"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

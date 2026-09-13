@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createBus } from "@perch/bus";
-import { createDb } from "@perch/db";
+import { createDb, type PgliteRuntime } from "@perch/db";
 import { createQueue } from "@perch/jobs";
 import { createVault } from "@perch/vault";
 import { type AppOptions, createApp } from "./app.ts";
@@ -46,6 +46,8 @@ export type BootOptions = {
   /** Skip running migrations (tests that migrate themselves). */
   migrate?: boolean;
   app?: AppOptions;
+  /** Embedded PGlite runtime files (the compiled perch binary). */
+  pglite?: PgliteRuntime;
 };
 
 export type Booted = Deps & {
@@ -57,7 +59,10 @@ export type Booted = Deps & {
 export async function boot(options: BootOptions = {}): Promise<Booted> {
   const env = options.env ?? loadEnv();
   const log = options.log ?? createLogger({ level: env.logLevel, pretty: env.logPretty });
-  const db = await createDb({ url: env.databaseUrl });
+  const db = await createDb({
+    url: env.databaseUrl,
+    ...(options.pglite ? { pglite: options.pglite } : {}),
+  });
   if (options.migrate !== false) {
     const result = await db.migrate();
     log.info({ applied: result.applied, total: result.total, driver: db.driver }, "migrations");

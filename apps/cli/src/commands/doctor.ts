@@ -6,6 +6,7 @@ import { accessSync, constants, existsSync, mkdirSync, statSync } from "node:fs"
 import { parseArgs } from "node:util";
 import { createDb } from "@perch/db";
 import { dataDirFrom, laptopLayout, webDistDir } from "../paths.ts";
+import { pgliteRuntime } from "../pglite-runtime.ts";
 
 export type Check = { name: string; ok: boolean; required: boolean; detail: string };
 
@@ -63,7 +64,7 @@ export async function collectChecks(options: {
 
   if (dataOk) {
     try {
-      const handle = await createDb({ url: layout.databaseUrl });
+      const handle = await createDb({ url: layout.databaseUrl, pglite: await pgliteRuntime() });
       try {
         const result = await handle.migrate();
         checks.push({

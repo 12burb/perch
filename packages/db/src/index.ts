@@ -6,6 +6,7 @@ export {
   type DbHandle,
   isPgliteUrl,
   openPglite,
+  type PgliteRuntime,
   pgliteDataDir,
   redactUrl,
   type Schema,
