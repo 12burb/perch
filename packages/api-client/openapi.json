@@ -102,6 +102,447 @@
           "runtime",
           "mode"
         ]
+      },
+      "Instance": {
+        "type": "object",
+        "properties": {
+          "public_url": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "laptop",
+              "team"
+            ]
+          },
+          "auth": {
+            "type": "object",
+            "properties": {
+              "email_password": {
+                "type": "boolean"
+              },
+              "passkeys": {
+                "type": "boolean"
+              },
+              "oidc": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "email_password",
+              "passkeys",
+              "oidc"
+            ]
+          }
+        },
+        "required": [
+          "public_url",
+          "mode",
+          "auth"
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "tz": {
+            "type": "string"
+          },
+          "avatar_file_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "auth_kind": {
+            "type": "string",
+            "enum": [
+              "session",
+              "token"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "email_verified",
+          "name",
+          "handle",
+          "locale",
+          "tz",
+          "avatar_file_id",
+          "auth_kind"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "forbidden",
+                  "validation",
+                  "conflict",
+                  "rate_limited",
+                  "budget_exceeded",
+                  "policy_violation",
+                  "upstream_failed",
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ]
+      },
+      "MePatch": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "handle": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 32
+          },
+          "locale": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 16
+          },
+          "tz": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "ApiToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "admin",
+                "sessions:open",
+                "chat:write",
+                "chat:read",
+                "work:write",
+                "tools:call"
+              ]
+            }
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "workspace_id",
+          "last_used_at",
+          "expires_at",
+          "created_at"
+        ]
+      },
+      "ApiTokenCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiToken"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string",
+                "description": "Shown once; only a hash is stored."
+              }
+            },
+            "required": [
+              "token"
+            ]
+          }
+        ]
+      },
+      "ApiTokenCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "admin",
+                "sessions:open",
+                "chat:write",
+                "chat:read",
+                "work:write",
+                "tools:call"
+              ]
+            },
+            "minItems": 1
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      },
+      "MyWorkspace": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Workspace"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "role": {
+                "$ref": "#/components/schemas/MembershipRole"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          }
+        ]
+      },
+      "MembershipRole": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "admin",
+          "member"
+        ]
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "plan",
+          "created_at"
+        ]
+      },
+      "WorkspaceCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "InviteCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "accept_url": {
+            "type": "string",
+            "description": "The accept link. Sent by email when PERCH_SMTP_URL is set; always returned to the inviter so it can be shared by hand."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "expires_at",
+          "accept_url"
+        ]
+      },
+      "InviteCreate": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "InvitePreview": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "slug"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "description": "Masked"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MembershipRole"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "expired"
+            ]
+          }
+        },
+        "required": [
+          "workspace",
+          "email",
+          "role",
+          "expires_at",
+          "status"
+        ]
       }
     },
     "parameters": {}
@@ -141,6 +582,584 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Version"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instance": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Public instance configuration",
+        "responses": {
+          "200": {
+            "description": "Which sign-in methods this instance offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Instance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "The signed-in user",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Update the signed-in user's profile",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/tokens": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "List api tokens",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tokens (never the secret)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tokens": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ApiToken"
+                      }
+                    }
+                  },
+                  "required": [
+                    "tokens"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Create an api token",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiTokenCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new token, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenCreated"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Revoke an api token",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Workspaces the signed-in user belongs to",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memberships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspaces": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MyWorkspace"
+                      }
+                    }
+                  },
+                  "required": [
+                    "workspaces"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Create a workspace; the creator becomes its owner",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyWorkspace"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/invites": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Invite someone by email (owners and admins)",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invite created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteCreated"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/{token}": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Preview an invite before signing in",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "required": true,
+            "name": "token",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitePreview"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invites/{token}/accept": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Accept an invite as the signed-in user",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "required": true,
+            "name": "token",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Joined",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyWorkspace"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

@@ -1,8 +1,9 @@
 import type { Bus } from "@perch/bus";
-import type { DbHandle } from "@perch/db";
+import type { ApiTokenScopes, DbHandle, User } from "@perch/db";
 import type { Queue } from "@perch/jobs";
 import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
+import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 
 /** What every handler can reach through the Hono context. */
@@ -11,6 +12,9 @@ export type AppVariables = {
   log: Logger;
   workspaceId?: string;
   userId?: string;
+  user?: User;
+  authKind?: "session" | "token";
+  tokenScopes?: ApiTokenScopes;
 };
 
 export type AppEnv = { Variables: AppVariables };
@@ -22,6 +26,7 @@ export type Deps = {
   bus: Bus;
   vault: Vault;
   queue: Queue;
+  auth: Auth;
   log: Logger;
   version: VersionInfo;
 };

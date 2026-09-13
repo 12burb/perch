@@ -7,11 +7,15 @@ import { existsSync } from "node:fs";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { serveStatic } from "hono/bun";
 import { secureHeaders } from "hono/secure-headers";
+import { authenticate } from "./auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
 import { registerHealth } from "./routes/health.ts";
+import { registerInstance } from "./routes/instance.ts";
+import { registerMe } from "./routes/me.ts";
 import { registerVersion } from "./routes/version.ts";
+import { registerWorkspaces } from "./routes/workspaces.ts";
 
 export type AppOptions = {
   /** Directory of the built web app to serve at /; skipped when it does not exist. */
@@ -48,8 +52,15 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
     return c.json(error.toBody(c.get("requestId") ?? "unknown"), 404);
   });
 
+  // better-auth owns /api/auth/* (spec §7.1); everything else resolves the caller first.
+  app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
+  app.use("/api/*", authenticate(deps));
+
   registerHealth(app, deps);
   registerVersion(app, deps);
+  registerInstance(app, deps);
+  registerMe(app, deps);
+  registerWorkspaces(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

@@ -1,0 +1,91 @@
+/*
+ * Perch design tokens (spec §4.1). Semantic colors flip between the light and dark themes; the
+ * `data-theme` attribute wins over the system preference. Task 0.11 adds the full component set.
+ */
+:root {
+  color-scheme: light;
+  --perch-font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --perch-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --perch-radius-sm: 4px;
+  --perch-radius-md: 8px;
+  --perch-radius-lg: 12px;
+  --perch-space-1: 4px;
+  --perch-space-2: 8px;
+  --perch-space-3: 12px;
+  --perch-space-4: 16px;
+  --perch-space-6: 24px;
+  --perch-space-8: 32px;
+  --perch-rail-width: 56px;
+  --perch-sidebar-width: 280px;
+  --perch-bg: #f7f7f5;
+  --perch-bg-elevated: #ffffff;
+  --perch-bg-muted: #efeeea;
+  --perch-fg: #1c1b19;
+  --perch-fg-muted: #5f5c55;
+  --perch-border: #dedbd3;
+  --perch-accent: #2f6df6;
+  --perch-accent-fg: #ffffff;
+  --perch-danger: #c8313b;
+  --perch-danger-fg: #ffffff;
+  --perch-success: #1f8a4c;
+  --perch-warning: #b8730a;
+  --perch-focus: #2f6df6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --perch-bg: #141413;
+    --perch-bg-elevated: #1e1d1b;
+    --perch-bg-muted: #26251f;
+    --perch-fg: #ecebe6;
+    --perch-fg-muted: #a3a097;
+    --perch-border: #35332d;
+    --perch-accent: #7aa2ff;
+    --perch-accent-fg: #0b1633;
+    --perch-danger: #ff7b83;
+    --perch-danger-fg: #2b0407;
+    --perch-success: #5ccf8a;
+    --perch-warning: #f0b35a;
+    --perch-focus: #7aa2ff;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --perch-bg: #141413;
+  --perch-bg-elevated: #1e1d1b;
+  --perch-bg-muted: #26251f;
+  --perch-fg: #ecebe6;
+  --perch-fg-muted: #a3a097;
+  --perch-border: #35332d;
+  --perch-accent: #7aa2ff;
+  --perch-accent-fg: #0b1633;
+  --perch-danger: #ff7b83;
+  --perch-danger-fg: #2b0407;
+  --perch-success: #5ccf8a;
+  --perch-warning: #f0b35a;
+  --perch-focus: #7aa2ff;
+}
+
+@theme inline {
+  --font-sans: var(--perch-font-sans);
+  --font-mono: var(--perch-font-mono);
+  --color-bg: var(--perch-bg);
+  --color-bg-elevated: var(--perch-bg-elevated);
+  --color-bg-muted: var(--perch-bg-muted);
+  --color-fg: var(--perch-fg);
+  --color-fg-muted: var(--perch-fg-muted);
+  --color-border: var(--perch-border);
+  --color-accent: var(--perch-accent);
+  --color-accent-fg: var(--perch-accent-fg);
+  --color-danger: var(--perch-danger);
+  --color-danger-fg: var(--perch-danger-fg);
+  --color-success: var(--perch-success);
+  --color-warning: var(--perch-warning);
+  --color-focus: var(--perch-focus);
+  --radius-sm: var(--perch-radius-sm);
+  --radius-md: var(--perch-radius-md);
+  --radius-lg: var(--perch-radius-lg);
+}

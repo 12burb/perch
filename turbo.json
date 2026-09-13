@@ -14,5 +14,6 @@
       "cache": false,
       "persistent": true
     }
-  }
+  },
+  "globalPassThroughEnv": ["CI", "PLAYWRIGHT_*", "E2E_*", "PERCH_*", "DATABASE_URL", "PORT", "HOST"]
 }

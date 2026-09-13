@@ -27,7 +27,7 @@ only the packages it declares.
 | `vite` | 8.3.0 | apps/web (dev), packages/ui (dev) | Rolldown-based Vite 8 |
 | `@vitejs/plugin-react` | 6.1.1 | apps/web (dev), packages/ui (dev) | peer `vite ^8` |
 | `@tanstack/react-router` | 1.170.35 | apps/web | file-based routing |
-| `@tanstack/router-plugin` | 1.168.37 | apps/web (dev) | generates `routeTree.gen.ts` (git-ignored, Biome-ignored) |
+| `@tanstack/router-plugin` | 1.168.37 | apps/web (dev) | generates `routeTree.gen.ts` (committed, Biome-ignored; ADR-0050) |
 | `@tanstack/react-query` | 5.102.8 | apps/web | |
 | `zustand` | 5.0.15 | apps/web | |
 | `tailwindcss`, `@tailwindcss/vite` | 4.3.3 | apps/web (dev), packages/ui (dev) | Tailwind v4 |
@@ -56,8 +56,8 @@ only the packages it declares.
 | `hono` | 4.13.7 | apps/api | `Bun.serve` with native WebSockets |
 | `@hono/zod-openapi` | 1.6.3 | apps/api | OpenAPI document (peer `zod ^4`) |
 | `zod` | 4.6.3 | every package with a boundary | Zod 4 everywhere (Hono, AI SDK, better-auth all accept ^4) |
-| `better-auth` | 1.7.4 | apps/api | email + password, generic OIDC, Drizzle adapter |
-| `@better-auth/passkey` | 1.7.4 | apps/api | passkeys moved out of core in better-auth 1.7 |
+| `better-auth` | 1.7.4 | apps/api, apps/web (client) | email + password, generic OIDC, Drizzle adapter; `better-auth/react` client |
+| `@better-auth/passkey` | 1.7.4 | apps/api, apps/web (client) | passkeys moved out of core in better-auth 1.7 |
 | `drizzle-orm` | 0.45.2 | apps/api, packages/db, packages/jobs | one `Db` type over both drivers |
 | `drizzle-kit` | 0.31.10 | packages/db (dev) | the stable line; 1.0 is still an RC (ADR-0024) |
 | `postgres` | 3.4.9 | apps/api, packages/db | postgres.js, team mode |

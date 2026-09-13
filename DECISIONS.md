@@ -856,3 +856,167 @@ silently getting a different shape. The generated SDK sends the version it was g
 ### Consequences
 Introducing a breaking contract change means adding a version to the supported list and keeping the old
 behaviour behind it until it is retired with a changeset.
+
+## ADR-0044: An unauthenticated request is `forbidden` (403) with `details.reason = "unauthenticated"`
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+Spec §7.8 fixes the error codes and their statuses (`forbidden` → 403) and has no `unauthorized` / 401
+code. Routes still need to tell a client that has no session or token apart from one that has the wrong
+role.
+
+### Decision
+`requireUser` throws `PerchError.forbidden("authentication required", { reason: "unauthenticated" })`.
+The status and code stay inside the §7.8 table; the `reason` detail lets the web client redirect to
+`/sign-in` while an authenticated-but-not-allowed call carries no such reason. Authentication itself is
+one middleware on `/api/*`: a `pat_` bearer token resolves through `api_tokens` (sha256 hash lookup),
+otherwise better-auth's session cookie resolves through `auth.api.getSession`. `/api/auth/*` is handed to
+better-auth before that middleware runs.
+
+### Consequences
+No 401 or `WWW-Authenticate` challenge is ever emitted; SDKs treat `forbidden` + `reason:
+unauthenticated` as "sign in". Task 0.9 layers `authorize()` (roles) on top of this identity step.
+
+## ADR-0045: api tokens are `pat_` + 32 random bytes, stored as a sha256 hash, shown once
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+Spec §6 stores `api_tokens.token_hash` and §7.1 accepts api tokens as bearer credentials, but neither
+fixes the token format nor the hashing.
+
+### Decision
+A token is `pat_` followed by 32 bytes from `crypto.getRandomValues` in base64url. Only
+`sha256(token)` is stored; the plaintext is returned once in the `POST /api/me/tokens` response
+(`ApiTokenCreated.token`) and never listed again. Lookup is by hash; expired tokens resolve to nothing;
+`last_used_at` is written at most once a minute per token to keep reads cheap. Scopes are the §6
+`API_TOKEN_SCOPES` list; enforcement of scopes per route arrives with `authorize()` in 0.9. Tokens are
+created only from a session (not from another token); listing and revoking work from either.
+
+### Consequences
+Rotating a token means creating a new one and revoking the old; there is no reveal endpoint. The `pat_`
+prefix makes secret scanners and the bearer middleware able to recognise Perch tokens without a lookup.
+
+## ADR-0046: Invites are 7-day hashed links returned to the inviter and logged until SMTP exists
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+Spec §6 has `invites(token_hash, email, role, expires_at, accepted_at)` and §8 makes `PERCH_SMTP_URL`
+optional with a console transport. The acceptance criterion is "invite accepted" end to end.
+
+### Decision
+- `POST /api/workspaces/{ws}/invites` (owner or admin; only an owner can invite an owner) creates a
+  token `inv_` + 24 random bytes (base64url), stores its sha256 hash, sets a 7-day expiry, and returns
+  `accept_url = <PERCH_PUBLIC_URL>/invite/<token>` to the inviter. The link is also logged at `info`
+  (console transport) until email delivery lands with `PERCH_SMTP_URL`.
+- `GET /api/invites/{token}` is public and returns the workspace name and slug, the role, a masked
+  email, and a `pending | accepted | expired` status, so the web page can render before sign-in.
+- `POST /api/invites/{token}/accept` requires a session whose email matches the invite (case-insensitive);
+  it creates the membership once, marks the invite accepted, and publishes `member.added`.
+  A second accept is `conflict`; a different user is `forbidden`; a non-member asking about a
+  workspace gets `not_found` rather than a hint that it exists.
+
+### Consequences
+Possessing the link is not enough to join: the invited email must sign in, so a leaked log line does
+not hand out a membership. Invites carry no workspace-scoped roles beyond owner/admin/member (§6).
+
+## ADR-0047: Profile rows come from better-auth hooks; handles and slugs get numeric suffixes
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+Spec §6 keeps the Perch `users` profile (handle, locale, tz, avatar) separate from better-auth's
+`auth_user`, and requires unique handles and workspace slugs, but does not say how they are chosen.
+
+### Decision
+`databaseHooks.user.create.after` calls `ensureProfile`, which inserts the `users` row exactly once per
+auth user (idempotent on `auth_user_id`) for every sign-up path: email + password, OIDC, and future
+providers. The handle is the email's local part lowered and reduced to `[a-z0-9-]`, then `-2`, `-3`, …
+until free. Workspace slugs derived from a name (`POST /api/workspaces` without `slug`) get the same
+suffixing; an explicit `slug` must be free or the call is `conflict`. `PATCH /api/me` validates handles
+against `^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$` and answers `conflict` when taken.
+
+### Consequences
+Sign-up never fails on a handle collision. Renaming a handle is explicit and validated; nothing else
+depends on the handle being derived from the email.
+
+## ADR-0048: Passkeys bind to the public origin; better-auth logs ride pino; the Vite origin is trusted in laptop mode
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+`@better-auth/passkey` needs an `rpID` and `origin`; better-auth has its own logger; the Vite dev server
+runs on a different origin (5173) than the api (3000) and better-auth rejects untrusted origins.
+
+### Decision
+`rpID` is the hostname of `PERCH_PUBLIC_URL` and `origin` is `PERCH_PUBLIC_URL` itself, so a passkey
+registered on an instance keeps working across deploys of the same URL and never across instances.
+better-auth's `logger.log` is routed into the pino logger (same redaction, same format) and disabled when
+`PERCH_LOG_LEVEL=silent`. In laptop mode `http://localhost:5173` and `http://127.0.0.1:5173` are added
+to `trustedOrigins`; team mode trusts only the public URL. The generic OIDC provider (`PERCH_OIDC_*`) is
+configured through better-auth's `genericOAuth` plugin with PKCE and discovery, and the web client
+starts it with `signIn.social({ provider: "oidc" })` (ADR-0034).
+
+### Consequences
+Changing `PERCH_PUBLIC_URL` invalidates existing passkeys (they are bound to the old rpID); the setup
+wizard (0.13) warns about this. Password-reset links use the console transport until SMTP lands.
+
+## ADR-0049: `GET /api/instance` publishes the sign-in methods an instance offers
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+
+### Context
+The sign-in page must know whether to show the single-sign-on button before anyone is signed in. Spec §7.1
+lists no such endpoint; `/api/version` is about the build, not configuration.
+
+### Decision
+A public `GET /api/instance` returns `public_url`, `mode`, and `auth: { email_password, passkeys, oidc }`.
+It is additive to §7.1 and is the endpoint the setup wizard (0.13) extends with `setup_complete`.
+
+### Consequences
+Instance facts that the client needs pre-auth go here, never into `/api/version`. Nothing secret is ever
+returned from it (no issuer, no client id).
+
+## ADR-0050: `routeTree.gen.ts` is committed; Playwright specs are `e2e/*.e2e.ts` against port 3999
+
+- Status: accepted
+- Date: 2026-09-13
+- Task: 0.8
+- Supersedes: the "git-ignored" note for `@tanstack/router-plugin` in ADR-0019/`docs/dependencies.md`
+
+### Context
+The TanStack Router plugin generates `apps/web/src/routeTree.gen.ts` during `vite build`/`vite dev`.
+`bun run typecheck` runs `tsc --noEmit` per workspace without a build step, so an ignored file makes
+typecheck depend on a prior build. Playwright discovers `*.spec.ts`, and so does `bun test`, which then
+crashes on Playwright's `test()`.
+
+### Decision
+- The generated route tree is committed (Biome ignores it; the plugin rewrites it on every build).
+- Playwright lives at the repo root: `playwright.config.ts` with `testDir: e2e`, `testMatch: *.e2e.ts`,
+  two projects (desktop 1440×900 and a 390×844 mobile profile), and a `webServer` of
+  `scripts/e2e-server.ts`, which builds `apps/web` (skip with `E2E_SKIP_BUILD=1`) and runs the api in
+  laptop mode on port 3999 with `pglite://memory`, a throwaway data dir, and `PERCH_PUBLIC_URL` set so
+  passkeys bind to `localhost`.
+- `PLAYWRIGHT_CHROMIUM_EXECUTABLE` overrides the browser binary for environments where Playwright cannot
+  download its Chromium (the pinned 1.62.1 expects revision 1234; the build container ships 1194, which
+  runs the suite cleanly). CI installs the matching browser instead.
+- Passkeys in tests use Chromium's virtual authenticator through CDP (`WebAuthn.addVirtualAuthenticator`
+  with a resident, user-verified CTAP2 internal authenticator).
+
+### Consequences
+`bun run e2e` works from a clean checkout after `bun install` plus a browser. Every browser flow is
+exercised at both spec viewports (§1.7) by default.

@@ -54,7 +54,7 @@ describe("apps/api skeleton (task 0.7)", () => {
       servers: unknown;
     };
     expect(doc.openapi).toBe("3.1.0");
-    expect(Object.keys(doc.paths)).toEqual(["/api/health", "/api/version"]);
+    expect(Object.keys(doc.paths)).toEqual(expect.arrayContaining(["/api/health", "/api/version"]));
     const committed = JSON.parse(
       readFileSync(
         resolve(import.meta.dir, "..", "..", "..", "packages", "api-client", "openapi.json"),

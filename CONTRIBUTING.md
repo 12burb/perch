@@ -40,7 +40,7 @@ under the license of the directory it lands in.
 bun install --frozen-lockfile
 bun run check      # Biome + typecheck + bun test
 bun run dev        # api + web + in-process runner against PGlite
-bun run e2e        # Playwright
+bun run e2e        # Playwright (e2e/*.e2e.ts; needs `bunx playwright install chromium` once)
 ```
 
 Bun 1.3.11 (`packageManager` in `package.json`). Node is only needed for tools that run under it in CI.

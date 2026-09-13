@@ -9,6 +9,7 @@ import { createDb } from "@perch/db";
 import { createQueue } from "@perch/jobs";
 import { createVault } from "@perch/vault";
 import { type AppOptions, createApp } from "./app.ts";
+import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createLogger, type Logger } from "./logging.ts";
@@ -59,7 +60,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   });
   const vault = createVault({ masterKey: env.masterKey });
   const queue = createQueue({ db: db.db });
-  const deps: Deps = { env, db, bus, vault, queue, log, version: versionInfo(env) };
+  const auth = createAuth({ env, db, log });
+  const deps: Deps = { env, db, bus, vault, queue, auth, log, version: versionInfo(env) };
   const app = createApp(deps, options.app);
   return { ...deps, app, close: () => db.close() };
 }

@@ -79,6 +79,560 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public instance configuration */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Which sign-in methods this instance offers */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Instance"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in user */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update the signed-in user's profile */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MePatch"];
+                };
+            };
+            responses: {
+                /** @description Updated profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List api tokens */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Tokens (never the secret) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            tokens: components["schemas"]["ApiToken"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create an api token */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreate"];
+                };
+            };
+            responses: {
+                /** @description The new token, shown once */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiTokenCreated"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an api token */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspaces the signed-in user belongs to */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Memberships */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            workspaces: components["schemas"]["MyWorkspace"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a workspace; the creator becomes its owner */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["WorkspaceCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MyWorkspace"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invite someone by email (owners and admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["InviteCreate"];
+                };
+            };
+            responses: {
+                /** @description Invite created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InviteCreated"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview an invite before signing in */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Invite */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvitePreview"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invite as the signed-in user */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Joined */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MyWorkspace"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -107,6 +661,115 @@ export type components = {
             runtime: string;
             /** @enum {string} */
             mode: "laptop" | "team";
+        };
+        Instance: {
+            public_url: string;
+            /** @enum {string} */
+            mode: "laptop" | "team";
+            auth: {
+                email_password: boolean;
+                passkeys: boolean;
+                oidc: boolean;
+            };
+        };
+        Me: {
+            /** Format: uuid */
+            id: string;
+            email: string;
+            email_verified: boolean;
+            name: string;
+            handle: string;
+            locale: string;
+            tz: string;
+            /** Format: uuid */
+            avatar_file_id: string | null;
+            /** @enum {string} */
+            auth_kind: "session" | "token";
+        };
+        Error: {
+            error: {
+                /** @enum {string} */
+                code: "not_found" | "forbidden" | "validation" | "conflict" | "rate_limited" | "budget_exceeded" | "policy_violation" | "upstream_failed" | "internal";
+                message: string;
+                details?: {
+                    [key: string]: unknown;
+                };
+            };
+            request_id: string;
+        };
+        MePatch: {
+            name?: string;
+            handle?: string;
+            locale?: string;
+            tz?: string;
+        };
+        ApiToken: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            scopes: ("read" | "write" | "admin" | "sessions:open" | "chat:write" | "chat:read" | "work:write" | "tools:call")[];
+            /** Format: uuid */
+            workspace_id: string | null;
+            last_used_at: string | null;
+            expires_at: string | null;
+            created_at: string;
+        };
+        ApiTokenCreated: components["schemas"]["ApiToken"] & {
+            /** @description Shown once; only a hash is stored. */
+            token: string;
+        };
+        ApiTokenCreate: {
+            name: string;
+            scopes: ("read" | "write" | "admin" | "sessions:open" | "chat:write" | "chat:read" | "work:write" | "tools:call")[];
+            /** Format: uuid */
+            workspace_id?: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
+        MyWorkspace: components["schemas"]["Workspace"] & {
+            role: components["schemas"]["MembershipRole"];
+        };
+        /** @enum {string} */
+        MembershipRole: "owner" | "admin" | "member";
+        Workspace: {
+            /** Format: uuid */
+            id: string;
+            slug: string;
+            name: string;
+            plan: string;
+            created_at: string;
+        };
+        WorkspaceCreate: {
+            name: string;
+            slug?: string;
+        };
+        InviteCreated: {
+            /** Format: uuid */
+            id: string;
+            email: string;
+            role: components["schemas"]["MembershipRole"];
+            expires_at: string;
+            /** @description The accept link. Sent by email when PERCH_SMTP_URL is set; always returned to the inviter so it can be shared by hand. */
+            accept_url: string;
+        };
+        InviteCreate: {
+            /** Format: email */
+            email: string;
+            role?: components["schemas"]["MembershipRole"];
+        };
+        InvitePreview: {
+            workspace: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                slug: string;
+            };
+            /** @description Masked */
+            email: string;
+            role: components["schemas"]["MembershipRole"];
+            expires_at: string;
+            /** @enum {string} */
+            status: "pending" | "accepted" | "expired";
         };
     };
     responses: never;

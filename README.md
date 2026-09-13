@@ -99,6 +99,10 @@ bun run e2e          # Playwright against the laptop-mode server
 bun run build        # production builds
 ```
 
+`bun run e2e` builds `apps/web`, starts the api on port 3999 with PGlite in memory, and runs `e2e/*.e2e.ts`
+at 1440 px and 390 px. It needs Playwright's Chromium (`bunx playwright install chromium`); where that
+download is unavailable, point `PLAYWRIGHT_CHROMIUM_EXECUTABLE` at a compatible Chromium binary.
+
 ## License
 
 AGPL-3.0-only for `apps/*` and every package not listed here; MIT for `packages/bot-sdk`, `packages/ui`,

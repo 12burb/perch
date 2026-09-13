@@ -22,8 +22,6 @@ playwright-report/
 playwright/.cache/
 blob-report/
 
-# generated at build time
-apps/web/src/routeTree.gen.ts
 
 # editors and OS
 .DS_Store
