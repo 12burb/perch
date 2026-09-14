@@ -1,6 +1,6 @@
 {
   "name": "@perch/events",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Zod schemas for bus events, WS envelopes, runner JSON-RPC, EngineEvent (spec \u00a77).",
   "license": "MIT",

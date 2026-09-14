@@ -1,5 +1,16 @@
 # @perch/api
 
+## 0.1.1
+
+### Patch Changes
+
+- ea81bde: The runner control channel (spec §7.6): runners connect to `/api/runner` with a connect token, register,
+  heartbeat, and answer api requests that carry per-request capability tokens; the runner image now runs
+  the runner agent as its entrypoint (`PERCH_API_URL`, `PERCH_RUNNER_TOKEN`).
+- Updated dependencies [ea81bde]
+  - @perch/events@0.0.2
+  - @perch/bus@0.0.2
+
 ## 0.1.0
 
 ### Minor Changes

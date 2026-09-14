@@ -1,5 +1,12 @@
 # @perch/web
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [ea81bde]
+  - @perch/events@0.0.2
+
 ## 0.1.0
 
 ### Minor Changes

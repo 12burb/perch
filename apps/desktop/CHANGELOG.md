@@ -1,5 +1,11 @@
 # @perch/desktop
 
+## 0.1.1
+
+### Patch Changes
+
+- @perch/cli@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

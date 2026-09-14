@@ -1,5 +1,12 @@
 # @perch/bus
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [ea81bde]
+  - @perch/events@0.0.2
+
 ## 0.0.1
 
 ### Patch Changes

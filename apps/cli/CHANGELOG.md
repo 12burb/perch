@@ -1,5 +1,13 @@
 # @perch/cli
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [ea81bde]
+  - @perch/runner@0.1.0
+  - @perch/api@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes

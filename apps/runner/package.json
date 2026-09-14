@@ -1,6 +1,6 @@
 {
   "name": "@perch/runner",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Runner agent: PTY, engines, fs, git, ports, preview tunnel (spec \u00a73.2, \u00a77.6).",
   "license": "AGPL-3.0-only",

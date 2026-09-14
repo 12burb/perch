@@ -1,6 +1,6 @@
 {
   "name": "@perch/api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Hono on Bun: HTTP + WebSocket api, supervisor and worker entrypoints (spec \u00a73.1).",
   "license": "AGPL-3.0-only",
