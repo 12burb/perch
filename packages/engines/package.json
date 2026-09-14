@@ -1,0 +1,19 @@
+{
+  "name": "@perch/engines",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Engine interface and adapters: acp, opencode, cli-harness, native, hermes (spec §3.3).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@opencode-ai/sdk": "1.18.30",
+    "zod": "4.6.3"
+  }
+}

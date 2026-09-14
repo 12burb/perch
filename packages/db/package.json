@@ -1,0 +1,30 @@
+{
+  "name": "@perch/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drizzle schema (spec §6), migrations, jsonb shapes, Db factory for postgres and pglite.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./shapes": "./src/shapes/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate && bun scripts/embed-migrations.ts",
+    "migrate": "bun src/cli/migrate.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9",
+    "zod": "4.6.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10"
+  }
+}

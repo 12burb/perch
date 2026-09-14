@@ -1,0 +1,14 @@
+{
+  "name": "@perch/inspector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev plugins (vite, next, webpack) and the injected inspector client (spec §5.6).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

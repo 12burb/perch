@@ -1,0 +1,15 @@
+{
+  "name": "@perch/spike-acp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: the ACP SDK client initializes an agent, streams a session, and answers a permission",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.4.0"
+  }
+}

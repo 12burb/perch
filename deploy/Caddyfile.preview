@@ -1,0 +1,15 @@
+# Perch reverse proxy with the preview wildcard (spec §5.6): *.<PERCH_PREVIEW_DOMAIN> gets one wildcard
+# certificate through the DNS challenge (CADDY_DNS_PROVIDER + CADDY_DNS_TOKEN; the Caddy image is built
+# with the matching caddy-dns module, deploy/Dockerfile.caddy).
+{$PERCH_PUBLIC_URL} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}
+
+*.{$PERCH_PREVIEW_DOMAIN} {
+	encode zstd gzip
+	tls {
+		dns {$CADDY_DNS_PROVIDER} {$CADDY_DNS_TOKEN}
+	}
+	reverse_proxy api:3000
+}

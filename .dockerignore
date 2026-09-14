@@ -1,0 +1,13 @@
+# Build context for deploy/Dockerfile.api (context: the repo root). Installs and builds happen inside the
+# image; nothing generated, cached, or secret goes in.
+.git
+.github
+**/node_modules
+**/dist
+**/.turbo
+**/test-results
+**/playwright-report
+**/playwright/.cache
+.env
+**/.env
+docs

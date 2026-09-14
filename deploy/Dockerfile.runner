@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+# perch/runner base (spec §3.1, §8): Ubuntu 24.04 with Bun, Node LTS, Python + uv, git, ripgrep, tmux,
+# and Playwright's Chromium. The runner agent entrypoint, the pinned OpenCode binary, and the official
+# CLIs (claude, codex, gemini, hermes) are added by the Phase 1 runner tasks (1.1–1.3); this stage is
+# the base they build on. Homes live at /data/homes/<user>; projects at /data/projects.
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
+ARG BUN_VERSION=1.3.11
+ARG NODE_VERSION=24.21.0
+ARG UV_VERSION=0.12.13
+ARG PLAYWRIGHT_VERSION=1.62.1
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    BUN_INSTALL=/opt/bun \
+    UV_INSTALL_DIR=/opt/uv \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    PATH=/opt/bun/bin:/opt/uv:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl unzip xz-utils git ripgrep tmux openssh-client jq less procps \
+      python3 python3-venv build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node LTS from the official tarball, verified against SHASUMS256.
+RUN set -eux; \
+    case "${TARGETARCH}" in amd64) arch=x64 ;; arm64) arch=arm64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz"; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"; \
+    grep " node-v${NODE_VERSION}-linux-${arch}.tar.xz\$" SHASUMS256.txt | sha256sum -c -; \
+    mkdir -p /opt/node && tar -xJf "node-v${NODE_VERSION}-linux-${arch}.tar.xz" -C /opt/node --strip-components=1; \
+    rm -f "node-v${NODE_VERSION}-linux-${arch}.tar.xz" SHASUMS256.txt; \
+    node --version
+
+# Bun, pinned.
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --version
+
+# uv (and through it, Python toolchains), pinned.
+RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && uv --version
+
+# Playwright's Chromium and its system dependencies (agent eyes and preview screenshots, spec §5.6).
+RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium && rm -rf /root/.npm
+
+RUN groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
+    && mkdir -p /data/homes /data/projects && chown -R perch:perch /data /opt/pw-browsers
+USER perch
+WORKDIR /data/projects
+# The runner agent (task 1.1) replaces this with its entrypoint.
+CMD ["bash", "-lc", "echo 'perch runner base image: the runner agent arrives with task 1.1' && sleep infinity"]

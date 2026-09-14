@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1.7
+# Caddy with a DNS-challenge module for the preview wildcard certificate (spec §3.1, §5.6).
+# CADDY_DNS_MODULE selects the provider plugin (default cloudflare); leave the wildcard block out of
+# the Caddyfile (perch init without --preview-domain) when previews run in path mode (ADR-0036).
+ARG CADDY_VERSION=2.11.4
+FROM caddy:${CADDY_VERSION}-builder AS builder
+ARG CADDY_DNS_MODULE=github.com/caddy-dns/cloudflare
+RUN xcaddy build --with ${CADDY_DNS_MODULE}
+
+FROM caddy:${CADDY_VERSION}
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

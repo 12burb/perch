@@ -1,0 +1,12 @@
+{
+  "name": "@perch/spike-cloudflared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: OAuth callback and webhook reach the api through a cloudflared tunnel",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  }
+}

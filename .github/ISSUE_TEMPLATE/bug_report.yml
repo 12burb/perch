@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in Perch does not behave as documented
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security issues go through GitHub Security Advisories (see SECURITY.md), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Perch version
+      description: Output of `perch --version` or the image tag, plus the commit if you run from source.
+      placeholder: 0.1.0 / ghcr.io/12burb/perch-api:0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options:
+        - docker compose (team mode)
+        - perch binary (laptop mode)
+        - from source (bun run dev)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. Open ... 2. Click ... 3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour (include logs; redact tokens and keys)
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS and version, browser, engines and models in use, runner kind (hosted, local, remote).

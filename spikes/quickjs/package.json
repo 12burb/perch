@@ -1,0 +1,15 @@
+{
+  "name": "@perch/spike-quickjs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: a code bot in QuickJS with a 200 ms CPU budget, no host access, and a tool round trip",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "quickjs-emscripten": "0.32.0"
+  }
+}

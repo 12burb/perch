@@ -1,0 +1,11 @@
+# Caddy with DNS-challenge modules for the preview wildcard (spec §3.1, §8). Built and published as
+# ghcr.io/12burb/perch-caddy by the release workflow; deploy/Dockerfile.caddy is the shipped copy.
+FROM caddy:2-builder AS builder
+RUN xcaddy build \
+    --with github.com/caddy-dns/cloudflare \
+    --with github.com/caddy-dns/route53 \
+    --with github.com/caddy-dns/digitalocean \
+    --with github.com/caddy-dns/hetzner
+
+FROM caddy:2
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

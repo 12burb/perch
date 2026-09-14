@@ -7,31 +7,34 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
 
 ## Phase 0 — Foundation
 
-- [ ] **0.1** Repo scaffold: Bun workspaces, Turborepo, Biome, strict TS, Changesets, Renovate, PR and issue templates, LICENSE (AGPL-3.0) + MIT licenses in bot-sdk, ui, events, api-client, connectors, templates (CI green on the empty monorepo)
-- [ ] **0.2** Governance files per §9.2 (all present; DCO check enforced)
-- [ ] **0.3** Dependency resolution: exact package names and versions for §2 from official docs, pinned; DECISIONS entry per non-obvious pick (lockfile committed)
-- [ ] **0.4** Spikes from §9.3, one PR each, outcomes in DECISIONS.md ∥ (every spike has a recorded pass or fallback)
-  - [ ] **0.4.1** PTY on Bun
-  - [ ] **0.4.2** ACP handshake
-  - [ ] **0.4.3** OpenCode SDK
-  - [ ] **0.4.4** PGlite
-  - [ ] **0.4.5** QuickJS sandbox
-  - [ ] **0.4.6** better-auth on Bun
-  - [ ] **0.4.7** dockerode from Bun
-  - [ ] **0.4.8** Caddy wildcard
-  - [ ] **0.4.9** Preview tunnel over a local runner
-  - [ ] **0.4.10** cloudflared profile
-- [ ] **0.5** packages/db: Drizzle schema for identity, tenancy, projects, runners, channels, messages, files, instance_settings; Db factory for postgres and pglite; migrations; PGlite test harness (schema tests pass on both drivers)
-- [ ] **0.6** packages/events, bus, jobs, vault with unit tests (queue survives worker crash, cron fires, vault round-trips and rotates)
-- [ ] **0.7** apps/api skeleton: Hono + zod-openapi, error model, request logging, health, version, OpenAPI at /api/openapi.json, generated TS client (GET /api/health typed end to end)
-- [ ] **0.8** Auth: better-auth with Drizzle adapter, email+password, passkeys, generic OIDC, users profile row, invites, api_tokens (Playwright: sign up, sign in with passkey, invite accepted)
-- [ ] **0.9** Workspaces, memberships, RBAC, authorize() middleware, audit log via bus (member cannot read another workspace; audit rows appear)
-- [ ] **0.10** WS server: subscribe, resume with seq, presence, typing (two tabs see each other's presence; reconnect replays)
-- [ ] **0.11** packages/ui: tokens, dark and light themes, shadcn base, Shell, Rail, Sidebar, Panel, Drawer, CommandPalette, Peek, Composer skeleton (Playwright component tests; axe passes)
-- [ ] **0.12** apps/web shell: routes for the six rail tabs, mobile tab bar, empty states, profile and workspace settings (390 px and 1440 px screenshots in the PR)
-- [ ] **0.13** Deploy: Dockerfile.api, Dockerfile.runner base, compose, Caddyfile, `perch init`, setup wizard (admin, workspace, PERCH_PUBLIC_URL, telemetry checkbox) (fresh Ubuntu VM: docker compose up → wizard → sign in)
-- [ ] **0.14** apps/cli skeleton: perch dev on PGlite with in-process runner stub, perch doctor, perch backup|restore (laptop smoke test in CI on Linux, macOS, Windows)
-- [ ] **0.15** CI pipeline per §8 including multi-arch image publish on tag and cosign (a tagged pre-release publishes signed images)
+Every task below and D.1 ship together in [PR #1](https://github.com/12burb/perch/pull/1) (one branch for
+the phase, ADR-0018); each line names the commit that carries its evidence.
+
+- [x] **0.1** Repo scaffold: Bun workspaces, Turborepo, Biome, strict TS, Changesets, Renovate, PR and issue templates, LICENSE (AGPL-3.0) + MIT licenses in bot-sdk, ui, events, api-client, connectors, templates (CI green on the empty monorepo) — commit `feat(scaffold): bun workspaces, turborepo, biome, strict ts, changesets, renovate` (ADR-0018)
+- [x] **0.2** Governance files per §9.2 (all present; DCO check enforced) — commit `docs(governance): readme, contributing, conduct, security, governance, pledge, dco check`
+- [x] **0.3** Dependency resolution: exact package names and versions for §2 from official docs, pinned; DECISIONS entry per non-obvious pick (lockfile committed) — commit `chore(deps): resolve and pin the §2 stack` (ADR-0019..0028)
+- [x] **0.4** Spikes from §9.3, one PR each, outcomes in DECISIONS.md ∥ (every spike has a recorded pass or fallback) — commit `feat(spikes): phase 0 spikes with recorded outcomes` (ADR-0029..0038; `spikes/README.md`)
+  - [x] **0.4.1** PTY on Bun — fallback: bun-pty (ADR-0029)
+  - [x] **0.4.2** ACP handshake — pass (ADR-0030)
+  - [x] **0.4.3** OpenCode SDK — pass, streamed reply gated on a key (ADR-0031)
+  - [x] **0.4.4** PGlite — pass (ADR-0032)
+  - [x] **0.4.5** QuickJS sandbox — pass (ADR-0033)
+  - [x] **0.4.6** better-auth on Bun — pass at the HTTP level; browser passkeys in 0.8 (ADR-0034)
+  - [x] **0.4.7** dockerode from Bun — passes in CI; execs never hijack the connection (ADR-0035)
+  - [x] **0.4.8** Caddy wildcard — deferred; path mode is the default (ADR-0036)
+  - [x] **0.4.9** Preview tunnel over a local runner — pass (ADR-0037)
+  - [x] **0.4.10** cloudflared profile — deferred; Tailscale documented (ADR-0038)
+- [x] **0.5** packages/db: Drizzle schema for identity, tenancy, projects, runners, channels, messages, files, instance_settings; Db factory for postgres and pglite; migrations; PGlite test harness (schema tests pass on both drivers) — commit `feat(db): drizzle schema, db factory, embedded migrations, pglite harness` (ADR-0039, ADR-0040)
+- [x] **0.6** packages/events, bus, jobs, vault with unit tests (queue survives worker crash, cron fires, vault round-trips and rotates) — commit `feat(core): events catalog, in-process bus, postgres job queue, vault` (ADR-0041)
+- [x] **0.7** apps/api skeleton: Hono + zod-openapi, error model, request logging, health, version, OpenAPI at /api/openapi.json, generated TS client (GET /api/health typed end to end) — commit `feat(api): hono skeleton with openapi, error model, request logging, typed client` (ADR-0042, ADR-0043)
+- [x] **0.8** Auth: better-auth with Drizzle adapter, email+password, passkeys, generic OIDC, users profile row, invites, api_tokens (Playwright: sign up, sign in with passkey, invite accepted) — commit `feat(auth): better-auth with passkeys and OIDC, profiles, invites, api tokens` (ADR-0044..0050; `bun run e2e`: e2e/auth.e2e.ts, 6 passed at 1440 px and 390 px)
+- [x] **0.9** Workspaces, memberships, RBAC, authorize() middleware, audit log via bus (member cannot read another workspace; audit rows appear) — commit `feat(workspaces): rbac with authorize(), members, and the audit log via the bus` (ADR-0051..0053; apps/api/test/workspaces.test.ts, packages/policy/test/authorize.test.ts)
+- [x] **0.10** WS server: subscribe, resume with seq, presence, typing (two tabs see each other's presence; reconnect replays) — commit `feat(ws): /api/ws with subscribe, resume, presence, and typing` (ADR-0054; apps/api/test/ws.test.ts; e2e/presence.e2e.ts)
+- [x] **0.11** packages/ui: tokens, dark and light themes, shadcn base, Shell, Rail, Sidebar, Panel, Drawer, CommandPalette, Peek, Composer skeleton (Playwright component tests; axe passes) — commit `feat(ui): tokens, themes, shadcn base, and the shell components with component tests` (ADR-0055; `bun run ct`: packages/ui/src/**/*.ct.tsx)
+- [x] **0.12** apps/web shell: routes for the six rail tabs, mobile tab bar, empty states, profile and workspace settings (390 px and 1440 px screenshots in the PR) — commit `feat(web): the shell with six modes, mobile tab bar, empty states, and settings` (ADR-0056; e2e/shell.e2e.ts; screenshots in docs/screenshots/0.12)
+- [x] **0.13** Deploy: Dockerfile.api, Dockerfile.runner base, compose, Caddyfile, `perch init`, setup wizard (admin, workspace, PERCH_PUBLIC_URL, telemetry checkbox) (fresh Ubuntu VM: docker compose up → wizard → sign in) — commit `feat(deploy): dockerfiles, compose, caddy, perch init, and the setup wizard` (ADR-0057, ADR-0058; apps/api/test/setup.test.ts, apps/cli/test/init.test.ts, e2e/00-setup.e2e.ts; the compose smoke on a fresh VM runs in CI, task 0.15)
+- [x] **0.14** apps/cli skeleton: perch dev on PGlite with in-process runner stub, perch doctor, perch backup|restore (laptop smoke test in CI on Linux, macOS, Windows) — commit `feat(cli): perch dev on PGlite with the in-process runner, doctor, backup, and restore` (ADR-0059; apps/cli/test/laptop.test.ts is the laptop smoke; the macOS and Windows legs run in CI, task 0.15)
+- [x] **0.15** CI pipeline per §8 including multi-arch image publish on tag and cosign (a tagged pre-release publishes signed images) — commit `ci: the §8 pipeline, weekly CodeQL, changesets, and the signed multi-arch release` (ADR-0060; .github/workflows/{ci,codeql,changesets,release}.yml; a tagged pre-release is exercised by the release workflow itself)
 
 ## Phase 1 — IDE core
 
@@ -89,3 +92,9 @@ Written at the Phase 2 gate (spec §10) and reviewed by the human before startin
 ## Phase 4 — Gateway, hardening, launch
 
 Written at the Phase 3 gate (spec §10) and reviewed by the human before starting.
+
+## Beyond the spec
+
+- [x] **D.1** Desktop app: `apps/desktop` / `perch-desktop`, laptop mode in a native window on macOS,
+  Windows, and Linux, built per platform by the release workflow — commit `feat(desktop): the Perch
+  desktop app` (ADR-0063; apps/desktop/test/desktop.test.ts, the laptop-smoke desktop steps)

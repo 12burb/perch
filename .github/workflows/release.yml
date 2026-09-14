@@ -1,0 +1,219 @@
+name: Release
+
+# Spec §8 on tag: multi-arch build/push to GHCR, cosign (keyless), SBOM, perch binaries per platform,
+# npm publish of the perch package, SDK generation. A pre-release tag (v1.2.3-rc.1) publishes signed
+# images tagged with the pre-release version and no `latest`. Docs deploy arrives with the docs site
+# (Phase 4).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/perch
+
+jobs:
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$tag" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+
+  artifacts:
+    name: Web build, SDK, binaries, npm package
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @perch/web build
+      - name: SDK generation
+        run: bun run sdk:generate
+      - name: perch binaries and the perch-dev npm package
+        run: bun run build:cli -- --version ${{ needs.meta.outputs.version }}
+      - name: Checksums
+        working-directory: dist/cli
+        run: sha256sum perch-* > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli
+          path: |
+            dist/cli/perch-*
+            dist/cli/SHA256SUMS
+            dist/cli/npm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdk
+          path: |
+            packages/api-client/openapi.json
+            packages/api-client/src/schema.d.ts
+
+  desktop:
+    name: Desktop app on ${{ matrix.os }}
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @perch/web build
+      - name: Desktop prerequisites (WebKitGTK, libxdo)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libxdo3
+      - name: Build the desktop app
+        run: bun scripts/build-desktop.ts --out dist/desktop --version ${{ needs.meta.outputs.version }}
+      - name: Check the native layer from the binary
+        shell: bash
+        run: '"dist/desktop/$(cat dist/desktop/BINARY)" --check'
+      - name: Checksums
+        shell: bash
+        working-directory: dist/desktop
+        run: |
+          sum() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          files=$(ls perch-desktop-* Perch-*.app.zip 2>/dev/null || true)
+          sum $files > "SHA256SUMS-desktop-${{ matrix.os }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            dist/desktop/perch-desktop-*
+            dist/desktop/Perch-*.app.zip
+            dist/desktop/SHA256SUMS-desktop-*
+
+  images:
+    name: Image ${{ matrix.image }}
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            dockerfile: deploy/Dockerfile.api
+            context: .
+          - image: runner
+            dockerfile: deploy/Dockerfile.runner
+            context: deploy
+          - image: caddy
+            dockerfile: deploy/Dockerfile.caddy
+            context: deploy
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tags
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.meta.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.meta.outputs.prerelease == 'false' }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.tags.outputs.labels }}
+          build-args: |
+            PERCH_VERSION=${{ needs.meta.outputs.version }}
+            PERCH_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign the image (keyless, Sigstore)
+        run: cosign sign --yes "${{ env.IMAGE_PREFIX }}-${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          image: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.image }}.spdx.json
+          upload-artifact: false
+      - name: Attest the SBOM
+        run: cosign attest --yes --type spdxjson --predicate sbom-${{ matrix.image }}.spdx.json "${{ env.IMAGE_PREFIX }}-${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ matrix.image }}
+          path: sbom-${{ matrix.image }}.spdx.json
+
+  publish:
+    name: GitHub release and npm
+    needs: [meta, artifacts, desktop, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+      - name: GitHub release (pre-release when the tag has a suffix)
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ needs.meta.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            release/cli/perch-*
+            release/cli/SHA256SUMS
+            release/desktop-*/perch-desktop-*
+            release/desktop-*/Perch-*.app.zip
+            release/desktop-*/SHA256SUMS-desktop-*
+            release/sdk/openapi.json
+            release/sbom-*/sbom-*.spdx.json
+      - name: npm publish perch-dev (skipped without NPM_TOKEN)
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: release/cli/npm
+        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

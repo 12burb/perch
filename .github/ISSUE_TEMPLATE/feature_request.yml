@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a change. Big changes (licensing, runner protocol, Bot API, policy schema, the pledge) go through an RFC in docs/rfcs.
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: dropdown
+    id: reference
+    attributes:
+      label: Which reference or the wedge does this trace to?
+      description: Spec §4 — every screen traces to OpenCode, Slack, Cursor, Plane, or the agent loop.
+      options:
+        - OpenCode (session-first coding)
+        - Slack (navigation and messaging)
+        - Cursor (editor and review)
+        - Plane (work management)
+        - The wedge (the agent loop, spec §5.7)
+        - Connections, brains, or deploy
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

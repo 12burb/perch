@@ -1,0 +1,35 @@
+name: Changesets
+
+# Spec §8: changesets produce the changelog. On main, this keeps a "Version Packages" pull request up
+# to date; merging it bumps versions and CHANGELOGs, and tagging the merge commit `v<version>` runs
+# release.yml.
+on:
+  push:
+    branches: [main]
+
+concurrency: changesets-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: Version pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - uses: changesets/action@v2
+        with:
+          version: bun run version
+          title: "chore(release): version packages"
+          commit: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,4 @@
+/* The @perch/ui stylesheet for hosts that do not run their own Tailwind build (the CT harness). */
+@import "tailwindcss";
+@import "./tokens/tokens.css";
+@source "./";

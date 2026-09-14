@@ -76,7 +76,8 @@ starting anything new.
 ## 4. Repo map
 
 `apps/web` (React PWA), `apps/api` (Hono on Bun; also the supervisor entrypoint), `apps/runner` (PTY, engines,
-fs, git, ports, preview tunnel), `apps/cli` (`perch` binary), `packages/*` (db, events, bus, jobs, vault,
+fs, git, ports, preview tunnel), `apps/cli` (`perch` binary), `apps/desktop` (`perch-desktop`: laptop mode in a
+native window, ADR-0063), `packages/*` (db, events, bus, jobs, vault,
 gateway, engines, connect, bots, policy, preview, inspector, bot-sdk, ui, api-client), `connectors/`
 (manifests), `templates/`, `deploy/`, `docs/`, `spikes/` (Phase 0 spikes, kept runnable), `scripts/`.
 
@@ -89,6 +90,8 @@ gateway, engines, connect, bots, policy, preview, inspector, bot-sdk, ui, api-cl
 - Typed `PerchError(code, message, details, status)`; wire shape in spec §7.8; never leak stacks or secrets.
 - `authorize(ctx, action, resource)` from `packages/policy` in every handler; workspace scoping enforced in
   repositories.
+- Query parameters are bound through column encoders: drizzle operators or `sql.param(value, column)`;
+  never a bare `Date` (or other typed value) inside a `` sql`…` `` template (ADR-0061).
 - Migrations generated with `drizzle-kit`, committed, run on boot under an advisory lock, never edited once
   shipped.
 - pino, one line per request with `request_id`, `workspace_id`, `user_id`; secrets redacted by key list.

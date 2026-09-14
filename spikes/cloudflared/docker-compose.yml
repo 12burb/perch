@@ -1,0 +1,15 @@
+# Spike 0.4.10 — the `tunnel` profile (spec §3.1, §8). Run with a real tunnel token:
+#   TUNNEL_TOKEN=... PERCH_PUBLIC_URL=https://perch.example.com \
+#   docker compose -f spikes/cloudflared/docker-compose.yml --profile tunnel up
+# then: bun spikes/cloudflared/check.ts
+services:
+  api:
+    image: hashicorp/http-echo:1.0
+    command: ["-listen=:3000", "-text={\"status\":\"ok\",\"via\":\"cloudflared\"}"]
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      - TUNNEL_TOKEN
+    depends_on: [api]

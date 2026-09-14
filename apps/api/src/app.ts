@@ -1,0 +1,141 @@
+/**
+ * The Hono app (spec §7.1): every route under /api, OpenAPI at /api/openapi.json as the source of truth,
+ * the Perch-Version header, the §7.8 error model, one log line per request, and the built web app
+ * served from apps/web/dist when it exists.
+ */
+import { existsSync } from "node:fs";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { serveStatic } from "hono/bun";
+import { secureHeaders } from "hono/secure-headers";
+import { authenticate, requireUser } from "./auth/middleware.ts";
+import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
+import { errorHandler, fromZodError, PerchError } from "./errors.ts";
+import { requestLogger } from "./logging.ts";
+import { registerHealth } from "./routes/health.ts";
+import { registerInstance } from "./routes/instance.ts";
+import { registerMe } from "./routes/me.ts";
+import { registerSetup } from "./routes/setup.ts";
+import { registerVersion } from "./routes/version.ts";
+import { registerWorkspaces } from "./routes/workspaces.ts";
+import { isSetupComplete } from "./services/setup.ts";
+import type { WsServer } from "./ws/server.ts";
+
+export type AppOptions = {
+  /** Directory of the built web app to serve at /; skipped when it does not exist. */
+  webDist?: string;
+  /** Embedded web app (the compiled perch binary): url path → file path readable by Bun.file. */
+  webAssets?: Record<string, string>;
+  /** The WebSocket server for /api/ws (spec §7.2); absent in tests that only need HTTP. */
+  ws?: WsServer;
+};
+
+export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<AppEnv> {
+  const app = new OpenAPIHono<AppEnv>({
+    defaultHook: (result, c) => {
+      if (!result.success) {
+        const requestId = c.get("requestId") ?? "unknown";
+        const error = fromZodError(result.error, "request");
+        return c.json(error.toBody(requestId), 422);
+      }
+    },
+  });
+
+  app.use("*", requestLogger(deps.log));
+  app.use("*", secureHeaders({ crossOriginEmbedderPolicy: false }));
+  app.use("/api/*", async (c, next) => {
+    const requested = c.req.header("perch-version");
+    if (requested && !SUPPORTED_API_VERSIONS.includes(requested)) {
+      throw PerchError.validation(`unsupported Perch-Version ${requested}`, {
+        supported: [...SUPPORTED_API_VERSIONS],
+      });
+    }
+    c.header("Perch-Version", API_VERSION);
+    await next();
+  });
+
+  app.onError(errorHandler);
+  app.notFound((c) => {
+    const error = PerchError.notFound("route", { path: c.req.path });
+    return c.json(error.toBody(c.get("requestId") ?? "unknown"), 404);
+  });
+
+  // Nobody signs up before the setup wizard has created the admin (ADR-0057).
+  app.post("/api/auth/sign-up/*", async (_c, next) => {
+    if (!(await isSetupComplete(deps.db.db))) {
+      throw PerchError.forbidden("complete setup before signing up", { reason: "setup_required" });
+    }
+    await next();
+  });
+  // better-auth owns /api/auth/* (spec §7.1); everything else resolves the caller first.
+  app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
+  app.use("/api/*", authenticate(deps));
+
+  if (options.ws) {
+    // Upgrades need a signed-in user (cookie or bearer); the §7.8 forbidden body is returned otherwise.
+    app.get("/api/ws", requireUser, options.ws.handler);
+  }
+
+  registerHealth(app, deps);
+  registerVersion(app, deps);
+  registerInstance(app, deps);
+  registerSetup(app, deps);
+  registerMe(app, deps);
+  registerWorkspaces(app, deps);
+
+  app.doc31("/api/openapi.json", {
+    openapi: "3.1.0",
+    info: {
+      title: "Perch API",
+      version: API_VERSION,
+      description:
+        "The Perch REST contract (spec §7.1). Versioned by the Perch-Version header; this document is the source of truth for the generated SDKs.",
+      license: { name: "AGPL-3.0-only", url: "https://www.gnu.org/licenses/agpl-3.0.html" },
+    },
+    servers: [{ url: deps.env.publicUrl }],
+  });
+  app.openAPIRegistry.registerComponent("securitySchemes", "session", {
+    type: "apiKey",
+    in: "cookie",
+    name: "better-auth.session_token",
+  });
+  app.openAPIRegistry.registerComponent("securitySchemes", "bearer", {
+    type: "http",
+    scheme: "bearer",
+    description:
+      "An api token (SDKs, the MCP server), a pk_ virtual key (/v1, /mcp), or a bot token.",
+  });
+
+  // The web app answers everything that is not an api, preview, hook, MCP, or gateway path.
+  const webDist = options.webDist;
+  if (webDist && existsSync(webDist)) {
+    const files = serveStatic({ root: webDist });
+    const index = serveStatic({ root: webDist, path: "index.html" });
+    app.use("/*", (c, next) => (isReservedPath(c.req.path) ? next() : files(c, next)));
+    app.get("/*", (c, next) => (isReservedPath(c.req.path) ? next() : index(c, next)));
+  } else if (options.webAssets?.["/index.html"]) {
+    const assets = options.webAssets;
+    app.get("/*", (c, next) =>
+      isReservedPath(c.req.path) ? next() : serveEmbedded(assets, c.req.path),
+    );
+  }
+
+  return app;
+}
+
+/** Paths the api owns (spec §7.1, §5.6, §7.5): never answered by the web app's SPA fallback. */
+export function isReservedPath(path: string): boolean {
+  return /^\/(api|p|hooks|mcp|v1)(\/|$)/.test(path);
+}
+
+/** Serves an embedded asset map with the SPA fallback; hashed assets are immutable, index.html is not. */
+export function serveEmbedded(assets: Record<string, string>, path: string): Response {
+  const hit = assets[path];
+  const file = hit ?? assets["/index.html"];
+  if (!file) return new Response("not found", { status: 404 });
+  const headers = new Headers();
+  headers.set(
+    "cache-control",
+    hit && path.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+  );
+  return new Response(Bun.file(file), { headers });
+}

@@ -1,0 +1,54 @@
+{
+  "name": "perch-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Perch: a self-hosted agentic workspace. IDE + team chat + bots + connections + model gateway, in one TypeScript monorepo on Bun.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/12burb/perch.git"
+  },
+  "packageManager": "bun@1.3.11",
+  "engines": {
+    "bun": ">=1.3.11"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "connectors",
+    "templates",
+    "spikes/*",
+    "scripts"
+  ],
+  "scripts": {
+    "check": "bun run lint && bun run typecheck && bun run test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
+    "test": "bun test",
+    "e2e": "playwright test",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "db:generate": "bun run --filter @perch/db generate",
+    "db:migrate": "bun run --filter @perch/db migrate",
+    "perf": "bun scripts/perf-budget.ts",
+    "changeset": "changeset",
+    "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate",
+    "ct": "bun run --filter @perch/ui test:ct",
+    "build:cli": "bun scripts/build-cli.ts",
+    "version": "changeset version && bun install"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@biomejs/biome": "2.5.13",
+    "@changesets/cli": "3.0.2",
+    "@playwright/test": "1.62.1",
+    "@types/bun": "1.4.2",
+    "oauth2-mock-server": "9.2.0",
+    "turbo": "2.10.12",
+    "typescript": "7.0.2"
+  },
+  "trustedDependencies": [
+    "node-pty"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@perch/spike-pglite",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: PGlite in memory: vector, citext, tsvector, SKIP LOCKED",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9"
+  }
+}

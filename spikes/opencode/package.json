@@ -1,0 +1,17 @@
+{
+  "name": "@perch/spike-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: opencode serve + SDK: create session, send prompt, stream events, diff, list sessions",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepare-binary": "node node_modules/opencode-ai/postinstall.mjs"
+  },
+  "devDependencies": {
+    "@opencode-ai/sdk": "1.18.30",
+    "opencode-ai": "1.18.30"
+  }
+}

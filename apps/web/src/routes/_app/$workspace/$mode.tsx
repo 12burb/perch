@@ -1,0 +1,100 @@
+import { Avatar, Badge, EmptyState, Input, type RailMode, t } from "@perch/ui";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, notFound } from "@tanstack/react-router";
+import { Bot, Code, Inbox, MessageSquare, Search, SquareKanban } from "lucide-react";
+import type { ComponentType } from "react";
+import { membersQuery } from "../../../lib/queries.ts";
+import { usePresence } from "../../../lib/ws.ts";
+import { useAppShell } from "../../../shell/app-shell.tsx";
+import { ModePage } from "../../../shell/mode-page.tsx";
+
+const MODES: RailMode[] = ["home", "code", "work", "bots", "inbox", "search"];
+
+/** One route for the six rail tabs; each mode renders its empty state until its phase lands. */
+export const Route = createFileRoute("/_app/$workspace/$mode")({
+  beforeLoad: ({ params }) => {
+    if (!MODES.includes(params.mode as RailMode)) throw notFound();
+    return { mode: params.mode as RailMode };
+  },
+  component: ModeRoute,
+});
+
+const ICONS: Record<RailMode, ComponentType<{ className?: string; "aria-hidden"?: "true" }>> = {
+  home: MessageSquare,
+  code: Code,
+  work: SquareKanban,
+  bots: Bot,
+  inbox: Inbox,
+  search: Search,
+};
+
+function ModeRoute() {
+  const { mode } = Route.useRouteContext();
+  const { shell, workspace } = useAppShell();
+  if (!workspace) return null;
+  const Icon = ICONS[mode];
+  return (
+    <ModePage title={t(`ui.mode.${mode}`)} subtitle={workspace.name} shell={shell}>
+      {mode === "home" ? <HomeMain workspaceId={workspace.id} /> : null}
+      {mode === "search" ? (
+        <div className="p-4">
+          <label htmlFor="search" className="sr-only">
+            {t("shell.search.placeholder")}
+          </label>
+          <Input
+            id="search"
+            type="search"
+            placeholder={t("shell.search.placeholder")}
+            autoComplete="off"
+          />
+        </div>
+      ) : null}
+      <EmptyState
+        icon={<Icon className="size-8" aria-hidden="true" />}
+        title={t(`shell.${mode}.emptyTitle`)}
+        hint={t(`shell.${mode}.emptyHint`)}
+      />
+    </ModePage>
+  );
+}
+
+/** Home shows the people in the workspace with live presence until channels arrive (Phase 2). */
+function HomeMain(props: { workspaceId: string }) {
+  const members = useQuery(membersQuery(props.workspaceId)).data ?? [];
+  const presence = usePresence(props.workspaceId);
+  const online = [...presence.values()].filter((status) => status === "online").length;
+  return (
+    <section aria-labelledby="members-heading" className="border-b border-border p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 id="members-heading" className="text-md font-semibold">
+          {t("shell.home.members")}
+        </h2>
+        <span className="text-sm text-fg-muted" data-testid="online-count" aria-live="polite">
+          {t("home.online", { count: online })}
+        </span>
+      </div>
+      <ul aria-label={t("shell.home.members")} className="flex flex-wrap gap-2">
+        {members.map((member) => {
+          const status = presence.get(member.user_id);
+          return (
+            <li
+              key={member.user_id}
+              className="flex items-center gap-2 rounded border border-border px-2 py-1"
+            >
+              <span className="relative">
+                <Avatar name={member.name} size="sm" />
+                <span
+                  aria-hidden="true"
+                  className={`absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border border-surface ${status === "online" ? "bg-success" : status === "away" ? "bg-warning" : "bg-fg-subtle"}`}
+                />
+              </span>
+              <span className="text-sm">{member.name}</span>
+              <Badge>{t(`home.role.${member.role}`)}</Badge>
+              <span className="sr-only">{status ?? "offline"}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}

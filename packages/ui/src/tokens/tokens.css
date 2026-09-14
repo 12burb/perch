@@ -1,0 +1,225 @@
+/*
+ * Perch design tokens (spec §4 "Visual"): dark-first with a light theme, a neutral surface scale
+ * (base, surface, raised, overlay) plus one accent, semantic color only for diff add/remove, work item
+ * states, the BOT badge, permission amber, and error red; 13/14 px UI sans, mono for code; 6 px radius;
+ * 1 px hairline borders; 120–180 ms motion, reduced motion honored; compact/comfortable density.
+ * `data-theme="dark|light"` on <html> wins over the system preference; `data-density="compact"` tightens.
+ */
+:root {
+  --perch-font-sans:
+    Inter, Geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --perch-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --perch-text-sm: 13px;
+  --perch-text-md: 14px;
+  --perch-radius: 6px;
+  --perch-radius-lg: 10px;
+  --perch-hairline: 1px;
+  --perch-motion-fast: 120ms;
+  --perch-motion: 160ms;
+  --perch-motion-slow: 180ms;
+  --perch-ease: cubic-bezier(0.2, 0, 0, 1);
+  --perch-rail-width: 56px;
+  --perch-sidebar-width: 272px;
+  --perch-panel-width: 360px;
+  --perch-drawer-height: 240px;
+  --perch-touch: 44px;
+  --perch-space-1: 4px;
+  --perch-space-2: 8px;
+  --perch-space-3: 12px;
+  --perch-space-4: 16px;
+  --perch-space-6: 24px;
+  --perch-row: 32px;
+
+  /* Light theme (the default until the media query or data-theme says otherwise). */
+  color-scheme: light;
+  --perch-base: #f6f6f4;
+  --perch-surface: #ffffff;
+  --perch-raised: #efefeb;
+  --perch-overlay: #ffffff;
+  --perch-fg: #1b1a18;
+  --perch-fg-muted: #5f5c55;
+  --perch-fg-subtle: #6f6b63;
+  --perch-border: #e2dfd8;
+  --perch-border-strong: #c9c5bc;
+  --perch-accent: #1d4fd7;
+  --perch-accent-fg: #ffffff;
+  --perch-accent-soft: #e6eeff;
+  --perch-focus: #1d4fd7;
+  --perch-danger: #a8202a;
+  --perch-danger-fg: #ffffff;
+  --perch-danger-soft: #fbe7e8;
+  --perch-warning: #8f5606;
+  --perch-warning-soft: #fdf1dc;
+  --perch-success: #146e38;
+  --perch-success-soft: #e3f5ea;
+  --perch-bot: #5f42c9;
+  --perch-bot-soft: #ece7fb;
+  --perch-diff-add: #146e38;
+  --perch-diff-add-soft: #e3f5ea;
+  --perch-diff-remove: #a8202a;
+  --perch-diff-remove-soft: #fbe7e8;
+  --perch-state-backlog: #6f6b63;
+  --perch-state-queued: #5f5c55;
+  --perch-state-running: #1d4fd7;
+  --perch-state-needs-you: #8f5606;
+  --perch-state-in-review: #5f42c9;
+  --perch-state-done: #146e38;
+  --perch-state-cancelled: #a9a59b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --perch-base: #121211;
+    --perch-surface: #1a1918;
+    --perch-raised: #232220;
+    --perch-overlay: #2a2927;
+    --perch-fg: #ecebe6;
+    --perch-fg-muted: #a6a39a;
+    --perch-fg-subtle: #7d7a72;
+    --perch-border: #2f2e2b;
+    --perch-border-strong: #45433f;
+    --perch-accent: #7aa2ff;
+    --perch-accent-fg: #0b1633;
+    --perch-accent-soft: #1d2a4d;
+    --perch-focus: #7aa2ff;
+    --perch-danger: #ff7b83;
+    --perch-danger-fg: #2b0407;
+    --perch-danger-soft: #3d1a1d;
+    --perch-warning: #f0b35a;
+    --perch-warning-soft: #3c2d14;
+    --perch-success: #5ccf8a;
+    --perch-success-soft: #16301f;
+    --perch-bot: #b39dff;
+    --perch-bot-soft: #2b2447;
+    --perch-diff-add: #5ccf8a;
+    --perch-diff-add-soft: #16301f;
+    --perch-diff-remove: #ff7b83;
+    --perch-diff-remove-soft: #3d1a1d;
+    --perch-state-backlog: #7d7a72;
+    --perch-state-queued: #a6a39a;
+    --perch-state-running: #7aa2ff;
+    --perch-state-needs-you: #f0b35a;
+    --perch-state-in-review: #b39dff;
+    --perch-state-done: #5ccf8a;
+    --perch-state-cancelled: #66635c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --perch-base: #121211;
+  --perch-surface: #1a1918;
+  --perch-raised: #232220;
+  --perch-overlay: #2a2927;
+  --perch-fg: #ecebe6;
+  --perch-fg-muted: #a6a39a;
+  --perch-fg-subtle: #7d7a72;
+  --perch-border: #2f2e2b;
+  --perch-border-strong: #45433f;
+  --perch-accent: #7aa2ff;
+  --perch-accent-fg: #0b1633;
+  --perch-accent-soft: #1d2a4d;
+  --perch-focus: #7aa2ff;
+  --perch-danger: #ff7b83;
+  --perch-danger-fg: #2b0407;
+  --perch-danger-soft: #3d1a1d;
+  --perch-warning: #f0b35a;
+  --perch-warning-soft: #3c2d14;
+  --perch-success: #5ccf8a;
+  --perch-success-soft: #16301f;
+  --perch-bot: #b39dff;
+  --perch-bot-soft: #2b2447;
+  --perch-diff-add: #5ccf8a;
+  --perch-diff-add-soft: #16301f;
+  --perch-diff-remove: #ff7b83;
+  --perch-diff-remove-soft: #3d1a1d;
+  --perch-state-backlog: #7d7a72;
+  --perch-state-queued: #a6a39a;
+  --perch-state-running: #7aa2ff;
+  --perch-state-needs-you: #f0b35a;
+  --perch-state-in-review: #b39dff;
+  --perch-state-done: #5ccf8a;
+  --perch-state-cancelled: #66635c;
+}
+
+:root[data-density="compact"] {
+  --perch-text-md: 13px;
+  --perch-row: 28px;
+  --perch-space-3: 10px;
+  --perch-space-4: 12px;
+  --perch-sidebar-width: 248px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --perch-motion-fast: 0ms;
+    --perch-motion: 0ms;
+    --perch-motion-slow: 0ms;
+  }
+}
+
+html {
+  font-family: var(--perch-font-sans);
+  font-size: var(--perch-text-md);
+  line-height: 1.45;
+  background: var(--perch-base);
+  color: var(--perch-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--perch-base);
+  color: var(--perch-fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--perch-focus);
+  outline-offset: 2px;
+}
+
+/* Tailwind v4 theme: utilities map to the tokens (bg-surface, text-fg-muted, border-border, …). */
+@theme inline {
+  --font-sans: var(--perch-font-sans);
+  --font-mono: var(--perch-font-mono);
+  --text-sm: var(--perch-text-sm);
+  --text-md: var(--perch-text-md);
+  --radius: var(--perch-radius);
+  --radius-md: var(--perch-radius);
+  --radius-lg: var(--perch-radius-lg);
+  --color-base: var(--perch-base);
+  --color-surface: var(--perch-surface);
+  --color-raised: var(--perch-raised);
+  --color-overlay: var(--perch-overlay);
+  --color-fg: var(--perch-fg);
+  --color-fg-muted: var(--perch-fg-muted);
+  --color-fg-subtle: var(--perch-fg-subtle);
+  --color-border: var(--perch-border);
+  --color-border-strong: var(--perch-border-strong);
+  --color-accent: var(--perch-accent);
+  --color-accent-fg: var(--perch-accent-fg);
+  --color-accent-soft: var(--perch-accent-soft);
+  --color-focus: var(--perch-focus);
+  --color-danger: var(--perch-danger);
+  --color-danger-fg: var(--perch-danger-fg);
+  --color-danger-soft: var(--perch-danger-soft);
+  --color-warning: var(--perch-warning);
+  --color-warning-soft: var(--perch-warning-soft);
+  --color-success: var(--perch-success);
+  --color-success-soft: var(--perch-success-soft);
+  --color-bot: var(--perch-bot);
+  --color-bot-soft: var(--perch-bot-soft);
+  --color-diff-add: var(--perch-diff-add);
+  --color-diff-add-soft: var(--perch-diff-add-soft);
+  --color-diff-remove: var(--perch-diff-remove);
+  --color-diff-remove-soft: var(--perch-diff-remove-soft);
+  --spacing-rail: var(--perch-rail-width);
+  --spacing-sidebar: var(--perch-sidebar-width);
+  --spacing-panel: var(--perch-panel-width);
+  --spacing-drawer: var(--perch-drawer-height);
+  --spacing-touch: var(--perch-touch);
+  --spacing-row: var(--perch-row);
+  --default-transition-duration: var(--perch-motion);
+  --default-transition-timing-function: var(--perch-ease);
+}

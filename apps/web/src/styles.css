@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@import "@perch/ui/tokens.css";
+@source "../../../packages/ui/src";
+
+html,
+body,
+#root {
+  height: 100%;
+}

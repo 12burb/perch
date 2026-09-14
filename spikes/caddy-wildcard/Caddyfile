@@ -1,0 +1,16 @@
+# Spike 0.4.8 — the deploy Caddyfile shape (spec §8): the public origin proxies to the api with WebSocket
+# passthrough; the preview wildcard gets one certificate through a DNS challenge.
+{
+	email {$PERCH_ACME_EMAIL}
+}
+
+{$PERCH_PUBLIC_HOST} {
+	reverse_proxy api:3000
+}
+
+*.{$PERCH_PREVIEW_DOMAIN} {
+	tls {
+		dns {$CADDY_DNS_PROVIDER} {$CADDY_DNS_TOKEN}
+	}
+	reverse_proxy api:3000
+}
