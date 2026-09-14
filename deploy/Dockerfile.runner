@@ -61,7 +61,11 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && uv --vers
 # Playwright's Chromium and its system dependencies (agent eyes and preview screenshots, spec §5.6).
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium && rm -rf /root/.npm
 
-RUN groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
+# Ubuntu 24.04 ships a stock "ubuntu" account on uid/gid 1000; the runner user takes that id instead so
+# files on the homes and projects volumes carry one owner across images.
+RUN (getent passwd ubuntu >/dev/null && userdel -r ubuntu) || true \
+    && (getent group ubuntu >/dev/null && groupdel ubuntu) || true \
+    && groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
     && mkdir -p /data/homes /data/projects && chown -R perch:perch /data /opt/pw-browsers
 COPY --from=agent --chown=perch:perch /prod /opt/perch
 USER perch
