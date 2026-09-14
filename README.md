@@ -22,7 +22,8 @@ the outcome, with cost and trace recorded.
 one (ADR-0064). Every model runs on credentials you bring: your own API keys or OpenAI-compatible endpoints
 (Ollama, LM Studio, vLLM, llama.cpp, OpenRouter…), or your own vendor subscriptions where the vendor
 permits it, kept personal and never proxied. The server is AGPL-3.0; the SDKs, UI kit, event catalog,
-connector manifests, and templates are MIT (see [`LICENSE`](LICENSE) and `docs/dependencies.md`).
+connector manifests, and templates are MIT (see [License](#license) and [`PLEDGE.md`](PLEDGE.md);
+[RFC-0001](docs/rfcs/0001-no-paid-plans.md) adds the no-paid-plans promise to the pledge).
 
 > Status: Phase 0 (foundation). The install paths below describe what ships at the end of Phase 0; the
 > IDE, chat, and bots land in Phases 1–2. See [`TASKS.md`](TASKS.md).
