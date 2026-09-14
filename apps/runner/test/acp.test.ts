@@ -229,7 +229,7 @@ describe("the ACP adapter (task 1.9)", () => {
 
   test("unknown engines and agents, absent binaries, and missing projects are refused", async () => {
     await expect(
-      newSession("0190f2d0-0000-7000-8000-0000000000e4", { engine: "opencode" }),
+      newSession("0190f2d0-0000-7000-8000-0000000000e4", { engine: "cli-harness" }),
     ).rejects.toMatchObject({
       code: -32602,
     });

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # perch/runner (spec §3.1, §3.2, §8): Ubuntu 24.04 with Bun, Node LTS, Python + uv, git, ripgrep, tmux,
-# Playwright's Chromium, and the runner agent (apps/runner, task 1.1) as the entrypoint. The pinned
-# OpenCode binary and the official CLIs (claude, codex, gemini, hermes) arrive with the engine tasks.
+# Playwright's Chromium, the pinned OpenCode binary (task 1.10), and the runner agent (apps/runner,
+# task 1.1) as the entrypoint. The official CLIs (claude, codex, gemini, hermes) arrive with their tasks.
 # Homes live at /data/homes/<user>; projects at /data/projects. Build from the repository root.
 ARG UBUNTU_VERSION=24.04
 ARG BUN_VERSION=1.3.11
@@ -29,6 +29,7 @@ ARG BUN_VERSION
 ARG NODE_VERSION=24.21.0
 ARG UV_VERSION=0.12.13
 ARG PLAYWRIGHT_VERSION=1.62.1
+ARG OPENCODE_VERSION=1.18.30
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -60,6 +61,9 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && uv --vers
 
 # Playwright's Chromium and its system dependencies (agent eyes and preview screenshots, spec §5.6).
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium && rm -rf /root/.npm
+
+# OpenCode, pinned (spec §3.3, ADR-0031): the npm package's postinstall fetches the platform binary.
+RUN npm install -g "opencode-ai@${OPENCODE_VERSION}" && opencode --version && rm -rf /root/.npm
 
 # Ubuntu 24.04 ships a stock "ubuntu" account on uid/gid 1000; the runner user takes that id instead so
 # files on the homes and projects volumes carry one owner across images.

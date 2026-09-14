@@ -1,6 +1,7 @@
 import { arch, platform } from "node:os";
 import type { RunnerCapabilities } from "@perch/db";
 import { installedAgents } from "./acp.ts";
+import { opencodeBinary } from "./opencode.ts";
 
 let toolVersions: Record<string, string> | undefined;
 
@@ -29,8 +30,9 @@ export function detectToolVersions(): Record<string, string> {
 /** What this runner can do, in the shape the api stores (spec §6 runners.capabilities). */
 export function localCapabilities(overrides: Partial<RunnerCapabilities> = {}): RunnerCapabilities {
   return {
-    // The ACP adapter runs on every runner (task 1.9); which agents are on PATH is reported too.
-    engines: ["acp"],
+    // The ACP adapter runs on every runner (task 1.9) and OpenCode where its binary is (task 1.10);
+    // which agents are on PATH is reported too.
+    engines: ["acp", ...(opencodeBinary() ? ["opencode"] : [])],
     agents: installedAgents(),
     pty: true,
     platform: platform(),

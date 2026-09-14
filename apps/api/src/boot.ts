@@ -89,10 +89,13 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const runners = new RunnerRegistry(bus);
   const engines = new EngineRegistry();
   // The ACP adapter lives on the project's runner (task 1.9): one bridge per runner link.
-  engines.register("acp", ({ link }) => {
-    if (!link) throw new EngineError("the acp engine runs on a project's runner", "unavailable");
-    return runnerEngine({ id: "acp", link });
-  });
+  for (const id of ["acp", "opencode"] as const) {
+    engines.register(id, ({ link }) => {
+      if (!link)
+        throw new EngineError(`the ${id} engine runs on a project's runner`, "unavailable");
+      return runnerEngine({ id, link });
+    });
+  }
   for (const engine of options.engines ?? []) engines.register(engine.id, engine);
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, log },

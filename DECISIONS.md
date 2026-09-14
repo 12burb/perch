@@ -2036,3 +2036,55 @@ A new registry agent is a table entry, not an adapter. The api never sees agent 
 credentials; a local runner runs its owner's agents under their own login (lane C). Per-turn usage
 is only as good as what the agent reports, and cost only when the agent reports USD. The runner
 protocol gains a result shape for `session.create` (additive).
+
+## ADR-0076: The OpenCode adapter: a server per project, the session diff as the turn's diff
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.10
+
+### Context
+Spec §3.3 keeps OpenCode as a second engine for its extras beyond ACP: `opencode serve` per
+project, the SDK client, plan/build agents, subagents, native provider credentials. ADR-0031
+verified the SDK and the pinned 1.18.30 binary on Bun. The spec does not say how OpenCode's event
+stream maps onto EngineEvents, where a turn's diff comes from, how the server is started with the
+project's environment, or how the adapter is tested without a model key.
+
+### Decision
+1. **A server per project directory**, started on first use with the project's environment
+   (`shellEnv` of ADR-0073 plus the session's `env`) and `OPENCODE_CONFIG_CONTENT`
+   `{autoupdate: false, share: "disabled"}`, on a free loopback port; the runner spawns the binary
+   itself (the SDK's helper cannot set a cwd or environment) and waits for the same "listening"
+   line the SDK waits for. Servers with no session left are stopped after the idle period. The
+   pinned binary is installed in the runner image through `opencode-ai@1.18.30` (npm's postinstall
+   fetches the platform build); a local runner uses `opencode` on PATH.
+2. **A Perch session is an OpenCode session** on that server; a turn is `session/prompt` with the
+   text, `agent: build | plan` from Perch's mode, and `model: {providerID, modelID}` when the
+   session names one (`engine`/`default` leaves OpenCode's configured model). `session/abort`
+   cancels; an aborted assistant message ends the round with `done`.
+3. **Mapping.** Text parts → `text` (the SDK's delta, else the part's new tail); tool parts →
+   `tool_call` at first sight and one `tool_result` at completed/error, with the edit and write
+   tools' `filediff` (plus their unified `diff` when present) as the FileDiff; `permission.updated`
+   → `permission` (title as the tool name; type, pattern, and metadata as args), answered with
+   `once`/`always`/`reject`; the assistant message's `tokens` and `cost` (or the summed step-finish
+   parts) → `usage`; `session.error` and the message's `error` → `error`. Reasoning parts and
+   `user_message` echoes are dropped, like the ACP adapter's thoughts.
+4. **The turn's diff.** OpenCode's session diff is cumulative; after a turn the adapter fetches it
+   and reports, as one `diff` tool call and result, the files no tool reported this turn whose
+   content moved since they were last reported. That is how subagents' and unreported edits reach
+   the transcript, and how the acceptance ("a session edits a file and the diff arrives as
+   EngineEvents") holds for every path an edit can take.
+5. **Subagents.** Child sessions (OpenCode's `parentID`) are tracked so their permission requests
+   are surfaced and answerable; their text stays inside the parent's `task` tool part as OpenCode
+   presents it.
+6. **Tests.** A stand-in server (apps/runner/test/fixtures/opencode-server.ts) speaks the SDK's
+   endpoints and SSE stream, so CI covers the mapping, the diffs, modes, permissions, abort, and
+   errors without a model key; the real binary path (`serve`, a session, a keyless prompt failing
+   cleanly) runs where `opencode` is installed, as spike 0.4.3 does.
+
+### Consequences
+One OpenCode process per project on a runner, shared by that project's sessions. Provider
+credentials for the server come from OpenCode's own configuration on the runner until brains (task
+1.15) inject them per session through the gateway. The adapter is the only code touching OpenCode's
+API (`/session`, `/session/{id}/message`, `/session/{id}/permissions/{id}`, `/session/{id}/abort`,
+`/session/{id}/diff`, `/event`); an SDK bump reruns the spike first.

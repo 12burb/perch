@@ -63,6 +63,32 @@ the runner's policy (`.git/**` stays read-only; writes announce `fs.changed`). T
 (the spec's union has no place for them yet). MCP servers for Perch's own tools ride the same
 `session/new` request once the MCP gateway (task 1.17) exists.
 
+## The OpenCode engine (`opencode`, task 1.10)
+
+OpenCode's extras beyond ACP (spec §3.3, ADR-0031, ADR-0076): the runner starts `opencode serve`
+per project directory on first use (the pinned binary of the runner image, or `opencode` on PATH
+for a local runner) and drives it through `@opencode-ai/sdk`; a Perch session is an OpenCode
+session on that server. A turn runs as OpenCode's `build` or `plan` agent (Perch's mode), on the
+session's `model` when it names one (`provider/model_id` → OpenCode's `providerID/modelID`; the
+default is OpenCode's own configured model). The server's SSE stream becomes the transcript:
+
+| OpenCode | EngineEvent |
+|---|---|
+| `message.part.updated`, text part | `text {delta}` (the SDK's delta, or the new tail of the part) |
+| tool part pending/running | `tool_call {id: callID, name: tool, args: input}` |
+| tool part completed / error | `tool_result {id, output, diff?}`; the edit and write tools' `filediff` and unified `diff` metadata become the FileDiff |
+| `permission.updated` | `permission {id, tool: title, args: {type, pattern, …metadata}}`; the answer posts `once` / `always` / `reject` |
+| `session.error` or the assistant message's `error` | `error {message}` (an aborted message is `done`) |
+| the assistant message's `tokens` and `cost` | `usage {input, output, costUsd}` per turn |
+| the session diff (`GET /session/{id}/diff`) | changes no tool reported this turn arrive as a `diff` tool call with the FileDiffs (subagents' edits included) |
+
+Subagent sessions (OpenCode's child sessions) show through the parent's `task` tool part and their
+permission requests are answered through the same route. `cancel` calls `session/abort`. Servers
+with no session left are stopped after the idle period; provider credentials reach the server's
+environment with brains (task 1.15); until then it uses OpenCode's own configuration on the runner.
+The adapter (apps/runner/src/opencode.ts) is the only code touching OpenCode's API, and a version
+bump reruns spike 0.4.3 first.
+
 Running the acceptance against a real agent needs its credentials on the machine:
 
 ```
@@ -148,6 +174,10 @@ model profiles (brains, task 1.15) choose one.
   `PERCH_ACP_TEST_AGENT`, a real registry agent.
 - `apps/api/test/sessions-acp.test.ts`: the same two turns through the REST routes and the
   in-process runner.
+- `apps/runner/test/opencode.test.ts`: the OpenCode adapter against a stand-in server speaking
+  the SDK's endpoints and SSE stream (an edit with its diff, a side change as a diff tool call,
+  plan mode, permissions, abort, a provider error, the refusal without a binary), and, with the
+  real binary on PATH, `opencode serve` end to end.
 - `apps/api/test/sessions.test.ts`: open → turn → replay with monotonic seqs and WS fan-out;
   permission parks and resumes with cost; one round at a time, cancel, an engine error and
   recovery; strangers, unknown engines, signed-out callers.

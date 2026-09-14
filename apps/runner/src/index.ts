@@ -64,6 +64,13 @@ export {
 } from "./inprocess.ts";
 export { createNotifier, type Notify } from "./notify.ts";
 export {
+  OpenCodeHost,
+  type OpenCodeOptions,
+  OpenCodeSession,
+  type OpenCodeSessionOptions,
+  opencodeBinary,
+} from "./opencode.ts";
+export {
   DEFAULT_DENIED_COMMANDS,
   DEFAULT_READ_ONLY_PATHS,
   enforce,

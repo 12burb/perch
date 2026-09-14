@@ -204,12 +204,15 @@ under way).
 | `session.permission` | `{session_id, permission_id, answer}` | `{answered}` |
 | `session.cancel` | `{session_id}` | `{cancelled}` |
 
-Today `engine` is `acp` (ADR-0075; `opencode` and `cli-harness` come with tasks 1.10 and 1.11):
-`model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
+`engine` is `acp` (ADR-0075) or `opencode` (ADR-0076; `cli-harness` comes with task 1.11). For
+`acp`, `model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
 `qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`; `engine`/`default` → `PERCH_ACP_AGENT`, default
-`gemini`). The agent runs in the project directory (or the named worktree) with the shell
+`gemini`). For `opencode`, the runner starts `opencode serve` per project directory (the pinned
+binary of the runner image, or `opencode` on PATH) and the model is OpenCode's unless the session
+names one. The agent runs in the project directory (or the named worktree) with the shell
 environment of [`terminal.md`](terminal.md) plus the session's `env`; sessions idle for thirty
-minutes are closed. Runners report `engines: ["acp"]` and the agents on PATH as
+minutes are closed, and so are OpenCode servers with no session left. Runners report
+`engines: ["acp"]` plus `"opencode"` when the binary is there, and the ACP agents on PATH as
 `capabilities.agents`. See [`sessions.md`](sessions.md).
 
 | Variable | Does |
