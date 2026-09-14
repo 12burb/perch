@@ -55,7 +55,9 @@ describe("perch init (task 0.13)", () => {
         "docker-compose.yml",
         "Caddyfile",
       ]);
-      expect(statSync(join(dir, ".env")).mode & 0o777).toBe(0o600);
+      // POSIX permissions only; Windows has no mode bits to check.
+      if (process.platform !== "win32")
+        expect(statSync(join(dir, ".env")).mode & 0o777).toBe(0o600);
       expect(readFileSync(join(dir, "docker-compose.yml"), "utf8")).toContain(
         "pgvector/pgvector:0.8.6-pg16",
       );

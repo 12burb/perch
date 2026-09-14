@@ -48,7 +48,11 @@ export function measureBundle(dist: string): BundleReport {
   );
   const files = walk(dist)
     .filter((f) => /\.(js|css)$/.test(f))
-    .map((f) => ({ file: f.slice(dist.length + 1), gzipKb: gzipKb(readFileSync(f)) }))
+    .map((f) => ({
+      // Forward slashes on every platform so the keys match the references in index.html.
+      file: f.slice(dist.length + 1).replace(/\\/g, "/"),
+      gzipKb: gzipKb(readFileSync(f)),
+    }))
     .sort((a, b) => b.gzipKb - a.gzipKb);
   const byFile = new Map(files.map((f) => [f.file, f.gzipKb]));
   const initialGzipKb = initialRefs.reduce((sum, ref) => sum + (byFile.get(ref) ?? 0), 0);

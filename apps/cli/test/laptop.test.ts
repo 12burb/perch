@@ -8,7 +8,8 @@ import { laptopLayout } from "../src/paths.ts";
 
 /**
  * The laptop smoke test (task 0.14): `perch dev` starts on PGlite with the in-process runner, answers
- * health with mode laptop and one runner, serves the setup wizard, and stops on SIGTERM; then doctor,
+ * health with mode laptop and one runner, serves the setup wizard, and stops on SIGTERM (or a kill on
+ * Windows); then doctor,
  * backup, and restore work against the data it created. CI runs this on Linux, macOS, and Windows.
  */
 
@@ -86,7 +87,9 @@ describe("laptop mode (task 0.14)", () => {
     } finally {
       proc.kill("SIGTERM");
     }
-    expect(await proc.exited).toBe(0);
+    // A clean exit code needs signal delivery; Windows terminates the process instead.
+    const exit = await proc.exited;
+    if (process.platform !== "win32") expect(exit).toBe(0);
   }, 90_000);
 
   test("perch doctor reports the data dir, database, and tools", async () => {
