@@ -1,7 +1,7 @@
 # The desktop app
 
 `perch-desktop` is Perch on one machine in its own window: laptop mode (api, web, and the in-process
-runner on PGlite under `~/.perch`) started in the same process and shown in the platform's webview
+runner on PGlite under `~/.perch`) started by the app itself and shown in the platform's webview
 (WebView2 on Windows, WebKit on macOS, WebKitGTK on Linux). No browser tab, no terminal, no Docker.
 The design is ADR-0063; the code is `apps/desktop`.
 
