@@ -38,13 +38,17 @@ async function signUp(name: string, email: string) {
   return { cookie, id: me.id };
 }
 
-async function call(path: string, cookie: string, init: { method?: string; json?: unknown } = {}) {
+async function call(
+  path: string,
+  cookie: string,
+  init: { method?: string; json?: unknown } = {},
+): Promise<{ status: number; body: unknown }> {
   const res = await fetch(`${base}${path}`, {
     method: init.method ?? "GET",
     headers: { cookie, "content-type": "application/json", origin: base },
     body: init.json === undefined ? undefined : JSON.stringify(init.json),
   });
-  return { status: res.status, body: res.status === 204 ? null : ((await res.json()) as never) };
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
 }
 
 type RunnerRow = {
