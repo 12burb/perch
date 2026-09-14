@@ -1542,3 +1542,26 @@ component, if one ever exists (Perch Link, an optional OAuth broker in the spec'
 an open-source convenience and never a plan; this ADR is revisited before any such change. The README
 states the policy where new users read first.
 
+## ADR-0065: The maintainer's agent sessions push to main directly
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: maintainer direction (2026-09-14), outside the task queue
+
+### Context
+AGENTS.md §2 prescribed a branch and a PR per task. The repository had no base branch until PR #1 created
+`main`, and the maintainer, the only committer, directed that changes go straight to `main` from now on.
+
+### Decision
+The maintainer's agent sessions commit on `main` and push once the local gate is green (`bun run check`
+and the relevant Playwright spec). One task per commit series; the commit body carries the PR template's
+content; `TASKS.md` marks `[x]` with the commit rather than a PR link. CI on `main` (`ci.yml`, and
+`spikes.yml` when spikes or the lockfile change) is the gate after the fact: a red `main` is fixed forward
+before any other work starts. Outside contributors keep the branch-and-PR flow of `CONTRIBUTING.md` with
+the DCO check on every pull request.
+
+### Consequences
+Task evidence lives in commit messages and `TASKS.md`. `changesets.yml` keeps the "Version Packages" pull
+request current on `main`; a release is cut by running `bun run version`, committing, and pushing a `v*`
+tag, which `release.yml` turns into binaries, desktop apps, images, and a GitHub release.
+

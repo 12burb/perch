@@ -44,18 +44,24 @@ starting anything new.
 
 ## 2. Workflow for every task
 
-1. `git checkout -b task/<id>-<slug>` from `main`.
-2. Mark the task `[~]` in `TASKS.md` with the branch name (commit this first).
-3. Re-read the spec sections the task names. Write the acceptance test first when the criterion is testable
+Work lands on `main` directly (maintainer direction, ADR-0065). CI on `main` is the gate after the fact, so
+the local gate before every push is the same one a PR would have had.
+
+1. Mark the task `[~]` in `TASKS.md` (commit it with the task's first change).
+2. Re-read the spec sections the task names. Write the acceptance test first when the criterion is testable
    (unit or Playwright), then implement.
-4. Run `bun run check` (Biome, typecheck, `bun test`) and the relevant Playwright spec. Both green.
-5. Update the docs the task touches (`docs/`, package READMEs, `.env.example`, OpenAPI).
-6. Add a changeset (`bun run changeset`) describing the user-visible change.
-7. Commit with a conventional commit message and DCO sign-off (`git commit -s`).
-8. Open the PR with the template: what, why, spec sections, acceptance evidence (test names or a command and
-   its output), screenshots at 390 px and 1440 px for UI, spec deviations, ADRs added.
-9. In the same PR mark the task `[x]` with the PR link.
-10. Move to the next task. Never batch several tasks into one PR.
+3. Run `bun run check` (Biome, typecheck, `bun test`) and the relevant Playwright spec. Both green before
+   every push.
+4. Update the docs the task touches (`docs/`, package READMEs, `.env.example`, OpenAPI).
+5. Add a changeset (`bun run changeset`) describing the user-visible change.
+6. Commit with a conventional commit message and DCO sign-off (`git commit -s`). One task per commit series,
+   never several tasks in one commit. The commit body carries what a PR description would: what, why, spec
+   sections, acceptance evidence (test names or a command and its output), spec deviations, ADRs added.
+7. Mark the task `[x]` in `TASKS.md` with the commit, in the same push.
+8. Push to `main` and watch CI. A red `main` is fixed forward immediately, before any other work.
+9. Move to the next task.
+
+Outside contributors keep the branch-and-PR flow of `CONTRIBUTING.md`, with the DCO check on every PR.
 
 ## 3. Commands
 

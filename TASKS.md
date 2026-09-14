@@ -3,7 +3,7 @@
 The queue. Take the first unchecked task whose prerequisites are checked (spec §11; one task per branch, one
 branch per PR). Phases 3 and 4 are written at the phase gates from spec §10.
 
-Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link>` merged.
+Legend: `[ ]` open · `[~]` in progress (on `main`, ADR-0065) · `[x] <commit or PR>` landed on `main`.
 
 ## Phase 0 — Foundation
 
