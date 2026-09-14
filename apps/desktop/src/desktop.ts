@@ -23,13 +23,18 @@ Options:
   --log-level <lvl>   trace|debug|info|warn|error|fatal|silent (default: ${DEFAULT_LOG_LEVEL})
   --check             load the platform webview and exit (for doctor and CI)
   --smoke             open a window on a throwaway laptop mode, exit 0 once the app has loaded (CI)
-  -h, --help          show this help`;
+  -h, --help          show this help
+
+Internal (the app runs itself with these on Windows): --serve [--public-url <url>] runs laptop mode
+until stdin closes; --close-window <hwnd> [--after <ms>] closes a window from another process.`;
 
 export type DesktopArgs =
   | { kind: "help" }
   | { kind: "error"; message: string }
   | { kind: "check" }
   | { kind: "smoke"; dataDir?: string; logLevel: string }
+  | { kind: "serve"; port: number; dataDir?: string; logLevel: string; publicUrl?: string }
+  | { kind: "close-window"; hwnd: string; afterMs: number }
   | { kind: "open"; url: string; dataDir?: string }
   | { kind: "laptop"; port: number; dataDir?: string; logLevel: string };
 
@@ -41,6 +46,10 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
     "log-level"?: string;
     check?: boolean;
     smoke?: boolean;
+    serve?: boolean;
+    "public-url"?: string;
+    "close-window"?: string;
+    after?: string;
     help?: boolean;
   };
   try {
@@ -53,6 +62,10 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
         "log-level": { type: "string" },
         check: { type: "boolean" },
         smoke: { type: "boolean" },
+        serve: { type: "boolean" },
+        "public-url": { type: "string" },
+        "close-window": { type: "string" },
+        after: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
       strict: true,
@@ -69,6 +82,16 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
       logLevel: values["log-level"] ?? DEFAULT_LOG_LEVEL,
     };
   }
+  if (values["close-window"] !== undefined) {
+    const afterMs = values.after === undefined ? 8_000 : Number(values.after);
+    if (!/^\d+$/.test(values["close-window"]) || !Number.isInteger(afterMs) || afterMs < 0) {
+      return {
+        kind: "error",
+        message: "--close-window takes a window handle; --after a delay in ms",
+      };
+    }
+    return { kind: "close-window", hwnd: values["close-window"], afterMs };
+  }
   if (values.url !== undefined) {
     if (!/^https?:\/\//.test(values.url)) {
       return { kind: "error", message: `--url must start with http:// or https://: ${values.url}` };
@@ -76,8 +99,19 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
     return { kind: "open", url: values.url.replace(/\/$/, ""), dataDir: values["data-dir"] };
   }
   const port = values.port === undefined ? DEFAULT_PORT : Number(values.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  // --serve may take port 0 (a throwaway server for --smoke); the window itself needs a real port.
+  const lowest = values.serve ? 0 : 1;
+  if (!Number.isInteger(port) || port < lowest || port > 65535) {
     return { kind: "error", message: `bad port: ${values.port}` };
+  }
+  if (values.serve) {
+    return {
+      kind: "serve",
+      port,
+      dataDir: values["data-dir"],
+      logLevel: values["log-level"] ?? DEFAULT_LOG_LEVEL,
+      publicUrl: values["public-url"],
+    };
   }
   return {
     kind: "laptop",
@@ -147,6 +181,10 @@ export type DesktopDeps = {
   dataDirFrom: (flag?: string) => string;
   /** A fresh throwaway directory (--smoke never touches ~/.perch). */
   tempDir: () => string;
+  /** --serve: resolves when the parent closes stdin or the process is asked to stop. */
+  holdUntilReleased: () => Promise<void>;
+  /** --close-window: after the delay, closes the window with that native handle (Windows). */
+  postWindowClose: (hwnd: string, afterMs: number) => Promise<void>;
   log: (line: string) => void;
   error: (line: string) => void;
 };
@@ -217,6 +255,30 @@ export async function runDesktop(argv: string[], deps: DesktopDeps): Promise<num
       );
       return ok ? 0 : 3;
     }
+    case "serve": {
+      // The server half of the app on Windows (laptop-child.ts): one JSON line when it listens,
+      // then it waits for its parent to close stdin.
+      let laptop: LaptopHandle;
+      try {
+        laptop = await deps.startLaptop({
+          dataDir: args.dataDir,
+          port: args.port,
+          host: "127.0.0.1",
+          publicUrl: args.publicUrl ?? laptopUrl(args.port),
+          logLevel: args.logLevel,
+        });
+      } catch (error) {
+        deps.error(`perch-desktop: laptop mode could not start: ${message(error)}`);
+        return 1;
+      }
+      deps.log(JSON.stringify({ serve: "ready", url: laptop.url, dataDir: laptop.dataDir }));
+      await deps.holdUntilReleased();
+      await laptop.stop();
+      return 0;
+    }
+    case "close-window":
+      await deps.postWindowClose(args.hwnd, args.afterMs);
+      return 0;
     case "open":
       await deps.openWindow({
         url: args.url,

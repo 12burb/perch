@@ -8,6 +8,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import iconRgba from "../assets/icon-128.rgba" with { type: "file" };
 import type { WindowRequest } from "./desktop.ts";
+import { selfCommand } from "./self.ts";
 
 export type OpenWindowOptions = WindowRequest & { width?: number; height?: number };
 
@@ -122,7 +123,7 @@ async function createWindow(
 }
 
 /**
- * Windows: the native run loop on this thread (the server runs on a worker thread, laptop-worker.ts).
+ * Windows: the native run loop on this thread (the server runs in a child process, laptop-child.ts).
  * The addon's timer-driven pump is unreliable here: tao's `run_return` only leaves its loop when a
  * message arrives after the exit flag is set, and the internal paint that carries MainEventsCleared
  * can be starved, which left a blank window and a frozen JavaScript thread in CI. `runSync()` returns
@@ -134,17 +135,26 @@ async function openWindowNative(
   trace: (line: string) => void,
 ): Promise<OpenedWindow> {
   const { app, win } = await createWindow(options, trace);
-  let closer: Worker | null = null;
+  let closer: ReturnType<typeof Bun.spawn> | null = null;
   if (options.closeAfterLoad) {
-    closer = new Worker(new URL("./closer-worker.js", import.meta.url));
+    // Another process of this binary posts WM_CLOSE after the delay (--close-window).
     const afterMs = options.closeAfterMs ?? 8_000;
-    closer.postMessage({ hwnd: win.getNativeHandleAnyThread().toString(), afterMs });
+    closer = Bun.spawn(
+      [
+        ...selfCommand(),
+        "--close-window",
+        win.getNativeHandleAnyThread().toString(),
+        "--after",
+        String(afterMs),
+      ],
+      { stdout: "ignore", stderr: "inherit" },
+    );
     trace(`smoke: the window closes after ${afterMs} ms`);
   }
   trace("entering the native run loop");
   app.runSync();
   trace("native run loop returned: the window closed");
-  closer?.terminate();
+  closer?.kill();
   return { loaded: null, pageEvents: false };
 }
 

@@ -1484,16 +1484,21 @@ and a bundled Chromium) and Tauri (Rust in the repo) are out.
 The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no
 IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed.
 
-**Windows runs the native loop, with the server on a worker thread.** The addon's timer-driven
+**Windows runs the native loop, with the server in a second process.** The addon's timer-driven
 `pumpEvents()` is unreliable on Windows: it calls tao's `run_return`, which leaves its loop only when a
 message arrives after the exit flag is set, and the internal paint that carries `MainEventsCleared`
 can be starved by other traffic, so a pump can block JavaScript indefinitely (CI showed a blank window
 and a frozen thread; a keep-alive `WM_TIMER` did not help). So on Windows `window.ts` calls
-`runSync()`, tao's own loop, on the main thread, and `laptop-worker.ts` starts laptop mode on a Bun
-worker thread (`server-worker.ts`, embedded in the binary as a second entrypoint). Page events cannot
-reach JavaScript while the loop runs, so `--smoke` closes the window from a helper thread
-(`closer-worker.ts`, `PostMessageW(WM_CLOSE)` through `bun:ffi`) after 8 s and the test verifies the
-page load from the server's request log. macOS and Linux keep the pump and the in-process server; the
-pump path also re-navigates once after 1.5 s when a webview dropped the navigation requested at
-creation. The pump behaviour is an upstream (webviewjs/webview) follow-up. Signing and
+`runSync()`, tao's own loop, on the main thread, and `laptop-child.ts` runs laptop mode in a child
+process of the same binary (`perch-desktop --serve`, which prints one JSON line when it listens and
+stops when its stdin closes, so the server never outlives the window). A Bun worker thread was the
+first design and worked from source, but the compiled binary on Windows resolves an embedded worker
+entrypoint to a disk path under `B:\~BUN\root` and fails with ENOENT (Linux resolves the same
+`file:///$bunfs/...` URL fine); a process of the same executable has no such path. Page events cannot
+reach JavaScript while the loop runs, so `--smoke` closes the window from a third process
+(`--close-window <hwnd>`, `PostMessageW(WM_CLOSE)` through `bun:ffi`) after 8 s and the test verifies
+the page load from the server's request log. macOS and Linux keep the pump and the in-process server
+(`PERCH_DESKTOP_SERVER=child` selects the two-process layout anywhere, so the tests cover it on every
+platform); the pump path also re-navigates once after 1.5 s when a webview dropped the navigation
+requested at creation. The pump behaviour is an upstream (webviewjs/webview) follow-up. Signing and
 notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.

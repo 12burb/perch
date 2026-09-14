@@ -46,6 +46,25 @@ describe("perch-desktop arguments", () => {
       parseDesktopArgs(["--port", "4000", "--data-dir", "/tmp/x", "--log-level", "info"]),
     ).toEqual({ kind: "laptop", port: 4000, dataDir: "/tmp/x", logLevel: "info" });
   });
+
+  test("the internal flags: --serve accepts port 0; --close-window takes a handle and a delay", () => {
+    expect(
+      parseDesktopArgs(["--serve", "--port", "0", "--public-url", "http://localhost:0"]),
+    ).toEqual({
+      kind: "serve",
+      port: 0,
+      dataDir: undefined,
+      logLevel: "warn",
+      publicUrl: "http://localhost:0",
+    });
+    expect(parseDesktopArgs(["--port", "0"]).kind).toBe("error");
+    expect(parseDesktopArgs(["--close-window", "132466", "--after", "500"])).toEqual({
+      kind: "close-window",
+      hwnd: "132466",
+      afterMs: 500,
+    });
+    expect(parseDesktopArgs(["--close-window", "nope"]).kind).toBe("error");
+  });
 });
 
 describe("probePerch", () => {
@@ -96,6 +115,12 @@ function fakeDeps(overrides: Partial<DesktopDeps> = {}): { deps: DesktopDeps; ca
     isPerchAt: async () => false,
     dataDirFrom: (flag) => flag ?? "/home/x/.perch",
     tempDir: () => "/tmp/perch-smoke",
+    holdUntilReleased: async () => {
+      calls.log.push("released");
+    },
+    postWindowClose: async (hwnd, afterMs) => {
+      calls.log.push(`close ${hwnd} after ${afterMs}`);
+    },
     log: (line) => calls.log.push(line),
     error: (line) => calls.error.push(line),
     ...overrides,
@@ -189,6 +214,20 @@ describe("perch-desktop flow", () => {
     expect(await runDesktop(["--smoke"], blind.deps)).toBe(0);
   });
 
+  test("--serve reports the URL on one line, waits to be released, then stops", async () => {
+    const { deps, calls } = fakeDeps();
+    expect(
+      await runDesktop(["--serve", "--port", "0", "--public-url", "http://localhost:0"], deps),
+    ).toBe(0);
+    const ready = JSON.parse(calls.log[0] ?? "{}") as { serve: string; url: string };
+    expect(ready.serve).toBe("ready");
+    expect(ready.url).toBe("http://localhost:0");
+    expect(calls.log.slice(1)).toEqual(["released", "stopped"]);
+    const { deps: closer, calls: closerCalls } = fakeDeps();
+    expect(await runDesktop(["--close-window", "42", "--after", "10"], closer)).toBe(0);
+    expect(closerCalls.log).toEqual(["close 42 after 10"]);
+  });
+
   test("a boot failure is reported with a hint, not thrown; --check reports the native layer", async () => {
     const { deps, calls } = fakeDeps({
       startLaptop: async () => {
@@ -244,61 +283,74 @@ describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer
   // In a child process: a platform that stalls inside its webview blocks that process's event loop,
   // and a blocked loop cannot fire a test timeout. The parent kills it after two minutes and prints
   // the trace, so a stall fails fast and says where it stopped.
-  test.skipIf(!nativeRequired && !hasDisplay)(
-    "--smoke opens a window on laptop mode, loads the app, and closes",
-    async () => {
-      const proc = Bun.spawn(
-        [
-          process.execPath,
-          join(import.meta.dir, "..", "src", "index.ts"),
-          "--smoke",
-          "--data-dir",
-          join(dir, "smoke"),
-          "--log-level",
-          "info",
-        ],
-        { stdout: "pipe", stderr: "pipe", env: { ...process.env, PERCH_LOG_LEVEL: "warn" } },
+  async function smoke(serverMode: "inprocess" | "child", subdir: string): Promise<void> {
+    const proc = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "..", "src", "index.ts"),
+        "--smoke",
+        "--data-dir",
+        join(dir, subdir),
+        "--log-level",
+        "info",
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, PERCH_LOG_LEVEL: "info", PERCH_DESKTOP_SERVER: serverMode },
+      },
+    );
+    const killer = setTimeout(() => proc.kill(), 120_000);
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    clearTimeout(killer);
+    if (exitCode !== 0) console.error(`perch-desktop --smoke exited ${exitCode}\n${stderr}`);
+    expect(exitCode).toBe(0);
+    const lines = stdout
+      .split("\n")
+      .map((line) => {
+        try {
+          return JSON.parse(line) as {
+            smoke?: string;
+            url?: string;
+            loaded?: string | null;
+            pageEvents?: boolean;
+            path?: string;
+            status?: number;
+            msg?: string;
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((line) => line !== null);
+    const report = lines.find((line) => line.smoke !== undefined);
+    expect(report?.smoke).toBe("ok");
+    if (report?.pageEvents) {
+      expect(report.loaded?.startsWith(report.url ?? "?")).toBe(true);
+    } else {
+      // Windows: the shell cannot see page loads; the server's request log shows the webview
+      // fetched the app (info level, one line per request).
+      const pageRequests = lines.filter(
+        (line) => line.msg === "request" && line.path === "/" && line.status === 200,
       );
-      const killer = setTimeout(() => proc.kill(), 120_000);
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      clearTimeout(killer);
-      if (exitCode !== 0) console.error(`perch-desktop --smoke exited ${exitCode}\n${stderr}`);
-      expect(exitCode).toBe(0);
-      const lines = stdout
-        .split("\n")
-        .map((line) => {
-          try {
-            return JSON.parse(line) as {
-              smoke?: string;
-              url?: string;
-              loaded?: string | null;
-              pageEvents?: boolean;
-              path?: string;
-              status?: number;
-              msg?: string;
-            };
-          } catch {
-            return null;
-          }
-        })
-        .filter((line) => line !== null);
-      const report = lines.find((line) => line.smoke !== undefined);
-      expect(report?.smoke).toBe("ok");
-      if (report?.pageEvents) {
-        expect(report.loaded?.startsWith(report.url ?? "?")).toBe(true);
-      } else {
-        // Windows: the shell cannot see page loads; the server's request log shows the webview
-        // fetched the app (info level, one line per request).
-        const pageRequests = lines.filter(
-          (line) => line.msg === "request" && line.path === "/" && line.status === 200,
-        );
-        expect(pageRequests.length).toBeGreaterThan(0);
-      }
-    },
+      expect(pageRequests.length).toBeGreaterThan(0);
+    }
+  }
+
+  // Windows: the native loop owns the main thread, so an in-process server could never answer.
+  test.skipIf((!nativeRequired && !hasDisplay) || process.platform === "win32")(
+    "--smoke opens a window on laptop mode, loads the app, and closes",
+    () => smoke("inprocess", "smoke"),
+    150_000,
+  );
+
+  test.skipIf(!nativeRequired && !hasDisplay)(
+    "--smoke with the server in a child process (the Windows layout) does the same",
+    () => smoke("child", "smoke-child"),
     150_000,
   );
 });

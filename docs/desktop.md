@@ -32,8 +32,10 @@ storage, and cache are in `~/.perch/desktop/webview`.
   page load, exit 0; every step and page event is traced on stderr, so a stalled platform says where.
   On Windows the binary has no console window, so from a terminal only the exit code is visible.
 - `--data-dir` and `--log-level` mirror `perch dev`.
-- On Windows the window runs the platform's native event loop on the main thread and the server runs on
-  a worker thread (ADR-0063 explains why); on macOS and Linux the server runs in-process.
+- On Windows the window runs the platform's native event loop on the main thread and the server runs in
+  a second process of the same binary (`perch-desktop --serve`, stopped when the window closes; ADR-0063
+  explains why); on macOS and Linux the server runs in-process. `PERCH_DESKTOP_SERVER=child` picks the
+  two-process layout on any platform, which is how the tests cover it everywhere.
 
 ## Build
 
