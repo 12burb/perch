@@ -6,7 +6,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { connectRunner, defaultHandlers, type RunnerLogger } from "@perch/runner";
+import { connectRunner, type RunnerLogger, runnerPolicy } from "@perch/runner";
 import { dataDirFrom } from "../paths.ts";
 
 const HELP = `perch runner connect <api-url> [options]
@@ -118,11 +118,13 @@ async function runConnect(argv: string[]): Promise<number> {
     kind: args.runnerKind,
     log,
     // Projects live beside laptop mode's data, under ~/.perch/projects (or PERCH_PROJECTS_DIR).
-    handlers: defaultHandlers({
+    // Your own machine: exec may run anywhere you could, not only inside the projects root.
+    handlerOptions: {
       projects: {
         root: process.env.PERCH_PROJECTS_DIR ?? join(dataDirFrom(undefined), "projects"),
       },
-    }),
+      policy: runnerPolicy({ execAnywhere: true }),
+    },
   });
   const stop = async () => {
     log("info", "disconnecting");
