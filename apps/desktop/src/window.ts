@@ -58,6 +58,28 @@ const MAC_MENU = {
 };
 
 /**
+ * Windows only: tao's `run_return`, which the addon's pumpEvents() uses there, leaves the loop through
+ * `GetMessageW` after the exit flag is set and posts nothing to wake itself, so a pump returns only
+ * when some unrelated message arrives; an idle queue blocks JavaScript indefinitely (seen in CI: the
+ * window sat idle and no timer ever fired). A thread timer with no window posts WM_TIMER to the queue
+ * every 16 ms, which DispatchMessageW ignores and which wakes every pump within a frame.
+ */
+async function keepMessageQueueBusy(trace: (line: string) => void): Promise<() => void> {
+  if (process.platform !== "win32") return () => {};
+  const { dlopen, FFIType } = await import("bun:ffi");
+  const user32 = dlopen("user32.dll", {
+    SetTimer: { args: [FFIType.ptr, FFIType.u64, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+    KillTimer: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
+  });
+  const id = user32.symbols.SetTimer(null, 0, 16, null);
+  trace(`windows: thread timer ${id} keeps the message queue busy`);
+  return () => {
+    user32.symbols.KillTimer(null, id);
+    user32.close();
+  };
+}
+
+/**
  * Loads the addon and the system webview it links; the message names the platform and the engine
  * version for --check (on Windows an empty version means no WebView2 runtime).
  */
@@ -103,6 +125,7 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
   trace(`web context at ${dataDirectory}`);
   const webview = win.createWebview({ url: options.url, webContext: context });
   trace(`webview created for ${options.url}`);
+  const stopQueueTimer = await keepMessageQueueBusy(trace);
   return new Promise<void>((resolve) => {
     let done = false;
     let ticks = 0;
@@ -115,6 +138,7 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
       clearInterval(pump);
       clearInterval(liveness);
       clearTimeout(retry);
+      stopQueueTimer();
       try {
         app.exit();
       } catch {

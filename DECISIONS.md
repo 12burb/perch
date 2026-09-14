@@ -1482,7 +1482,11 @@ and a bundled Chromium) and Tauri (Rust in the repo) are out.
 
 ### Consequences
 The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no
-IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. WebView2 was seen to
-drop the navigation requested at creation (a blank window until a later `loadUrl`), so the window
-re-navigates once after 1.5 s when no navigation has started. Signing and
+IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. Two Windows findings
+from CI live in `window.ts`: the addon's `pumpEvents()` uses tao's `run_return` there, which leaves
+the loop through `GetMessageW` after the exit flag is set and posts nothing to wake itself, so an idle
+message queue blocks JavaScript indefinitely; a Win32 thread timer (`SetTimer` with no window, 16 ms,
+through `bun:ffi`) keeps the queue busy so every pump returns within a frame. And WebView2 was seen to
+drop the navigation requested at creation, so the window re-navigates once after 1.5 s when nothing has
+started loading. Both belong upstream (webviewjs/webview) and are noted as follow-ups. Signing and
 notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.
