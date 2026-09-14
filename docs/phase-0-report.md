@@ -47,7 +47,7 @@ Screenshots for 0.12 are in [`screenshots/0.12/`](screenshots/0.12/) (desktop 14
 | 0.4.4 PGlite | pass: schema, pgvector (separate package), citext, SKIP LOCKED in memory (ADR-0032) |
 | 0.4.5 QuickJS sandbox | pass on the sync build with promise-based host tools and a memory limit (ADR-0033) |
 | 0.4.6 better-auth on Bun | pass at the HTTP level; browser passkeys proven in 0.8 with the virtual authenticator (ADR-0034) |
-| 0.4.7 dockerode from Bun | deferred to CI: no Docker daemon in the build environment (ADR-0035) |
+| 0.4.7 dockerode from Bun | pass in CI (ubuntu runner): pull, create with limits, start, exec, stop, remove; a hijacked exec is not usable from Bun, one-shot execs are (ADR-0035) |
 | 0.4.8 Caddy wildcard | deferred (needs a DNS token); path-mode previews are the default (ADR-0036) |
 | 0.4.9 Preview tunnel | pass: Vite HMR end to end over an outbound runner socket (ADR-0037) |
 | 0.4.10 cloudflared | deferred (needs a tunnel token); Tailscale Serve/Funnel documented (ADR-0038) |

@@ -672,24 +672,34 @@ verbatim. No pin or patch was needed.
 The WebAuthn ceremony itself (browser + virtual authenticator) is the Playwright spec of task 0.8. The
 `auth_*` Drizzle tables from `spikes/better-auth/schema.ts` move into `packages/db` in task 0.5.
 
-## ADR-0035: Spike 0.4.7 — dockerode from Bun is verified in CI, not in the build environment
+## ADR-0035: Spike 0.4.7 — dockerode from Bun passes in CI; execs never hijack the connection
 
-- Status: accepted (spike outcome: deferred to CI)
-- Date: 2026-09-13
+- Status: accepted (spike outcome: pass in CI, with one restriction)
+- Date: 2026-09-13; CI result added 2026-09-14
 - Task: 0.4.7
 
 ### Context
 Spec §9.3: the supervisor creates, limits, execs into, and removes a runner container; the fallback is a
-supervisor on Node LTS in its own image. The Phase 0 build environment has no Docker daemon.
+supervisor on Node LTS in its own image. The Phase 0 build environment has no Docker daemon, so the spike
+skips there and runs wherever a daemon exists: the `check` job of `ci.yml` and `spikes.yml`, both on the
+ubuntu runner.
 
 ### Decision
-The spike is written and skips without a daemon; `.github/workflows/spikes.yml` runs it on the ubuntu runner
-(pull, create with NanoCpus/Memory/PidsLimit, start, exec, stop, remove, nothing left behind). Task 1.2
-reads that result before implementing the supervisor and takes the Node LTS fallback only if CI fails.
+The first CI run showed `dockerode` 5.0.1 working from Bun for the daemon version, the image pull with
+progress, create with `NanoCpus`/`Memory`/`PidsLimit`, start, and inspect. The one failure was
+`exec.start({ hijack: true })`: a hijacked exec asks the daemon to upgrade the connection
+(`101 Switching Protocols`, raw TCP afterwards), and Bun's `node:http` client returns that 101 as an
+ordinary response, which docker-modem reports as an error. The spike therefore execs without a hijack
+(`hijack: false`, no stdin) and demultiplexes the plain streamed response, which is the shape the
+supervisor needs: one-shot commands with captured output. Interactive stdin over the Docker socket
+(hijacked exec or attach) appears nowhere in the design; PTYs and engine sessions run through the runner
+protocol (§7.6) over the runner's own WebSocket. Task 1.2 builds the supervisor on `dockerode` in
+`apps/api`; the Node LTS fallback is not taken.
 
 ### Consequences
-The supervisor entrypoint stays in `apps/api` (Bun) pending the CI outcome; the fallback would move it to
-its own image without changing the runner protocol.
+Nothing in the supervisor may rely on a hijacked Docker connection. Should one ever be needed, the
+fallback is a raw request over the Unix socket with `Bun.connect`, recorded in a new ADR. `spikes.yml`
+re-verifies the spike per platform on dispatch.
 
 ## ADR-0036: Spike 0.4.8 — Caddy wildcard is deferred; path-mode previews are the default
 

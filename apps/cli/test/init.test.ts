@@ -65,7 +65,7 @@ describe("perch init (task 0.13)", () => {
       writeInit({ ...options, force: true }, renderInit(options, secrets));
       expect(existsSync(join(dir, "Caddyfile"))).toBe(true);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   });
 
@@ -91,7 +91,7 @@ describe("perch init (task 0.13)", () => {
       expect(await main(["nope"])).toBe(2);
       expect(await main([])).toBe(0);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   });
 });

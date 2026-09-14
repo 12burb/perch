@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { PassThrough } from "node:stream";
 import Docker from "dockerode";
 
 /**
  * Spike 0.4.7 — dockerode from Bun (spec §9.3).
  * Pass: the supervisor creates, limits, execs into, and removes a runner container from a Bun process.
- * Needs a Docker daemon: runs on the GitHub Actions ubuntu runner (CI job `spikes-docker`); skips
- * elsewhere. Outcome recorded in DECISIONS.md (ADR-0035). Fallback: supervisor on Node LTS in its own image.
+ * Needs a Docker daemon: runs on the GitHub Actions ubuntu runner (the `check` job of ci.yml and
+ * spikes.yml); skips elsewhere. Outcome recorded in DECISIONS.md (ADR-0035). Fallback: supervisor on Node
+ * LTS in its own image.
  */
 
 const socket = process.env.DOCKER_HOST ? undefined : "/var/run/docker.sock";
@@ -51,10 +53,16 @@ describe.skipIf(!dockerAvailable)("spike 0.4.7 dockerode from Bun", () => {
         AttachStdout: true,
         AttachStderr: true,
       });
-      const stream = await exec.start({ hijack: true, stdin: false });
+      // No hijack: a hijacked exec asks the daemon for `101 Switching Protocols` and raw TCP afterwards,
+      // which Bun's node:http client hands back as an ordinary (failed) response. One-shot execs need no
+      // stdin; PTYs go through the runner protocol (spec §7.6), never through the Docker socket.
+      const stream = await exec.start({ hijack: false, stdin: false });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
       const chunks: Buffer[] = [];
+      stdout.on("data", (c: Buffer) => chunks.push(c));
+      docker.modem.demuxStream(stream, stdout, stderr);
       await new Promise<void>((resolve, reject) => {
-        stream.on("data", (c: Buffer) => chunks.push(c));
         stream.on("end", () => resolve());
         stream.on("error", reject);
       });
@@ -76,7 +84,7 @@ describe.skipIf(!dockerAvailable)("spike 0.4.7 dockerode from Bun", () => {
 });
 
 describe.skipIf(dockerAvailable)("spike 0.4.7 dockerode from Bun (no daemon here)", () => {
-  test("skipped: no Docker daemon in this environment; CI job spikes-docker runs it", () => {
+  test("skipped: no Docker daemon in this environment; the CI check job on ubuntu runs it", () => {
     expect(dockerAvailable).toBe(false);
   });
 });

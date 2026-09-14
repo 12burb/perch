@@ -17,7 +17,7 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
   - [x] **0.4.4** PGlite — pass (ADR-0032)
   - [x] **0.4.5** QuickJS sandbox — pass (ADR-0033)
   - [x] **0.4.6** better-auth on Bun — pass at the HTTP level; browser passkeys in 0.8 (ADR-0034)
-  - [x] **0.4.7** dockerode from Bun — deferred to CI (ADR-0035)
+  - [x] **0.4.7** dockerode from Bun — passes in CI; execs never hijack the connection (ADR-0035)
   - [x] **0.4.8** Caddy wildcard — deferred; path mode is the default (ADR-0036)
   - [x] **0.4.9** Preview tunnel over a local runner — pass (ADR-0037)
   - [x] **0.4.10** cloudflared profile — deferred; Tailscale documented (ADR-0038)

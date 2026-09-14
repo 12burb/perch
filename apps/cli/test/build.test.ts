@@ -84,8 +84,8 @@ describe.skipIf(!hasWebBuild)("perch binary (task 0.15)", () => {
         await proc.exited;
       }
     } finally {
-      rmSync(out, { recursive: true, force: true });
-      rmSync(dataDir, { recursive: true, force: true });
+      rmSync(out, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 180_000);
 });

@@ -11,8 +11,12 @@ WORKDIR /app
 # Vite runs under Node (ADR-0037); Bun installs and runs everything else.
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY package.json bun.lock turbo.json tsconfig.base.json biome.json ./
+# Every workspace in bun.lock must be present for a frozen install (apps/*, packages/*, connectors,
+# templates, spikes/*, scripts); .dockerignore keeps installs, builds, and .env files out of the context.
 COPY apps ./apps
 COPY packages ./packages
+COPY connectors ./connectors
+COPY templates ./templates
 COPY spikes ./spikes
 COPY scripts ./scripts
 RUN bun install --frozen-lockfile

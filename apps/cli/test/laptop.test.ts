@@ -21,7 +21,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 async function readUntil(
@@ -135,7 +135,7 @@ describe("laptop mode (task 0.14)", () => {
       await expect(restoreBackup(out, restored)).rejects.toThrow(/--force/);
       await restoreBackup(out, restored, { force: true });
     } finally {
-      rmSync(restored, { recursive: true, force: true });
+      rmSync(restored, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 120_000);
 });

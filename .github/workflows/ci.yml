@@ -140,10 +140,13 @@ jobs:
         run: bun scripts/compose-smoke.ts http://localhost
       - name: Logs and teardown
         if: always()
-        working-directory: /tmp/perch
         run: |
-          docker compose logs --no-color api caddy | tail -n 200
-          docker compose down -v
+          # perch init has not run when an earlier step failed.
+          if [ -f /tmp/perch/docker-compose.yml ]; then
+            cd /tmp/perch
+            docker compose logs --no-color api caddy | tail -n 200
+            docker compose down -v
+          fi
       - name: Trivy (api image and the repository)
         uses: aquasecurity/trivy-action@v0.36.0
         with:

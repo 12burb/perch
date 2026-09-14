@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/client";
 import { createOpencodeServer } from "@opencode-ai/sdk/server";
 
@@ -18,8 +18,27 @@ import { createOpencodeServer } from "@opencode-ai/sdk/server";
  */
 
 const binDir = join(import.meta.dir, "node_modules", ".bin");
-process.env.PATH = `${binDir}:${process.env.PATH ?? ""}`;
-const hasBinary = Bun.which("opencode", { PATH: process.env.PATH }) !== null;
+process.env.PATH = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
+
+/**
+ * `opencode-ai` ships `bin/opencode.exe` as a placeholder that its postinstall swaps for the platform
+ * binary (`bun run prepare-binary`); after a plain install the file exists, is executable, and fails with
+ * ENOEXEC. Only a binary that answers `--version` counts as installed.
+ */
+function runnable(path: string | null): boolean {
+  if (!path) return false;
+  try {
+    const probe = Bun.spawnSync([path, "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    });
+    return probe.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+const hasBinary = runnable(Bun.which("opencode", { PATH: process.env.PATH }));
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
