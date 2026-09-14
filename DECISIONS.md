@@ -1905,8 +1905,10 @@ its shell again, or what a shell's environment is.
    status line is off because the drawer already shows the project and its default colours fail
    contrast in the app's theme. Windows and machines without tmux get `$SHELL -l` / `%COMSPEC%`
    with the grace period only.
-4. **Per-user shells and a clean environment.** The shell's environment is the runner's minus every
-   `PERCH_*` variable (the connect token, the master key, session secrets: AGENTS.md §1.6), plus
+4. **Per-user shells and a clean environment.** The shell's environment is the runner's with every
+   `PERCH_*` variable blanked (the connect token, the master key, session secrets: AGENTS.md §1.6),
+   blanked rather than dropped because the PTY layer (portable-pty under bun-pty) starts from the
+   runner's real process environment and merges the given one on top, plus
    `TERM`, `COLORTERM`, `PERCH=1`, `PERCH_USER`, and `HOME=<homes>/<user>` on a hosted runner
    (`/data/homes`, `PERCH_HOMES_DIR`; created 0700 on first use). A person's own variables on a
    local runner stay: it is their machine and their login (lane C).

@@ -185,8 +185,8 @@ The shell: tmux where the machine has it (`tmux -u new-session -A -s perch-<hash
 -c cwd ; set-option status off`; the hash is of the user and directory, so a reopen finds the same
 session), otherwise `$SHELL -l` (`%COMSPEC%` on Windows). A shell whose stream closed stays for ten
 minutes (`graceMs`) with 64 KiB of scrollback (`scrollbackBytes`) replayed to the next stream. Its
-environment is the runner's minus every `PERCH_*` variable (the connect token never reaches a
-shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on a hosted runner,
+environment is the runner's with every `PERCH_*` variable blanked (the connect token never reaches
+a shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on a hosted runner,
 `HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use. See
 [`terminal.md`](terminal.md).
 

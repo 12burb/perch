@@ -116,10 +116,12 @@ export function stripTerminalQueries(text: string): string {
 }
 
 /**
- * A shell's environment: the runner's, minus every PERCH_* variable (they configure Perch's own
- * processes and carry its connect token, master key, and session secret; the vault-in, gateway-out
- * rule keeps them out of terminals and of anything started from one), plus TERM, PERCH=1,
- * PERCH_USER, and a HOME of their own under the homes directory when the runner has one.
+ * A shell's environment: the runner's, with every PERCH_* variable blanked (they configure Perch's
+ * own processes and carry its connect token, master key, and session secret; the vault-in,
+ * gateway-out rule keeps them out of terminals and of anything started from one), plus TERM,
+ * PERCH=1, PERCH_USER, and a HOME of their own under the homes directory when the runner has one.
+ * Blanked rather than dropped: the PTY layer starts from the runner's real process environment and
+ * merges what it is given on top, so a key left out would still reach the shell.
  */
 export function shellEnv(
   options: Pick<PtyOptions, "homes">,
@@ -128,7 +130,7 @@ export function shellEnv(
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base))
-    if (value !== undefined && !key.startsWith("PERCH_")) env[key] = value;
+    if (value !== undefined) env[key] = key.startsWith("PERCH_") ? "" : value;
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   env.PERCH = "1";

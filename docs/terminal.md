@@ -51,9 +51,10 @@ person asks for a new one.
 
 ## Security
 
-- The shell's environment is the runner's minus every `PERCH_*` variable: the runner's connect
-  token, the master key, and session secrets never reach a terminal or anything started from it
-  (AGENTS.md §1.6). Your own variables on a local runner (an `OPENAI_API_KEY` you exported) stay.
+- The shell's environment is the runner's with every `PERCH_*` variable blanked: the runner's
+  connect token, the master key, and session secrets never reach a terminal or anything started
+  from it (AGENTS.md §1.6). Your own variables on a local runner (an `OPENAI_API_KEY` you exported)
+  stay.
 - A local runner (`perch runner connect`) only opens shells for its owner; the api refuses the
   terminal route to anyone without `projects.update` in the workspace (a stranger gets 404).
 - The runner's data socket is authenticated with the runner's connect token like the control

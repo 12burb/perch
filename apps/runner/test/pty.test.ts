@@ -215,37 +215,33 @@ describe("shells on a runner (task 1.7)", () => {
       PERCH_USER: USER,
       HOME: join(homes, USER),
     });
-    expect(Object.keys(env).filter((k) => k.startsWith("PERCH_"))).toEqual(["PERCH_USER"]);
+    // Blanked, not dropped: the PTY layer merges the runner's real environment underneath.
+    const perchKeys = Object.entries(env).filter(([k]) => k.startsWith("PERCH_"));
+    expect(perchKeys).toEqual([
+      ["PERCH_RUNNER_TOKEN", ""],
+      ["PERCH_MASTER_KEY", ""],
+      ["PERCH_SESSION_SECRET", ""],
+      ["PERCH_API_URL", ""],
+      ["PERCH_USER", USER],
+    ]);
     expect(existsSync(join(homes, USER))).toBe(true);
     // Without a homes directory (a local runner, laptop mode) the runner's HOME stays.
     expect(shellEnv({}, USER, { HOME: "/me" }).HOME).toBe("/me");
-    // A shell sees exactly that environment.
-    const secretEnv = { ...process.env, PERCH_RUNNER_TOKEN: "prt_leaked" };
-    const before = process.env.PERCH_RUNNER_TOKEN;
-    process.env.PERCH_RUNNER_TOKEN = secretEnv.PERCH_RUNNER_TOKEN;
-    const manager = new PtyManager({ root, tmux: false, graceMs: 60_000 });
-    return (async () => {
-      try {
-        const opened = await manager.open({ ...ctx, cols: 80, rows: 24, cwd: ".", user: USER });
-        const pair = createStreamPair();
-        manager.attachToken(opened.stream_token, pair.b);
-        const out = tap(pair.a);
-        // The marker is spelled so that only the shell's answer carries it, not the echoed input.
-        pair.a.send(
-          win
-            ? "echo tok=[%PERCH_RUNNER_TOKEN%] user=[%PERCH_USER%] d^one\r"
-            : 'echo tok=[$PERCH_RUNNER_TOKEN] user=[$PERCH_USER] d""one\r',
-        );
-        await out.waitFor("] done");
-        const line = out.output.split("\n").find((l) => /tok=\[.*] done/.test(l)) ?? "";
-        expect(line).toContain(`user=[${USER}]`);
-        expect(line).not.toContain("prt_leaked");
-      } finally {
-        manager.closeAll();
-        if (before === undefined) delete process.env.PERCH_RUNNER_TOKEN;
-        else process.env.PERCH_RUNNER_TOKEN = before;
-      }
-    })();
+    // A shell of a runner that was started with the token in its real environment never sees it.
+    const probe = Bun.spawnSync({
+      cmd: [process.execPath, join(import.meta.dir, "helpers", "pty-env-probe.ts"), root, USER],
+      env: { ...process.env, PERCH_RUNNER_TOKEN: "prt_leaked" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+    const line =
+      probe.stdout
+        .toString()
+        .split("\n")
+        .find((l) => l.startsWith("PROBE ")) ?? "";
+    expect(line).toContain(`user=[${USER}]`);
+    expect(line).not.toContain("prt_leaked");
   }, 60_000);
 
   test("the shell command: tmux sessions are named for the person and directory", () => {
