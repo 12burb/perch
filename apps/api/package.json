@@ -28,6 +28,7 @@
     "@opentelemetry/sdk-node": "0.222.0",
     "@perch/bus": "workspace:*",
     "@perch/db": "workspace:*",
+    "@perch/engines": "workspace:*",
     "@perch/events": "workspace:*",
     "@perch/jobs": "workspace:*",
     "@perch/policy": "workspace:*",

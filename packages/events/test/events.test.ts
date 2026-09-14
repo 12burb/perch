@@ -41,10 +41,12 @@ const SPEC_API_TO_RUNNER =
 
 /** Methods beyond the spec's list, each with an ADR: project.setup / project.remove (ADR-0069). */
 const ADDITIVE_API_TO_RUNNER = ["project.setup", "project.remove"];
+/** Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074). */
+const ADDITIVE_BUS_EVENTS = ["session.turn", "session.status"];
 
 describe("bus event catalog (spec §7.7)", () => {
   test("every event in the spec catalog has a schema, and nothing else does", () => {
-    const expected = expandSpecCatalog().sort();
+    const expected = [...expandSpecCatalog(), ...ADDITIVE_BUS_EVENTS].sort();
     expect([...BUS_EVENT_NAMES].sort() as string[]).toEqual(expected);
   });
 

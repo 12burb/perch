@@ -19,7 +19,12 @@ export const TEST_ADMIN = {
  */
 export async function bootTestApp(
   overrides: Record<string, string> = {},
-  options: { setup?: boolean; runnerChannel?: BootOptions["runnerChannel"] } = {},
+  options: {
+    setup?: boolean;
+    runnerChannel?: BootOptions["runnerChannel"];
+    engines?: BootOptions["engines"];
+    sessions?: BootOptions["sessions"];
+  } = {},
 ): Promise<Booted> {
   const env = loadEnv({
     DATABASE_URL: "pglite://memory",
@@ -28,7 +33,13 @@ export async function bootTestApp(
     PERCH_DATA_DIR: "/tmp/perch-test-data",
     ...overrides,
   });
-  const booted = await boot({ env, log: silentLogger(), runnerChannel: options.runnerChannel });
+  const booted = await boot({
+    env,
+    log: silentLogger(),
+    runnerChannel: options.runnerChannel,
+    ...(options.engines ? { engines: options.engines } : {}),
+    ...(options.sessions ? { sessions: options.sessions } : {}),
+  });
   if (options.setup !== false) {
     await completeSetup(
       { db: booted.db.db, bus: booted.bus, auth: booted.auth, publicUrl: env.publicUrl },

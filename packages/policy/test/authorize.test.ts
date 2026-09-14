@@ -38,6 +38,9 @@ describe("authorize (task 0.9)", () => {
       "projects.delete": { owner: true, admin: true, member: false },
       "deploy_key.read": { owner: true, admin: true, member: true },
       "deploy_key.rotate": { owner: true, admin: true, member: false },
+      "sessions.read": { owner: true, admin: true, member: true },
+      "sessions.create": { owner: true, admin: true, member: true },
+      "sessions.update": { owner: true, admin: true, member: true },
     };
     for (const action of ACTIONS) {
       for (const role of ["owner", "admin", "member"] as const) {

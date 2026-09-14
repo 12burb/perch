@@ -17,6 +17,7 @@ import { registerMe } from "./routes/me.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerRunners } from "./routes/runners.ts";
+import { registerSessions } from "./routes/sessions.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerTerminal } from "./routes/terminal.ts";
 import { registerVersion } from "./routes/version.ts";
@@ -98,6 +99,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerRunners(app, deps);
   registerProjects(app, deps);
   registerProjectFs(app, deps);
+  registerSessions(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

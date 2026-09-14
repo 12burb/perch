@@ -1925,3 +1925,56 @@ parsing them beyond the JSON envelope. Reattach works across api restarts as lon
 keeps the shell (the id is the runner's), and across runner restarts on tmux machines. Per-user
 homes are a directory per user on the homes volume, as the supervisor mounts it; OS-level user
 separation inside the runner image is a later task. The `pty.data` notification remains reserved.
+
+## ADR-0074: Sessions: engines behind one interface, a transcript with a per-session seq
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.8
+
+### Context
+Spec §3.3 gives the Engine interface and the EngineEvent union, §6 the coding_sessions,
+session_events, and session_checkpoints tables, §7.1 the session routes, and §7.2 the
+`session:<id>` topic; "the api persists every EngineEvent to session_events with monotonic seq and
+republishes on session:<id>". It does not say where an engine object lives (adapters run in the
+runner, the api drives them), how the api finds the engine for a session, how the person's own
+turns are kept, what a session's statuses are, or how seqs are allocated.
+
+### Decision
+1. **`packages/engines`** holds the interface as specified, with two additive fields on
+   `createSession`: `sessionId` (the api's row id, which engines key their state by, as the runner
+   protocol's `session.create` already does) and `mode`. `Engine.id` is a string: the spec's ids
+   plus test engines (`fake`).
+2. **Registry and hosting.** `EngineRegistry` maps an id to a static engine or to a factory built
+   per runner link (memoised per link, so one object holds a session's state). `runnerEngine` is
+   the api-side half of every adapter hosted in the runner image or on a local runner: its calls
+   map one to one onto §7.6 `session.create/send/permission/cancel`, and `session.event`
+   notifications become the round's AsyncIterable. Adapters register with their tasks (1.9–1.11);
+   `FakeEngine` (scripted rounds, a pausing permission, cancel → done) serves tests and demos.
+3. **The transcript.** `session_events` has the primary key (session_id, seq); `appendEvent` bumps
+   `coding_sessions.last_seq` and inserts in one transaction, so seqs are monotonic per session for
+   any number of appenders. The person's turn is stored too, as `{type: "turn", text,
+   attachments?, mode, userId}`: the spec's union is the engine's side, and a replay without the
+   questions is not a transcript (`sessionEventSchema` = EngineEvent ∪ turn; a deviation kept
+   additive).
+4. **Fan-out.** Every stored event is republished on the bus with the topic `session:<id>`; the
+   milestones (created, turn, permission_requested, done, error, and the new `session.status`)
+   also carry `ws:<workspace>`. Two bus events are added beyond the spec's list: `session.turn`
+   (a 200-character preview; the text is in the replay) and `session.status`.
+5. **Lifecycle.** Statuses idle → running → needs_you → running → idle | error, and ended. One
+   round per session (409 otherwise). A permission parks the round without a silence timeout;
+   otherwise a round that emits nothing for ten minutes is cancelled. `cancel` asks the engine to
+   stop and lets its `done` end the round. Engines forget sessions across api restarts, so the
+   service re-creates the engine session lazily on the next turn (and after an `unknown_session`).
+6. **Schema beyond the spec's columns**: `model_provider`, `model_id` (the ModelRef a session was
+   opened with; `model_profile_id` stays for brains), `title`, `turns`, `last_seq`,
+   `status_message`. The default model is `{provider: "engine", modelId: "default"}` — whatever
+   the engine is configured with — until model profiles (task 1.15) choose.
+7. **Policy**: `sessions.read`, `sessions.create`, `sessions.update` for every member (write
+   scope for tokens); `session:<id>` WS topics need a membership in the session's workspace.
+
+### Consequences
+The api never talks to an agent runtime directly: a runner-hosted engine is one `runnerEngine`
+per runner link, and the same session service drives the fake in tests. Replay and live updates
+share one seq, so a client resumes from `last_seq` with no gaps. Checkpoints, diffs per turn, and
+sharing (the remaining `/api/sessions/{s}` routes) come with their tasks on the same tables.

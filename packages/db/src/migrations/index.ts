@@ -6,6 +6,7 @@ import m2 from "../../drizzle/0002_jobs.sql" with { type: "text" };
 import m3 from "../../drizzle/0003_audit.sql" with { type: "text" };
 import m4 from "../../drizzle/0004_runners_supervisor.sql" with { type: "text" };
 import m5 from "../../drizzle/0005_projects_setup.sql" with { type: "text" };
+import m6 from "../../drizzle/0006_sessions.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -22,4 +23,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 3, tag: "0003_audit", when: 1789269331990, breakpoints: true, sql: m3 },
   { idx: 4, tag: "0004_runners_supervisor", when: 1789375711087, breakpoints: true, sql: m4 },
   { idx: 5, tag: "0005_projects_setup", when: 1789378197025, breakpoints: true, sql: m5 },
+  { idx: 6, tag: "0006_sessions", when: 1789397220860, breakpoints: true, sql: m6 },
 ];

@@ -1,10 +1,11 @@
 /**
  * Topic authorization for /api/ws (spec §7.2): ws:<workspace> needs a membership, channel:<id> needs
  * the channel's workspace (and the channel itself when private), inbox:<user> is the caller's own,
- * session:<id> waits for sessions (task 1.x) and is refused until then.
+ * session:<id> needs a membership in the session's workspace (task 1.8).
  */
 import { type Db, schema } from "@perch/db";
 import { and, eq } from "drizzle-orm";
+import { getSession } from "../repos/sessions.ts";
 import { findMembership } from "../repos/workspaces.ts";
 
 const { channels, channelMembers } = schema;
@@ -54,8 +55,14 @@ export async function authorizeTopic(
       }
       return { allowed: true, workspaceId: channel.workspaceId };
     }
-    case "session":
-      return { allowed: false, code: "not_found", message: "sessions arrive with Phase 1" };
+    case "session": {
+      if (!UUID.test(parsed.id)) return { allowed: false, code: "validation", message: "bad id" };
+      const session = await getSession(db, parsed.id);
+      if (!session) return { allowed: false, code: "not_found", message: "session not found" };
+      const membership = await findMembership(db, session.workspaceId, userId);
+      if (!membership) return { allowed: false, code: "not_found", message: "session not found" };
+      return { allowed: true, workspaceId: session.workspaceId };
+    }
   }
 }
 

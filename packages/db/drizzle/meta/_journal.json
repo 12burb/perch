@@ -43,6 +43,13 @@
       "when": 1789378197025,
       "tag": "0005_projects_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789397220860,
+      "tag": "0006_sessions",
+      "breakpoints": true
     }
   ]
 }

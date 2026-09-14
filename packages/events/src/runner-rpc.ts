@@ -4,7 +4,7 @@
  * verifies; a local runner refuses requests for users other than its owner unless a grant is attached.
  */
 import { z } from "zod";
-import { engineEventSchema, sessionModeSchema } from "./engine.ts";
+import { engineEventSchema, modelRefSchema, sessionModeSchema } from "./engine.ts";
 
 export const jsonRpcIdSchema = z.union([z.string(), z.number().int()]);
 
@@ -20,11 +20,6 @@ export const runnerRequestContextSchema = z.object({
 export type RunnerRequestContext = z.infer<typeof runnerRequestContextSchema>;
 
 const ctx = runnerRequestContextSchema.shape;
-const modelRef = z.object({
-  provider: z.string(),
-  modelId: z.string(),
-  profileId: z.uuid().optional(),
-});
 
 /** Runner → api. */
 export const runnerToApiParams = {
@@ -60,7 +55,7 @@ export const apiToRunnerParams = {
     session_id: z.uuid(),
     project: z.uuid(),
     engine: z.string(),
-    model: modelRef,
+    model: modelRefSchema,
     mode: sessionModeSchema,
     worktree: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),

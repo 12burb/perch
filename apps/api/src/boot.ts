@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createBus } from "@perch/bus";
 import { createDb, type PgliteRuntime } from "@perch/db";
+import { type Engine, EngineRegistry } from "@perch/engines";
 import { createQueue } from "@perch/jobs";
 import { createVault } from "@perch/vault";
 import { type AppOptions, createApp } from "./app.ts";
@@ -20,6 +21,7 @@ import {
   type RunnerChannelOptions,
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
+import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
@@ -55,6 +57,9 @@ export type BootOptions = {
   pglite?: PgliteRuntime;
   /** Heartbeat and timeout tuning for the runner control channel (tests). */
   runnerChannel?: RunnerChannelOptions;
+  /** Engines sessions can open on (task 1.8): tests pass the fake; adapters register with their tasks. */
+  engines?: Engine[];
+  sessions?: SessionServiceOptions;
 };
 
 export type Booted = Deps & {
@@ -82,7 +87,25 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const queue = createQueue({ db: db.db });
   const auth = createAuth({ env, db, log });
   const runners = new RunnerRegistry(bus);
-  const deps: Deps = { env, db, bus, vault, queue, auth, runners, log, version: versionInfo(env) };
+  const engines = new EngineRegistry();
+  for (const engine of options.engines ?? []) engines.register(engine.id, engine);
+  const sessions = new SessionService(
+    { db: db.db, bus, registry: runners, engines, log },
+    options.sessions ?? {},
+  );
+  const deps: Deps = {
+    env,
+    db,
+    bus,
+    vault,
+    queue,
+    auth,
+    runners,
+    engines,
+    sessions,
+    log,
+    version: versionInfo(env),
+  };
   const stopAudit = startAuditSubscriber({ bus, db, log });
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
@@ -98,6 +121,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     runnerChannel,
     close: async () => {
       stopAudit();
+      sessions.close();
       await runnerChannel.close();
       await runners.closeAll();
       await db.close();

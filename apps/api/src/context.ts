@@ -1,11 +1,13 @@
 import type { Bus } from "@perch/bus";
 import type { ApiTokenScopes, DbHandle, Runner, User } from "@perch/db";
+import type { EngineRegistry } from "@perch/engines";
 import type { Queue } from "@perch/jobs";
 import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
 import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { SessionService } from "./services/sessions.ts";
 
 /** What every handler can reach through the Hono context. */
 export type AppVariables = {
@@ -31,6 +33,9 @@ export type Deps = {
   queue: Queue;
   auth: Auth;
   runners: RunnerRegistry;
+  /** The engines sessions can open on (task 1.8). */
+  engines: EngineRegistry;
+  sessions: SessionService;
   log: Logger;
   version: VersionInfo;
 };

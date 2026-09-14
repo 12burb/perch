@@ -115,6 +115,16 @@ export const busEventPayloads = {
     userId: uuid,
     engine: z.string(),
   }),
+  /** A person's turn started a round (task 1.8, ADR-0074); the text itself is in the replay. */
+  "session.turn": z.object({
+    ...ws,
+    sessionId: uuid,
+    seq: z.number().int(),
+    userId: uuid,
+    preview: z.string().max(200),
+  }),
+  /** The session's status changed (idle, running, needs_you, error, ended). */
+  "session.status": z.object({ ...ws, sessionId: uuid, status: z.string() }),
   "session.delta": z.object({ ...ws, sessionId: uuid, seq: z.number().int(), delta: z.string() }),
   "session.tool_call": z.object({
     ...ws,

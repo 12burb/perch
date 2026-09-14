@@ -28,6 +28,9 @@ export const ACTIONS = [
   "projects.delete",
   "deploy_key.read",
   "deploy_key.rotate",
+  "sessions.read",
+  "sessions.create",
+  "sessions.update",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -76,6 +79,10 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "projects.delete": ["owner", "admin"],
   "deploy_key.read": ["owner", "admin", "member"],
   "deploy_key.rotate": ["owner", "admin"],
+  // Sessions (task 1.8): every member opens and drives agent sessions in the workspace's projects.
+  "sessions.read": ["owner", "admin", "member"],
+  "sessions.create": ["owner", "admin", "member"],
+  "sessions.update": ["owner", "admin", "member"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -97,6 +104,9 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "projects.delete": "admin",
   "deploy_key.read": "read",
   "deploy_key.rotate": "admin",
+  "sessions.read": "read",
+  "sessions.create": "write",
+  "sessions.update": "write",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {
