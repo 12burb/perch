@@ -2136,3 +2136,52 @@ The lane costs nothing when off. Its formats follow the CLIs' documentation at t
 writing; a format change shows up as missing events, corrected by a parser edit. Claude Code stays
 selectable only where the flag is on, and the spec's terms caveat is documented rather than
 enforced in code beyond the flag.
+
+## ADR-0078: The session pane: the panel, a reducer over the replay, and a fork that copies the transcript
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.12
+
+### Context
+Spec §4 puts the agent session in the panel of Code mode and lists SessionTranscript, ToolCard, and
+PermissionPrompt among the ui components; §5.1 names the pane's parts; §7.2 streams
+`session.delta` events on `session:<id>`. The bus payloads of ADR-0074 carry ids and previews, not
+the full events, and the spec's route list has neither rename nor fork.
+
+### Decision
+1. **Where.** A session is selected by `?session=<id>` on the project route and rendered in the
+   panel through the shell's `setPanel` (the editor stays in main; a phone pushes the pane over
+   it). The sidebar's Sessions section lists the open project's sessions and starts new ones with
+   an engine (default `acp`) and an optional agent/provider.
+2. **Transcript.** `packages/ui` gets `SessionTranscript` (a virtualized `role="log"` live region
+   of turns, replies, tool cards, permission prompts, errors), `ToolCard` (one line until opened;
+   arguments, output, and per-file diffs with +/- counts), and `PermissionPrompt` (the three
+   answers of §5.1). The app folds session events into those items with a pure reducer
+   (apps/web/src/code/transcript.ts): consecutive text deltas into one reply, a tool call and its
+   result into one card, a permission and its answer (from `session.permission_answered`) into one
+   prompt; usage events sum into the footer.
+3. **Live updates.** The pane replays `GET /events` from seq 0, subscribes to `session:<id>`, and
+   applies `session.delta` payloads inline when their seq is the next one; any other event (or a
+   gap) fetches what is new after the last seq. Status changes invalidate the session query.
+4. **Rename and fork** are additive routes: `PATCH /api/sessions/{s} {title}` and
+   `POST /api/sessions/{s}/fork`. A fork is a new session on the same project, engine, model, and
+   mode with the transcript so far copied (same seqs, `last_seq` carried over) and
+   `forked_from_id` set (migration 0007); the engine's own memory starts fresh on the fork until
+   adapters fork natively (ACP `session/fork`, OpenCode's fork), which the transcript copy already
+   presents correctly.
+5. **Tests.** The Playwright spec drives plan → build → permission → done on the runner tests'
+   fake ACP agent, which `scripts/e2e-server.ts` registers as the laptop runner's default agent
+   through `PERCH_ACP_AGENTS`; so the flow needs no model key in CI.
+6. **Budget.** The transcript pieces ship from their own entry point, `@perch/ui/session`, not the
+   `@perch/ui` barrel: a module the barrel reaches and any lazy route uses lands in the initial
+   chunk (Rolldown assigns it to the entry that can reach it), and the transcript brings the
+   virtualizer along. Likewise the route validates `?session=` with a four-line function rather
+   than a Zod schema, because `validateSearch` stays in the eagerly loaded route config and Zod
+   is 20 KB gzipped; the API keeps validating with Zod. Both keep the initial payload under the
+   180 KB of ADR-0072.
+
+### Consequences
+The pane is one component over the replay endpoint and one topic, so a reload or a second tab
+converges on the same transcript. Per-turn diffs and checkpoints (later tasks) have the tool cards'
+diffs and the fork's transcript copy to build on.

@@ -6,7 +6,27 @@ and Perch keeps the whole transcript. Task 1.8 delivers the interface, the lifec
 and replay; the adapters that drive real agents (ACP, OpenCode, the official CLIs) arrive with
 tasks 1.9–1.11, and the session pane with 1.12. Design notes: ADR-0074.
 
-## The Engine interface (`packages/engines`)
+## The session pane (task 1.12)
+
+In Code mode with a project open, the sidebar's Sessions section lists the project's sessions
+(newest first) and starts one (engine, and an agent or provider when the engine's default is not
+wanted). A selected session (`?session=<id>` on the project route) opens the pane in the panel
+(spec §4: panel = agent session; it pushes the main area on a phone):
+
+- The transcript (`SessionTranscript` from `@perch/ui/session`): the person's turns, the agent's replies
+  streamed as they arrive, tool cards collapsed to one line that open to arguments, output and
+  diffs (`ToolCard`), permission prompts with Allow once / Always this session / Deny
+  (`PermissionPrompt`), errors; virtualized, a live region for screen readers.
+- The composer in session mode with a Plan/Build switch; Enter sends, Esc cancels a running
+  round; a usage footer sums tokens and cost from `usage` events.
+- Rename, fork, close. A fork (`POST /api/sessions/{s}/fork`) is a new session on the same
+  project, engine, model, and mode with the transcript so far copied in (ADR-0078); the engine's
+  own memory starts fresh until adapters fork natively.
+
+Live updates come from the `session:<id>` topic: text deltas are applied as they arrive; every
+other event triggers a replay of what is new after the last seq (the bus payloads carry ids, not
+the full records).
+
 
 ```ts
 interface Engine {
@@ -169,6 +189,8 @@ so lists and the inbox can follow without subscribing to every session. Subscrib
 | `POST /api/sessions/{s}/turns` `{text, attachments?, mode?}` | Starts a round → `202 {seq, session}` |
 | `POST /api/sessions/{s}/permissions/{id}` `{answer}` | Answers a waiting permission |
 | `POST /api/sessions/{s}/cancel` | Stops the running round → `{cancelled}` |
+| `PATCH /api/sessions/{s}` `{title}` | Renames the session |
+| `POST /api/sessions/{s}/fork` | A new session with the transcript so far → `201 Session` (`forked_from_id` set) |
 | `GET /api/sessions/{s}/events?after_seq&limit` | Replays the transcript |
 
 Every route authorizes `sessions.read` / `sessions.create` / `sessions.update` in the session's
@@ -187,6 +209,12 @@ model profiles (brains, task 1.15) choose one.
   answered a permission.
 
 ## Tests
+
+- `e2e/session.e2e.ts`: plan → build → permission → done through the pane on the laptop runner's
+  fake ACP agent, then rename and fork; axe clean at both viewports.
+- `packages/ui/src/components/session-transcript.ct.tsx`: the transcript's items, an opening tool
+  card with its diff, an answered permission, virtualization of a long list; axe.
+- `apps/web/test/transcript.test.ts`: the reducer from session events to transcript items.
 
 - `packages/engines/test/fake.test.ts`: the fake engine's rounds, permissions, cancel, busy, the
   registry's memoisation.

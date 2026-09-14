@@ -37,7 +37,23 @@ const api = Bun.spawn(
     "--log-level",
     process.env.PERCH_LOG_LEVEL ?? "warn",
   ],
-  { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env } },
+  {
+    cwd: root,
+    stdout: "inherit",
+    stderr: "inherit",
+    env: {
+      ...process.env,
+      // Sessions run on the fake ACP agent of the runner's tests (task 1.12's spec needs no key).
+      PERCH_ACP_AGENTS: JSON.stringify({
+        fake: {
+          name: "Fake Agent",
+          command: process.execPath,
+          args: [resolve(root, "apps/runner/test/fixtures/acp-agent.ts")],
+        },
+      }),
+      PERCH_ACP_AGENT: "fake",
+    },
+  },
 );
 
 const stop = () => api.kill();

@@ -14,6 +14,8 @@ export type AuditRow = components["schemas"]["AuditRow"];
 export type RunnerRow = components["schemas"]["Runner"];
 export type ProjectRow = components["schemas"]["Project"];
 export type DeployKeyRow = components["schemas"]["DeployKey"];
+export type SessionRow = components["schemas"]["Session"];
+export type SessionEventRecord = components["schemas"]["SessionEventRecord"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -137,5 +139,27 @@ export function fsSearchQuery(workspaceId: string, projectId: string, q: string)
         }),
       ),
     enabled: q.trim().length > 0,
+  });
+}
+
+export function sessionsQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["sessions", workspaceId, projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/sessions", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ).sessions,
+    enabled: workspaceId !== "" && projectId !== "",
+  });
+}
+
+export function sessionQuery(sessionId: string) {
+  return queryOptions({
+    queryKey: ["session", sessionId],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/sessions/{s}", { params: { path: { s: sessionId } } })),
+    enabled: sessionId !== "",
   });
 }

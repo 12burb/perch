@@ -50,3 +50,6 @@ import { EditorGroup } from "@perch/ui"; // tabs + breadcrumbs + the tabpanel; t
 
 `apps/web/src/code/` holds the rest: `code-editor.tsx` (CodeMirror), `markdown.tsx` (the
 renderer), `file-tree.tsx`, `editor-store.ts` (open files per project, zustand), `editor-pane.tsx`.
+
+The session pane (task 1.12) opens in the panel beside the editor from the sidebar's Sessions
+section; see [`sessions.md`](sessions.md).

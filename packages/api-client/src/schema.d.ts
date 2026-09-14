@@ -2560,7 +2560,60 @@ export type paths = {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename a session */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    s: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["RenameSession"];
+                };
+            };
+            responses: {
+                /** @description The session */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Session"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/sessions/{s}/turns": {
@@ -2774,6 +2827,89 @@ export type paths = {
                         "application/json": {
                             cancelled: boolean;
                         };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{s}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fork a session: a new session with the transcript so far */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    s: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The fork */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Session"];
                     };
                 };
                 /** @description Forbidden (including unauthenticated) */
@@ -3190,6 +3326,8 @@ export type components = {
             status: "idle" | "running" | "needs_you" | "error" | "ended";
             status_message: string | null;
             title: string | null;
+            /** Format: uuid */
+            forked_from_id: string | null;
             cost_usd: number;
             turns: number;
             last_seq: number;
@@ -3215,6 +3353,9 @@ export type components = {
             attachments?: string[];
             /** @enum {string} */
             mode?: "plan" | "build";
+        };
+        RenameSession: {
+            title: string | null;
         };
         SessionEventRecord: {
             seq: number;

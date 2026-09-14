@@ -28,6 +28,7 @@ export async function insertSession(
     model: ModelRef;
     mode: SessionModeValue;
     title: string | null;
+    forkedFromId?: string | null;
   },
 ): Promise<CodingSession> {
   const [row] = await db
@@ -43,6 +44,7 @@ export async function insertSession(
       modelProfileId: values.model.profileId ?? null,
       mode: values.mode,
       title: values.title,
+      forkedFromId: values.forkedFromId ?? null,
     })
     .returning();
   if (!row) throw new Error("insert coding_sessions returned no row");
@@ -124,6 +126,33 @@ export async function appendEvent(
     if (!row) throw new Error("insert session_events returned no row");
     return { seq: bumped.seq, ts: row.ts };
   });
+}
+
+/** Copies a session's transcript into another (a fork, task 1.12); the target's seq follows. */
+export async function copyEvents(
+  db: Db,
+  fromSessionId: string,
+  toSessionId: string,
+): Promise<number> {
+  const rows = await db
+    .select()
+    .from(sessionEvents)
+    .where(eq(sessionEvents.sessionId, fromSessionId))
+    .orderBy(asc(sessionEvents.seq));
+  if (rows.length === 0) return 0;
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(sessionEvents)
+      .values(
+        rows.map((row) => ({ sessionId: toSessionId, seq: row.seq, event: row.event, ts: row.ts })),
+      );
+    const last = rows.at(-1)?.seq ?? 0;
+    await tx
+      .update(codingSessions)
+      .set({ lastSeq: last })
+      .where(eq(codingSessions.id, toSessionId));
+  });
+  return rows.length;
 }
 
 /** Events after `afterSeq`, in order, at most `limit` of them. */

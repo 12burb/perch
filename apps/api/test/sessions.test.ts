@@ -383,6 +383,50 @@ describe("sessions api (task 1.8)", () => {
     expect(recovered.turns).toBe(3);
   }, 30_000);
 
+  test("rename and fork: the fork carries the transcript and starts idle", async () => {
+    const created = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie, {
+      method: "POST",
+      json: { engine: "fake", title: "Original", prompt: "hello fork" },
+    })) as { body: SessionBody };
+    const id = created.body.id;
+    await untilStatus(cookie, id, "idle");
+    const renamed = (await call(`/api/sessions/${id}`, cookie, {
+      method: "PATCH",
+      json: { title: "Renamed" },
+    })) as { status: number; body: { title: string } };
+    expect(renamed).toMatchObject({ status: 200, body: { title: "Renamed" } });
+    const forked = (await call(`/api/sessions/${id}/fork`, cookie, { method: "POST" })) as {
+      status: number;
+      body: SessionBody & { title: string; forked_from_id: string | null };
+    };
+    expect(forked.status).toBe(201);
+    expect(forked.body).toMatchObject({
+      title: "Renamed (fork)",
+      forked_from_id: id,
+      status: "idle",
+      turns: 0,
+    });
+    const original = (await call(`/api/sessions/${id}/events`, cookie)) as { body: EventsBody };
+    const copy = (await call(`/api/sessions/${forked.body.id}/events`, cookie)) as {
+      body: EventsBody;
+    };
+    expect(copy.body.events.map((e) => [e.seq, e.event.type])).toEqual(
+      original.body.events.map((e) => [e.seq, e.event.type]),
+    );
+    expect(copy.body.last_seq).toBe(original.body.last_seq);
+    // The fork goes on from there with its own seqs.
+    const sent = (await call(`/api/sessions/${forked.body.id}/turns`, cookie, {
+      method: "POST",
+      json: { text: "continue" },
+    })) as { body: { seq: number } };
+    expect(sent.body.seq).toBe(original.body.last_seq + 1);
+    await untilStatus(cookie, forked.body.id, "idle");
+    const list = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie)) as {
+      body: { sessions: SessionBody[] };
+    };
+    expect(list.body.sessions.map((s) => s.id)).toContain(forked.body.id);
+  }, 30_000);
+
   test("strangers see nothing, unknown engines are refused, signed-out callers are forbidden", async () => {
     const created = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie, {
       method: "POST",

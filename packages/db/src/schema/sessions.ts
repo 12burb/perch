@@ -58,6 +58,8 @@ export const codingSessions = pgTable(
     branch: text("branch"),
     workItemId: uuid("work_item_id"),
     threadRootId: uuid("thread_root_id"),
+    /** The session this one was forked from (task 1.12): its transcript was copied at the fork. */
+    forkedFromId: uuid("forked_from_id"),
     costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }).notNull().default(0),
     /** Rounds sent so far; a checkpoint is per turn. */
     turns: integer("turns").notNull().default(0),

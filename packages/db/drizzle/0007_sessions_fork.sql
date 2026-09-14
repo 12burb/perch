@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "forked_from_id" uuid;

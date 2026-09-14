@@ -4,9 +4,10 @@
  */
 import { type MessageKey, type RailMode, Sidebar, SidebarItem, SidebarSection, t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEditorStore } from "../code/editor-store.ts";
 import { FileTree } from "../code/file-tree.tsx";
+import { SessionsSection } from "../code/sessions-list.tsx";
 import { type MyWorkspace, projectsQuery } from "../lib/queries.ts";
 import { useAppShell } from "./app-shell.tsx";
 
@@ -61,6 +62,12 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
       {SECTIONS[props.mode].map((section) =>
         section.title === "shell.code.projects" && props.workspace ? (
           <ProjectsSection key={section.title} workspace={props.workspace} empty={section.empty} />
+        ) : section.title === "shell.code.sessions" && props.workspace ? (
+          <OpenProjectSessions
+            key={section.title}
+            workspace={props.workspace}
+            empty={section.empty}
+          />
         ) : (
           <SidebarSection key={section.title} title={t(section.title)}>
             <li className="px-2 py-1 text-sm text-fg-subtle">{t(section.empty)}</li>
@@ -129,6 +136,38 @@ function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
         ))
       )}
     </SidebarSection>
+  );
+}
+
+/** The Sessions section: the open project's sessions (task 1.12), or the hint without one. */
+function OpenProjectSessions(props: { workspace: MyWorkspace; empty: MessageKey }) {
+  const projects = useQuery(projectsQuery(props.workspace.id)).data ?? [];
+  const params = useParams({ strict: false }) as { project?: string };
+  const search = useSearch({ strict: false }) as { session?: string };
+  const open = params.project ? projects.find((p) => p.key === params.project) : undefined;
+  const navigate = useNavigate();
+  const { shell } = useAppShell();
+  if (open?.status !== "ready") {
+    return (
+      <SidebarSection title={t("shell.code.sessions")}>
+        <li className="px-2 py-1 text-fg-subtle text-sm">{t(props.empty)}</li>
+      </SidebarSection>
+    );
+  }
+  return (
+    <SessionsSection
+      workspaceId={props.workspace.id}
+      projectId={open.id}
+      activeSessionId={search.session ?? null}
+      onOpen={(sessionId) => {
+        if (shell.state.mobileSheet) shell.onStateChange({ ...shell.state, mobileSheet: null });
+        void navigate({
+          to: "/$workspace/code/$project",
+          params: { workspace: props.workspace.slug, project: open.key },
+          search: { session: sessionId },
+        });
+      }}
+    />
   );
 }
 

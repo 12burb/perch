@@ -1164,6 +1164,13 @@
               "null"
             ]
           },
+          "forked_from_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "cost_usd": {
             "type": "number"
           },
@@ -1196,6 +1203,7 @@
           "status",
           "status_message",
           "title",
+          "forked_from_id",
           "cost_usd",
           "turns",
           "last_seq",
@@ -1281,6 +1289,21 @@
         },
         "required": [
           "text"
+        ]
+      },
+      "RenameSession": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "title"
         ]
       },
       "SessionEventRecord": {
@@ -4828,6 +4851,82 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Rename a session",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameSession"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/sessions/{s}/turns": {
@@ -5101,6 +5200,95 @@
                   "required": [
                     "cancelled"
                   ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{s}/fork": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Fork a session: a new session with the transcript so far",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The fork",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
                 }
               }
             }

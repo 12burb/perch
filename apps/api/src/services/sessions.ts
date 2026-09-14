@@ -24,6 +24,7 @@ import type { Flags } from "../flags.ts";
 import {
   addCost,
   appendEvent,
+  copyEvents,
   getSession,
   insertSession,
   listEvents,
@@ -171,6 +172,54 @@ export class SessionService {
       { ...input.by, topics: this.wide(session) },
     );
     return session;
+  }
+
+  /** A new title. */
+  async rename(session: CodingSession, title: string | null): Promise<CodingSession> {
+    return (await updateSession(this.deps.db, session.id, { title })) ?? session;
+  }
+
+  /**
+   * A fork (task 1.12, ADR-0078): a new session on the same project, engine, model, and mode with
+   * the transcript so far copied in, so the conversation branches from here. The engine's own
+   * memory starts fresh on the fork until adapters fork natively.
+   */
+  async fork(session: CodingSession, userId: string, by: ActorContext): Promise<CodingSession> {
+    if (this.rounds.has(session.id)) {
+      throw PerchError.conflict("wait for the running round before forking");
+    }
+    const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
+    if (!project) throw PerchError.notFound("project");
+    const link = await projectRunnerLink(this.deps, project, userId);
+    const fork = await insertSession(this.deps.db, {
+      workspaceId: session.workspaceId,
+      projectId: session.projectId,
+      runnerId: UUID.test(link.id) ? link.id : null,
+      userId,
+      engine: session.engine,
+      model: {
+        provider: session.modelProvider,
+        modelId: session.modelId,
+        ...(session.modelProfileId ? { profileId: session.modelProfileId } : {}),
+      },
+      mode: session.mode,
+      title: session.title ? `${session.title} (fork)` : null,
+      forkedFromId: session.id,
+    });
+    await copyEvents(this.deps.db, session.id, fork.id);
+    const fresh = (await getSession(this.deps.db, fork.id)) ?? fork;
+    await this.deps.bus.publish(
+      "session.created",
+      {
+        workspaceId: fresh.workspaceId,
+        sessionId: fresh.id,
+        projectId: fresh.projectId,
+        userId,
+        engine: fresh.engine,
+      },
+      { ...by, topics: this.wide(fresh) },
+    );
+    return fresh;
   }
 
   /** Starts a round: the turn is recorded, the engine answers in the background. */

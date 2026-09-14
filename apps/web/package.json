@@ -9,7 +9,8 @@
     "dev": "vite --port 5173",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.4",

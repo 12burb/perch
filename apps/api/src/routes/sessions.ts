@@ -44,6 +44,7 @@ export const sessionSchema = z
     status: sessionStatusSchema,
     status_message: z.string().nullable(),
     title: z.string().nullable(),
+    forked_from_id: z.uuid().nullable(),
     cost_usd: z.number(),
     turns: z.number().int(),
     last_seq: z.number().int(),
@@ -70,6 +71,7 @@ export function sessionBody(row: CodingSession): z.infer<typeof sessionSchema> {
     status: row.status,
     status_message: row.statusMessage,
     title: row.title,
+    forked_from_id: row.forkedFromId,
     cost_usd: row.costUsd,
     turns: row.turns,
     last_seq: row.lastSeq,
@@ -211,6 +213,43 @@ const cancelRoute = createRoute({
   },
 });
 
+const renameRoute = createRoute({
+  method: "patch",
+  path: "/api/sessions/{s}",
+  tags: ["sessions"],
+  summary: "Rename a session",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: sessionParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ title: z.string().max(200).nullable() }).openapi("RenameSession"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "The session", content: { "application/json": { schema: sessionSchema } } },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const forkRoute = createRoute({
+  method: "post",
+  path: "/api/sessions/{s}/fork",
+  tags: ["sessions"],
+  summary: "Fork a session: a new session with the transcript so far",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: sessionParam },
+  responses: {
+    201: { description: "The fork", content: { "application/json": { schema: sessionSchema } } },
+    ...sessionErrors,
+  },
+});
+
 const eventsRoute = createRoute({
   method: "get",
   path: "/api/sessions/{s}/events",
@@ -245,7 +284,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   async function load(
     c: Parameters<typeof authorize>[0],
     id: string,
-    action: "sessions.read" | "sessions.update",
+    action: "sessions.read" | "sessions.update" | "sessions.create",
   ): Promise<CodingSession> {
     const session = await sessions.get(id);
     if (!session) throw PerchError.notFound("session");
@@ -336,6 +375,22 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const session = await load(c, s, "sessions.update");
     const result = await sessions.cancel(session);
     return c.json(result, 200);
+  });
+
+  app.openapi(renameRoute, async (c) => {
+    const { s } = c.req.valid("param");
+    const { title } = c.req.valid("json");
+    const session = await load(c, s, "sessions.update");
+    const renamed = await sessions.rename(session, title?.trim() ? title.trim() : null);
+    return c.json(sessionBody(renamed), 200);
+  });
+
+  app.openapi(forkRoute, async (c) => {
+    const { s } = c.req.valid("param");
+    const session = await load(c, s, "sessions.create");
+    const user = currentUser(c);
+    const fork = await sessions.fork(session, user.id, actorOf(c));
+    return c.json(sessionBody(fork), 201);
   });
 
   app.openapi(eventsRoute, async (c) => {
