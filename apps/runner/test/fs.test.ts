@@ -200,7 +200,12 @@ describe("fs methods (task 1.5)", () => {
       expect(last.truncated).toBe(false);
       const best = Math.min(...timings);
       console.log(`fs.search over 50,000 files: ${timings.join("/")} ms (${last.engine})`);
-      if (last.engine === "ripgrep") expect(best).toBeLessThan(200);
+      // The budget holds on Linux, the runner image's platform (~110–140 ms on ripgrep, asserted
+      // in CI's check job); GitHub's macOS VMs walk 50k files in ~650 ms and Windows runs the
+      // built-in engine, so those platforms check correctness and report the timing (ADR-0070).
+      if (last.engine === "ripgrep" && process.platform === "linux") {
+        expect(best).toBeLessThan(200);
+      }
     } finally {
       rmSync(bigRoot, { recursive: true, force: true });
     }

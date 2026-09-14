@@ -151,7 +151,9 @@ each one resolves paths inside the project directory and goes through the policy
 `fs.search` is ripgrep (`rg --json`, literal by default, smart case) when the machine has it (the
 runner image does) and an in-process walk otherwise; both answer in path-then-line order. The
 acceptance benchmark in apps/runner/test/fs.test.ts searches a 50,000-file tree in ~110–140 ms on
-ripgrep. The runner reports its `git` and `ripgrep` versions in `capabilities.versions`.
+ripgrep on Linux (the budget is asserted there; macOS CI VMs take ~650 ms on the same tree, so the
+test reports the timing on other platforms). The runner reports its `git` and `ripgrep` versions in
+`capabilities.versions`.
 
 The watcher behind `ports.changed` polls every 2 s and reports the whole list on the first look and
 on every change; the api keeps it per runner (the Environments list shows it), answers
