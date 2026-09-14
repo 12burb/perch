@@ -32,9 +32,15 @@ Verify an image: `cosign verify ghcr.io/12burb/perch-api:<version> --certificate
 | Budget | Value |
 |---|---|
 | initial JS + CSS (gzip) | 180 KB |
-| total JS (gzip) | 320 KB |
+| app JS (gzip): the entry, its imports, and every route chunk the app splits off | 420 KB |
+| on-demand packs JS (gzip): chunks a library loads lazily on its own (CodeMirror's ~40 grammars), one per file type opened | 480 KB |
 | CSS (gzip) | 48 KB |
 | one WS envelope (presence, typing, message.created, session.delta samples) | 1 KB |
+
+The split comes from Vite's manifest (`apps/web/dist/.vite/manifest.json`, ADR-0072): static imports
+always belong to the app; a dynamic import counts as the app's when its target is app code (a route
+under `src/`) and as a pack when the target lives in `node_modules`. `bun run perf` prints the total
+too, as information.
 
 The full perf audit (list virtualization, per-frame batching) is task 2.20.
 

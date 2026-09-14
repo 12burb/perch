@@ -11,8 +11,17 @@ import { gzipSync } from "node:zlib";
 export const BUDGETS = {
   /** The entry chunk and stylesheet index.html loads before anything renders (gzip). */
   initialGzipKb: 180,
-  /** Every JavaScript chunk in dist/assets (gzip); lazy routes included. */
-  totalJsGzipKb: 320,
+  /**
+   * The app's own JavaScript (gzip): the entry, everything it imports, and every route chunk the
+   * app itself splits off (ADR-0072). Since the editor (task 1.6) it carries CodeMirror's core.
+   */
+  appJsGzipKb: 420,
+  /**
+   * On-demand library packs (gzip): chunks a library loads lazily on its own, one per file type
+   * (CodeMirror's ~40 language grammars behind @codemirror/language-data); a user downloads only
+   * the ones for the files they open.
+   */
+  packsJsGzipKb: 480,
   /** The stylesheet(s) (gzip). */
   cssGzipKb: 48,
   /** One WS envelope for the chattiest event kinds (bytes, UTF-8), payload included. */
@@ -21,10 +30,47 @@ export const BUDGETS = {
 
 export type BundleReport = {
   initialGzipKb: number;
+  /** appJsGzipKb + packsJsGzipKb. */
   totalJsGzipKb: number;
+  appJsGzipKb: number;
+  packsJsGzipKb: number;
   cssGzipKb: number;
   files: Array<{ file: string; gzipKb: number }>;
 };
+
+type ManifestChunk = {
+  file: string;
+  isEntry?: boolean;
+  imports?: string[];
+  dynamicImports?: string[];
+};
+
+/**
+ * The chunks the app itself reaches from Vite's manifest: static imports always, dynamic imports
+ * only when the target is app code (a route under src/), so a library's own lazy packs (targets
+ * under node_modules) stay apart. Without a manifest every chunk counts as the app's.
+ */
+export function appChunks(dist: string): Set<string> | null {
+  const manifestPath = join(dist, ".vite", "manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, ManifestChunk>;
+  const reached = new Set<string>();
+  const seen = new Set<string>();
+  const stack = Object.keys(manifest).filter((key) => manifest[key]?.isEntry);
+  while (stack.length > 0) {
+    const key = stack.pop();
+    if (key === undefined || seen.has(key)) continue;
+    const chunk = manifest[key];
+    if (!chunk) continue;
+    seen.add(key);
+    reached.add(chunk.file);
+    stack.push(...(chunk.imports ?? []));
+    for (const target of chunk.dynamicImports ?? []) {
+      if (!target.includes("node_modules")) stack.push(target);
+    }
+  }
+  return reached;
+}
 
 function gzipKb(bytes: Uint8Array): number {
   return Math.round((gzipSync(bytes).byteLength / 1024) * 10) / 10;
@@ -56,14 +102,22 @@ export function measureBundle(dist: string): BundleReport {
     .sort((a, b) => b.gzipKb - a.gzipKb);
   const byFile = new Map(files.map((f) => [f.file, f.gzipKb]));
   const initialGzipKb = initialRefs.reduce((sum, ref) => sum + (byFile.get(ref) ?? 0), 0);
-  const totalJsGzipKb = files
-    .filter((f) => f.file.endsWith(".js"))
+  const app = appChunks(dist);
+  const js = files.filter((f) => f.file.endsWith(".js"));
+  const appJsGzipKb = js
+    .filter((f) => app === null || app.has(f.file))
+    .reduce((s, f) => s + f.gzipKb, 0);
+  const packsJsGzipKb = js
+    .filter((f) => app !== null && !app.has(f.file))
     .reduce((s, f) => s + f.gzipKb, 0);
   const cssGzipKb = files.filter((f) => f.file.endsWith(".css")).reduce((s, f) => s + f.gzipKb, 0);
+  const round = (n: number) => Math.round(n * 10) / 10;
   return {
-    initialGzipKb: Math.round(initialGzipKb * 10) / 10,
-    totalJsGzipKb: Math.round(totalJsGzipKb * 10) / 10,
-    cssGzipKb: Math.round(cssGzipKb * 10) / 10,
+    initialGzipKb: round(initialGzipKb),
+    totalJsGzipKb: round(appJsGzipKb + packsJsGzipKb),
+    appJsGzipKb: round(appJsGzipKb),
+    packsJsGzipKb: round(packsJsGzipKb),
+    cssGzipKb: round(cssGzipKb),
     files,
   };
 }
@@ -132,7 +186,9 @@ export function audit(dist: string): PerfResult {
   }
   const bundle = measureBundle(dist);
   check("initial js+css (gzip)", bundle.initialGzipKb, BUDGETS.initialGzipKb, "KB");
-  check("total js (gzip)", bundle.totalJsGzipKb, BUDGETS.totalJsGzipKb, "KB");
+  check("app js (gzip)", bundle.appJsGzipKb, BUDGETS.appJsGzipKb, "KB");
+  check("on-demand packs js (gzip)", bundle.packsJsGzipKb, BUDGETS.packsJsGzipKb, "KB");
+  lines.push(`info  ${"total js (gzip)".padEnd(28)} ${bundle.totalJsGzipKb} KB`);
   check("css (gzip)", bundle.cssGzipKb, BUDGETS.cssGzipKb, "KB");
   for (const sample of sampleEnvelopes()) {
     check(`ws envelope ${sample.type}`, sample.bytes, BUDGETS.wsEnvelopeBytes, "B");

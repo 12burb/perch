@@ -1843,3 +1843,29 @@ Sessions, the terminal's path links, and the git panel address files through the
 store. `fs.changed` from outside edits (agents, terminals) is not yet pushed into open buffers; the
 tree refetches on `project.updated`, and a later task wires runner watchers into the editor. Large
 files are read-only past 2 MiB.
+
+## ADR-0072: Bundle budgets: the app's own chunks apart from libraries' on-demand packs
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.6 (follow-up; supersedes the total-JS figure of ADR-0060)
+
+### Context
+ADR-0060 set a single "total JS" budget of 320 KB (gzip) over every chunk in `dist/assets` when the
+app was an empty shell. The editor (task 1.6) brings CodeMirror's core (loaded with the editor
+route) and, through `@codemirror/language-data`, about forty language grammars that the library
+imports lazily, one per file type a person opens. Summed, they are ~400 KB a user never downloads
+at once, and the old budget failed main.
+
+### Decision
+`scripts/perf-budget.ts` reads Vite's manifest (`build.manifest: true`) and splits JavaScript into
+two budgets: **app JS** (the entry, everything it imports statically, and every route chunk the app
+itself splits off; dynamic imports whose target is app code under `src/`) at 420 KB, and **on-demand
+packs** (dynamic imports whose target lives in `node_modules`, i.e. a library's own lazy chunks) at
+480 KB. The total is printed as information. Without a manifest (the tests' fixtures) every chunk
+counts as the app's. The initial budget (180 KB) and the CSS and WS-envelope budgets stay.
+
+### Consequences
+The app budget is what a session actually pays for a route; the packs budget still bounds what the
+editor can pull in over time. Either budget is raised only by an ADR that names what grew. The
+manifest ships inside `dist` (and the binary's embedded assets); it is a few KB.

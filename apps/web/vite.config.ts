@@ -10,5 +10,6 @@ export default defineConfig({
     port: 5173,
     proxy: { "/api": { target: "http://localhost:3000", ws: true } },
   },
-  build: { sourcemap: true },
+  // The manifest lets scripts/perf-budget.ts tell route chunks from on-demand library packs.
+  build: { sourcemap: true, manifest: true },
 });
