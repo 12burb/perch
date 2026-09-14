@@ -1512,3 +1512,33 @@ the page load from the server's request log. macOS and Linux keep the pump and t
 platform); the pump path also re-navigates once after 1.5 s when a webview dropped the navigation
 requested at creation. The pump behaviour is an upstream (webviewjs/webview) follow-up. Signing and
 notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.
+
+## ADR-0064: No paid plans; every model is the user's own
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: maintainer direction (2026-09-14), outside the task queue
+
+### Context
+The spec describes a self-hosted product with a `workspaces.plan` column (default `self-hosted`, §6) and
+three credential lanes for API keys, local models, and vendor subscriptions (§3.6). The maintainer set the
+direction explicitly: Perch will not include any paid plans; it is open source, and anyone can connect
+their own models to the platform.
+
+### Decision
+Perch has no paid plans, tiers, seats, metering, license keys, or hosted upsell, and no feature is gated
+on a plan. Models are always the user's own: Lane A, API keys and OpenAI-compatible endpoints (Ollama, LM
+Studio, vLLM, llama.cpp, OpenRouter, and any other), vaulted at user or workspace scope; Lane B, vendor
+subscriptions inside an endorsed engine, personal and never proxied; Lane C, official CLIs under the
+user's own login. `workspaces.plan` stays as a deployment descriptor, `self-hosted` being its only value,
+naming how an instance runs and never what it pays for: shipped migrations are never edited (§9.1) and
+the column costs nothing. "A paid key" in the Phase 1 exit criterion means a paid provider API key the
+user owns, not a Perch plan.
+
+### Consequences
+No billing tables, no plan checks in `packages/policy`, no license keys, nothing to unlock. The cost shown
+on the Environments page (§3.2) is the user's own provider spend, for their information. A hosted
+component, if one ever exists (Perch Link, an optional OAuth broker in the spec's "Later" list), would be
+an open-source convenience and never a plan; this ADR is revisited before any such change. The README
+states the policy where new users read first.
+

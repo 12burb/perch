@@ -18,6 +18,12 @@ The loop Perch is built around: a task appears in chat → an agent takes it in 
 server-side → you watch a preview from your phone → approve the diff → it becomes a PR → the channel sees
 the outcome, with cost and trace recorded.
 
+**Open source, your models.** Perch has no paid plans, tiers, or hosted upsell, and nothing is gated behind
+one (ADR-0064). Every model runs on credentials you bring: your own API keys or OpenAI-compatible endpoints
+(Ollama, LM Studio, vLLM, llama.cpp, OpenRouter…), or your own vendor subscriptions where the vendor
+permits it, kept personal and never proxied. The server is AGPL-3.0; the SDKs, UI kit, event catalog,
+connector manifests, and templates are MIT (see [`LICENSE`](LICENSE) and `docs/dependencies.md`).
+
 > Status: Phase 0 (foundation). The install paths below describe what ships at the end of Phase 0; the
 > IDE, chat, and bots land in Phases 1–2. See [`TASKS.md`](TASKS.md).
 
