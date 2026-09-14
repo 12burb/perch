@@ -1561,9 +1561,11 @@ before any other work starts. Outside contributors keep the branch-and-PR flow o
 the DCO check on every pull request.
 
 ### Consequences
-Task evidence lives in commit messages and `TASKS.md`. `changesets.yml` keeps the "Version Packages" pull
-request current on `main`; a release is cut by running `bun run version`, committing, and pushing a `v*`
-tag, which `release.yml` turns into binaries, desktop apps, images, and a GitHub release.
+Task evidence lives in commit messages and `TASKS.md`. A release is cut by running `bun run version`,
+committing, and running `release.yml` (a `v*` tag, or a manual run with the version, which creates the
+tag), which produces binaries, desktop apps, images, and a GitHub release. `changesets.yml` is a manual
+workflow that opens a "Version Packages" pull request for anyone who prefers that flow; it needs the
+repository setting that lets Actions open pull requests, which the direct flow does not.
 
 ## ADR-0066: The runner control channel: register as a request, per-connection capability secrets
 

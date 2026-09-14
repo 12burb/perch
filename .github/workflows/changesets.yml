@@ -1,11 +1,12 @@
 name: Changesets
 
-# Spec §8: changesets produce the changelog. On main, this keeps a "Version Packages" pull request up
-# to date; merging it bumps versions and CHANGELOGs, and tagging the merge commit `v<version>` runs
-# release.yml.
+# Spec §8: changesets produce the changelog. Run by hand, this opens (or refreshes) a "Version Packages"
+# pull request that bumps versions and CHANGELOGs from the pending changesets. The maintainer's sessions
+# version directly instead (`bun run version`, commit, then the Release workflow; ADR-0065), and opening a
+# pull request from Actions needs the repository setting "Allow GitHub Actions to create and approve pull
+# requests", so this is not on every push.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency: changesets-${{ github.ref }}
 

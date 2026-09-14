@@ -12,7 +12,7 @@ Spec §8. Everything runs on GitHub Actions; nothing needs a secret except the o
 | `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
 | `dco.yml` | `Signed-off-by` on every commit |
 | `codeql.yml` | weekly CodeQL (security-and-quality) |
-| `changesets.yml` | on main: keeps the "Version Packages" pull request current |
+| `changesets.yml` | manual: opens or refreshes a "Version Packages" pull request from the pending changesets (needs the "Allow GitHub Actions to create and approve pull requests" repository setting); the usual flow is `bun run version` on main and a Release run |
 
 ## On a tag `v<version>`, or a manual run with a version (`release.yml`)
 
