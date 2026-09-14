@@ -137,7 +137,8 @@ describe("deploy keys (task 1.4)", () => {
       writeFileSync(file, key.privateKey, { mode: 0o600 });
       const derived = Bun.spawnSync(["ssh-keygen", "-y", "-f", file]);
       expect(derived.exitCode).toBe(0);
-      expect(derived.stdout.toString().trim()).toBe(key.publicKey.replace(/ perch-keygen$/, ""));
+      // ssh-keygen -y prints the comment stored in the private file too: the whole line matches.
+      expect(derived.stdout.toString().trim()).toBe(key.publicKey);
       const listed = Bun.spawnSync(["ssh-keygen", "-l", "-f", file]);
       expect(listed.stdout.toString()).toContain(key.fingerprint);
     } finally {

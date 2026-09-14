@@ -278,7 +278,7 @@ describe("projects api (task 1.4)", () => {
     expect(ready.config_error).toBeNull();
     expect(ready.devcontainer).toMatchObject({ name: "hello" });
     const dir = join(projectsDir, ws, ready.id);
-    expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("# hello\n");
+    expect(readFileSync(join(dir, "README.md"), "utf8").replace(/\r\n/g, "\n")).toBe("# hello\n");
     expect(readFileSync(join(dir, "created.txt"), "utf8").trim()).toBe("created");
 
     // The token is nowhere: not in the row, not in any event, not in the clone's remote URL.

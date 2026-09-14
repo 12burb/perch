@@ -164,7 +164,10 @@ describe("projects on a runner", () => {
       { root, postCreateTimeoutMs: 30_000 },
       { ...ctx, source: { kind: "clone", url: source } },
     );
-    expect(readFileSync(join(result.path, "README.md"), "utf8")).toBe("# hello\n");
+    // git on Windows may check out with CRLF (core.autocrlf); the content is what matters.
+    expect(readFileSync(join(result.path, "README.md"), "utf8").replace(/\r\n/g, "\n")).toBe(
+      "# hello\n",
+    );
     expect(result.defaultBranch).toBe("trunk");
     expect(result.head).toMatch(/^[0-9a-f]{40}$/);
     expect(result.config).toEqual({ name: "hello", engine: "codex" });
