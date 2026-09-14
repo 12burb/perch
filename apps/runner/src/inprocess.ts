@@ -28,6 +28,8 @@ export type InProcessRunnerOptions = {
   /** Heartbeat period; 0 disables the timer (tests call `heartbeat()` directly). */
   heartbeatMs?: number;
   versions?: Record<string, string>;
+  /** Where projects live (laptop mode: <data dir>/projects). */
+  projectsDir?: string;
 };
 
 export type InProcessRunner = RunnerLink & {
@@ -38,7 +40,9 @@ export type InProcessRunner = RunnerLink & {
 
 export function createInProcessRunner(options: InProcessRunnerOptions = {}): InProcessRunner {
   const handlers = new Set<(notification: RunnerNotification) => void>();
-  const methods: RunnerHandlers = defaultHandlers();
+  const methods: RunnerHandlers = defaultHandlers(
+    options.projectsDir ? { projects: { root: options.projectsDir } } : {},
+  );
   const capabilities = localCapabilities();
   const info: RunnerInfo = {
     name: options.name ?? `${hostname()} (in-process)`,

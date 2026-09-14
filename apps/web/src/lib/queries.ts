@@ -12,6 +12,8 @@ export type Me = components["schemas"]["Me"];
 export type Member = components["schemas"]["Member"];
 export type AuditRow = components["schemas"]["AuditRow"];
 export type RunnerRow = components["schemas"]["Runner"];
+export type ProjectRow = components["schemas"]["Project"];
+export type DeployKeyRow = components["schemas"]["DeployKey"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -58,5 +60,25 @@ export function runnersQuery(workspaceId: string) {
       unwrap(
         await api.GET("/api/workspaces/{ws}/runners", { params: { path: { ws: workspaceId } } }),
       ).runners,
+  });
+}
+
+export function projectsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "projects"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects", { params: { path: { ws: workspaceId } } }),
+      ).projects,
+  });
+}
+
+export function deployKeyQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "deploy-key"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/deploy-key", { params: { path: { ws: workspaceId } } }),
+      ),
   });
 }

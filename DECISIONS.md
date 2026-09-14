@@ -1674,3 +1674,65 @@ Hosted runners never appear on the connect path (the supervisor mints their toke
 users on a local runner are a later task; until then a local runner refuses them. The `perch` binary
 gains a long-running `runner connect` command whose exit code 1 means the api refused the token.
 
+
+## ADR-0069: Projects: a directory per project on a runner, set up through two additive runner methods
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.4
+
+### Context
+Spec §5.1 lists how a project comes to be (empty, upload, clone over HTTPS with a token or SSH with
+a per-workspace deploy key; a project volume in the runner; `.perch/project.json` read and validated;
+`devcontainer.json` honored) and §7.1 names the routes (`/api/workspaces/{ws}/projects` + `clone`).
+The §7.6 runner protocol has no method that creates a project directory: `git.*` operates on an
+existing checkout, `worktree.create` on an existing repository, and `fs.write` takes text. Nothing
+says where the directory lives, who runs the clone, how credentials reach git without touching a log
+or a command line, or how `key`, status, and the two files map onto the `projects` row.
+
+### Decision
+- **Two additive api → runner methods** (a §1.5 deviation, recorded here and in the protocol test's
+  additive list): `project.setup` (`source` = empty | upload | clone with optional `auth`) returns the
+  checkout facts plus the parsed `.perch/project.json` and `devcontainer.json` (JSONC via `Bun.JSONC`)
+  and the `postCreateCommand` outcome; `project.remove` deletes the directory. `fs.write` gains
+  `encoding: "utf8" | "base64"` so uploads carry binary files. Everything else (validation, defaults,
+  status) stays on the api side, so runners stay dumb and interchangeable.
+- **Location**: `<root>/<workspace id>/<project id>`; root `/data/projects` in the runner image (the
+  compose `projects` volume the supervisor mirrors into runner containers), `<data dir>/projects` in
+  laptop mode and for `perch runner connect`, overridable with `PERCH_PROJECTS_DIR`.
+- **Credentials never on argv, never stored**: a token reaches git through a credential helper that
+  reads two environment variables; a deploy key is a 0600 temp file handed to `GIT_SSH_COMMAND`
+  (`BatchMode=yes`, `IdentitiesOnly=yes`) and deleted after the clone. The runner spawns `git`
+  directly with an explicit environment stripped of `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_SSH*`, and
+  `GIT_CONFIG_*` (simple-git refuses credential helpers by policy, and inheriting the host's askpass
+  would let the host inject a program); error messages have `scheme://user@` scrubbed. The api refuses
+  `repo_url`s carrying userinfo on http(s), `file://`, and local paths. Tokens are redacted from logs
+  by key (`token`, `privateKey`, `private_key`).
+- **The deploy key** is one Ed25519 key per workspace (`deploy_keys` table, migration 0005), minted
+  on first read from `node:crypto` and encoded in OpenSSH's own formats in-process (no `ssh-keygen`
+  dependency in the api image), private half vault-encrypted with the workspace id as AAD, decrypted
+  only for a clone. Members read it; owners and admins rotate it (`deploy_key.read` / `deploy_key.rotate`).
+- **Row lifecycle**: `projects` gains `source`, `status` (`pending` → `setting_up` → `ready` | `error`),
+  `status_message`, `runner_id`, `head`, `config_error`, `devcontainer`, `created_by`. The row is
+  inserted at once (`project.created`); setup runs asynchronously and publishes `project.updated` at
+  each step. A valid `.perch/project.json` becomes `config` and sets `default_engine`; an invalid one
+  leaves `config = {}` with the reason in `config_error`. A failing `postCreateCommand` is reported in
+  `status_message`; the project is still `ready`.
+- **Runner choice**: a connected runner the member may use, the workspace's own hosted runner first,
+  then the shared or in-process one, then the member's own machines (local runners serve their owner
+  only); with none connected the api enqueues `supervisor.ensure` and waits up to two minutes.
+- **Policy actions**: `projects.read/create/update` for every role, `projects.delete` for owners and
+  admins.
+- **Uploads** are multipart parts named `file` whose filename is the path inside the project; no
+  archive extraction (a later task can add zip). The client sends `webkitRelativePath` so folders keep
+  their structure.
+- **Playwright's server is laptop mode**: `scripts/e2e-server.ts` now runs `perch dev`, so specs run
+  against the in-process runner exactly as a laptop user does (the acceptance clone of a public
+  GitHub repository runs there).
+
+### Consequences
+Every deployment kind sets projects up the same way through one runner method; the hosted image's
+`devcontainer.json` image/features remain to be honored by the supervisor when per-project images
+land. The `project.setup` result is the seed for the editor, terminal, and sessions (1.5–1.8), which
+address a project by id and resolve its directory on its runner. The runner-protocol RFC, when it is
+written, carries the two methods and the `encoding` field.

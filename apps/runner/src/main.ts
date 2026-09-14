@@ -8,10 +8,13 @@
  *   PERCH_RUNNER_NAME        shown on the Environments page (default: the hostname)
  *   PERCH_RUNNER_KIND        hosted | local | remote (default: hosted)
  *   PERCH_RUNNER_OWNER_USER  local and remote runners: the owner's user id
+ *   PERCH_PROJECTS_DIR       where projects live (default: /data/projects)
  */
 import { hostname } from "node:os";
 import type { RunnerInfo } from "@perch/events";
 import { connectRunner, type RunnerLogger } from "./client.ts";
+import { defaultHandlers } from "./handlers.ts";
+import { projectsRoot } from "./projects.ts";
 
 const log: RunnerLogger = (level, msg, fields) => {
   const line = JSON.stringify({
@@ -57,7 +60,11 @@ if (import.meta.main) {
     log("error", error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
-  const client = connectRunner({ ...config, log });
+  const client = connectRunner({
+    ...config,
+    log,
+    handlers: defaultHandlers({ projects: { root: projectsRoot() } }),
+  });
   const stop = async () => {
     log("info", "stopping");
     await client.close();

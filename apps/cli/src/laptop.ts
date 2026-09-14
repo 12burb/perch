@@ -72,7 +72,7 @@ export async function startLaptop(options: LaptopOptions = {}): Promise<Laptop> 
     app: { webDist, ...(embedded ? { webAssets } : {}) },
     pglite: await pgliteRuntime(),
   });
-  const runner = createInProcessRunner();
+  const runner = createInProcessRunner({ projectsDir: join(layout.dataDir, "projects") });
   booted.runners.attach(runner);
   runner.heartbeat();
   const running = serve(booted, { port: requestedPort, hostname: host });

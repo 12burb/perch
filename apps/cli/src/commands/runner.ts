@@ -4,8 +4,10 @@
  * serves its owner only. Runs until Ctrl-C; reconnects when the api restarts.
  */
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { connectRunner, type RunnerLogger } from "@perch/runner";
+import { connectRunner, defaultHandlers, type RunnerLogger } from "@perch/runner";
+import { dataDirFrom } from "../paths.ts";
 
 const HELP = `perch runner connect <api-url> [options]
 
@@ -115,6 +117,12 @@ async function runConnect(argv: string[]): Promise<number> {
     name: args.name,
     kind: args.runnerKind,
     log,
+    // Projects live beside laptop mode's data, under ~/.perch/projects (or PERCH_PROJECTS_DIR).
+    handlers: defaultHandlers({
+      projects: {
+        root: process.env.PERCH_PROJECTS_DIR ?? join(dataDirFrom(undefined), "projects"),
+      },
+    }),
   });
   const stop = async () => {
     log("info", "disconnecting");

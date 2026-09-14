@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Playwright's web server: builds apps/web (skip with E2E_SKIP_BUILD=1) and runs the api in laptop
- * mode on port 3999 with PGlite in memory and a throwaway data dir, serving the built client.
+ * Playwright's web server: builds apps/web (skip with E2E_SKIP_BUILD=1) and runs `perch dev` (laptop
+ * mode: api, the built client, and the in-process runner on PGlite) on port 3999 with a throwaway
+ * data dir, so specs exercise exactly what a laptop user runs.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,19 +21,24 @@ if (!process.env.E2E_SKIP_BUILD) {
 }
 
 const dataDir = mkdtempSync(join(tmpdir(), "perch-e2e-"));
-const api = Bun.spawn(["bun", "apps/api/src/index.ts"], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-  env: {
-    ...process.env,
-    PORT: port,
-    DATABASE_URL: "pglite://memory",
-    PERCH_PUBLIC_URL: `http://localhost:${port}`,
-    PERCH_DATA_DIR: dataDir,
-    PERCH_LOG_LEVEL: process.env.PERCH_LOG_LEVEL ?? "warn",
-  },
-});
+const api = Bun.spawn(
+  [
+    "bun",
+    "apps/cli/src/index.ts",
+    "dev",
+    "--port",
+    port,
+    "--host",
+    "127.0.0.1",
+    "--public-url",
+    `http://localhost:${port}`,
+    "--data-dir",
+    dataDir,
+    "--log-level",
+    process.env.PERCH_LOG_LEVEL ?? "warn",
+  ],
+  { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env } },
+);
 
 const stop = () => api.kill();
 process.on("SIGTERM", stop);

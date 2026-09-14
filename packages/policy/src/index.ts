@@ -22,6 +22,12 @@ export const ACTIONS = [
   "runners.read",
   "runners.connect",
   "runners.remove",
+  "projects.read",
+  "projects.create",
+  "projects.update",
+  "projects.delete",
+  "deploy_key.read",
+  "deploy_key.rotate",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -62,6 +68,14 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "runners.connect": ["owner", "admin", "member"],
   // Removing someone else's runner; owners of a runner remove their own through the same route.
   "runners.remove": ["owner", "admin"],
+  // Projects (task 1.4): every member works in them; deleting one and rotating the deploy key are
+  // administrative (the key is added to repositories outside Perch).
+  "projects.read": ["owner", "admin", "member"],
+  "projects.create": ["owner", "admin", "member"],
+  "projects.update": ["owner", "admin", "member"],
+  "projects.delete": ["owner", "admin"],
+  "deploy_key.read": ["owner", "admin", "member"],
+  "deploy_key.rotate": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -77,6 +91,12 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "runners.read": "read",
   "runners.connect": "write",
   "runners.remove": "admin",
+  "projects.read": "read",
+  "projects.create": "write",
+  "projects.update": "write",
+  "projects.delete": "admin",
+  "deploy_key.read": "read",
+  "deploy_key.rotate": "admin",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

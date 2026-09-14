@@ -8,6 +8,9 @@
 | [`dependencies.md`](dependencies.md) | Resolved and pinned package versions (task 0.3) |
 | [`deploy.md`](deploy.md) | Team mode with docker compose: `perch init`, the images, the setup wizard |
 | [`ci.md`](ci.md) | The pull-request pipeline, the release workflow, the perf budgets |
+| [`runners.md`](runners.md) | The runner control channel, hosted and local runners, the supervisor |
+| [`desktop.md`](desktop.md) | The desktop app: laptop mode in a native window |
+| [`projects.md`](projects.md) | Projects: empty, upload, clone with a token or the deploy key; project.json and devcontainer.json |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |
 | [`policies/providers.md`](policies/providers.md) | The credential matrix and the three lanes |

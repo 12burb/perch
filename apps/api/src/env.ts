@@ -210,6 +210,8 @@ export const REDACTED_KEYS = [
   "masterKey",
   "sessionSecret",
   "ciphertext",
+  "privateKey",
+  "private_key",
   "PERCH_MASTER_KEY",
   "PERCH_SESSION_SECRET",
   "PERCH_OIDC_CLIENT_SECRET",

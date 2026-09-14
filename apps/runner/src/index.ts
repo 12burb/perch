@@ -23,3 +23,11 @@ export {
   type InProcessRunner,
   type InProcessRunnerOptions,
 } from "./inprocess.ts";
+export {
+  gitAuth,
+  projectDir,
+  projectsRoot,
+  readProjectFiles,
+  resolveInside,
+  setupProject,
+} from "./projects.ts";

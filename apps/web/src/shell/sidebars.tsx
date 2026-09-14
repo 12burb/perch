@@ -2,8 +2,9 @@
  * The per-mode sidebars (spec §4 rail tabs). Every section exists from day one with an empty hint so
  * the shape of the product is visible; the lists fill in as the phases land.
  */
-import { type MessageKey, type RailMode, Sidebar, SidebarSection, t } from "@perch/ui";
-import type { MyWorkspace } from "../lib/queries.ts";
+import { type MessageKey, type RailMode, Sidebar, SidebarItem, SidebarSection, t } from "@perch/ui";
+import { useQuery } from "@tanstack/react-query";
+import { type MyWorkspace, projectsQuery } from "../lib/queries.ts";
 
 type Section = { title: MessageKey; empty: MessageKey };
 
@@ -53,12 +54,37 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
         </div>
       }
     >
-      {SECTIONS[props.mode].map((section) => (
-        <SidebarSection key={section.title} title={t(section.title)}>
-          <li className="px-2 py-1 text-sm text-fg-subtle">{t(section.empty)}</li>
-        </SidebarSection>
-      ))}
+      {SECTIONS[props.mode].map((section) =>
+        section.title === "shell.code.projects" && props.workspace ? (
+          <ProjectsSection key={section.title} workspace={props.workspace} empty={section.empty} />
+        ) : (
+          <SidebarSection key={section.title} title={t(section.title)}>
+            <li className="px-2 py-1 text-sm text-fg-subtle">{t(section.empty)}</li>
+          </SidebarSection>
+        ),
+      )}
     </Sidebar>
+  );
+}
+
+/** Code mode's Projects section lists the workspace's projects (task 1.4). */
+function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
+  const projects = useQuery(projectsQuery(props.workspace.id)).data ?? [];
+  return (
+    <SidebarSection title={t("shell.code.projects")}>
+      {projects.length === 0 ? (
+        <li className="px-2 py-1 text-sm text-fg-subtle">{t(props.empty)}</li>
+      ) : (
+        projects.map((project) => (
+          <SidebarItem
+            key={project.id}
+            label={project.name}
+            href={`/${props.workspace.slug}/code`}
+            muted={project.status !== "ready"}
+          />
+        ))
+      )}
+    </SidebarSection>
   );
 }
 

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   index,
@@ -20,6 +21,12 @@ import type {
 import { users } from "./identity.ts";
 import { workspaces } from "./tenancy.ts";
 
+export const PROJECT_SOURCES = ["empty", "upload", "clone"] as const;
+export type ProjectSource = (typeof PROJECT_SOURCES)[number];
+/** pending → setting_up (on a runner) → ready | error (task 1.4, ADR-0069). */
+export const PROJECT_STATUSES = ["pending", "setting_up", "ready", "error"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
 export const projects = pgTable(
   "projects",
   {
@@ -36,10 +43,47 @@ export const projects = pgTable(
     defaultModelProfileId: uuid("default_model_profile_id"),
     runnerPolicy: jsonb("runner_policy").$type<RunnerPolicy>().notNull().default({}),
     config: jsonb("config").$type<ProjectConfig>().notNull().default({}),
+    /** How the directory came to be: created empty, uploaded, or cloned (task 1.4). */
+    source: text("source").$type<ProjectSource>().notNull().default("empty"),
+    status: text("status").$type<ProjectStatus>().notNull().default("pending"),
+    /** Why setup failed, or what postCreateCommand reported; never a credential. */
+    statusMessage: text("status_message"),
+    /** The runner holding the project directory. */
+    runnerId: uuid("runner_id").references((): AnyPgColumn => runners.id, {
+      onDelete: "set null",
+    }),
+    head: text("head"),
+    /** Why the checked-in .perch/project.json was not applied (config stays {} then). */
+    configError: text("config_error"),
+    /** The parsed devcontainer.json (JSONC), when the project ships one. */
+    devcontainer: jsonb("devcontainer").$type<Record<string, unknown>>(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("projects_workspace_key_idx").on(t.workspaceId, t.key)],
+  (t) => [
+    uniqueIndex("projects_workspace_key_idx").on(t.workspaceId, t.key),
+    check("projects_source_check", sql`${t.source} in ('empty', 'upload', 'clone')`),
+    check("projects_status_check", sql`${t.status} in ('pending', 'setting_up', 'ready', 'error')`),
+  ],
 );
+
+/**
+ * One SSH deploy key per workspace (spec §5.1): the public half is added to repositories, the private
+ * half is vault-encrypted and only ever decrypted for a clone on a runner.
+ */
+export const deployKeys = pgTable("deploy_keys", {
+  id: id(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .unique()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  /** OpenSSH public key line: `ssh-ed25519 AAAA… perch-<workspace>`. */
+  publicKey: text("public_key").notNull(),
+  /** `SHA256:…` of the public key blob, as ssh-keygen -l prints it. */
+  fingerprint: text("fingerprint").notNull(),
+  privateKeyCiphertext: bytea("private_key_ciphertext").notNull(),
+  ...timestamps(),
+});
 
 export const RUNNER_KINDS = ["hosted", "local", "remote"] as const;
 export type RunnerKind = (typeof RUNNER_KINDS)[number];
@@ -153,6 +197,7 @@ export const previewShares = pgTable(
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
+export type DeployKey = typeof deployKeys.$inferSelect;
 export type Runner = typeof runners.$inferSelect;
 export type RunnerToken = typeof runnerTokens.$inferSelect;
 export type ProjectEnvRow = typeof projectEnv.$inferSelect;

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { Bot, Code, Inbox, MessageSquare, Search, SquareKanban } from "lucide-react";
 import type { ComponentType } from "react";
+import { ProjectsMain } from "../../../code/projects.tsx";
 import { membersQuery } from "../../../lib/queries.ts";
 import { usePresence } from "../../../lib/ws.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
@@ -36,6 +37,9 @@ function ModeRoute() {
   return (
     <ModePage title={t(`ui.mode.${mode}`)} subtitle={workspace.name} shell={shell}>
       {mode === "home" ? <HomeMain workspaceId={workspace.id} /> : null}
+      {mode === "code" ? (
+        <ProjectsMain workspaceId={workspace.id} canAdmin={workspace.role !== "member"} />
+      ) : null}
       {mode === "search" ? (
         <div className="p-4">
           <label htmlFor="search" className="sr-only">
@@ -49,11 +53,13 @@ function ModeRoute() {
           />
         </div>
       ) : null}
-      <EmptyState
-        icon={<Icon className="size-8" aria-hidden="true" />}
-        title={t(`shell.${mode}.emptyTitle`)}
-        hint={t(`shell.${mode}.emptyHint`)}
-      />
+      {mode === "code" ? null : (
+        <EmptyState
+          icon={<Icon className="size-8" aria-hidden="true" />}
+          title={t(`shell.${mode}.emptyTitle`)}
+          hint={t(`shell.${mode}.emptyHint`)}
+        />
+      )}
     </ModePage>
   );
 }

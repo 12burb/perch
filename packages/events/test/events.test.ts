@@ -39,6 +39,9 @@ const SPEC_API_TO_RUNNER =
     " ",
   );
 
+/** Methods beyond the spec's list, each with an ADR: project.setup / project.remove (ADR-0069). */
+const ADDITIVE_API_TO_RUNNER = ["project.setup", "project.remove"];
+
 describe("bus event catalog (spec §7.7)", () => {
   test("every event in the spec catalog has a schema, and nothing else does", () => {
     const expected = expandSpecCatalog().sort();
@@ -90,7 +93,9 @@ describe("ws protocol (spec §7.2)", () => {
 describe("runner protocol (spec §7.6)", () => {
   test("every method in the spec has a params schema, in the right direction", () => {
     expect(Object.keys(runnerToApiParams).sort()).toEqual([...SPEC_RUNNER_TO_API].sort());
-    expect(Object.keys(apiToRunnerParams).sort()).toEqual([...SPEC_API_TO_RUNNER].sort());
+    expect(Object.keys(apiToRunnerParams).sort()).toEqual(
+      [...SPEC_API_TO_RUNNER, ...ADDITIVE_API_TO_RUNNER].sort(),
+    );
     expect(isRunnerMethod("exec")).toBe(true);
     expect(isRunnerMethod("rm.rf")).toBe(false);
   });

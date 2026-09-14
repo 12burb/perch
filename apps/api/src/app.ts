@@ -14,6 +14,7 @@ import { requestLogger } from "./logging.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMe } from "./routes/me.ts";
+import { registerProjects } from "./routes/projects.ts";
 import { registerRunners } from "./routes/runners.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerVersion } from "./routes/version.ts";
@@ -91,6 +92,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerMe(app, deps);
   registerWorkspaces(app, deps);
   registerRunners(app, deps);
+  registerProjects(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

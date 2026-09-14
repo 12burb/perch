@@ -97,7 +97,14 @@ export const apiToRunnerParams = {
   "pty.close": z.object({ ...ctx, pty_id: z.string() }),
   "fs.list": z.object({ ...ctx, project: z.uuid(), path: z.string() }),
   "fs.read": z.object({ ...ctx, project: z.uuid(), path: z.string() }),
-  "fs.write": z.object({ ...ctx, project: z.uuid(), path: z.string(), content: z.string() }),
+  "fs.write": z.object({
+    ...ctx,
+    project: z.uuid(),
+    path: z.string(),
+    content: z.string(),
+    /** base64 for binary content (uploads); utf8 otherwise. */
+    encoding: z.enum(["utf8", "base64"]).optional(),
+  }),
   "fs.stat": z.object({ ...ctx, project: z.uuid(), path: z.string() }),
   "fs.search": z.object({
     ...ctx,
@@ -121,6 +128,34 @@ export const apiToRunnerParams = {
     name: z.string().optional(),
     create: z.boolean().optional(),
   }),
+  // Additive (ADR-0069): a project's directory on the runner, created from nothing, a clone, or an
+  // upload, with .perch/project.json and devcontainer.json read back.
+  "project.setup": z.object({
+    ...ctx,
+    project: z.uuid(),
+    source: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("empty"), defaultBranch: z.string().min(1).optional() }),
+      z.object({ kind: z.literal("upload") }),
+      z.object({
+        kind: z.literal("clone"),
+        url: z.string().min(1),
+        branch: z.string().min(1).optional(),
+        auth: z
+          .discriminatedUnion("kind", [
+            z.object({
+              kind: z.literal("token"),
+              username: z.string().min(1).optional(),
+              token: z.string().min(1),
+            }),
+            z.object({ kind: z.literal("ssh"), privateKey: z.string().min(1) }),
+          ])
+          .optional(),
+      }),
+    ]),
+    /** Run devcontainer.json's postCreateCommand after a clone or upload (default true). */
+    postCreate: z.boolean().optional(),
+  }),
+  "project.remove": z.object({ ...ctx, project: z.uuid() }),
   "worktree.create": z.object({
     ...ctx,
     project: z.uuid(),
@@ -168,6 +203,23 @@ export const RUNNER_REGISTER_TIMEOUT_MS = 5_000;
 export type RunnerToApiMethod = keyof typeof runnerToApiParams & string;
 export type ApiToRunnerMethod = keyof typeof apiToRunnerParams & string;
 export type RunnerMethod = RunnerToApiMethod | ApiToRunnerMethod;
+
+/** What project.setup returns: the checkout facts and the two files, parsed but not yet validated. */
+export const projectSetupResultSchema = z
+  .object({
+    path: z.string(),
+    defaultBranch: z.string().nullable(),
+    head: z.string().nullable(),
+    config: z.unknown().nullable(),
+    configError: z.string().optional(),
+    devcontainer: z.unknown().nullable(),
+    devcontainerError: z.string().optional(),
+    postCreate: z
+      .object({ command: z.string(), exitCode: z.number().int(), output: z.string() })
+      .optional(),
+  })
+  .strict();
+export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 
 /** Methods whose result is a stream token for a data socket at /api/runner/stream/{token}. */
 export const STREAM_TOKEN_METHODS = ["pty.open", "http.open", "mcp.spawn"] as const;

@@ -107,3 +107,21 @@ and awaits the runner's answer; `link.onNotification` delivers heartbeats and ev
 attaches the in-process runner through the same interface without a socket.
 
 Design notes: ADR-0066.
+
+## Projects on a runner
+
+Each project is a directory at `<root>/<workspace id>/<project id>` (root: `/data/projects` in the
+runner image, `~/.perch/projects` for `perch runner connect` and laptop mode, or `PERCH_PROJECTS_DIR`).
+Two api → runner methods beyond the spec's §7.6 list create and remove them (ADR-0069):
+
+| Method | Params | Result |
+|---|---|---|
+| `project.setup` | `{project, source: {kind: "empty", defaultBranch?} \| {kind: "upload"} \| {kind: "clone", url, branch?, auth?}, postCreate?}` | `{path, defaultBranch, head, config, configError?, devcontainer, devcontainerError?, postCreate?}` |
+| `project.remove` | `{project}` | `{removed}` |
+
+`fs.write` gained `encoding: "utf8" | "base64"` so uploads carry binary files. Clone credentials
+(`auth: {kind: "token", token, username?}` or `{kind: "ssh", privateKey}`) reach git through a
+credential helper fed from the environment or a 0600 key file handed to `GIT_SSH_COMMAND`; the
+runner strips `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_SSH*`, and `GIT_CONFIG_*` from git's environment,
+spawns `git` directly (no URL or secret on the command line comes from Perch), and scrubs
+`scheme://user@` from error messages. See [`projects.md`](projects.md).
