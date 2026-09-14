@@ -69,6 +69,7 @@ ADR-0001..0017 are the spec's locked decisions. Added during Phase 0:
   semantics · 0055 UI system and `*.ct.tsx` · 0056 web shell URLs and committed screenshots · 0057 the setup
   wizard · 0058 deploy layout and image pins · 0059 laptop mode (RunnerLink, backups, doctor) · 0060 the
   pipeline, budgets, embedded assets, release semantics
+- 0061 timestamp parameters through column encoders · 0062 production-only api image on an updated base
 
 ## Spec deviations and open points
 
@@ -79,9 +80,16 @@ ADR-0001..0017 are the spec's locked decisions. Added during Phase 0:
 3. **Additive endpoints**: `GET /api/instance`, `POST /api/setup`, `GET /api/workspaces/{ws}/audit`
    (the spec lists `/api/admin/audit`, instance-wide, which comes with admin settings) (ADR-0049, 0052, 0057).
 4. **`routeTree.gen.ts` is committed** rather than git-ignored (ADR-0050).
-5. **Docker-dependent verification** (dockerode spike, the images, the fresh-VM compose smoke) runs in CI,
-   not here: this environment has no Docker daemon (ADR-0035, 0058). The compose smoke job in `ci.yml`
-   is the task 0.13 criterion; the macOS and Windows legs of the laptop smoke run in CI only (0.14).
+5. **Docker-dependent verification ran in CI** (this environment has no Docker daemon): run
+   [34797151379](https://github.com/12burb/perch/actions/runs/34797151379) is green across the matrix.
+   The compose smoke (task 0.13's fresh-VM criterion) builds the api and caddy images, runs `perch init`,
+   brings the stack up, completes the setup wizard and sign-in, and passes Trivy on the image and the
+   repository. The laptop smoke (0.14) passes on ubuntu-latest, macos-latest, and windows-latest,
+   including the compiled binary with the embedded web app and PGlite. The dockerode spike passes on the
+   ubuntu runner (ADR-0035). The first runs found defects that this branch fixes: the image build omitted
+   two workspaces and ran node-pty's install script, the jobs worker crashed on postgres.js (ADR-0061), a
+   hijacked docker exec fails under Bun (ADR-0035), and the image carried dev-tool binaries and stale
+   Debian packages (ADR-0062).
 6. **Playwright's Chromium** could not be downloaded here; the suites ran on the preinstalled build via
    `PLAYWRIGHT_CHROMIUM_EXECUTABLE` (ADR-0050). CI installs the matching browser.
 7. **Deferred spikes** (Caddy wildcard, cloudflared) need a DNS token and a tunnel token
