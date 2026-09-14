@@ -1,6 +1,6 @@
 {
   "name": "@perch/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "The Perch desktop app: laptop mode in a native window (WebView2, WebKit, WebKitGTK).",
   "license": "AGPL-3.0-only",

@@ -1,6 +1,6 @@
 {
   "name": "@perch/bots",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Bot runtime: triggers, tools, chains, QuickJS sandbox, Bot API handlers (spec §5.3, §5.4).",
   "license": "AGPL-3.0-only",
