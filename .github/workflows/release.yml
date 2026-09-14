@@ -138,7 +138,7 @@ jobs:
             context: .
           - image: runner
             dockerfile: deploy/Dockerfile.runner
-            context: deploy
+            context: .
           - image: caddy
             dockerfile: deploy/Dockerfile.caddy
             context: deploy

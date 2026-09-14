@@ -2,7 +2,7 @@
  * Test wiring: a booted app on an in-memory PGlite with a silent logger and a throwaway master key.
  */
 import { generateMasterKey } from "@perch/vault";
-import { type Booted, boot } from "./boot.ts";
+import { type Booted, type BootOptions, boot } from "./boot.ts";
 import { loadEnv } from "./env.ts";
 import { silentLogger } from "./logging.ts";
 import { completeSetup } from "./services/setup.ts";
@@ -19,7 +19,7 @@ export const TEST_ADMIN = {
  */
 export async function bootTestApp(
   overrides: Record<string, string> = {},
-  options: { setup?: boolean } = {},
+  options: { setup?: boolean; runnerChannel?: BootOptions["runnerChannel"] } = {},
 ): Promise<Booted> {
   const env = loadEnv({
     DATABASE_URL: "pglite://memory",
@@ -28,7 +28,7 @@ export async function bootTestApp(
     PERCH_DATA_DIR: "/tmp/perch-test-data",
     ...overrides,
   });
-  const booted = await boot({ env, log: silentLogger() });
+  const booted = await boot({ env, log: silentLogger(), runnerChannel: options.runnerChannel });
   if (options.setup !== false) {
     await completeSetup(
       { db: booted.db.db, bus: booted.bus, auth: booted.auth, publicUrl: env.publicUrl },

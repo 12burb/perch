@@ -17,6 +17,7 @@ import { registerMe } from "./routes/me.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerVersion } from "./routes/version.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
+import type { RunnerChannel } from "./runners/channel.ts";
 import { isSetupComplete } from "./services/setup.ts";
 import type { WsServer } from "./ws/server.ts";
 
@@ -27,6 +28,8 @@ export type AppOptions = {
   webAssets?: Record<string, string>;
   /** The WebSocket server for /api/ws (spec §7.2); absent in tests that only need HTTP. */
   ws?: WsServer;
+  /** The runner control channel for /api/runner (spec §7.6); absent in tests that only need HTTP. */
+  runnerChannel?: RunnerChannel;
 };
 
 export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<AppEnv> {
@@ -68,6 +71,11 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   });
   // better-auth owns /api/auth/* (spec §7.1); everything else resolves the caller first.
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
+  if (options.runnerChannel) {
+    // Runners authenticate with a connect token, not a user (spec §7.6): mounted before the user
+    // authentication middleware, which never sees this route.
+    app.get("/api/runner", options.runnerChannel.handler);
+  }
   app.use("/api/*", authenticate(deps));
 
   if (options.ws) {

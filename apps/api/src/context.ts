@@ -1,5 +1,5 @@
 import type { Bus } from "@perch/bus";
-import type { ApiTokenScopes, DbHandle, User } from "@perch/db";
+import type { ApiTokenScopes, DbHandle, Runner, User } from "@perch/db";
 import type { Queue } from "@perch/jobs";
 import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
@@ -16,6 +16,8 @@ export type AppVariables = {
   user?: User;
   authKind?: "session" | "token";
   tokenScopes?: ApiTokenScopes;
+  /** The runner a connect token resolved to (the /api/runner upgrade only). */
+  runner?: Runner;
 };
 
 export type AppEnv = { Variables: AppVariables };

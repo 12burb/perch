@@ -287,6 +287,8 @@ export function createWsServer(deps: WsServerDeps) {
   return {
     handler,
     websocket,
+    /** The same upgrade helper, for other WebSocket routes served by this Bun.serve (/api/runner). */
+    upgradeWebSocket,
     presence,
     /** Open connections (for /api/health details and tests). */
     get size() {

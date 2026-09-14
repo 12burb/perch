@@ -147,6 +147,22 @@ export const apiToRunnerParams = {
   }),
 } as const;
 
+/** The api's answer to `runner.register` (a JSON-RPC request, the first message on the socket). */
+export const runnerRegisterResultSchema = z
+  .object({
+    runner_id: z.uuid(),
+    /** The per-connection secret the api mints capability tokens with (runner-cap.ts). */
+    cap_secret: z.string().min(1),
+    heartbeat_ms: z.number().int().positive(),
+  })
+  .strict();
+export type RunnerRegisterResult = z.infer<typeof runnerRegisterResultSchema>;
+
+/** Heartbeat period the api asks for; three missed heartbeats close the connection. */
+export const RUNNER_HEARTBEAT_MS = 15_000;
+/** A runner must register this soon after the socket opens. */
+export const RUNNER_REGISTER_TIMEOUT_MS = 5_000;
+
 export type RunnerToApiMethod = keyof typeof runnerToApiParams & string;
 export type ApiToRunnerMethod = keyof typeof apiToRunnerParams & string;
 export type RunnerMethod = RunnerToApiMethod | ApiToRunnerMethod;

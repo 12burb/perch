@@ -15,6 +15,8 @@ export type RunnerInfo = z.infer<(typeof runnerToApiParams)["runner.register"]>;
 export type RunnerRequestParams<M extends ApiToRunnerMethod> = z.infer<
   (typeof apiToRunnerParams)[M]
 >;
+/** What a caller passes to `RunnerLink.call`: the link mints the capability token itself. */
+export type RunnerCallParams<M extends ApiToRunnerMethod> = Omit<RunnerRequestParams<M>, "cap">;
 export type RunnerNotificationParams<M extends RunnerToApiMethod> = z.infer<
   (typeof runnerToApiParams)[M]
 >;
@@ -28,7 +30,7 @@ export interface RunnerLink {
   readonly id: string;
   readonly info: RunnerInfo;
   /** Sends an api→runner request; rejects with a RunnerRpcError on a JSON-RPC error. */
-  call<M extends ApiToRunnerMethod>(method: M, params: RunnerRequestParams<M>): Promise<unknown>;
+  call<M extends ApiToRunnerMethod>(method: M, params: RunnerCallParams<M>): Promise<unknown>;
   /** Runner→api notifications (heartbeats, port changes, session events, …). */
   onNotification(handler: (notification: RunnerNotification) => void): () => void;
   close(): Promise<void>;

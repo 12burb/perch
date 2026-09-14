@@ -2,6 +2,7 @@
 export * from "./bus-events.ts";
 export * from "./engine.ts";
 export * from "./errors.ts";
+export * from "./runner-cap.ts";
 export * from "./runner-link.ts";
 export * from "./runner-rpc.ts";
 export * from "./ws.ts";

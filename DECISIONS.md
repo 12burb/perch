@@ -1565,3 +1565,42 @@ Task evidence lives in commit messages and `TASKS.md`. `changesets.yml` keeps th
 request current on `main`; a release is cut by running `bun run version`, committing, and pushing a `v*`
 tag, which `release.yml` turns into binaries, desktop apps, images, and a GitHub release.
 
+## ADR-0066: The runner control channel: register as a request, per-connection capability secrets
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.1
+
+### Context
+Spec §7.6 fixes the wire: JSON-RPC 2.0 over one WebSocket the runner opens with a connect token,
+runner → api notifications, api → runner requests each carrying `workspace_id`, `user_id`, and a
+per-request capability token the runner verifies. It leaves open how a runner learns its identity, what
+signs the capability tokens, what a connect token is, and how liveness is decided.
+
+### Decision
+`runner.register` is a JSON-RPC request (the first message, within 5 s), answered with
+`{runner_id, cap_secret, heartbeat_ms}`; every other runner → api message is a notification. The
+`cap_secret` is 32 random bytes per connection; capability tokens are HMAC-SHA256 over
+`{ws, user, method, exp}` (`packages/events/runner-cap.ts`, Web Crypto only so the same code runs in
+the api, the runner, and the browser), minted by the api's `RunnerLink` for each request and good for
+60 s; the runner verifies signature, expiry, and claims before dispatching (`-32001` on failure) and, for
+local and remote kinds, refuses other users without a grant (`-32003`). A connect token is `prt_` plus
+32 random bytes, stored as a sha256 hash in `runner_tokens` with a 30-day default expiry and a
+revocation timestamp; the token's runner row fixes the kind, so a registration claiming another kind is
+refused. Heartbeats run every 15 s; three missed ones close the socket; a closed socket detaches the
+link, marks the row offline, and publishes `runner.offline`. `runner.registered` is published on every
+registration (it carries the kind) and `runner.online` only on the offline → online transition. The
+runner reconnects with jittered exponential backoff (1 s to 30 s) and gives up after three refused
+upgrades so a supervisor sees the exit. The hosted entrypoint (`apps/runner/src/main.ts`) reads
+`PERCH_API_URL` and `PERCH_RUNNER_TOKEN`; the runner image builds the agent's production tree the way
+the api image does (ADR-0062) and runs it as the entrypoint, so its Docker context is the repository
+root. The in-process runner shares the handler table and the capabilities shape and skips the
+capability check (one process, no socket).
+
+### Consequences
+The registry, the in-process runner, and the socket link all satisfy `RunnerLink`, whose `call` takes
+the request without `cap`. Everything a later task adds to a runner is a handler in
+`apps/runner/src/handlers.ts` plus its §7.6 schema; the channel needs no change. The runner image is
+built only by the release workflow (its Chromium download is too heavy for the compose smoke); a broken
+agent build shows up there, not in CI.
+

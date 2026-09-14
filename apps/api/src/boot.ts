@@ -14,6 +14,11 @@ import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createLogger, type Logger } from "./logging.ts";
+import {
+  createRunnerChannel,
+  type RunnerChannel,
+  type RunnerChannelOptions,
+} from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -48,11 +53,14 @@ export type BootOptions = {
   app?: AppOptions;
   /** Embedded PGlite runtime files (the compiled perch binary). */
   pglite?: PgliteRuntime;
+  /** Heartbeat and timeout tuning for the runner control channel (tests). */
+  runnerChannel?: RunnerChannelOptions;
 };
 
 export type Booted = Deps & {
   app: ReturnType<typeof createApp>;
   ws: WsServer;
+  runnerChannel: RunnerChannel;
   close: () => Promise<void>;
 };
 
@@ -77,13 +85,20 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const deps: Deps = { env, db, bus, vault, queue, auth, runners, log, version: versionInfo(env) };
   const stopAudit = startAuditSubscriber({ bus, db, log });
   const ws = createWsServer({ bus, db: db.db, log });
-  const app = createApp(deps, { ...options.app, ws });
+  const runnerChannel = createRunnerChannel(
+    { db: db.db, bus, registry: runners, log },
+    ws.upgradeWebSocket,
+    options.runnerChannel,
+  );
+  const app = createApp(deps, { ...options.app, ws, runnerChannel });
   return {
     ...deps,
     app,
     ws,
+    runnerChannel,
     close: async () => {
       stopAudit();
+      await runnerChannel.close();
       await runners.closeAll();
       await db.close();
     },

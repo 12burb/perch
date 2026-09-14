@@ -59,7 +59,7 @@ invite link.
 | Image | Built from | Base |
 |---|---|---|
 | `ghcr.io/12burb/perch-api` | `deploy/Dockerfile.api` | `oven/bun:1.3.11` (build, with Node 24.21.0 for Vite) → `oven/bun:1.3.11-slim` |
-| `ghcr.io/12burb/perch-runner` | `deploy/Dockerfile.runner` | `ubuntu:24.04` + Bun 1.3.11, Node 24.21.0, uv 0.12.13, Playwright 1.62.1 Chromium |
+| `ghcr.io/12burb/perch-runner` | `deploy/Dockerfile.runner` (repo root context) | `ubuntu:24.04` + Bun 1.3.11, Node 24.21.0, uv 0.12.13, Playwright 1.62.1 Chromium, the runner agent at `/opt/perch` |
 | `ghcr.io/12burb/perch-caddy` | `deploy/Dockerfile.caddy` | `caddy:2.11.4` (+ `caddy-dns/<provider>`) |
 | postgres | upstream | `pgvector/pgvector:0.8.6-pg16` |
 | ollama, cloudflared | upstream | `ollama/ollama:0.34.0`, `cloudflare/cloudflared:2026.9.1` |
@@ -72,3 +72,7 @@ their production dependencies (a fresh `bun install --production --omit=peer --f
 build stage, ADR-0062); the base image gets Debian security updates at build time. The compose smoke in
 CI scans the image with Trivy and fails on fixed HIGH/CRITICAL findings, so anything that lands in the
 image has to be needed at runtime.
+
+The runner image carries the runner agent (`apps/runner`, its packages, and production dependencies at
+`/opt/perch`, built like the api's runtime tree) and starts it as the entrypoint; the supervisor sets
+`PERCH_API_URL` and `PERCH_RUNNER_TOKEN` (`docs/runners.md`).

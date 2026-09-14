@@ -1,11 +1,31 @@
 # syntax=docker/dockerfile:1.7
-# perch/runner base (spec §3.1, §8): Ubuntu 24.04 with Bun, Node LTS, Python + uv, git, ripgrep, tmux,
-# and Playwright's Chromium. The runner agent entrypoint, the pinned OpenCode binary, and the official
-# CLIs (claude, codex, gemini, hermes) are added by the Phase 1 runner tasks (1.1–1.3); this stage is
-# the base they build on. Homes live at /data/homes/<user>; projects at /data/projects.
+# perch/runner (spec §3.1, §3.2, §8): Ubuntu 24.04 with Bun, Node LTS, Python + uv, git, ripgrep, tmux,
+# Playwright's Chromium, and the runner agent (apps/runner, task 1.1) as the entrypoint. The pinned
+# OpenCode binary and the official CLIs (claude, codex, gemini, hermes) arrive with the engine tasks.
+# Homes live at /data/homes/<user>; projects at /data/projects. Build from the repository root.
 ARG UBUNTU_VERSION=24.04
-FROM ubuntu:${UBUNTU_VERSION}
 ARG BUN_VERSION=1.3.11
+
+# The agent's runtime tree, production dependencies only (the same recipe as the api image, ADR-0062).
+FROM oven/bun:${BUN_VERSION} AS agent
+WORKDIR /app
+COPY package.json bun.lock turbo.json tsconfig.base.json biome.json ./
+COPY apps ./apps
+COPY packages ./packages
+COPY connectors ./connectors
+COPY templates ./templates
+COPY spikes ./spikes
+COPY scripts ./scripts
+RUN bun install --frozen-lockfile --ignore-scripts
+RUN mkdir -p /prod \
+ && find apps packages connectors templates spikes scripts -name package.json -not -path '*/node_modules/*' -exec cp --parents {} /prod/ \; \
+ && cp package.json bun.lock tsconfig.base.json /prod/ \
+ && tar cf - --exclude=node_modules apps/runner packages | tar xf - -C /prod \
+ && cd /prod \
+ && bun install --frozen-lockfile --ignore-scripts --production --omit=peer --filter @perch/runner
+
+FROM ubuntu:${UBUNTU_VERSION}
+ARG BUN_VERSION
 ARG NODE_VERSION=24.21.0
 ARG UV_VERSION=0.12.13
 ARG PLAYWRIGHT_VERSION=1.62.1
@@ -43,7 +63,8 @@ RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium &&
 
 RUN groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
     && mkdir -p /data/homes /data/projects && chown -R perch:perch /data /opt/pw-browsers
+COPY --from=agent --chown=perch:perch /prod /opt/perch
 USER perch
 WORKDIR /data/projects
-# The runner agent (task 1.1) replaces this with its entrypoint.
-CMD ["bash", "-lc", "echo 'perch runner base image: the runner agent arrives with task 1.1' && sleep infinity"]
+# The runner agent (spec §7.6): PERCH_API_URL and PERCH_RUNNER_TOKEN come from the supervisor.
+ENTRYPOINT ["bun", "/opt/perch/apps/runner/src/main.ts"]
