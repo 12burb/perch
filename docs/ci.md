@@ -14,7 +14,11 @@ Spec §8. Everything runs on GitHub Actions; nothing needs a secret except the o
 | `codeql.yml` | weekly CodeQL (security-and-quality) |
 | `changesets.yml` | on main: keeps the "Version Packages" pull request current |
 
-## On a tag `v<version>` (`release.yml`)
+## On a tag `v<version>`, or a manual run with a version (`release.yml`)
+
+Push a tag `v<version>`, or run the workflow by hand (Actions → Release → Run workflow) with the version
+without the `v`: the tag is created at the chosen ref when it does not exist. Before either, run
+`bun run version` and push the version bump.
 
 1. `artifacts`: web build, SDK generation, `bun run build:cli` (binaries for linux x64/arm64, macOS arm64/x64, Windows x64 with the web app embedded; the `perch-dev` npm package), SHA256SUMS.
 1b. `desktop`: one job per platform (ubuntu x64 and arm64, macOS arm64, Windows x64) builds `perch-desktop-<os>-<arch>` with `scripts/build-desktop.ts` (the macOS `.app` zip too), checks the native layer from the binary, and uploads checksums.
