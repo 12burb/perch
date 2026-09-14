@@ -71,4 +71,4 @@ export async function authenticateRunnerToken(
   return found.runner;
 }
 
-export { requestRunner } from "../supervisor/supervisor.ts";
+export { requestRunner } from "../supervisor/queue.ts";

@@ -47,6 +47,10 @@ describe.skipIf(!hasWebBuild)("perch binary (task 0.15)", () => {
       };
       expect(npmPkg).toMatchObject({ name: "perch-dev", bin: { perch: "./perch.js" } });
       expect(existsSync(join(out, "npm", "web", "index.html"))).toBe(true);
+      // The laptop binary is the api without the supervisor: the Docker client and its native
+      // dependencies stay out of the bundle (spec §1.6; only the supervisor entrypoint loads them).
+      const bundle = readFileSync(join(out, "npm", "perch.js"), "utf8");
+      expect(bundle).not.toContain("dockerode");
 
       const help = Bun.spawnSync([binary, "--help"], { stdout: "pipe", stderr: "pipe" });
       expect(help.stdout.toString()).toContain("perch <command>");

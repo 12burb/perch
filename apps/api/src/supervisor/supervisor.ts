@@ -6,7 +6,7 @@
  * stops and removes containers whose runner has reported no sessions for PERCH_RUNNER_IDLE_MINUTES; and
  * reconciles rows against containers at start. ADR-0067.
  */
-import type { Db, Job, Runner } from "@perch/db";
+import type { Db, Runner } from "@perch/db";
 import { schema } from "@perch/db";
 import type { Queue, Worker } from "@perch/jobs";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
@@ -20,10 +20,12 @@ import {
   RUNNER_ROLE,
   type RunnerLimits,
 } from "./docker.ts";
+import { SUPERVISOR_QUEUE } from "./queue.ts";
+
+export { requestRunner, SUPERVISOR_QUEUE } from "./queue.ts";
 
 const { runners } = schema;
 
-export const SUPERVISOR_QUEUE = "supervisor.ensure";
 export const HOMES_TARGET = "/data/homes";
 export const PROJECTS_TARGET = "/data/projects";
 
@@ -77,11 +79,6 @@ export function supervisorConfigFromEnv(env: {
     projectsVolume: env.runner.projectsVolume,
     network: env.runner.network,
   };
-}
-
-/** Enqueues a runner for a workspace (null: the shared runner); the supervisor picks it up. */
-export function requestRunner(queue: Queue, workspaceId: string | null): Promise<Job> {
-  return queue.enqueue({ queue: SUPERVISOR_QUEUE, payload: { workspaceId } });
 }
 
 export function createSupervisor(deps: SupervisorDeps) {
