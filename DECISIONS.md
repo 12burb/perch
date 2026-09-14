@@ -565,6 +565,14 @@ switch and an update to this ADR.
 The terminal (task 1.7) targets bun-pty's API (`spawn`, `onData`, `onExit`, `write`, `resize`, `kill`).
 Windows is verified by the matrix, not here.
 
+### Update (2026-09-14): the matrix outcome
+The first `spikes.yml` run (PR #1) confirms the decision on every platform: bun-pty passes the whole
+scenario on ubuntu x64, ubuntu arm64, macOS (arm64), and Windows (ConPTY, 13 s for the 1,000 writes);
+node-pty fails on all four under Bun (Linux x64 and arm64: `EBADF` on write; macOS: `posix_spawnp
+failed`; Windows: `ERR_SOCKET_CLOSED` on the first write). The node-pty probe is therefore an
+informational step in `spikes.yml` (`continue-on-error`), never the gate: the gate is bun-pty, which is
+what Perch ships. A platform where the probe starts passing and bun-pty fails would reopen this ADR.
+
 ## ADR-0030: Spike 0.4.2 — ACP handshake: the SDK works on Bun; real agents gated on credentials
 
 - Status: accepted (spike outcome: pass, real agents deferred to credentials)

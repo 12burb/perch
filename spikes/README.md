@@ -6,7 +6,7 @@ ADR-0038 record what happened.
 
 | # | Spike | Run | Outcome (Bun 1.3.11, linux x64, 2026-09-13) |
 |---|---|---|---|
-| 0.4.1 | [PTY on Bun](pty/) | `bun test spikes/pty` | **fallback taken**: node-pty breaks on Bun (`resize` → `ioctl EBADF`, writes → EBADF); **bun-pty passes** the whole scenario. Other platforms: CI `spikes.yml` matrix |
+| 0.4.1 | [PTY on Bun](pty/) | `bun test spikes/pty` | **fallback taken**: node-pty breaks on Bun (`resize` → `ioctl EBADF`, writes → EBADF); **bun-pty passes** the whole scenario on ubuntu x64/arm64, macOS, and Windows (CI `spikes.yml` matrix); node-pty fails on all four, so its probe is an informational step |
 | 0.4.2 | [ACP handshake](acp/) | `bun test spikes/acp` | **pass** with the SDK on both sides (stub agent): initialize, session, streamed text and tool calls, permission answered, `end_turn`. Real Gemini CLI / Codex: `PERCH_SPIKE_ACP_AGENT` (needs vendor keys) |
 | 0.4.3 | [OpenCode SDK](opencode/) | `bun test spikes/opencode` | **pass** for serve, session create/list/diff/delete, SSE events, and a credential-less prompt failing cleanly; a real streamed reply needs `OPENAI_API_KEY` or `PERCH_SPIKE_OPENCODE_MODEL` |
 | 0.4.4 | [PGlite](pglite/) | `bun test spikes/pglite` | **pass**: pgvector (`@electric-sql/pglite-pgvector`) with HNSW, generated tsvector + GIN, citext, `FOR UPDATE SKIP LOCKED`, advisory locks, all in memory |

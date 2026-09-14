@@ -34,9 +34,12 @@ jobs:
       - name: Place the OpenCode binary (postinstall of an untrusted package)
         run: bun run --filter @perch/spike-opencode prepare-binary
       - run: bun test spikes
+      # node-pty fails on Bun on every platform (ADR-0029); the probe records whether that is still so.
+      - name: node-pty probe (informational, ADR-0029)
+        run: bun test spikes/pty
         env:
           PERCH_SPIKE_NODE_PTY: "1"
-        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
 
   spikes-pty-matrix:
     name: PTY on ${{ matrix.os }}
@@ -53,8 +56,11 @@ jobs:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
       - run: bun test spikes/pty
+      - name: node-pty probe (informational, ADR-0029)
+        run: bun test spikes/pty
         env:
           PERCH_SPIKE_NODE_PTY: "1"
+        continue-on-error: true
 
   spikes-caddy:
     name: Caddy wildcard (needs CADDY_DNS_TOKEN)
