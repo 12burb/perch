@@ -21,7 +21,8 @@ beforeAll(() => {
   dir = projectDir(root, WS, PROJECT);
   mkdirSync(dir, { recursive: true });
 });
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+// Windows releases a directory a killed child was using a moment later: retry the cleanup.
+afterAll(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe("exec (task 1.5)", () => {
   test("runs in the project, reports exit code, output, and timing", async () => {
@@ -54,13 +55,26 @@ describe("exec (task 1.5)", () => {
     const opts = { root, policy: runnerPolicy() };
     const slow = await exec(opts, {
       ...ctx,
-      command: win ? "ping -n 10 127.0.0.1 > NUL" : "sleep 5",
+      command: win ? "ping -n 10 127.0.0.1 > NUL" : "sleep 5.31",
       cwd: dir,
       timeout: 200,
     });
     expect(slow.timedOut).toBe(true);
     expect(slow.exitCode).toBeNull();
     expect(slow.durationMs).toBeLessThan(5_000);
+    // The whole tree is gone: nothing keeps the project directory busy (Windows) or runs on.
+    if (process.platform !== "win32") {
+      await Bun.sleep(100);
+      // Only a real `sleep 5.31` process counts (not shells whose command line quotes it).
+      const lingering = Bun.spawnSync([
+        "sh",
+        "-c",
+        "ps -eo comm=,args= | grep '^sleep ' | grep '5.31' || true",
+      ])
+        .stdout.toString()
+        .trim();
+      expect(lingering).toBe("");
+    }
   });
 
   test("the policy hook refuses denied commands and directories outside the projects root", async () => {

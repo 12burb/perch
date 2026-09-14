@@ -33,6 +33,64 @@ function shell(command: string): { argv: string[]; group: boolean } {
     : { argv: ["sh", "-c", command], group: false };
 }
 
+/** Children of a pid on a POSIX system without process groups (macOS): pgrep, best effort. */
+function childrenOf(pid: number): number[] {
+  try {
+    const result = Bun.spawnSync(["pgrep", "-P", String(pid)]);
+    return result.stdout
+      .toString()
+      .split("\n")
+      .map((line) => Number(line.trim()))
+      .filter((child) => Number.isInteger(child) && child > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Kills the shell and everything it started: the process group on Linux, taskkill's tree on
+ * Windows (a lingering child would keep the directory busy), pgrep descendants elsewhere.
+ */
+function killTree(
+  proc: { pid: number; kill: (signal?: NodeJS.Signals | number) => void },
+  group: boolean,
+): void {
+  if (platform() === "win32") {
+    try {
+      Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(proc.pid)], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+    } catch {
+      // taskkill missing: fall through to the plain kill
+    }
+  } else if (group) {
+    try {
+      process.kill(-proc.pid, "SIGKILL");
+    } catch {
+      // the group is already gone
+    }
+  } else {
+    const pending = [proc.pid];
+    const seen = new Set<number>();
+    while (pending.length > 0) {
+      const pid = pending.pop();
+      if (pid === undefined || seen.has(pid)) continue;
+      seen.add(pid);
+      pending.push(...childrenOf(pid));
+    }
+    for (const pid of [...seen].reverse()) {
+      if (pid === proc.pid) continue;
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  }
+  proc.kill("SIGKILL");
+}
+
 function cap(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n… [truncated]` : text;
 }
@@ -91,14 +149,7 @@ export async function exec(
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    if (group) {
-      try {
-        process.kill(-proc.pid, "SIGKILL");
-      } catch {
-        // the group is already gone
-      }
-    }
-    proc.kill("SIGKILL");
+    killTree(proc, group);
     out.stop();
     err.stop();
   }, params.timeout);
