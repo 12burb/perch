@@ -11,7 +11,8 @@ import { projectRelative, realish } from "../src/paths.ts";
  */
 describe("project-relative paths (tasks 1.9–1.11)", () => {
   test("a file reported through a symlinked project dir is relative to the project", () => {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), "perch-paths-")));
+    // `.native` so Windows expands 8.3 names (RUNNER~1) the same way `realish` does.
+    const base = realpathSync.native(mkdtempSync(join(tmpdir(), "perch-paths-")));
     const real = join(base, "real");
     const link = join(base, "link");
     mkdirSync(join(real, "src"), { recursive: true });
