@@ -1440,3 +1440,44 @@ A runtime import of anything outside the api's dependency graph fails in the ima
 intended signal: a workspace the api starts to import goes into `apps/api/package.json`, and the
 filtered install follows it. The Trivy image scan stays a hard gate; base-image findings the Debian
 archive has not fixed are excluded by `ignore-unfixed`.
+
+## ADR-0063: The desktop app is laptop mode in the platform webview, driven from Bun
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: beyond §11 (D.1); asked for after Phase 0
+
+### Context
+The spec ships Perch as a web app (a PWA) and a `perch` binary; "desktop" in §11 means the desktop
+viewport. The request was desktop software people can open on their machine. The ground rules
+constrain the answer: TypeScript end to end and Bun as the runtime, so Electron (a Node main process
+and a bundled Chromium) and Tauri (Rust in the repo) are out.
+
+### Decision
+- **`apps/desktop`, one binary `perch-desktop`.** It calls `startLaptop()` (extracted from `perch dev`
+  into `apps/cli/src/laptop.ts`) in the same process and shows the app in the platform webview through
+  `@webviewjs/webview` 0.4.5: an N-API binding to tao and wry (Tauri's windowing and webview crates)
+  with prebuilt binaries per platform, Bun support, and a non-blocking event pump, so the in-process
+  server keeps serving while the window is open. Rust stays upstream, like bun-pty. `webview-bun`
+  (bun:ffi) was the alternative: it blocks the event loop, needs GTK 4 and WebKitGTK 6 on Linux, and
+  had no release in over a year.
+- **A fixed port, `localhost`.** The window opens `http://localhost:47160` (`--port`). A stable origin
+  keeps the session cookie and passkeys across restarts; `localhost` because an IP address is not a
+  valid passkey relying party. If a Perch already answers there, the app attaches instead of booting a
+  second server; `--url` opens a team instance with no local server.
+- **Data beside laptop mode.** `~/.perch` (shared with `perch dev`); the window's cookies, storage, and
+  cache in `~/.perch/desktop/webview` through a persistent WebContext (and `WEBVIEW2_USER_DATA_FOLDER`
+  on Windows). Closing the window stops the server.
+- **Built per platform.** The addon is installed per platform, so the release workflow builds the app
+  on one runner each for Linux x64 and arm64, macOS arm64, and Windows x64: on Windows with the icon,
+  product metadata, and no console window (`--windows-*` flags of `bun build --compile`); on macOS as
+  an unsigned `Perch.app` bundle zipped with `ditto`. Intel macOS waits for a runner or a signing
+  decision. The icon is drawn in `apps/desktop/assets/icon.svg` and rendered by `scripts/make-icons.ts`.
+- **Verified where a window can open.** Unit tests cover the flow with fakes; `--check` loads the real
+  addon; a real window on laptop mode runs under xvfb on Linux and natively on macOS and Windows in the
+  laptop-smoke job, with `PERCH_DESKTOP_NATIVE=1` so nothing skips in CI.
+
+### Consequences
+The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no
+IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. Signing and
+notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.

@@ -61,6 +61,17 @@
         "@perch/vault": "workspace:*",
       },
     },
+    "apps/desktop": {
+      "name": "@perch/desktop",
+      "version": "0.0.0",
+      "bin": {
+        "perch-desktop": "./src/index.ts",
+      },
+      "dependencies": {
+        "@perch/cli": "workspace:*",
+        "@webviewjs/webview": "0.4.5",
+      },
+    },
     "apps/runner": {
       "name": "@perch/runner",
       "version": "0.0.0",
@@ -990,6 +1001,8 @@
 
     "@perch/db": ["@perch/db@workspace:packages/db"],
 
+    "@perch/desktop": ["@perch/desktop@workspace:apps/desktop"],
+
     "@perch/engines": ["@perch/engines@workspace:packages/engines"],
 
     "@perch/events": ["@perch/events@workspace:packages/events"],
@@ -1485,6 +1498,32 @@
     "@vercel/oidc": ["@vercel/oidc@3.2.0", "", {}, "sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.1.1", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "oxc-transform-react": "^0.145.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler", "oxc-transform-react"] }, "sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw=="],
+
+    "@webviewjs/webview": ["@webviewjs/webview@0.4.5", "", { "optionalDependencies": { "@webviewjs/webview-android-arm-eabi": "0.4.5", "@webviewjs/webview-android-arm64": "0.4.5", "@webviewjs/webview-darwin-arm64": "0.4.5", "@webviewjs/webview-darwin-x64": "0.4.5", "@webviewjs/webview-freebsd-x64": "0.4.5", "@webviewjs/webview-linux-arm-gnueabihf": "0.4.5", "@webviewjs/webview-linux-arm64-gnu": "0.4.5", "@webviewjs/webview-linux-ia32-gnu": "0.4.5", "@webviewjs/webview-linux-x64-gnu": "0.4.5", "@webviewjs/webview-win32-arm64-msvc": "0.4.5", "@webviewjs/webview-win32-ia32-msvc": "0.4.5", "@webviewjs/webview-win32-x64-msvc": "0.4.5" }, "bin": { "webview": "cli/index.mjs", "webviewjs": "cli/index.mjs" } }, "sha512-oM5zAxXL10dFXkMyHxzdeQN1cCpVEP/xGlOyd3iT3u4TItpB1KDiCFWsc3CBz4e6/C8byr3NKnzxlhSD8oKg+g=="],
+
+    "@webviewjs/webview-android-arm-eabi": ["@webviewjs/webview-android-arm-eabi@0.4.5", "", { "os": "android", "cpu": "arm" }, "sha512-2kngQWMpCgsz8B4CTwA3qTxKUZ+IsYdmPFZPzRaOTVHjy1J+3MbeoRH3p0dzbyyoBtzrVJ70e7jOW3O5S3ff6g=="],
+
+    "@webviewjs/webview-android-arm64": ["@webviewjs/webview-android-arm64@0.4.5", "", { "os": "android", "cpu": "arm64" }, "sha512-+L0Z+sWrV+43lyzchJDKOSHOVp7IJMNjlSfmaUhs4PrkNoABD8SZkUrCurwwy/z251vlw2vRAf4r7cNQnqPJ9A=="],
+
+    "@webviewjs/webview-darwin-arm64": ["@webviewjs/webview-darwin-arm64@0.4.5", "", { "os": "darwin", "cpu": "arm64" }, "sha512-mRZPkE+HDHhchKDmyFuIHOScAHNTKiMi70Vrd0imF3SitnY8l1X/lPOc+XNd0Vg0rXjcG7wxIUluy9D1X2LeqQ=="],
+
+    "@webviewjs/webview-darwin-x64": ["@webviewjs/webview-darwin-x64@0.4.5", "", { "os": "darwin", "cpu": "x64" }, "sha512-Buo1hUiAByymbPYOLQ3QIERD8Gu1t+nRPf7TPc0J7qzxVBYk6ZGEZZW9DE/VlBe4PdnyEWqCYiwI5VWgnI8k7Q=="],
+
+    "@webviewjs/webview-freebsd-x64": ["@webviewjs/webview-freebsd-x64@0.4.5", "", { "os": "freebsd", "cpu": "x64" }, "sha512-C6BaJJhfVbc7JbfCSCLNJxdidYLEvwgUrzVUa2wxDFA7mhqvnHpjeH1OzvgArwX4wjczbyCX4X2bCzvJXdB/JA=="],
+
+    "@webviewjs/webview-linux-arm-gnueabihf": ["@webviewjs/webview-linux-arm-gnueabihf@0.4.5", "", { "os": "linux", "cpu": "arm" }, "sha512-BmMdaQ+0lUCbTUDuvzqceNAJHnIJuRAB017Je/aWNoC6qPoyVGoxHLyDsuv2Pir1/pdbD7Zwv1yRN04vUOWQkw=="],
+
+    "@webviewjs/webview-linux-arm64-gnu": ["@webviewjs/webview-linux-arm64-gnu@0.4.5", "", { "os": "linux", "cpu": "arm64" }, "sha512-Fs10Fgc+JLgctJSp9/T1bQ/d0gtrkBn93iKK0yrap3JP7ssXGbXEap46UlFrgjFhWdDK3N2v5qD6foC02/l38g=="],
+
+    "@webviewjs/webview-linux-ia32-gnu": ["@webviewjs/webview-linux-ia32-gnu@0.4.5", "", { "os": "linux", "cpu": "ia32" }, "sha512-vO1XARHhhQ9DEuRAGO5O6ZfAVczme53NQe1otdF4TMRpoBwj47xjTEqxs9G+bS+WoO18pA3tAt69LScLFTYsqw=="],
+
+    "@webviewjs/webview-linux-x64-gnu": ["@webviewjs/webview-linux-x64-gnu@0.4.5", "", { "os": "linux", "cpu": "x64" }, "sha512-OwdnB5AELfONOEWmf5bqVRG55IcX2/+eu/m6EZjx6u+VQwtHAJGUhDDcFaOkPPLmBPKlpogTunKJT7g523KfVw=="],
+
+    "@webviewjs/webview-win32-arm64-msvc": ["@webviewjs/webview-win32-arm64-msvc@0.4.5", "", { "os": "win32", "cpu": "arm64" }, "sha512-y2arMKpZgHc4agbSd789d+aK/2bSc3CUpIYLVvKqOc7Byb5YHUgJ0QnCZGsKCazKIYLRpyBePlojC1nXeLIzPg=="],
+
+    "@webviewjs/webview-win32-ia32-msvc": ["@webviewjs/webview-win32-ia32-msvc@0.4.5", "", { "os": "win32", "cpu": "ia32" }, "sha512-OHrGkK5Rlux+vZb+6EFtTGALd1Eu5MU6yjxApR1z2VhOQEcU3f9XjTk8MQU36ehpwJ4GTB+lxiWC6FimOzjXhA=="],
+
+    "@webviewjs/webview-win32-x64-msvc": ["@webviewjs/webview-win32-x64-msvc@0.4.5", "", { "os": "win32", "cpu": "x64" }, "sha512-qeAGU6bn65/AjpakVl4Q0nvbeKL+SJEUAGs2ODuePzUY4iQgSV3njdh3kgxiFUEZ+O/m+gOKk61lzpYLjXeUGg=="],
 
     "@workflow/serde": ["@workflow/serde@4.1.0", "", {}, "sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ=="],
 

@@ -1,0 +1,22 @@
+{
+  "name": "@perch/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Perch desktop app: laptop mode in a native window (WebView2, WebKit, WebKitGTK).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "perch-desktop": "./src/index.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@perch/cli": "workspace:*",
+    "@webviewjs/webview": "0.4.5"
+  }
+}

@@ -89,3 +89,9 @@ Written at the Phase 2 gate (spec §10) and reviewed by the human before startin
 ## Phase 4 — Gateway, hardening, launch
 
 Written at the Phase 3 gate (spec §10) and reviewed by the human before starting.
+
+## Beyond the spec
+
+- [x] **D.1** Desktop app: `apps/desktop` / `perch-desktop`, laptop mode in a native window on macOS,
+  Windows, and Linux, built per platform by the release workflow — commit `feat(desktop): the Perch
+  desktop app` (ADR-0063; apps/desktop/test/desktop.test.ts, the laptop-smoke desktop steps)

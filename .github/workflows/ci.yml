@@ -109,6 +109,21 @@ jobs:
       - run: bun run --filter @perch/web build
       - name: perch dev, doctor, backup, restore, and the compiled binary
         run: bun test apps/cli apps/runner
+      - name: Desktop prerequisites (WebKitGTK, libxdo, xvfb)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libxdo3 xvfb
+      - name: The desktop app (a native window on laptop mode)
+        shell: bash
+        env:
+          PERCH_DESKTOP_NATIVE: "1"
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a bun test apps/desktop; else bun test apps/desktop; fi
+      - name: Build the desktop app and check the native layer from the binary
+        shell: bash
+        run: |
+          bun scripts/build-desktop.ts --out dist/desktop --version 0.0.0-ci
+          "dist/desktop/$(cat dist/desktop/BINARY)" --check
+          ls -la dist/desktop
 
   compose-smoke:
     name: Compose smoke (docker compose up → wizard → sign in)

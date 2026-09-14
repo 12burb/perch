@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">Perch</title>
+  <!-- Perch: a bird settled on a branch. Accent blue from the light theme (packages/ui tokens). -->
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="#1d4fd7"/>
+  <!-- branch -->
+  <path d="M28 186 C 80 176, 176 176, 228 186" stroke="#ffffff" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <!-- body -->
+  <ellipse cx="128" cy="126" rx="58" ry="46" fill="#ffffff"/>
+  <!-- head -->
+  <circle cx="176" cy="92" r="30" fill="#ffffff"/>
+  <!-- beak -->
+  <path d="M203 88 L 232 96 L 203 106 Z" fill="#ffb84d"/>
+  <!-- eye -->
+  <circle cx="184" cy="86" r="5" fill="#1d4fd7"/>
+  <!-- tail -->
+  <path d="M74 132 L 30 108 L 46 150 Z" fill="#ffffff"/>
+  <!-- feet -->
+  <path d="M112 168 L 108 182 M 144 168 L 148 182" stroke="#ffb84d" stroke-width="7" stroke-linecap="round"/>
+</svg>

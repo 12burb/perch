@@ -65,6 +65,48 @@ jobs:
             packages/api-client/openapi.json
             packages/api-client/src/schema.d.ts
 
+  desktop:
+    name: Desktop app on ${{ matrix.os }}
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @perch/web build
+      - name: Desktop prerequisites (WebKitGTK, libxdo)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libxdo3
+      - name: Build the desktop app
+        run: bun scripts/build-desktop.ts --out dist/desktop --version ${{ needs.meta.outputs.version }}
+      - name: Check the native layer from the binary
+        shell: bash
+        run: '"dist/desktop/$(cat dist/desktop/BINARY)" --check'
+      - name: Checksums
+        shell: bash
+        working-directory: dist/desktop
+        run: |
+          sum() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          files=$(ls perch-desktop-* Perch-*.app.zip 2>/dev/null || true)
+          sum $files > "SHA256SUMS-desktop-${{ matrix.os }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            dist/desktop/perch-desktop-*
+            dist/desktop/Perch-*.app.zip
+            dist/desktop/SHA256SUMS-desktop-*
+
   images:
     name: Image ${{ matrix.image }}
     needs: meta
@@ -137,7 +179,7 @@ jobs:
 
   publish:
     name: GitHub release and npm
-    needs: [meta, artifacts, images]
+    needs: [meta, artifacts, desktop, images]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -163,6 +205,9 @@ jobs:
           files: |
             release/cli/perch-*
             release/cli/SHA256SUMS
+            release/desktop-*/perch-desktop-*
+            release/desktop-*/Perch-*.app.zip
+            release/desktop-*/SHA256SUMS-desktop-*
             release/sdk/openapi.json
             release/sbom-*/sbom-*.spdx.json
       - name: npm publish perch-dev (skipped without NPM_TOKEN)

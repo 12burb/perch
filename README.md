@@ -55,6 +55,14 @@ installed), run `perch dev` from PowerShell or a terminal, and find the data in 
 CI runs the laptop smoke (`perch dev`, doctor, backup, restore, and the compiled binary) on Linux, macOS,
 and Windows on every push.
 
+### Desktop app (laptop mode in a window)
+
+`perch-desktop` runs the same laptop mode in a native window: no browser tab, no terminal. Download
+`Perch-macos-arm64.app.zip`, `perch-desktop-windows-x64.exe`, or `perch-desktop-linux-<arch>` from the
+release page and open it; data lives in `~/.perch`, shared with `perch dev`. `perch-desktop --url
+https://perch.example.com` opens a team instance instead. Details, Linux packages, and the first-launch
+notes for unsigned builds are in `docs/desktop.md`.
+
 ### From source
 
 ```sh

@@ -84,6 +84,7 @@ only the packages it declares.
 | `@playwright/mcp` | 0.0.80 | apps/runner | agent eyes inside the runner |
 | `bun-pty` | 0.4.10 | apps/runner, spikes/pty | the PTY on Bun: spike 0.4.1 showed node-pty failing on Bun (ADR-0029) |
 | `node-pty` | 1.1.0 | spikes/pty only | opt-in probe for the CI platform matrix; trusted install script (compiles from source on Linux) |
+| `@webviewjs/webview` | 0.4.5 | apps/desktop | the desktop window: N-API binding to tao/wry (WebView2, WebKit, WebKitGTK 4.1), prebuilt per platform, Rust stays upstream (ADR-0063) |
 | `@electric-sql/pglite-pgvector` | 0.0.9 | packages/db (from task 0.5), spikes/pglite | pgvector for the PGlite 0.5 line ships as its own package (ADR-0032) |
 | `simple-git` | 3.36.0 | apps/runner | git |
 | `chokidar` | 5.0.0 | apps/runner | file watching |

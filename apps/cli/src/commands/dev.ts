@@ -1,18 +1,11 @@
 /**
  * `perch dev` (spec §2 laptop mode): api + web + the in-process runner on PGlite under ~/.perch. No
  * Docker, no Postgres; the master key is generated on first run; the setup wizard runs once in the
- * browser. Binds 127.0.0.1 unless --host says otherwise.
+ * browser. Binds 127.0.0.1 unless --host says otherwise. The boot itself lives in ../laptop.ts, shared
+ * with the desktop app.
  */
-import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { boot } from "@perch/api/boot";
-import { loadEnv } from "@perch/api/env";
-import { serve } from "@perch/api/server";
-import { createInProcessRunner } from "@perch/runner";
-import { dataDirFrom, laptopLayout, webDistDir } from "../paths.ts";
-import { pgliteRuntime } from "../pglite-runtime.ts";
-import { webAssets } from "../web-assets.gen.ts";
+import { laptopPort, startLaptop } from "../laptop.ts";
 
 const HELP = `perch dev [options]
 
@@ -41,59 +34,24 @@ export async function runDev(argv: string[]): Promise<number> {
     console.log(HELP);
     return 0;
   }
-  const layout = laptopLayout(dataDirFrom(values["data-dir"]));
-  mkdirSync(layout.files, { recursive: true });
-  const host = values.host ?? "127.0.0.1";
-  const requestedPort = Number(values.port ?? process.env.PORT ?? 3000);
-  if (!Number.isInteger(requestedPort) || requestedPort < 0 || requestedPort > 65535) {
+  const port = laptopPort(values.port);
+  if (port === null) {
     console.error(`bad port: ${values.port}`);
     return 2;
   }
-  // Port 0 asks the OS for a free port; the env needs a real number, so PERCH_PUBLIC_URL is set after.
-  const envPort = requestedPort === 0 ? 3000 : requestedPort;
-  const publicUrl =
-    values["public-url"] ?? `http://${host === "0.0.0.0" ? "localhost" : host}:${envPort}`;
-  const env = loadEnv({
-    ...process.env,
-    DATABASE_URL: layout.databaseUrl,
-    PERCH_DATA_DIR: layout.dataDir,
-    PERCH_FILES_DIR: layout.files,
-    PERCH_PUBLIC_URL: publicUrl,
-    PERCH_RUNNER_MODE: "inprocess",
-    PORT: String(envPort),
-    HOST: host,
-    ...(values["log-level"] ? { PERCH_LOG_LEVEL: values["log-level"] } : {}),
+  const laptop = await startLaptop({
+    dataDir: values["data-dir"],
+    port,
+    host: values.host,
+    publicUrl: values["public-url"],
+    logLevel: values["log-level"],
   });
-  const webDist = webDistDir();
-  const embedded = Object.keys(webAssets).length > 0;
-  if (!existsSync(join(webDist, "index.html")) && !embedded) {
-    console.error(`no web build at ${webDist}; run \`bun run --filter @perch/web build\` first`);
-  }
-  const booted = await boot({
-    env,
-    app: { webDist, ...(embedded ? { webAssets } : {}) },
-    pglite: await pgliteRuntime(),
-  });
-  const runner = createInProcessRunner();
-  booted.runners.attach(runner);
-  runner.heartbeat();
-  const running = serve(booted, { port: requestedPort, hostname: host });
-  const url = requestedPort === 0 ? running.url : publicUrl;
-  if (requestedPort === 0) {
-    // The public URL must carry the real port for passkeys and links: rebind is not possible after
-    // boot, so a random port is for smoke tests only.
-    booted.log.warn(
-      { url },
-      "random port: PERCH_PUBLIC_URL does not match; use --port for real work",
-    );
-  }
-  console.log(`perch dev: ${url}\n  data: ${layout.dataDir}\n  runner: ${runner.info.name}`);
-  const worker = booted.queue.worker({ queues: ["system"], handlers: {} });
-  worker.start();
+  console.log(
+    `perch dev: ${laptop.url}\n  data: ${laptop.dataDir}\n  runner: ${laptop.runnerName}`,
+  );
   await new Promise<void>((resolve) => {
     const stop = async () => {
-      await worker.stop();
-      await running.stop();
+      await laptop.stop();
       resolve();
     };
     process.once("SIGINT", () => void stop());

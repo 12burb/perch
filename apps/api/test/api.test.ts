@@ -143,5 +143,5 @@ describe("embedded web assets (task 0.15)", () => {
     expect(api.status).toBe(404);
     expect(((await api.json()) as { error: { code: string } }).error.code).toBe("not_found");
     await embedded.close();
-  });
+  }, 30_000); // boots a whole app on PGlite, like the beforeAll hooks of the other suites
 });

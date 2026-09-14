@@ -76,7 +76,8 @@ starting anything new.
 ## 4. Repo map
 
 `apps/web` (React PWA), `apps/api` (Hono on Bun; also the supervisor entrypoint), `apps/runner` (PTY, engines,
-fs, git, ports, preview tunnel), `apps/cli` (`perch` binary), `packages/*` (db, events, bus, jobs, vault,
+fs, git, ports, preview tunnel), `apps/cli` (`perch` binary), `apps/desktop` (`perch-desktop`: laptop mode in a
+native window, ADR-0063), `packages/*` (db, events, bus, jobs, vault,
 gateway, engines, connect, bots, policy, preview, inspector, bot-sdk, ui, api-client), `connectors/`
 (manifests), `templates/`, `deploy/`, `docs/`, `spikes/` (Phase 0 spikes, kept runnable), `scripts/`.
 
