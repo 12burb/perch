@@ -11,6 +11,7 @@ export type MyWorkspace = components["schemas"]["MyWorkspace"];
 export type Me = components["schemas"]["Me"];
 export type Member = components["schemas"]["Member"];
 export type AuditRow = components["schemas"]["AuditRow"];
+export type RunnerRow = components["schemas"]["Runner"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -47,5 +48,15 @@ export function auditQuery(workspaceId: string) {
           params: { path: { ws: workspaceId }, query: { limit: 30 } },
         }),
       ).rows,
+  });
+}
+
+export function runnersQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "runners"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/runners", { params: { path: { ws: workspaceId } } }),
+      ).runners,
   });
 }

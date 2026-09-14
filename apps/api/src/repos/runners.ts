@@ -1,5 +1,5 @@
 import { type Db, type Runner, type RunnerCapabilities, type RunnerToken, schema } from "@perch/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 
 const { runners, runnerTokens } = schema;
 
@@ -35,6 +35,20 @@ export async function findRunnerById(db: Db, id: string): Promise<Runner | null>
 
 export async function listRunners(db: Db, workspaceId: string): Promise<Runner[]> {
   return db.select().from(runners).where(eq(runners.workspaceId, workspaceId));
+}
+
+/** The runners a workspace may use: its own and the workspace-less (shared) ones, newest first. */
+export async function listRunnersVisibleTo(db: Db, workspaceId: string): Promise<Runner[]> {
+  return db
+    .select()
+    .from(runners)
+    .where(or(eq(runners.workspaceId, workspaceId), isNull(runners.workspaceId)))
+    .orderBy(desc(runners.createdAt));
+}
+
+export async function deleteRunner(db: Db, id: string): Promise<boolean> {
+  const rows = await db.delete(runners).where(eq(runners.id, id)).returning({ id: runners.id });
+  return rows.length > 0;
 }
 
 export async function updateRunner(

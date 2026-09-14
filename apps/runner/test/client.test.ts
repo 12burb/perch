@@ -79,6 +79,7 @@ function fakeApi(
                 runner_id: RUNNER_ID,
                 cap_secret: capSecret,
                 heartbeat_ms: options.heartbeatMs ?? 50,
+                owner_user_id: OWNER,
               },
             }),
           );

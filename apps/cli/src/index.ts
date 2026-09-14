@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 /**
  * The perch binary (spec §2, §8): `init` writes a deployment; `dev` runs laptop mode; `doctor`,
- * `backup`, `restore` look after it. `runner connect` (1.3) and `migrate --to-compose` come later.
+ * `backup`, `restore` look after it; `runner connect` joins this machine to a Perch as one of your
+ * environments. `migrate --to-compose` comes later.
  * Argument parsing is node:util's parseArgs; no dependency.
  */
 import { runBackup, runRestore } from "./commands/backup.ts";
 import { runDev } from "./commands/dev.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runInit } from "./commands/init.ts";
+import { runRunner } from "./commands/runner.ts";
 
 export const packageName = "@perch/cli";
 
@@ -19,6 +21,7 @@ Commands:
   backup    write a backup directory of the laptop-mode data (stop perch dev first)
   restore   restore a backup directory (stop perch dev first)
   init      write .env, docker-compose.yml, and a Caddyfile for docker compose (team mode)
+  runner    connect this machine to a Perch as one of your environments (runner connect <url>)
   help      show this help
 
 Run "perch <command> --help" for the options of a command.`;
@@ -36,6 +39,8 @@ export async function main(argv: string[]): Promise<number> {
       return runRestore(rest);
     case "init":
       return runInit(rest);
+    case "runner":
+      return runRunner(rest);
     case undefined:
     case "help":
     case "--help":

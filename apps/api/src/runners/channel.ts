@@ -226,7 +226,12 @@ export function createRunnerChannel(
     reply(session.ws, {
       jsonrpc: "2.0",
       id: request.id,
-      result: { runner_id: session.runner.id, cap_secret: capSecret, heartbeat_ms: heartbeatMs },
+      result: {
+        runner_id: session.runner.id,
+        cap_secret: capSecret,
+        heartbeat_ms: heartbeatMs,
+        owner_user_id: session.runner.ownerUserId,
+      },
     });
     const actor = { type: "runner" as const, id: session.runner.id };
     const payload = { workspaceId: session.runner.workspaceId, runnerId: session.runner.id };

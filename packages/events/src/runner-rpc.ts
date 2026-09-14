@@ -154,6 +154,8 @@ export const runnerRegisterResultSchema = z
     /** The per-connection secret the api mints capability tokens with (runner-cap.ts). */
     cap_secret: z.string().min(1),
     heartbeat_ms: z.number().int().positive(),
+    /** The user a local or remote runner serves; null for hosted runners. */
+    owner_user_id: z.uuid().nullable(),
   })
   .strict();
 export type RunnerRegisterResult = z.infer<typeof runnerRegisterResultSchema>;

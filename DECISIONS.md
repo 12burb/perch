@@ -1644,3 +1644,33 @@ Nothing else in the api touches Docker. Anything that needs a runner (sessions, 
 calls `requestRunner` and waits for `runner.online`. Idle stop trusts heartbeats: a runner that lies
 about sessions stays up. The Docker path is exercised by the CI check job, not by the compose smoke.
 
+## ADR-0068: Local runners: a token from the Environments page, the owner from the api
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.3
+
+### Context
+Spec §3.2: `perch runner connect <workspace>` on a machine you own opens the outbound socket and
+registers as one of your environments, serving only you. It does not say how the machine learns which
+Perch and which workspace it belongs to, how it proves who it is, or where the Environments page lives.
+
+### Decision
+A member registers a machine on the workspace's Environments page ("Connect a machine"): the api
+creates a runner row (kind local or remote, `owner_user_id` = the member) and mints its connect token,
+returned once inside the full command (`perch runner connect <public url> --token prt_… --name …`).
+The workspace is therefore implied by the token, not typed on the command line; the command's first
+argument is the api URL. The api's `runner.register` answer carries `owner_user_id`, so the runner
+enforces owner-only access from the row rather than from a flag the person could get wrong. Any member
+may connect a machine (`runners.connect`); a runner's owner or a workspace admin removes it
+(`runners.remove` for others' runners), which deletes the row, cascades its tokens, and closes a live
+socket. The Environments page lives with the settings pages (`/<workspace>/environments`, in the settings
+sidebar and the command palette) and refetches on every `runner.*` event of the workspace topic, so a
+machine shows Online without a reload. The e2e spec drives the real runner agent under Bun with the token
+the page minted, at 390 px and 1440 px, and checks the page with axe.
+
+### Consequences
+Hosted runners never appear on the connect path (the supervisor mints their tokens). Grants for other
+users on a local runner are a later task; until then a local runner refuses them. The `perch` binary
+gains a long-running `runner connect` command whose exit code 1 means the api refused the token.
+

@@ -19,6 +19,9 @@ export const ACTIONS = [
   "members.update_role",
   "members.remove",
   "audit.read",
+  "runners.read",
+  "runners.connect",
+  "runners.remove",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -54,6 +57,11 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "members.update_role": ["owner", "admin"],
   "members.remove": ["owner", "admin", "member"],
   "audit.read": ["owner", "admin"],
+  "runners.read": ["owner", "admin", "member"],
+  // Any member may connect a machine of their own; it serves only them (spec §3.2).
+  "runners.connect": ["owner", "admin", "member"],
+  // Removing someone else's runner; owners of a runner remove their own through the same route.
+  "runners.remove": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -66,6 +74,9 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "members.update_role": "admin",
   "members.remove": "admin",
   "audit.read": "admin",
+  "runners.read": "read",
+  "runners.connect": "write",
+  "runners.remove": "admin",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

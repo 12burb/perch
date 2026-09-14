@@ -21,3 +21,10 @@ bun apps/cli/src/index.ts dev           # http://127.0.0.1:3000
 bun apps/cli/src/index.ts doctor
 bun apps/cli/src/index.ts backup ./backup-1
 ```
+
+## `perch runner connect`
+
+`perch runner connect <api-url> --token prt_… [--name <name>] [--kind local|remote]` joins this machine
+to a Perch as one of your environments (spec §3.2). The token comes from the workspace's Environments
+page ("Connect a machine"), which shows it once; the runner serves only you. Runs until Ctrl-C and
+reconnects when the api restarts. `docs/runners.md` has the details.

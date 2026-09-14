@@ -89,6 +89,11 @@ export function SettingsSidebar(props: {
             label: t("settings.workspace"),
             to: `/${props.workspace.slug}/settings`,
           })}
+          {props.renderItem({
+            key: "environments",
+            label: t("environments.title"),
+            to: `/${props.workspace.slug}/environments`,
+          })}
         </SidebarSection>
       ) : null}
     </Sidebar>

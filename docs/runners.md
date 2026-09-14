@@ -75,6 +75,22 @@ that mounts the Docker socket) runs the hosted runners:
 
 Design notes: ADR-0067.
 
+## Your own machine (local and remote runners)
+
+On the **Environments** page of a workspace (the settings sidebar, or the command palette), "Connect a
+machine" registers a runner of your own and shows its connect token once, inside the command to run:
+
+```sh
+perch runner connect https://perch.example.com --token prt_… --name "Laptop"
+```
+
+The machine appears in the list within seconds and flips to Online; it runs your sessions, terminals,
+and previews, and refuses requests for anyone else unless a grant is attached (spec §3.2, §7.6). Your
+subscriptions, keys, and code stay on the machine. `--kind remote` marks a box you own elsewhere; the
+command reconnects on its own when the api restarts. Remove the machine from the page to revoke its
+token; a connected one is disconnected at once. The `perch` binary is on the release page; on a machine
+with Bun, `bun apps/runner/src/main.ts` with `PERCH_API_URL` and `PERCH_RUNNER_TOKEN` does the same.
+
 ## From code
 
 ```ts

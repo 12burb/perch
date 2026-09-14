@@ -29,6 +29,9 @@ describe("authorize (task 0.9)", () => {
       "members.update_role": { owner: true, admin: true, member: false },
       "members.remove": { owner: true, admin: true, member: true },
       "audit.read": { owner: true, admin: true, member: false },
+      "runners.read": { owner: true, admin: true, member: true },
+      "runners.connect": { owner: true, admin: true, member: true },
+      "runners.remove": { owner: true, admin: true, member: false },
     };
     for (const action of ACTIONS) {
       for (const role of ["owner", "admin", "member"] as const) {

@@ -6,12 +6,15 @@
  */
 import type { Db, Runner, RunnerCapabilities, RunnerToken } from "@perch/db";
 import {
+  deleteRunner,
   findRunnerById,
   findRunnerTokenByHash,
   insertRunner,
   insertRunnerToken,
+  listRunnersVisibleTo,
   revokeRunnerToken as revokeRow,
 } from "../repos/runners.ts";
+import type { RunnerRegistry } from "../runners/registry.ts";
 import { hashToken } from "./tokens.ts";
 
 export const RUNNER_TOKEN_PREFIX = "prt_";
@@ -72,3 +75,74 @@ export async function authenticateRunnerToken(
 }
 
 export { requestRunner } from "../supervisor/queue.ts";
+
+/** A runner as the Environments page sees it: the row plus what the registry knows right now. */
+export type RunnerView = {
+  id: string;
+  workspaceId: string | null;
+  kind: Runner["kind"];
+  name: string;
+  status: string;
+  ownerUserId: string | null;
+  capabilities: RunnerCapabilities;
+  lastSeenAt: Date | null;
+  createdAt: Date;
+  connected: boolean;
+  load: { cpu?: number; memoryMb?: number };
+  sessions: number;
+};
+
+export async function listRunnersForWorkspace(
+  db: Db,
+  registry: RunnerRegistry,
+  workspaceId: string,
+): Promise<RunnerView[]> {
+  const rows = await listRunnersVisibleTo(db, workspaceId);
+  return rows.map((row) => {
+    const live = registry.get(row.id);
+    return {
+      id: row.id,
+      workspaceId: row.workspaceId,
+      kind: row.kind,
+      name: row.name,
+      status: live ? "online" : row.status === "online" ? "offline" : row.status,
+      ownerUserId: row.ownerUserId,
+      capabilities: row.capabilities,
+      lastSeenAt: row.lastSeenAt,
+      createdAt: row.createdAt,
+      connected: live !== undefined,
+      load: live?.load ?? {},
+      sessions: live?.sessions.length ?? 0,
+    };
+  });
+}
+
+/** A member's own machine: a local (or remote) runner row and its connect token, shown once. */
+export async function connectOwnRunner(
+  db: Db,
+  input: { workspaceId: string; ownerUserId: string; name: string; kind?: "local" | "remote" },
+): Promise<{ runner: Runner; token: string }> {
+  const runner = await insertRunner(db, {
+    workspaceId: input.workspaceId,
+    kind: input.kind ?? "local",
+    name: input.name,
+    ownerUserId: input.ownerUserId,
+  });
+  const { token } = await mintRunnerToken(db, runner.id);
+  return { runner, token };
+}
+
+/** The command a person runs on their machine (docs/runners.md). */
+export function connectCommand(publicUrl: string, token: string, name: string): string {
+  return `perch runner connect ${publicUrl} --token ${token} --name ${JSON.stringify(name)}`;
+}
+
+/** Removes a runner: its tokens go with it (cascade) and a connected one is disconnected. */
+export async function removeRunner(
+  db: Db,
+  registry: RunnerRegistry,
+  runnerId: string,
+): Promise<boolean> {
+  await registry.detach(runnerId);
+  return deleteRunner(db, runnerId);
+}

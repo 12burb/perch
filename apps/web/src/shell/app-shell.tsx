@@ -96,7 +96,7 @@ export function modeFromPath(
   const parts = pathname.split("/").filter(Boolean);
   if (workspaceSlug && parts[0] === workspaceSlug) {
     const second = parts[1];
-    if (second === "settings") return "settings";
+    if (second === "settings" || second === "environments") return "settings";
     if (second && ["home", "code", "work", "bots", "inbox", "search"].includes(second))
       return second as RailMode;
   }
@@ -212,6 +212,20 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
         group: t("palette.account"),
         run: () => void navigate({ to: "/settings/security" }),
       },
+      ...(workspace
+        ? [
+            {
+              id: "environments",
+              label: t("environments.title"),
+              group: t("palette.workspace"),
+              run: () =>
+                void navigate({
+                  to: "/$workspace/environments",
+                  params: { workspace: workspace.slug },
+                }),
+            },
+          ]
+        : []),
       {
         id: "sign-out",
         label: t("nav.signOut"),
@@ -219,7 +233,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
         run: () => void signOut(),
       },
     ];
-  }, [goMode, navigate, onStateChange, signOut, state]);
+  }, [goMode, navigate, onStateChange, signOut, state, workspace]);
 
   const railMode: RailMode = mode === "settings" || mode === "welcome" ? "home" : mode;
   const mobileTab: MobileTab =

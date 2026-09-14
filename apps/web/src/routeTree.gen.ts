@@ -18,6 +18,7 @@ import { Route as AppWorkspaceRouteImport } from './routes/_app/$workspace'
 import { Route as AppWelcomeRouteImport } from './routes/_app/welcome'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as AppWorkspaceModeRouteImport } from './routes/_app/$workspace/$mode'
+import { Route as AppWorkspaceEnvironmentsRouteImport } from './routes/_app/$workspace/environments'
 import { Route as AppWorkspaceSettingsRouteImport } from './routes/_app/$workspace/settings'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings/profile'
 import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
@@ -66,6 +67,12 @@ const AppWorkspaceModeRoute = AppWorkspaceModeRouteImport.update({
   path: '/$mode',
   getParentRoute: () => AppWorkspaceRoute,
 } as any)
+const AppWorkspaceEnvironmentsRoute =
+  AppWorkspaceEnvironmentsRouteImport.update({
+    id: '/environments',
+    path: '/environments',
+    getParentRoute: () => AppWorkspaceRoute,
+  } as any)
 const AppWorkspaceSettingsRoute = AppWorkspaceSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -91,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
   '/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -104,6 +112,7 @@ export interface FileRoutesByTo {
   '/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
   '/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -119,6 +128,7 @@ export interface FileRoutesById {
   '/_app/welcome': typeof AppWelcomeRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_app/$workspace/$mode': typeof AppWorkspaceModeRoute
+  '/_app/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
   '/_app/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/_app/settings/security': typeof AppSettingsSecurityRoute
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/invite/$token'
     | '/$workspace/$mode'
+    | '/$workspace/environments'
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/invite/$token'
     | '/$workspace/$mode'
+    | '/$workspace/environments'
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
@@ -161,6 +173,7 @@ export interface FileRouteTypes {
     | '/_app/welcome'
     | '/invite/$token'
     | '/_app/$workspace/$mode'
+    | '/_app/$workspace/environments'
     | '/_app/$workspace/settings'
     | '/_app/settings/profile'
     | '/_app/settings/security'
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceModeRouteImport
       parentRoute: typeof AppWorkspaceRoute
     }
+    '/_app/$workspace/environments': {
+      id: '/_app/$workspace/environments'
+      path: '/environments'
+      fullPath: '/$workspace/environments'
+      preLoaderRoute: typeof AppWorkspaceEnvironmentsRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
     '/_app/$workspace/settings': {
       id: '/_app/$workspace/settings'
       path: '/settings'
@@ -266,11 +286,13 @@ declare module '@tanstack/react-router' {
 
 interface AppWorkspaceRouteChildren {
   AppWorkspaceModeRoute: typeof AppWorkspaceModeRoute
+  AppWorkspaceEnvironmentsRoute: typeof AppWorkspaceEnvironmentsRoute
   AppWorkspaceSettingsRoute: typeof AppWorkspaceSettingsRoute
 }
 
 const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
   AppWorkspaceModeRoute: AppWorkspaceModeRoute,
+  AppWorkspaceEnvironmentsRoute: AppWorkspaceEnvironmentsRoute,
   AppWorkspaceSettingsRoute: AppWorkspaceSettingsRoute,
 }
 

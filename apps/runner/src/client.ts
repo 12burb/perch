@@ -113,6 +113,7 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
   let refusals = 0;
   let attempt = 0;
   const sessions: string[] = [];
+  let ownerUserId = options.ownerUserId;
   const statusHandlers = new Set<(status: RunnerClientStatus) => void>();
   let firstRegistration: {
     resolve: (r: RunnerRegisterResult) => void;
@@ -175,6 +176,7 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
     const result = runnerRegisterResultSchema.parse(raw);
     runnerId = result.runner_id;
     capSecret = result.cap_secret;
+    ownerUserId = options.ownerUserId ?? result.owner_user_id ?? undefined;
     attempt = 0;
     refusals = 0;
     setStatus("online");
@@ -216,7 +218,7 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
       });
       return;
     }
-    if (kind !== "hosted" && options.ownerUserId && params.user_id !== options.ownerUserId) {
+    if (kind !== "hosted" && ownerUserId && params.user_id !== ownerUserId) {
       if (!params.grant) {
         refuse(
           message.id,
