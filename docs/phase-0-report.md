@@ -73,8 +73,10 @@ ADR-0001..0017 are the spec's locked decisions. Added during Phase 0:
 
 ## Spec deviations and open points
 
-1. **Single branch, no PRs** (ADR-0018): the harness fixes the branch and the repository had no default
-   branch; task evidence lives in commit messages, `TASKS.md`, and this report instead of PR descriptions.
+1. **Single branch, no per-task PRs** (ADR-0018): the harness fixes the branch and the repository had no
+   default branch; task evidence lives in commit messages, `TASKS.md`, and this report instead of PR
+   descriptions. `main` now exists (at the spec commit) and the whole phase is
+   [PR #1](https://github.com/12burb/perch/pull/1).
 2. **Unauthenticated → `forbidden` (403)**: spec §7.8 has no 401; `details.reason = "unauthenticated"`
    (ADR-0044).
 3. **Additive endpoints**: `GET /api/instance`, `POST /api/setup`, `GET /api/workspaces/{ws}/audit`

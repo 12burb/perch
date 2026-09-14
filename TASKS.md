@@ -7,6 +7,9 @@ Legend: `[ ]` open · `[~] <branch>` in progress on that branch · `[x] <PR link
 
 ## Phase 0 — Foundation
 
+Every task below and D.1 ship together in [PR #1](https://github.com/12burb/perch/pull/1) (one branch for
+the phase, ADR-0018); each line names the commit that carries its evidence.
+
 - [x] **0.1** Repo scaffold: Bun workspaces, Turborepo, Biome, strict TS, Changesets, Renovate, PR and issue templates, LICENSE (AGPL-3.0) + MIT licenses in bot-sdk, ui, events, api-client, connectors, templates (CI green on the empty monorepo) — commit `feat(scaffold): bun workspaces, turborepo, biome, strict ts, changesets, renovate` (ADR-0018)
 - [x] **0.2** Governance files per §9.2 (all present; DCO check enforced) — commit `docs(governance): readme, contributing, conduct, security, governance, pledge, dco check`
 - [x] **0.3** Dependency resolution: exact package names and versions for §2 from official docs, pinned; DECISIONS entry per non-obvious pick (lockfile committed) — commit `chore(deps): resolve and pin the §2 stack` (ADR-0019..0028)
