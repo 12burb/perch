@@ -8,7 +8,7 @@
       "outputs": ["dist/**"]
     },
     "typecheck": {
-      "dependsOn": []
+      "dependsOn": ["^typecheck"]
     },
     "dev": {
       "cache": false,

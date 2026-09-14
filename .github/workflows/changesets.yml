@@ -28,8 +28,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: changesets/action@v2
         with:
-          version: bun run version
-          title: "chore(release): version packages"
-          commit: "chore(release): version packages"
+          version-script: bun run version
+          pr-title: "chore(release): version packages"
+          commit-message: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
