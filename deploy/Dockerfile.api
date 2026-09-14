@@ -19,7 +19,9 @@ COPY connectors ./connectors
 COPY templates ./templates
 COPY spikes ./spikes
 COPY scripts ./scripts
-RUN bun install --frozen-lockfile
+# --ignore-scripts: the only trusted install script (node-pty, the opt-in PTY probe in spikes/pty) needs
+# node-gyp and Python; nothing that runs in this image needs a lifecycle script.
+RUN bun install --frozen-lockfile --ignore-scripts
 RUN bun run --filter @perch/web build
 
 FROM oven/bun:${BUN_VERSION}-slim AS runtime

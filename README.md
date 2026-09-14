@@ -49,6 +49,12 @@ Runs api, web, and an in-process runner on PGlite in `~/.perch`; `perch doctor` 
 `perch backup` / `perch restore` keep the data safe. `perch migrate --to-compose` moves a laptop instance
 into the compose stack when a team shows up.
 
+Binaries ship for Linux (x64, arm64), macOS (Apple silicon, Intel), and Windows (x64). On Windows,
+download `perch-windows-x64.exe` from the release page (or run `bunx perch-dev@latest dev` with Bun
+installed), run `perch dev` from PowerShell or a terminal, and find the data in `%USERPROFILE%\.perch`.
+CI runs the laptop smoke (`perch dev`, doctor, backup, restore, and the compiled binary) on Linux, macOS,
+and Windows on every push.
+
 ### From source
 
 ```sh
