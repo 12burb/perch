@@ -1,8 +1,9 @@
 /**
  * The in-process runner (spec §3.1 PERCH_RUNNER_MODE=inprocess, task 0.14): laptop mode attaches this
  * RunnerLink directly to the api instead of opening /api/runner. It registers, heartbeats, and answers
- * ports.list; every other §7.6 method is refused with a JSON-RPC "method not found" until the PTY,
- * engine, fs, git, and preview tasks of Phase 1 land (ADR-0059).
+ * every method the default handlers implement (projects, fs, git, ports, exec); PTY, sessions, the
+ * preview tunnel, and MCP spawning are refused with "method not found" until their tasks land
+ * (ADR-0059).
  */
 import { hostname } from "node:os";
 import type { RunnerCapabilities } from "@perch/db";
@@ -16,7 +17,14 @@ import {
   RunnerRpcError,
 } from "@perch/events";
 import { localCapabilities } from "./capabilities.ts";
-import { defaultHandlers, implementedMethods, type RunnerHandlers } from "./handlers.ts";
+import {
+  defaultHandlers,
+  errorCode,
+  type HandlerOptions,
+  implementedMethods,
+  type RunnerHandlers,
+} from "./handlers.ts";
+import { watchPorts } from "./ports.ts";
 
 export const IMPLEMENTED_METHODS: ReadonlySet<ApiToRunnerMethod> = new Set<ApiToRunnerMethod>(
   implementedMethods(defaultHandlers()),
@@ -30,6 +38,10 @@ export type InProcessRunnerOptions = {
   versions?: Record<string, string>;
   /** Where projects live (laptop mode: <data dir>/projects). */
   projectsDir?: string;
+  /** The policy hook (default: the built-in rules). */
+  policy?: HandlerOptions["policy"];
+  /** ports.changed polling period; 0 disables the watcher (tests). */
+  portsIntervalMs?: number;
 };
 
 export type InProcessRunner = RunnerLink & {
@@ -40,18 +52,20 @@ export type InProcessRunner = RunnerLink & {
 
 export function createInProcessRunner(options: InProcessRunnerOptions = {}): InProcessRunner {
   const handlers = new Set<(notification: RunnerNotification) => void>();
-  const methods: RunnerHandlers = defaultHandlers(
-    options.projectsDir ? { projects: { root: options.projectsDir } } : {},
-  );
+  const emit = (notification: RunnerNotification) => {
+    for (const handler of handlers) handler(notification);
+  };
+  const methods: RunnerHandlers = defaultHandlers({
+    ...(options.projectsDir ? { projects: { root: options.projectsDir } } : {}),
+    ...(options.policy ? { policy: options.policy } : {}),
+    notify: emit,
+  });
   const capabilities = localCapabilities();
   const info: RunnerInfo = {
     name: options.name ?? `${hostname()} (in-process)`,
     kind: "local",
     capabilities,
     versions: { bun: Bun.version, runner: "0.0.0", ...options.versions },
-  };
-  const emit = (notification: RunnerNotification) => {
-    for (const handler of handlers) handler(notification);
   };
   const heartbeat = () => {
     const usage = process.memoryUsage();
@@ -63,6 +77,10 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
   const period = options.heartbeatMs ?? 15_000;
   const timer = period > 0 ? setInterval(heartbeat, period) : null;
   timer?.unref?.();
+  const stopPorts =
+    options.portsIntervalMs === 0
+      ? null
+      : watchPorts(emit, options.portsIntervalMs ? { intervalMs: options.portsIntervalMs } : {});
 
   return {
     id: options.id ?? `inprocess:${Bun.randomUUIDv7()}`,
@@ -85,7 +103,12 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
           },
         );
       }
-      return handler(parsed);
+      try {
+        return await handler(parsed);
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        throw new RunnerRpcError(errorCode(err, -32603), err.message);
+      }
     },
     onNotification(handler) {
       handlers.add(handler);
@@ -93,6 +116,7 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
     },
     async close() {
       if (timer) clearInterval(timer);
+      stopPorts?.();
       handlers.clear();
     },
   };

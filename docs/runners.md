@@ -125,3 +125,52 @@ credential helper fed from the environment or a 0600 key file handed to `GIT_SSH
 runner strips `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_SSH*`, and `GIT_CONFIG_*` from git's environment,
 spawns `git` directly (no URL or secret on the command line comes from Perch), and scrubs
 `scheme://user@` from error messages. See [`projects.md`](projects.md).
+
+## fs, git, ports, and exec on a runner (task 1.5)
+
+Every runner answers these §7.6 methods through `defaultHandlers()` (apps/runner/src/handlers.ts);
+each one resolves paths inside the project directory and goes through the policy hook first.
+
+| Method | Params (beyond `workspace_id`, `user_id`, `cap`) | Result |
+|---|---|---|
+| `fs.list` | `{project, path}` | `{entries: [{name, type: file\|dir\|symlink\|other, size, mtime}]}`, directories first |
+| `fs.read` | `{project, path}` | `{content, encoding: utf8\|base64, size, truncated}` (binary → base64; 2 MiB cap) |
+| `fs.write` | `{project, path, content, encoding?}` | `{bytes}`; emits `fs.changed {project, paths, kind}` |
+| `fs.stat` | `{project, path}` | `{exists, type?, size?, mtime?}` |
+| `fs.search` | `{project, query, glob?, limit?, regex?, ignoreCase?}` | `{matches: [{path, line, column, text}], truncated, tookMs, engine}` |
+| `git.status` | `{project}` | `{branch, tracking, ahead, behind, clean, files: [{path, index, workingTree}]}` |
+| `git.diff` | `{project, ref?}` | `{diff, files: [{path, additions, deletions, binary}]}` (HEAD by default; the index on an unborn branch) |
+| `git.commit` | `{project, message, paths?, author?}` | `{commit, branch, summary}`; all changes when `paths` is omitted |
+| `git.push` | `{project, branch?, auth?}` | `{pushed, remote, branch, output}`; `auth` as for a clone (token or ssh key) |
+| `git.branch` | `{project, name?, create?}` | `{current, branches, created?}`; switches or creates when `name` is given |
+| `worktree.create` | `{project, branch, base?}` | `{path, branch}` at `<project>.worktrees/<branch>` |
+| `worktree.remove` | `{project, branch}` | `{removed}` |
+| `ports.list` | | `{ports: [{port, pid?}]}` (Linux: /proc/net/tcp; macOS: lsof; Windows: netstat) |
+| `exec` | `{command, cwd, timeout}` | `{exitCode, stdout, stderr, timedOut, durationMs}` (1 MiB caps; the process tree is killed at the budget) |
+
+`fs.search` is ripgrep (`rg --json`, literal by default, smart case) when the machine has it (the
+runner image does) and an in-process walk otherwise; both answer in path-then-line order. The
+acceptance benchmark in apps/runner/test/fs.test.ts searches a 50,000-file tree in ~110–140 ms on
+ripgrep. The runner reports its `git` and `ripgrep` versions in `capabilities.versions`.
+
+The watcher behind `ports.changed` polls every 2 s and reports the whole list on the first look and
+on every change; the api keeps it per runner (the Environments list shows it), answers
+`GET /api/workspaces/{ws}/runners/{runner}/ports` live, and announces new ports on a workspace's
+runner as `preview.port_detected` (spec §5.6).
+
+### Policy hooks
+
+Every fs, git, and exec call asks one function, `RunnerPolicy` (apps/runner/src/policy.ts), before
+it acts; a refusal is JSON-RPC `-32451` on the wire and a 451 `policy_violation` from the api. The
+built-in rules are the floor a runner enforces on its own (spec §5.7's examples):
+
+- `exec`: denied command patterns (`rm -rf` on `/`, `~`, `..`, `.`, or `*`; `git push --force`/`-f`/
+  `--delete`/`+ref`; `npm|pnpm|yarn|bun|cargo publish`, `gem push`, `twine upload`, `docker push`;
+  `mkfs`, `dd if=`, `shutdown|reboot|halt|poweroff`, the fork bomb, `chmod 777 /`), and `cwd`
+  inside the projects root (`perch runner connect` sets `execAnywhere` on your own machine).
+- `fs.write`: `.git/**` is read-only through the file methods; git.* manages it.
+- `git.push`: `protectedBranches` refuse a push before it starts (none by default).
+
+`runnerPolicy(rules)` builds one from `PolicyRules` (`deniedCommands`, `protectedBranches`,
+`readOnlyPaths`, `execAnywhere`); the `.perch/policy.yaml` evaluator of task 2.11 layers workspace
+and project rules on the same hook. Design notes: ADR-0070.

@@ -4,6 +4,7 @@
  * a runner's owner or a workspace admin removes it.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { portsListResultSchema } from "@perch/events";
 import { authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
@@ -15,6 +16,7 @@ import {
   listRunnersForWorkspace,
   type RunnerView,
   removeRunner,
+  runnerCall,
 } from "../services/runners.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
@@ -32,6 +34,7 @@ export const runnerSchema = z
     connected: z.boolean(),
     load: z.object({ cpu: z.number().optional(), memoryMb: z.number().optional() }),
     sessions: z.number().int(),
+    ports: z.array(z.object({ port: z.number().int(), pid: z.number().int().optional() })),
     platform: z.string().nullable(),
     arch: z.string().nullable(),
     last_seen_at: z.string().nullable(),
@@ -50,6 +53,7 @@ function runnerBody(view: RunnerView): z.infer<typeof runnerSchema> {
     connected: view.connected,
     load: view.load,
     sessions: view.sessions,
+    ports: view.ports,
     platform: view.capabilities.platform ?? null,
     arch: view.capabilities.arch ?? null,
     last_seen_at: view.lastSeenAt?.toISOString() ?? null,
@@ -118,7 +122,40 @@ const deleteRunnerRoute = createRoute({
   responses: { 204: { description: "Removed" }, ...errorResponses(403, 404) },
 });
 
+const portsRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/runners/{runner}/ports",
+  tags: ["runners"],
+  summary: "The TCP ports a connected runner is listening on, asked live",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: runnerParam },
+  responses: {
+    200: {
+      description: "Listening ports",
+      content: { "application/json": { schema: portsListResultSchema } },
+    },
+    ...errorResponses(403, 404, 409, 451, 502),
+  },
+});
+
 export function registerRunners(app: OpenAPIHono<AppEnv>, deps: Deps): void {
+  app.openapi(portsRoute, async (c) => {
+    const { ws, runner: runnerId } = c.req.valid("param");
+    await authorize(c, deps, "runners.read", { type: "workspace", id: ws });
+    const runner = await findRunnerById(deps.db.db, runnerId);
+    if (!runner || (runner.workspaceId !== null && runner.workspaceId !== ws)) {
+      throw PerchError.notFound("runner");
+    }
+    const live = deps.runners.get(runner.id);
+    if (!live) throw PerchError.conflict("the runner is offline");
+    const result = await runnerCall(live.link, "ports.list", {
+      workspace_id: ws,
+      user_id: currentUser(c).id,
+    });
+    return c.json(portsListResultSchema.parse(result), 200);
+  });
+
   app.openapi(listRunnersRoute, async (c) => {
     const { ws } = c.req.valid("param");
     await authorize(c, deps, "runners.read", { type: "workspace", id: ws });

@@ -59,6 +59,7 @@ type RunnerRow = {
   owner_user_id: string | null;
   connected: boolean;
   sessions: number;
+  ports: { port: number; pid?: number }[];
   platform: string | null;
 };
 

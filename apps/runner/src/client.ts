@@ -23,7 +23,14 @@ import {
   verifyCap,
 } from "@perch/events";
 import { localCapabilities } from "./capabilities.ts";
-import { defaultHandlers, type RunnerHandlers } from "./handlers.ts";
+import {
+  defaultHandlers,
+  errorCode,
+  type HandlerOptions,
+  type RunnerHandlers,
+} from "./handlers.ts";
+import { createNotifier } from "./notify.ts";
+import { watchPorts } from "./ports.ts";
 
 export type RunnerClientStatus =
   | "connecting"
@@ -50,6 +57,10 @@ export type RunnerClientOptions = {
   /** Local and remote runners: requests for any other user are refused without a grant. */
   ownerUserId?: string;
   handlers?: RunnerHandlers;
+  /** Options for the default handlers when `handlers` is not given (projects root, policy). */
+  handlerOptions?: Omit<HandlerOptions, "notify">;
+  /** ports.changed polling period; 0 disables the watcher. */
+  portsIntervalMs?: number;
   /** Reconnect policy; false gives up on the first drop. */
   reconnect?: { minMs?: number; maxMs?: number; maxRefusals?: number } | false;
   log?: RunnerLogger;
@@ -90,7 +101,9 @@ export function measureLoad(): RunnerNotificationParams<"runner.heartbeat">["loa
 export function connectRunner(options: RunnerClientOptions): RunnerClient {
   const log: RunnerLogger = options.log ?? (() => {});
   const kind = options.kind ?? "hosted";
-  const handlers = options.handlers ?? defaultHandlers();
+  const notifier = createNotifier();
+  const handlers =
+    options.handlers ?? defaultHandlers({ ...options.handlerOptions, notify: notifier.emit });
   const info: RunnerInfo = {
     name: options.name ?? hostname(),
     kind,
@@ -135,6 +148,12 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
   function send(message: JsonRpcMessage): void {
     if (socket?.readyState === OPEN) socket.send(JSON.stringify(message));
   }
+
+  // Handler-originated notifications (fs.changed) and the ports watcher go out on the socket.
+  notifier.subscribe((notification) =>
+    send({ jsonrpc: "2.0", method: notification.method, params: notification.params }),
+  );
+  let stopPorts: (() => void) | null = null;
 
   function request(method: RunnerToApiMethod, params: unknown): Promise<unknown> {
     const id = `${++seq}`;
@@ -184,6 +203,11 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
     heartbeatTimer = setInterval(heartbeat, result.heartbeat_ms);
     heartbeatTimer.unref?.();
     log("info", "registered", { runnerId, heartbeatMs: result.heartbeat_ms });
+    if (!stopPorts && options.portsIntervalMs !== 0) {
+      stopPorts = watchPorts(notifier.emit, {
+        ...(options.portsIntervalMs ? { intervalMs: options.portsIntervalMs } : {}),
+      });
+    }
     firstRegistration?.resolve(result);
     firstRegistration = null;
   }
@@ -243,7 +267,7 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       log("error", "handler failed", { method, error: err.message });
-      refuse(message.id, JSON_RPC_ERRORS.internal, err.message);
+      refuse(message.id, errorCode(err, JSON_RPC_ERRORS.internal), err.message);
     }
   }
 
@@ -370,6 +394,8 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
     async close() {
       closedByUs = true;
       stopTimers();
+      stopPorts?.();
+      stopPorts = null;
       const ws = socket;
       if (ws && ws.readyState <= OPEN) {
         await new Promise<void>((resolve) => {

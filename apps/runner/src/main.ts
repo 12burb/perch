@@ -13,7 +13,6 @@
 import { hostname } from "node:os";
 import type { RunnerInfo } from "@perch/events";
 import { connectRunner, type RunnerLogger } from "./client.ts";
-import { defaultHandlers } from "./handlers.ts";
 import { projectsRoot } from "./projects.ts";
 
 const log: RunnerLogger = (level, msg, fields) => {
@@ -63,7 +62,7 @@ if (import.meta.main) {
   const client = connectRunner({
     ...config,
     log,
-    handlers: defaultHandlers({ projects: { root: projectsRoot() } }),
+    handlerOptions: { projects: { root: projectsRoot() } },
   });
   const stop = async () => {
     log("info", "stopping");

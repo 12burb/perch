@@ -112,6 +112,9 @@ export const apiToRunnerParams = {
     query: z.string(),
     glob: z.string().optional(),
     limit: z.number().int().positive().optional(),
+    /** Additive (ADR-0070): the query is a literal unless regex is true; case follows ignoreCase. */
+    regex: z.boolean().optional(),
+    ignoreCase: z.boolean().optional(),
   }),
   "git.status": z.object({ ...ctx, project: z.uuid() }),
   "git.diff": z.object({ ...ctx, project: z.uuid(), ref: z.string().optional() }),
@@ -120,8 +123,25 @@ export const apiToRunnerParams = {
     project: z.uuid(),
     message: z.string(),
     paths: z.array(z.string()).optional(),
+    /** Additive (ADR-0070): the committer identity; the api passes the member's. */
+    author: z.object({ name: z.string().min(1), email: z.string().min(1) }).optional(),
   }),
-  "git.push": z.object({ ...ctx, project: z.uuid(), branch: z.string().optional() }),
+  "git.push": z.object({
+    ...ctx,
+    project: z.uuid(),
+    branch: z.string().optional(),
+    /** Additive (ADR-0070): credentials for the push, the same shapes as a clone's. */
+    auth: z
+      .discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("token"),
+          username: z.string().min(1).optional(),
+          token: z.string().min(1),
+        }),
+        z.object({ kind: z.literal("ssh"), privateKey: z.string().min(1) }),
+      ])
+      .optional(),
+  }),
   "git.branch": z.object({
     ...ctx,
     project: z.uuid(),
@@ -220,6 +240,110 @@ export const projectSetupResultSchema = z
   })
   .strict();
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
+
+/** Results of the fs, git, ports, and exec methods (task 1.5, ADR-0070): what the api validates. */
+export const fsEntrySchema = z.object({
+  name: z.string(),
+  type: z.enum(["file", "dir", "symlink", "other"]),
+  size: z.number().int().nonnegative(),
+  mtime: z.string(),
+});
+export const fsListResultSchema = z.object({ entries: z.array(fsEntrySchema) }).strict();
+export const fsReadResultSchema = z
+  .object({
+    content: z.string(),
+    encoding: z.enum(["utf8", "base64"]),
+    size: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+export const fsStatResultSchema = z
+  .object({
+    exists: z.boolean(),
+    type: z.enum(["file", "dir", "symlink", "other"]).optional(),
+    size: z.number().int().nonnegative().optional(),
+    mtime: z.string().optional(),
+  })
+  .strict();
+export const fsSearchResultSchema = z
+  .object({
+    matches: z.array(
+      z.object({
+        path: z.string(),
+        line: z.number().int().positive(),
+        column: z.number().int().positive(),
+        text: z.string(),
+      }),
+    ),
+    truncated: z.boolean(),
+    tookMs: z.number().nonnegative(),
+    engine: z.enum(["ripgrep", "builtin"]),
+  })
+  .strict();
+export const gitStatusResultSchema = z
+  .object({
+    branch: z.string().nullable(),
+    tracking: z.string().nullable(),
+    ahead: z.number().int().nonnegative(),
+    behind: z.number().int().nonnegative(),
+    clean: z.boolean(),
+    files: z.array(z.object({ path: z.string(), index: z.string(), workingTree: z.string() })),
+  })
+  .strict();
+export const gitDiffResultSchema = z
+  .object({
+    diff: z.string(),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+        binary: z.boolean(),
+      }),
+    ),
+  })
+  .strict();
+export const gitCommitResultSchema = z
+  .object({
+    commit: z.string(),
+    branch: z.string(),
+    summary: z.object({
+      changes: z.number().int().nonnegative(),
+      insertions: z.number().int().nonnegative(),
+      deletions: z.number().int().nonnegative(),
+    }),
+  })
+  .strict();
+export const gitPushResultSchema = z
+  .object({ pushed: z.literal(true), remote: z.string(), branch: z.string(), output: z.string() })
+  .strict();
+export const gitBranchResultSchema = z
+  .object({
+    current: z.string().nullable(),
+    branches: z.array(z.string()),
+    created: z.boolean().optional(),
+  })
+  .strict();
+export const worktreeCreateResultSchema = z
+  .object({ path: z.string(), branch: z.string() })
+  .strict();
+export const worktreeRemoveResultSchema = z.object({ removed: z.boolean() }).strict();
+export const portsListResultSchema = z
+  .object({
+    ports: z.array(
+      z.object({ port: z.number().int().min(1).max(65535), pid: z.number().int().optional() }),
+    ),
+  })
+  .strict();
+export const execResultSchema = z
+  .object({
+    exitCode: z.number().int().nullable(),
+    stdout: z.string(),
+    stderr: z.string(),
+    timedOut: z.boolean(),
+    durationMs: z.number().nonnegative(),
+  })
+  .strict();
 
 /** Methods whose result is a stream token for a data socket at /api/runner/stream/{token}. */
 export const STREAM_TOKEN_METHODS = ["pty.open", "http.open", "mcp.spawn"] as const;

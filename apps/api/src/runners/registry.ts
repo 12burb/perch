@@ -6,15 +6,21 @@
 import type { Bus } from "@perch/bus";
 import type { RunnerLink } from "@perch/events";
 
+export type ListeningPort = { port: number; pid?: number };
+
 export type RegisteredRunner = {
   link: RunnerLink;
   attachedAt: Date;
   lastHeartbeatAt: Date | null;
   load: { cpu?: number; memoryMb?: number };
   sessions: string[];
+  /** The ports the runner last reported listening (ports.changed, task 1.5). */
+  ports: ListeningPort[];
   /** The workspace a hosted runner belongs to; null for the laptop runner (every workspace). */
   workspaceId: string | null;
 };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class RunnerRegistry {
   private readonly runners = new Map<string, RegisteredRunner & { unsubscribe: () => void }>();
@@ -28,6 +34,7 @@ export class RunnerRegistry {
       lastHeartbeatAt: null,
       load: {},
       sessions: [],
+      ports: [],
       workspaceId: options.workspaceId ?? null,
       unsubscribe: () => {},
     };
@@ -36,6 +43,23 @@ export class RunnerRegistry {
         entry.lastHeartbeatAt = new Date();
         entry.load = notification.params.load;
         entry.sessions = notification.params.sessions;
+      } else if (notification.method === "ports.changed") {
+        const known = new Set(entry.ports.map((p) => p.port));
+        entry.ports = notification.params.ports;
+        // A new port on a workspace's runner is a preview candidate (spec §5.6); the shared and
+        // in-process runners have no workspace to tell.
+        if (entry.workspaceId && UUID.test(link.id)) {
+          for (const { port } of notification.params.ports) {
+            if (known.has(port)) continue;
+            void this.bus
+              .publish(
+                "preview.port_detected",
+                { workspaceId: entry.workspaceId, runnerId: link.id, port },
+                { actor: { type: "runner", id: link.id } },
+              )
+              .catch(() => {});
+          }
+        }
       }
     });
     this.runners.set(link.id, entry);

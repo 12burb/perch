@@ -901,6 +901,23 @@
           "sessions": {
             "type": "integer"
           },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "port": {
+                  "type": "integer"
+                },
+                "pid": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "port"
+              ]
+            }
+          },
           "platform": {
             "type": [
               "string",
@@ -933,6 +950,7 @@
           "connected",
           "load",
           "sessions",
+          "ports",
           "platform",
           "arch",
           "last_seen_at",
@@ -2244,6 +2262,129 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/runners/{runner}/ports": {
+      "get": {
+        "tags": [
+          "runners"
+        ],
+        "summary": "The TCP ports a connected runner is listening on, asked live",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "runner",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listening ports",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "port": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 65535
+                          },
+                          "pid": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "port"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "ports"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
             "content": {
               "application/json": {
                 "schema": {

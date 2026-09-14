@@ -47,6 +47,8 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      # The fs.search acceptance benchmark (task 1.5) runs on ripgrep, the runner image's engine.
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: bun run lint
       - run: bun run typecheck
       - name: Unit tests (PGlite in memory and the Postgres service)
@@ -109,6 +111,12 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      - name: ripgrep (the fs.search benchmark's engine; Windows runs the built-in engine)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: ripgrep
+        if: runner.os == 'macOS'
+        run: brew install ripgrep
       - run: bun run --filter @perch/web build
       - name: perch dev, doctor, backup, restore, and the compiled binary
         run: bun test apps/cli apps/runner

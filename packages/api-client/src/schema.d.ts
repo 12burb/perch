@@ -1069,6 +1069,95 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/runners/{runner}/ports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The TCP ports a connected runner is listening on, asked live */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    runner: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Listening ports */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ports: {
+                                port: number;
+                                pid?: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Policy violation */
+                451: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/runners": {
         parameters: {
             query?: never;
@@ -2002,6 +2091,10 @@ export type components = {
                 memoryMb?: number;
             };
             sessions: number;
+            ports: {
+                port: number;
+                pid?: number;
+            }[];
             platform: string | null;
             arch: string | null;
             last_seen_at: string | null;

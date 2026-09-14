@@ -22,11 +22,12 @@ export type ProjectsOptions = {
 };
 
 /**
- * Host variables git must not inherit on a runner: askpass and ssh overrides would let the host
- * inject a program into a clone, and GIT_CONFIG_* would override the credential helper below.
+ * Host variables git must not inherit on a runner: askpass, editor, pager, proxy, and ssh overrides
+ * would let the host inject a program into a git call, and GIT_CONFIG* would override the
+ * credential helper below (the same list simple-git refuses to pass through).
  */
 const STRIPPED_GIT_ENV =
-  /^(GIT_ASKPASS|SSH_ASKPASS|GIT_SSH|GIT_SSH_COMMAND|GIT_CONFIG_.*|GIT_DIR|GIT_WORK_TREE)$/;
+  /^(EDITOR|PAGER|PREFIX|GIT_ASKPASS|SSH_ASKPASS|GIT_SSH|GIT_SSH_COMMAND|GIT_CONFIG.*|GIT_DIR|GIT_WORK_TREE|GIT_EDITOR|GIT_SEQUENCE_EDITOR|GIT_EXEC_PATH|GIT_EXTERNAL_DIFF|GIT_PAGER|GIT_PROXY_COMMAND|GIT_TEMPLATE_DIR)$/;
 
 export function cloneEnv(
   base: Record<string, string | undefined>,
@@ -44,10 +45,11 @@ export function scrubUrl(text: string): string {
   return text.replace(/(\w+:\/\/)[^/@\s]+@/g, "$1***@");
 }
 
-async function runGit(
+/** Runs git with an explicit environment; returns its (scrubbed) output, throws on a non-zero exit. */
+export async function runGit(
   args: string[],
   options: { cwd: string; env: Record<string, string>; timeoutMs: number },
-): Promise<void> {
+): Promise<string> {
   const proc = Bun.spawn(["git", ...args], {
     cwd: options.cwd,
     env: options.env,
@@ -56,12 +58,18 @@ async function runGit(
     stderr: "pipe",
   });
   const timer = setTimeout(() => proc.kill(), options.timeoutMs);
-  const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
   clearTimeout(timer);
+  const verb = args.find((arg) => !arg.startsWith("-") && arg !== "clone") ?? args[0];
   if (exitCode !== 0) {
     const detail = scrubUrl(stderr.trim().split("\n").slice(-3).join(" ")) || `exit ${exitCode}`;
-    throw new Error(`git ${args[0]} failed: ${detail}`);
+    throw new Error(`git ${args.includes("clone") ? "clone" : verb} failed: ${detail}`);
   }
+  return scrubUrl(`${stdout}${stderr}`.trim());
 }
 
 export function projectsRoot(env: Record<string, string | undefined> = process.env): string {

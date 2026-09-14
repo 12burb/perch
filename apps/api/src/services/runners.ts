@@ -6,6 +6,13 @@
  */
 import type { Db, Runner, RunnerCapabilities, RunnerToken } from "@perch/db";
 import {
+  type ApiToRunnerMethod,
+  JSON_RPC_ERRORS,
+  type RunnerCallParams,
+  type RunnerLink,
+} from "@perch/events";
+import { PerchError } from "../errors.ts";
+import {
   deleteRunner,
   findRunnerById,
   findRunnerTokenByHash,
@@ -90,7 +97,40 @@ export type RunnerView = {
   connected: boolean;
   load: { cpu?: number; memoryMb?: number };
   sessions: number;
+  ports: { port: number; pid?: number }[];
 };
+
+/** A runner's JSON-RPC refusal as the §7.8 error it means to the caller. */
+export function runnerError(error: unknown): PerchError {
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  switch (code) {
+    case JSON_RPC_ERRORS.policyViolation:
+      return new PerchError("policy_violation", message);
+    case JSON_RPC_ERRORS.forbidden:
+    case JSON_RPC_ERRORS.unauthorized:
+      return PerchError.forbidden(message);
+    case JSON_RPC_ERRORS.methodNotFound:
+      return new PerchError("upstream_failed", message, { reason: "method_not_found" });
+    case JSON_RPC_ERRORS.invalidParams:
+      return PerchError.validation(message);
+    default:
+      return new PerchError("upstream_failed", message);
+  }
+}
+
+/** Calls a runner and turns its refusals into PerchErrors (task 1.5). */
+export async function runnerCall<M extends ApiToRunnerMethod>(
+  link: RunnerLink,
+  method: M,
+  params: RunnerCallParams<M>,
+): Promise<unknown> {
+  try {
+    return await link.call(method, params);
+  } catch (error) {
+    throw runnerError(error);
+  }
+}
 
 export async function listRunnersForWorkspace(
   db: Db,
@@ -113,6 +153,7 @@ export async function listRunnersForWorkspace(
       connected: live !== undefined,
       load: live?.load ?? {},
       sessions: live?.sessions.length ?? 0,
+      ports: live?.ports ?? [],
     };
   });
 }

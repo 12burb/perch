@@ -103,8 +103,26 @@ describe("runner control channel (task 1.1)", () => {
     if (!link) throw new Error("no link");
     await expect(
       link.call("ports.list", { workspace_id: workspaceId, user_id: userId }),
-    ).resolves.toEqual({ ports: [] });
+    ).resolves.toMatchObject({
+      // Real listening ports since task 1.5: this api server's own port is among them.
+      ports: expect.arrayContaining([
+        expect.objectContaining({ port: Number(new URL(running.url).port) }),
+      ]),
+    });
+    // A method a later task brings is refused as "method not found"; an implemented one (fs.read,
+    // task 1.5) runs and reports its own failure (no such project on this runner).
     const refused = await link
+      .call("pty.open", {
+        workspace_id: workspaceId,
+        user_id: userId,
+        cols: 80,
+        rows: 24,
+        cwd: "/",
+        user: "x",
+      })
+      .catch((e: unknown) => e);
+    expect((refused as { code: number }).code).toBe(-32601);
+    const missing = await link
       .call("fs.read", {
         workspace_id: workspaceId,
         user_id: userId,
@@ -112,7 +130,8 @@ describe("runner control channel (task 1.1)", () => {
         path: "x",
       })
       .catch((e: unknown) => e);
-    expect((refused as { code: number }).code).toBe(-32601);
+    expect((missing as { code: number; message: string }).code).toBe(-32603);
+    expect((missing as { message: string }).message).toMatch(/project directory does not exist/);
 
     // Closing the runner's socket detaches it and marks it offline.
     await client.close();

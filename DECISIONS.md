@@ -1736,3 +1736,61 @@ Every deployment kind sets projects up the same way through one runner method; t
 land. The `project.setup` result is the seed for the editor, terminal, and sessions (1.5–1.8), which
 address a project by id and resolve its directory on its runner. The runner-protocol RFC, when it is
 written, carries the two methods and the `encoding` field.
+
+## ADR-0070: Runner fs, git, ports, and exec: one policy hook, ripgrep search, direct git for pushes
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.5
+
+### Context
+Spec §7.6 names the methods (`fs.list/read/write/stat/search {query, glob}`, `git.status/diff/
+commit/push/branch`, `worktree.create/remove`, `ports.list`, `exec {command, cwd, timeout}
+(policy-checked)`) and their notifications (`ports.changed`, `fs.changed`) but not their results,
+where worktrees live, how a push gets credentials, what "policy-checked" means before the policy
+engine of task 2.11 exists, or how ports are discovered. The acceptance criterion is fs.search under
+200 ms on a 50k-file repository.
+
+### Decision
+- **One policy hook.** `RunnerPolicy` is a function every fs, git, and exec call consults with a
+  typed request (`fs.write {path}`, `exec {command, cwd, root}`, `git.push {branch}`, …). The
+  built-in `runnerPolicy(rules)` is the floor (denied command patterns, `.git/**` read-only through
+  fs.write, exec confined to the projects root, optional protected branches); `perch runner connect`
+  lifts the exec confinement on your own machine (`execAnywhere`). A refusal is `PolicyDenied`
+  (JSON-RPC `-32451`, already reserved), which the api maps to 451 `policy_violation`. Task 2.11's
+  policy.yaml evaluator plugs into the same hook rather than into each method.
+- **Result shapes** are Zod schemas in `packages/events` (`fsListResultSchema`, …,
+  `execResultSchema`) so the api validates what a runner answers.
+- **Additive params** (spec deviations, all optional): `fs.search {regex, ignoreCase}` (literal and
+  smart-case by default, what an editor's search box means), `git.commit {author}` (the api passes
+  the member; a hosted runner has no identity of its own), `git.push {auth}` (the deploy key or a
+  token, the same shapes as a clone's; a local runner without `auth` uses the machine's own git
+  credentials).
+- **fs.search is ripgrep** (`rg --json`, `--fixed-strings` unless `regex`, `--smart-case` unless
+  `ignoreCase`, `--glob`, a match limit with early kill) when the machine has it, and an in-process
+  walk (skipping `.git`, `node_modules`, worktrees, binaries) otherwise; both sort matches by path
+  then line. The acceptance benchmark (apps/runner/test/fs.test.ts) builds a 50,000-file tree and
+  asserts < 200 ms on ripgrep (~110–140 ms measured); on a machine without ripgrep the same test
+  checks correctness only. CI installs ripgrep on the Linux check job and the Linux/macOS smoke jobs.
+- **git through simple-git for reads, commits, branches, and worktrees, spawned directly for
+  pushes** (credentials as for clones: helper or key file, never argv). The environment handed to
+  git strips the host's askpass/editor/pager/proxy/ssh/config overrides (the list simple-git refuses
+  and a few more). Worktrees live beside the project at `<project>.worktrees/<branch>`; `git.diff`
+  falls back to the index on an unborn branch; `git.commit` with no `paths` stages everything.
+- **exec** runs `sh -c` (`cmd /c` on Windows) with a budget; on Linux under `setsid` so the timeout
+  kills the whole process tree, and the output pipes are abandoned on timeout so a lingering
+  grandchild cannot hold the call open. Outputs are capped at 1 MiB each.
+- **Ports** come from `/proc/net/tcp{,6}` (pids for the runner's own processes via `/proc/*/fd`),
+  `lsof -iTCP -sTCP:LISTEN` on macOS, `netstat -ano` on Windows; a 2 s poller emits `ports.changed`
+  with the whole list on the first look and on change. The api keeps the list per runner, shows it
+  in the Environments payload, answers `GET …/runners/{runner}/ports` live, and publishes
+  `preview.port_detected` for each new port on a workspace-scoped runner (task 1.18 consumes it).
+- **Notifications from handlers** (`fs.changed` on writes) travel through a small notifier the
+  client and the in-process runner fan out; a `fs.watch`-based watcher for edits made outside Perch
+  waits for the editor task, where it is needed.
+
+### Consequences
+The editor (1.6), terminal path links, the git panel (1.20), and sessions build on these methods
+without touching the runner again for the basics. `exec` is the escape hatch for engines and
+preflight (§5.6) with a policy floor that cannot be talked away by a prompt. On Windows the search
+engine is the built-in walk unless ripgrep is installed; the runner image always has it.
