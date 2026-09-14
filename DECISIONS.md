@@ -2185,3 +2185,65 @@ the full events, and the spec's route list has neither rename nor fork.
 The pane is one component over the replay endpoint and one topic, so a reload or a second tab
 converges on the same transcript. Per-turn diffs and checkpoints (later tasks) have the tool cards'
 diffs and the fork's transcript copy to build on.
+
+## ADR-0079: Checkpoints as parentless commits, diffs as ranges, and a reject that reverse-applies
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.13
+
+### Context
+Spec §4 asks for per-turn and cumulative diffs, hunk-level accept/reject, file-level Accept all /
+Reject all, Restore checkpoint per turn, and Apply on code blocks; §6 has `session_checkpoints
+(session_id, turn, git_ref)`; §7.1 lists `diff?turn`, `diff/apply`, and `checkpoints/{turn}/restore`
+on a session; §7.6 has `session.checkpoint` and `session.restore` on a runner. Nothing said what a
+checkpoint *is*, and an agent's working tree is mostly untracked files on a branch the person also
+uses.
+
+### Decision
+1. **A checkpoint is a snapshot, not a commit on a branch.** Before every turn the runner writes
+   the working tree to a scratch index (`git add -A` with `GIT_INDEX_FILE` pointing at a temp
+   file), writes that tree, and commits it parentless under
+   `refs/perch/checkpoints/<session>/<turn>`. HEAD, the branch, the person's index and their
+   staged work are never touched, and untracked files are captured while ignored files are not.
+   Taking one is best effort: a project that is not a git repository still takes turns.
+2. **A diff is a range.** `git.diff` keeps its old meaning with no `ref` (the working tree against
+   HEAD, tracked files only) and gains two: with `ref`, that ref against the tree as it is now
+   (snapshotted the same way, so new files appear); with `ref` and `to`, one ref against another.
+   A turn's diff is its checkpoint to the next turn's (or to now, for the last turn); the
+   session's diff is the first checkpoint to now. `git.diff` also answers `patches`: the same diff
+   split into one `FileDiff` per file, hunks intact, by the pure helpers in
+   `@perch/events/diff` (`splitPatches`, `parseHunks`, `selectHunks`).
+3. **Accept is a decision, reject is an edit.** The agent's changes are already in the working
+   tree, so accepting a hunk records a review decision in the pane and writes nothing. Rejecting
+   selects that hunk out of its file's patch and sends it to the runner's additive `git.apply`
+   with `--reverse`, so only those lines go back. Rejects in one request travel as one patch:
+   all land or none. Each decision carries the `@@` header the client saw; a mismatch is a 409
+   ("the diff changed; reload it") rather than a patch applied to the wrong lines.
+4. **Restore rewrites only what differs.** `session.restore` diffs the checkpoint against the tree
+   now, checks the changed paths out of the checkpoint through a scratch index, deletes the ones
+   that did not exist then, and leaves everything else (ignored files, the index, HEAD) alone.
+   Every path it would write goes through the policy's `fs.write` rules first, as `git.apply` does,
+   so `.git` stays out of reach. The restore is recorded in the transcript as an additive `restore`
+   session event, so a replay shows where the project was put back.
+5. **Apply on code blocks** parses the fences out of a reply in the ui
+   (`splitCodeBlocks`); a fence may name its file (```` ```ts path=src/a.ts ````, `ts:src/a.ts`,
+   `title="src/a.ts"`), and Apply writes the block to that file through the existing
+   `fs.write` route, falling back to the open editor tab when the fence names none.
+6. **A fork inherits its checkpoints.** A fork copies the transcript (ADR-0078), so it copies the
+   turn counter and the `session_checkpoints` rows with it: the turns a reader sees are the turns
+   Restore refers to, and the fork's next turn is N+1, not 1 again. The commits are in the same
+   project, so the rows are valid as they stand — but they were written under the *source*
+   session's ref, so `session.restore` takes the checkpoint's commit from the api (additively,
+   beside `turn`) and only falls back to resolving this session's own ref.
+7. **Budget.** `DiffView` ships from its own entry point, `@perch/ui/diff`, and the diff helpers
+   from `@perch/events/diff` — importing them from the `@perch/events` barrel pulled Zod and every
+   schema into the web bundle (+29 KB gzipped on the Code route), the same trap ADR-0078 hit.
+
+### Consequences
+Review is honest about where the bytes are: the tree is the truth, the diff is computed from it
+every time, and the pane never holds a patch the runner has not agreed with. Worktrees per task
+(§5.7) and Race mode get a snapshot primitive that does not fight the person's branch. What is not
+here: an accepted hunk is not remembered across a reload (it is a decision about a diff that no
+longer exists once the next turn runs), and a rejected hunk that the agent re-makes next turn shows
+up again.

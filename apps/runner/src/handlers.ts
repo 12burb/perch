@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import type { ApiToRunnerMethod, RunnerRequestParams } from "@perch/events";
+import { checkpoint, gitApply, restore } from "./checkpoints.ts";
 import { exec } from "./exec.ts";
 import { fsList, fsRead, fsSearch, fsStat, fsWrite } from "./fs.ts";
 import {
@@ -59,7 +60,11 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
   const projects: ProjectsOptions = { root: projectsRoot(), ...options.projects };
   const policy = options.policy ?? runnerPolicy();
   const fs = { root: projects.root, policy, ...(options.notify ? { notify: options.notify } : {}) };
-  const git = { root: projects.root, policy };
+  const git = {
+    root: projects.root,
+    policy,
+    ...(options.notify ? { notify: options.notify } : {}),
+  };
   const homes =
     process.env.PERCH_HOMES_DIR || existsSync("/data/homes")
       ? { homes: process.env.PERCH_HOMES_DIR ?? "/data/homes" }
@@ -84,6 +89,8 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     "session.send": (params) => sessions.send(params),
     "session.permission": (params) => sessions.permission(params),
     "session.cancel": (params) => sessions.cancel(params),
+    "session.checkpoint": (params) => checkpoint(git, params),
+    "session.restore": (params) => restore(git, params),
     "pty.open": (params) => ptys.open(params),
     "pty.input": async (params) => ({ written: ptys.write(params.pty_id, params.data) }),
     "pty.resize": async (params) => ({
@@ -99,6 +106,7 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     "fs.search": (params) => fsSearch(fs, params),
     "git.status": (params) => gitStatus(git, params),
     "git.diff": (params) => gitDiff(git, params),
+    "git.apply": (params) => gitApply(git, params),
     "git.commit": (params) => gitCommit(git, params),
     "git.push": (params) => gitPush(git, params),
     "git.branch": (params) => gitBranch(git, params),

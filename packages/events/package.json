@@ -6,7 +6,8 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./diff": "./src/unified-diff.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

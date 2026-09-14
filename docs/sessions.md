@@ -27,6 +27,35 @@ Live updates come from the `session:<id>` topic: text deltas are applied as they
 other event triggers a replay of what is new after the last seq (the bus payloads carry ids, not
 the full records).
 
+## Changes, checkpoints, and restore (task 1.13)
+
+Before every turn the runner snapshots the project's working tree — tracked and untracked files,
+ignores honored, `.git` untouched — as a parentless commit under
+`refs/perch/checkpoints/<session>/<turn>`, recorded in `session_checkpoints` (ADR-0079). Nothing
+about the person's branch, HEAD, or index changes, and a project that is not a repository simply
+takes turns without checkpoints.
+
+The pane's **Changes** tab (`DiffView` from `@perch/ui/diff`) shows either the whole session (the
+first checkpoint against the tree as it is now) or one turn (its checkpoint against the next
+turn's, or against now for the last turn). Each file lists its hunks, labelled "Hunk 2 of 3" for
+screen readers, with line numbers in the gutter and adds and removes in the two semantic colors:
+
+- **Accept** a hunk is a review decision: the agent's edit is already in the tree, so nothing is
+  written. **Reject** sends that one hunk back to the runner as a reverse patch, so only those
+  lines go back out. **Accept all** / **Reject all** answer every open hunk of a file, and
+  **Open** puts the file in the editor beside the pane.
+- Each decision carries the `@@` header the client saw. If the diff moved on since (another turn,
+  an edit in the editor), the api answers 409 and the view reloads rather than patching blind.
+- **Restore** on any turn in the transcript puts the project back to before that turn, after a
+  confirmation: the files that differ are written from the checkpoint, the ones that did not exist
+  then are deleted, and everything else is left alone. The restore lands in the transcript as a
+  `restore` event, so a replay shows it.
+- A fork inherits the checkpoints along with the transcript, so the turns it shows are the turns
+  it can restore, and its next turn continues the numbering.
+- A fenced code block in a reply gets an **Apply** button when its fence names a file
+  (```` ```ts path=src/a.ts ````, `ts:src/a.ts`, or `title="src/a.ts"`); without one, Apply writes
+  to the open editor tab.
+
 
 ```ts
 interface Engine {
@@ -190,8 +219,12 @@ so lists and the inbox can follow without subscribing to every session. Subscrib
 | `POST /api/sessions/{s}/permissions/{id}` `{answer}` | Answers a waiting permission |
 | `POST /api/sessions/{s}/cancel` | Stops the running round → `{cancelled}` |
 | `PATCH /api/sessions/{s}` `{title}` | Renames the session |
-| `POST /api/sessions/{s}/fork` | A new session with the transcript so far → `201 Session` (`forked_from_id` set) |
+| `POST /api/sessions/{s}/fork` | A new session with the transcript, turn count, and checkpoints so far → `201 Session` (`forked_from_id` set) |
 | `GET /api/sessions/{s}/events?after_seq&limit` | Replays the transcript |
+| `GET /api/sessions/{s}/checkpoints` | The checkpoint taken before each turn |
+| `GET /api/sessions/{s}/diff?turn` | One turn's diff, or the whole session's → `{turn, from_turn, to_turn, files: FileDiff[]}` |
+| `POST /api/sessions/{s}/diff/apply` `{turn?, decisions}` | Accepts and rejects hunks; rejects reverse-apply as one patch → `{files}` |
+| `POST /api/sessions/{s}/checkpoints/{turn}/restore` | Puts the project back to before the turn → `{turn, git_ref, files}` |
 
 Every route authorizes `sessions.read` / `sessions.create` / `sessions.update` in the session's
 workspace (every member has them); strangers get 404. `model` defaults to

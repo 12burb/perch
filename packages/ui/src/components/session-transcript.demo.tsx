@@ -8,8 +8,12 @@ import {
 /** A transcript with every kind of item, for the component test. */
 export function SessionTranscriptDemo() {
   const [items, setItems] = useState<TranscriptItem[]>([
-    { kind: "turn", id: "1", text: "Add a notes file", mode: "build" },
-    { kind: "text", id: "2", text: "Reading the project" },
+    { kind: "turn", id: "1", text: "Add a notes file", mode: "build", turn: 1 },
+    {
+      kind: "text",
+      id: "2",
+      text: "Reading the project\n```txt path=notes.txt\nhello\n```\nand writing it.",
+    },
     {
       kind: "tool",
       id: "3",
@@ -38,6 +42,7 @@ export function SessionTranscriptDemo() {
     { kind: "permission", id: "p1", tool: "Edit notes.txt", args: { path: "notes.txt" } },
   ]);
   const [answered, setAnswered] = useState<string | null>(null);
+  const [acted, setActed] = useState<string | null>(null);
   const onPermission = (id: string, answer: PermissionAnswerKind) => {
     setAnswered(`${id}:${answer}`);
     setItems((current) =>
@@ -48,8 +53,18 @@ export function SessionTranscriptDemo() {
   };
   return (
     <div className="flex h-[480px] flex-col">
-      <SessionTranscript items={items} status="needs_you" onPermission={onPermission} />
+      <SessionTranscript
+        items={items}
+        status="needs_you"
+        onPermission={onPermission}
+        onRestore={(turn) => {
+          setActed(`restore:${turn}`);
+          setItems((current) => [...current, { kind: "restore", id: `r${turn}`, turn }]);
+        }}
+        onApply={(block) => setActed(`apply:${block.path ?? "?"}:${block.code}`)}
+      />
       <p data-testid="answered">{answered ?? "none"}</p>
+      <p data-testid="acted">{acted ?? "none"}</p>
       <button
         type="button"
         onClick={() =>

@@ -97,10 +97,22 @@ export const turnEventSchema = z
   .strict();
 export type TurnEvent = z.infer<typeof turnEventSchema>;
 
-/** Everything session_events stores: engine events and turns. */
+/** A checkpoint restore (task 1.13, ADR-0079): the project went back to before `turn`. */
+export const restoreEventSchema = z
+  .object({
+    type: z.literal("restore"),
+    turn: z.number().int().positive(),
+    gitRef: z.string(),
+    userId: z.uuid(),
+  })
+  .strict();
+export type RestoreEvent = z.infer<typeof restoreEventSchema>;
+
+/** Everything session_events stores: engine events, turns, and restores. */
 export const sessionEventSchema = z.discriminatedUnion("type", [
   ...engineEventSchema.options,
   turnEventSchema,
+  restoreEventSchema,
 ]);
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 

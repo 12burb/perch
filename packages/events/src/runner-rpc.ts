@@ -4,7 +4,7 @@
  * verifies; a local runner refuses requests for users other than its owner unless a grant is attached.
  */
 import { z } from "zod";
-import { engineEventSchema, modelRefSchema, sessionModeSchema } from "./engine.ts";
+import { engineEventSchema, fileDiffSchema, modelRefSchema, sessionModeSchema } from "./engine.ts";
 
 export const jsonRpcIdSchema = z.union([z.string(), z.number().int()]);
 
@@ -73,8 +73,24 @@ export const apiToRunnerParams = {
     answer: z.enum(["allow", "always", "deny"]),
   }),
   "session.cancel": z.object({ ...ctx, session_id: z.uuid() }),
-  "session.checkpoint": z.object({ ...ctx, session_id: z.uuid(), turn: z.number().int() }),
-  "session.restore": z.object({ ...ctx, session_id: z.uuid(), turn: z.number().int() }),
+  /** `project` is additive (ADR-0079): the runner snapshots the project even when the session is not open here. */
+  "session.checkpoint": z.object({
+    ...ctx,
+    session_id: z.uuid(),
+    turn: z.number().int().positive(),
+    project: z.uuid(),
+  }),
+  "session.restore": z.object({
+    ...ctx,
+    session_id: z.uuid(),
+    turn: z.number().int().positive(),
+    project: z.uuid(),
+    /** Additive (ADR-0079): the checkpoint's commit, so a fork restores turns it inherited. */
+    git_ref: z
+      .string()
+      .regex(/^[0-9a-f]{7,64}$/)
+      .optional(),
+  }),
   "pty.open": z.object({
     ...ctx,
     cols: z.number().int().positive(),
@@ -114,7 +130,24 @@ export const apiToRunnerParams = {
     ignoreCase: z.boolean().optional(),
   }),
   "git.status": z.object({ ...ctx, project: z.uuid() }),
-  "git.diff": z.object({ ...ctx, project: z.uuid(), ref: z.string().optional() }),
+  /**
+   * `ref` alone: the working tree (untracked files included, ignores honored) against the ref;
+   * with `to`: one ref against another (ADR-0079). Neither: the working tree against HEAD, tracked
+   * files only (task 1.5).
+   */
+  "git.diff": z.object({
+    ...ctx,
+    project: z.uuid(),
+    ref: z.string().optional(),
+    to: z.string().optional(),
+  }),
+  /** Additive (ADR-0079): a unified patch applied to the working tree, forward or in reverse. */
+  "git.apply": z.object({
+    ...ctx,
+    project: z.uuid(),
+    patch: z.string().min(1).max(4_000_000),
+    reverse: z.boolean().optional(),
+  }),
   "git.commit": z.object({
     ...ctx,
     project: z.uuid(),
@@ -298,7 +331,14 @@ export const gitDiffResultSchema = z
         binary: z.boolean(),
       }),
     ),
+    /** Additive (ADR-0079): the same diff as one FileDiff per file, hunks intact. */
+    patches: z.array(fileDiffSchema),
   })
+  .strict();
+export const gitApplyResultSchema = z.object({ files: z.array(z.string()) }).strict();
+export const sessionCheckpointResultSchema = z.object({ git_ref: z.string().min(1) }).strict();
+export const sessionRestoreResultSchema = z
+  .object({ git_ref: z.string().min(1), files: z.array(z.string()) })
   .strict();
 export const gitCommitResultSchema = z
   .object({

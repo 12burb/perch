@@ -6,15 +6,23 @@
  * engine that goes silent mid-round is cancelled after `silenceMs`.
  */
 import type { Bus } from "@perch/bus";
-import type { CodingSession, Db, Project } from "@perch/db";
+import type { CodingSession, Db, Project, SessionCheckpoint } from "@perch/db";
 import { type Engine, EngineError, type EngineRegistry } from "@perch/engines";
 import {
+  type FileDiff,
+  gitApplyResultSchema,
+  gitDiffResultSchema,
   type ModelRef,
   type PermissionAnswer,
+  parseHunks,
+  type RunnerLink,
   RunnerRpcError,
   type SessionEvent,
   type SessionMode,
   type SessionStatus,
+  selectHunks,
+  sessionCheckpointResultSchema,
+  sessionRestoreResultSchema,
   type UserTurn,
 } from "@perch/events";
 import type { Logger } from "pino";
@@ -24,16 +32,20 @@ import type { Flags } from "../flags.ts";
 import {
   addCost,
   appendEvent,
+  copyCheckpoints,
   copyEvents,
+  getCheckpoint,
   getSession,
   insertSession,
+  listCheckpoints,
   listEvents,
   listSessions,
   updateSession,
+  upsertCheckpoint,
 } from "../repos/sessions.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import { getProject, projectRunnerLink } from "./projects.ts";
-import { runnerError } from "./runners.ts";
+import { runnerCall, runnerError } from "./runners.ts";
 
 export type SessionDeps = {
   db: Db;
@@ -51,6 +63,25 @@ export type SessionServiceOptions = {
 
 /** "Whatever the engine uses" until model profiles (brains, task 1.15) pick one. */
 export const ENGINE_DEFAULT_MODEL: ModelRef = { provider: "engine", modelId: "default" };
+
+/** One answer on one hunk of the diff under review (task 1.13). */
+export type DiffDecision = {
+  path: string;
+  /** 0-based hunk index within the file's patch. */
+  hunk: number;
+  /** The hunk's `@@` header as the client saw it; a mismatch means the diff moved on (409). */
+  header?: string;
+  action: "accept" | "reject";
+};
+
+export type SessionDiff = {
+  /** The turn reviewed, or null for the whole session. */
+  turn: number | null;
+  /** The checkpoint the diff starts from and the one it ends at (null: the working tree now). */
+  fromTurn: number;
+  toTurn: number | null;
+  files: FileDiff[];
+};
 
 export type CreateSessionInput = {
   project: Project;
@@ -205,8 +236,12 @@ export class SessionService {
       mode: session.mode,
       title: session.title ? `${session.title} (fork)` : null,
       forkedFromId: session.id,
+      turns: session.turns,
     });
     await copyEvents(this.deps.db, session.id, fork.id);
+    // The checkpoints come along: same project, same commits, so the fork can restore its
+    // inherited turns and its next turn checkpoints as turn N+1 (ADR-0079).
+    await copyCheckpoints(this.deps.db, session.id, fork.id);
     const fresh = (await getSession(this.deps.db, fork.id)) ?? fork;
     await this.deps.bus.publish(
       "session.created",
@@ -244,6 +279,7 @@ export class SessionService {
       throw failure;
     }
     const mode = options.mode ?? session.mode;
+    await this.checkpoint(session, userId, session.turns + 1, options.by);
     const { seq } = await this.record(
       session,
       {
@@ -307,6 +343,121 @@ export class SessionService {
     return { cancelled: true };
   }
 
+  checkpoints(session: CodingSession): Promise<SessionCheckpoint[]> {
+    return listCheckpoints(this.deps.db, session.id);
+  }
+
+  /**
+   * The diff of one turn (its checkpoint to the next one, or to the tree as it is now) or of the
+   * whole session (the first checkpoint to now). Without a checkpoint there is nothing to show.
+   */
+  async diff(session: CodingSession, userId: string, turn: number | null): Promise<SessionDiff> {
+    const checkpoints = await listCheckpoints(this.deps.db, session.id);
+    const base = turn === null ? checkpoints[0] : checkpoints.find((c) => c.turn === turn);
+    if (!base) {
+      if (turn === null) return { turn: null, fromTurn: 0, toTurn: null, files: [] };
+      throw PerchError.notFound("checkpoint", { turn });
+    }
+    const next = turn === null ? undefined : checkpoints.find((c) => c.turn > turn);
+    const { link } = await this.linkFor(session, userId);
+    const raw = await runnerCall(link, "git.diff", {
+      workspace_id: session.workspaceId,
+      user_id: userId,
+      project: session.projectId,
+      ref: base.gitRef,
+      ...(next ? { to: next.gitRef } : {}),
+    });
+    const result = gitDiffResultSchema.parse(raw);
+    return { turn, fromTurn: base.turn, toTurn: next?.turn ?? null, files: result.patches };
+  }
+
+  /**
+   * Answers on hunks: an accept is a review decision (the edit is already in the tree), a reject
+   * reverse-applies that hunk on the runner. Rejects go out as one patch, so all land or none.
+   */
+  async applyDecisions(
+    session: CodingSession,
+    userId: string,
+    turn: number | null,
+    decisions: DiffDecision[],
+    by: ActorContext,
+  ): Promise<{ files: string[] }> {
+    if (this.rounds.has(session.id)) {
+      throw PerchError.conflict("wait for the running round before changing its diff");
+    }
+    const rejects = decisions.filter((d) => d.action === "reject");
+    if (rejects.length === 0) return { files: [] };
+    const current = await this.diff(session, userId, turn);
+    const chosen = new Map<string, { patch: string; hunks: number[] }>();
+    for (const decision of rejects) {
+      const file = current.files.find((f) => f.path === decision.path);
+      if (!file) {
+        throw PerchError.conflict(`no changes in ${decision.path} any more`, {
+          path: decision.path,
+        });
+      }
+      const hunk = parseHunks(file.patch).hunks[decision.hunk];
+      if (!hunk || (decision.header !== undefined && decision.header !== hunk.header)) {
+        throw PerchError.conflict(`the diff of ${decision.path} changed; reload it`, {
+          path: decision.path,
+          hunk: decision.hunk,
+        });
+      }
+      const entry = chosen.get(decision.path) ?? { patch: file.patch, hunks: [] };
+      entry.hunks.push(decision.hunk);
+      chosen.set(decision.path, entry);
+    }
+    const patch = [...chosen.values()].map((e) => selectHunks(e.patch, e.hunks)).join("");
+    const { link } = await this.linkFor(session, userId);
+    const raw = await runnerCall(link, "git.apply", {
+      workspace_id: session.workspaceId,
+      user_id: userId,
+      project: session.projectId,
+      patch,
+      reverse: true,
+    });
+    const { files } = gitApplyResultSchema.parse(raw);
+    await this.deps.bus.publish(
+      "diff.applied",
+      {
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        ...(turn !== null ? { turn } : {}),
+        files,
+      },
+      { ...by, topics: this.wide(session) },
+    );
+    return { files };
+  }
+
+  /** The project goes back to before `turn`; the transcript records it (spec §7.7 checkpoint.restored). */
+  async restore(
+    session: CodingSession,
+    userId: string,
+    turn: number,
+    by: ActorContext,
+  ): Promise<{ turn: number; gitRef: string; files: string[] }> {
+    if (this.rounds.has(session.id)) {
+      throw PerchError.conflict("wait for the running round before restoring");
+    }
+    const row = await getCheckpoint(this.deps.db, session.id, turn);
+    if (!row) throw PerchError.notFound("checkpoint", { turn });
+    const { link } = await this.linkFor(session, userId);
+    const raw = await runnerCall(link, "session.restore", {
+      workspace_id: session.workspaceId,
+      user_id: userId,
+      session_id: session.id,
+      turn,
+      project: session.projectId,
+      // The commit itself: a fork's checkpoints were taken under the session it copied, so the
+      // runner must not have to find them by a ref named after this session (ADR-0079).
+      git_ref: row.gitRef,
+    });
+    const { git_ref, files } = sessionRestoreResultSchema.parse(raw);
+    await this.record(session, { type: "restore", turn, gitRef: git_ref, userId }, by);
+    return { turn, gitRef: git_ref, files };
+  }
+
   close(): void {
     for (const round of this.rounds.values()) if (round.timer) clearTimeout(round.timer);
   }
@@ -315,10 +466,48 @@ export class SessionService {
     return [`session:${session.id}`, `ws:${session.workspaceId}`];
   }
 
-  private async engineFor(session: CodingSession, userId: string): Promise<Engine> {
+  private async linkFor(
+    session: CodingSession,
+    userId: string,
+  ): Promise<{ project: Project; link: RunnerLink }> {
     const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
     if (!project) throw PerchError.notFound("project");
-    const link = await projectRunnerLink(this.deps, project, userId);
+    return { project, link: await projectRunnerLink(this.deps, project, userId) };
+  }
+
+  /**
+   * Before a turn runs: the working tree as it is, so the turn has a diff and a restore point
+   * (task 1.13). Best effort: a project that is not a repository still takes turns.
+   */
+  private async checkpoint(
+    session: CodingSession,
+    userId: string,
+    turn: number,
+    by: ActorContext,
+  ): Promise<void> {
+    try {
+      const { link } = await this.linkFor(session, userId);
+      const raw = await runnerCall(link, "session.checkpoint", {
+        workspace_id: session.workspaceId,
+        user_id: userId,
+        session_id: session.id,
+        turn,
+        project: session.projectId,
+      });
+      const { git_ref } = sessionCheckpointResultSchema.parse(raw);
+      await upsertCheckpoint(this.deps.db, { sessionId: session.id, turn, gitRef: git_ref });
+      await this.deps.bus.publish(
+        "checkpoint.created",
+        { workspaceId: session.workspaceId, sessionId: session.id, turn, gitRef: git_ref },
+        { ...by, topics: this.wide(session) },
+      );
+    } catch (error) {
+      this.deps.log.warn({ err: error, sessionId: session.id, turn }, "checkpoint skipped");
+    }
+  }
+
+  private async engineFor(session: CodingSession, userId: string): Promise<Engine> {
+    const { link } = await this.linkFor(session, userId);
     let engine: Engine;
     try {
       engine = this.deps.engines.resolve(session.engine, { link });
@@ -496,6 +685,18 @@ export class SessionService {
         break;
       case "error":
         await bus.publish("session.error", { ...base, message: event.message }, wide);
+        break;
+      case "restore":
+        await bus.publish(
+          "checkpoint.restored",
+          {
+            workspaceId: session.workspaceId,
+            sessionId: session.id,
+            turn: event.turn,
+            gitRef: event.gitRef,
+          },
+          wide,
+        );
         break;
     }
     return stored;

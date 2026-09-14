@@ -13,6 +13,14 @@ export {
 } from "./acp.ts";
 export { detectToolVersions, localCapabilities } from "./capabilities.ts";
 export {
+  checkpoint,
+  checkpointRef,
+  diffRange,
+  gitApply,
+  restore,
+  snapshotTree,
+} from "./checkpoints.ts";
+export {
   CLI_HARNESS,
   CliHarnessSession,
   type CliHarnessSpec,

@@ -20,6 +20,7 @@ describe("reduceTranscript", () => {
       ]),
     );
     expect(result.items.map((i) => i.kind)).toEqual(["turn", "text", "tool", "tool", "permission"]);
+    expect(result.items[0]).toMatchObject({ kind: "turn", turn: 1 });
     expect(result.items[1]).toMatchObject({
       kind: "text",
       text: "Reading the project",
@@ -70,5 +71,26 @@ describe("reduceTranscript", () => {
     expect(failed.items[0]).toMatchObject({ status: "error" });
     const live = reduceTranscript(records([{ type: "text", delta: "Hel" }]), new Map(), true);
     expect(live.items[0]).toMatchObject({ kind: "text", text: "Hel", streaming: true });
+  });
+});
+
+describe("reduceTranscript (task 1.13)", () => {
+  test("turns are numbered and a restore is a marker", () => {
+    const result = reduceTranscript(
+      records([
+        { type: "turn", text: "seed", mode: "build", userId: "u" },
+        { type: "text", delta: "done" },
+        { type: "done" },
+        { type: "turn", text: "spread", mode: "build", userId: "u" },
+        { type: "done" },
+        { type: "restore", turn: 1, gitRef: "abc", userId: "u" },
+        { type: "turn", text: "again", mode: "plan", userId: "u" },
+      ]),
+    );
+    expect(
+      result.items.map((i) =>
+        i.kind === "turn" || i.kind === "restore" ? `${i.kind}:${i.turn}` : i.kind,
+      ),
+    ).toEqual(["turn:1", "text", "turn:2", "restore:1", "turn:3"]);
   });
 });

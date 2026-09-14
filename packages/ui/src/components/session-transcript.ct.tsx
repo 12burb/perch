@@ -29,8 +29,22 @@ test.describe("SessionTranscript", () => {
     await expect(prompt).toContainText("Always allowed for this session");
     await expect(prompt.getByRole("button")).toHaveCount(0);
 
-    // Many rows: only a window of them is in the DOM.
+    // A reply's code block applies to the file it names; a turn restores its checkpoint.
+    const block = log.getByTestId("code-block");
+    await expect(block.locator("pre")).toHaveText("hello");
+    await block.getByRole("button", { name: "Apply code block to notes.txt" }).click();
+    await expect(page.getByTestId("acted")).toHaveText("apply:notes.txt:hello");
+    await log.getByRole("button", { name: "Restore to before turn 1" }).click();
+    await expect(page.getByTestId("acted")).toHaveText("restore:1");
+    await expect(log.getByTestId("transcript-restore")).toHaveText("Restored to before turn 1");
+    await expectNoA11yViolations(page);
+
+    // Many rows: the end is reachable and only a window of them is in the DOM. (Clicking the
+    // buttons above scrolled the reader away from the end, so following is off by design.)
     await page.getByRole("button", { name: "Add many" }).click();
+    await log.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
     await expect(log.getByTestId("transcript-text").last()).toContainText("line 299");
     const rendered = await log.getByTestId("transcript-text").count();
     expect(rendered).toBeLessThan(120);

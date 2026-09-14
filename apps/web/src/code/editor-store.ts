@@ -40,6 +40,8 @@ type EditorState = {
   saved: (project: string, path: string, content: string) => void;
   setPreview: (project: string, path: string, preview: boolean) => void;
   revealed: (project: string, path: string) => void;
+  /** Marks open files as stale after the disk changed underneath them (a restore, a rejected hunk); the pane fetches them again. */
+  reload: (project: string, paths?: readonly string[]) => void;
 };
 
 const EMPTY: ProjectEditor = { files: [], active: null };
@@ -133,6 +135,22 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((state) => update(state, project, path, (open) => ({ ...open, preview }))),
   revealed: (project, path) =>
     set((state) => update(state, project, path, (open) => ({ ...open, revealLine: null }))),
+  reload: (project, paths) =>
+    set((state) => {
+      const editor = state.byProject[project] ?? EMPTY;
+      const wanted = paths ? new Set(paths) : null;
+      return {
+        byProject: {
+          ...state.byProject,
+          [project]: {
+            ...editor,
+            files: editor.files.map((file) =>
+              wanted && !wanted.has(file.path) ? file : { ...file, loaded: false },
+            ),
+          },
+        },
+      };
+    }),
 }));
 
 export function editorFor(state: EditorState, project: string): ProjectEditor {

@@ -28,6 +28,7 @@ export function reduceTranscript(
   let pendingPermission: string | null = null;
   const tools = new Map<string, Extract<TranscriptItem, { kind: "tool" }>>();
   let text: Extract<TranscriptItem, { kind: "text" }> | null = null;
+  let turns = 0;
   const closeText = () => {
     if (text) text.streaming = false;
     text = null;
@@ -36,8 +37,19 @@ export function reduceTranscript(
     switch (event.type) {
       case "turn":
         closeText();
-        items.push({ kind: "turn", id: `t${seq}`, text: event.text, mode: event.mode });
+        turns += 1;
+        items.push({
+          kind: "turn",
+          id: `t${seq}`,
+          text: event.text,
+          mode: event.mode,
+          turn: turns,
+        });
         pendingPermission = null;
+        break;
+      case "restore":
+        closeText();
+        items.push({ kind: "restore", id: `s${seq}`, turn: event.turn });
         break;
       case "text":
         if (text) text.text += event.delta;

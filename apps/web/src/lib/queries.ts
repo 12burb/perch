@@ -163,3 +163,28 @@ export function sessionQuery(sessionId: string) {
     enabled: sessionId !== "",
   });
 }
+
+/** The diff of one turn (its checkpoint to the next) or of the whole session (task 1.13). */
+export function sessionDiffQuery(sessionId: string, turn: number | null) {
+  return queryOptions({
+    queryKey: ["session", sessionId, "diff", turn ?? "all"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/sessions/{s}/diff", {
+          params: { path: { s: sessionId }, query: turn === null ? {} : { turn } },
+        }),
+      ),
+    enabled: sessionId !== "",
+    staleTime: 0,
+  });
+}
+
+export function checkpointsQuery(sessionId: string) {
+  return queryOptions({
+    queryKey: ["session", sessionId, "checkpoints"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/sessions/{s}/checkpoints", { params: { path: { s: sessionId } } }))
+        .checkpoints,
+    enabled: sessionId !== "",
+  });
+}

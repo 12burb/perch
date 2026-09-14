@@ -139,7 +139,10 @@ each one resolves paths inside the project directory and goes through the policy
 | `fs.stat` | `{project, path}` | `{exists, type?, size?, mtime?}` |
 | `fs.search` | `{project, query, glob?, limit?, regex?, ignoreCase?}` | `{matches: [{path, line, column, text}], truncated, tookMs, engine}` |
 | `git.status` | `{project}` | `{branch, tracking, ahead, behind, clean, files: [{path, index, workingTree}]}` |
-| `git.diff` | `{project, ref?}` | `{diff, files: [{path, additions, deletions, binary}]}` (HEAD by default; the index on an unborn branch) |
+| `git.diff` | `{project, ref?, to?}` | `{diff, files: [{path, additions, deletions, binary}], patches: FileDiff[]}`. No `ref`: the working tree against HEAD, tracked files only (the index on an unborn branch). With `ref`: that ref against the tree as it is now, untracked files included and ignores honored. With `to`: one ref against another |
+| `git.apply` | `{project, patch, reverse?}` | `{files}`; a unified patch applied to the working tree, `--reverse` to take it back out. Every path goes through the policy's `fs.write` rules; emits `fs.changed` |
+| `session.checkpoint` | `{session_id, turn, project}` | `{git_ref}`; snapshots the working tree as a parentless commit under `refs/perch/checkpoints/<session>/<turn>` (ADR-0079) |
+| `session.restore` | `{session_id, turn, project, git_ref?}` | `{git_ref, files}`; rewrites what differs from that checkpoint and deletes what did not exist then. `git_ref` names the commit (a fork's checkpoints live under the session it copied); without it the session's own ref is resolved |
 | `git.commit` | `{project, message, paths?, author?}` | `{commit, branch, summary}`; all changes when `paths` is omitted |
 | `git.push` | `{project, branch?, auth?}` | `{pushed, remote, branch, output}`; `auth` as for a clone (token or ssh key) |
 | `git.branch` | `{project, name?, create?}` | `{current, branches, created?}`; switches or creates when `name` is given |

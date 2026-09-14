@@ -57,7 +57,7 @@ describe("git methods (task 1.5)", () => {
       "b.txt:??",
     ]);
     // An unborn branch still answers diff (the index).
-    expect(await gitDiff(opts, ctx)).toEqual({ diff: "", files: [] });
+    expect(await gitDiff(opts, ctx)).toEqual({ diff: "", files: [], patches: [] });
 
     const first = await gitCommit(opts, { ...ctx, message: "first", author });
     expect(first.commit).toMatch(/^[0-9a-f]{7,40}$/);

@@ -5,10 +5,18 @@
  * itself (composer, usage footer, list) lives in the app; these are the accessible building blocks.
  */
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertTriangle, ChevronDown, ChevronRight, ShieldQuestion, Wrench } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  History,
+  ShieldQuestion,
+  Wrench,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n/index.ts";
 import { cn } from "../utils.ts";
+import { splitCodeBlocks } from "./code-blocks.ts";
 import { Badge, Button } from "./primitives.tsx";
 
 export type TranscriptDiff = {
@@ -21,9 +29,13 @@ export type TranscriptDiff = {
 
 export type PermissionAnswerKind = "allow" | "always" | "deny";
 
+/** A fenced code block in a reply, with the file its info string named (task 1.13 Apply). */
+export type CodeBlock = { code: string; lang: string | null; path: string | null };
+
 export type TranscriptItem =
-  | { kind: "turn"; id: string; text: string; mode: "plan" | "build" }
+  | { kind: "turn"; id: string; text: string; mode: "plan" | "build"; turn: number }
   | { kind: "text"; id: string; text: string; streaming?: boolean }
+  | { kind: "restore"; id: string; turn: number }
   | {
       kind: "tool";
       id: string;
@@ -184,6 +196,10 @@ export type SessionTranscriptProps = {
   items: TranscriptItem[];
   status: SessionStatusKind;
   onPermission?: (id: string, answer: PermissionAnswerKind) => void;
+  /** Puts the project back to before a turn (task 1.13); absent: no restore buttons. */
+  onRestore?: (turn: number) => void;
+  /** Writes a reply's code block to a file (task 1.13); absent: blocks are read-only. */
+  onApply?: (block: CodeBlock) => void;
   label?: string;
   className?: string;
   /** Keeps the end in view as items arrive while the reader is near it (default true). */
@@ -216,11 +232,15 @@ export function SessionTranscript(props: SessionTranscriptProps) {
   }, []);
 
   const last = items.at(-1);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end whenever the transcript grows or its last item changes
+  // Rows measure themselves after they mount, so the end moves; total size is a dependency too.
+  const totalSize = virtualizer.getTotalSize();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end whenever the transcript grows, its last item changes, or rows finish measuring
   useEffect(() => {
     if (props.follow === false || !nearBottom.current || items.length === 0) return;
     virtualizer.scrollToIndex(items.length - 1, { align: "end" });
-  }, [items.length, last?.kind === "text" ? last.text.length : 0, props.follow]);
+    // We scrolled to the end on purpose: stay in follow mode until the reader scrolls away.
+    nearBottom.current = true;
+  }, [items.length, last?.kind === "text" ? last.text.length : 0, totalSize, props.follow]);
 
   return (
     <div
@@ -247,7 +267,12 @@ export function SessionTranscript(props: SessionTranscriptProps) {
                 className="absolute top-0 left-0 w-full pb-2"
                 style={{ transform: `translateY(${row.start}px)` }}
               >
-                <TranscriptRow item={item} onPermission={props.onPermission} />
+                <TranscriptRow
+                  item={item}
+                  onPermission={props.onPermission}
+                  onRestore={props.onRestore}
+                  onApply={props.onApply}
+                />
               </div>
             );
           })}
@@ -260,6 +285,8 @@ export function SessionTranscript(props: SessionTranscriptProps) {
 function TranscriptRow(props: {
   item: TranscriptItem;
   onPermission?: (id: string, answer: PermissionAnswerKind) => void;
+  onRestore?: (turn: number) => void;
+  onApply?: (block: CodeBlock) => void;
 }) {
   const { item } = props;
   switch (item.kind) {
@@ -267,25 +294,49 @@ function TranscriptRow(props: {
       return (
         <article
           className="ml-8 rounded-md bg-accent-soft px-3 py-2 text-sm"
-          aria-label={t("session.you")}
+          aria-label={t("session.turnNumber", { turn: String(item.turn) })}
           data-testid="transcript-turn"
         >
           <p className="whitespace-pre-wrap">{item.text}</p>
-          <p className="mt-1 text-fg-muted text-xs">{t(`session.mode.${item.mode}`)}</p>
+          <p className="mt-1 flex items-center gap-2 text-fg-muted text-xs">
+            <span>{t(`session.mode.${item.mode}`)}</span>
+            {props.onRestore ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-6 px-1.5"
+                aria-label={t("session.restoreTo", { turn: String(item.turn) })}
+                onClick={() => props.onRestore?.(item.turn)}
+              >
+                <History aria-hidden className="size-3.5" />
+              </Button>
+            ) : null}
+          </p>
         </article>
       );
     case "text":
       return (
         <article
-          className="mr-8 whitespace-pre-wrap px-1 py-1 text-sm"
+          className="mr-8 px-1 py-1 text-sm"
           aria-label={t("session.agent")}
           data-testid="transcript-text"
         >
-          {item.text}
+          <ReplyText text={item.text} onApply={props.onApply} />
           {item.streaming ? (
             <span aria-hidden className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-fg-muted" />
           ) : null}
         </article>
+      );
+    case "restore":
+      return (
+        <p
+          role="status"
+          className="mx-8 flex items-center justify-center gap-2 rounded-md border border-border border-dashed px-3 py-1 text-fg-muted text-xs"
+          data-testid="transcript-restore"
+        >
+          <History aria-hidden className="size-3.5" />
+          {t("session.restored", { turn: String(item.turn) })}
+        </p>
       );
     case "tool":
       return <ToolCard item={item} className="mr-8" />;
@@ -305,4 +356,58 @@ function TranscriptRow(props: {
     default:
       return null;
   }
+}
+
+/** A reply's text with its fenced code blocks as blocks, each with Apply when the app offers it. */
+function ReplyText(props: { text: string; onApply?: (block: CodeBlock) => void }) {
+  const parts = splitCodeBlocks(props.text);
+  if (parts.length === 1 && parts[0]?.kind === "text") {
+    return <span className="whitespace-pre-wrap">{parts[0].text}</span>;
+  }
+  // Keys: where each part starts in the text, so a reply that grows keeps its earlier blocks.
+  let offset = 0;
+  const keyed = parts.map((part) => {
+    const key = `${part.kind}@${offset}`;
+    offset += (part.kind === "text" ? part.text.length : part.code.length) + 1;
+    return { key, part };
+  });
+  return (
+    <>
+      {keyed.map(({ key, part }) =>
+        part.kind === "text" ? (
+          <span key={key} className="whitespace-pre-wrap">
+            {part.text}
+          </span>
+        ) : (
+          <div
+            key={key}
+            className="my-1 rounded-md border border-border bg-raised"
+            data-testid="code-block"
+          >
+            <div className="flex items-center gap-2 border-border border-b px-2 py-1 text-fg-muted text-xs">
+              <span className="min-w-0 flex-1 truncate font-mono">
+                {part.path ?? part.lang ?? t("session.codeBlock")}
+              </span>
+              {props.onApply && !part.open ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-6 px-2"
+                  aria-label={
+                    part.path ? t("session.applyTo", { path: part.path }) : t("session.apply")
+                  }
+                  onClick={() =>
+                    props.onApply?.({ code: part.code, lang: part.lang, path: part.path })
+                  }
+                >
+                  {t("session.apply")}
+                </Button>
+              ) : null}
+            </div>
+            <pre className="max-h-64 overflow-auto px-2 py-1 font-mono text-xs">{part.code}</pre>
+          </div>
+        ),
+      )}
+    </>
+  );
 }

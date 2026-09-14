@@ -8,8 +8,10 @@ import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RunnerRequestParams } from "@perch/events";
+import { type RunnerRequestParams, splitPatches } from "@perch/events";
 import { type SimpleGit, simpleGit } from "simple-git";
+import { diffRange } from "./checkpoints.ts";
+import type { Notify } from "./notify.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { cloneEnv, gitAuth, projectDir, runGit } from "./projects.ts";
 
@@ -18,6 +20,8 @@ export type GitOptions = {
   policy: RunnerPolicy;
   /** git push budget. */
   pushTimeoutMs?: number;
+  /** Where fs.changed goes after a restore or an applied patch (task 1.13). */
+  notify?: Notify;
 };
 
 function dirOf(options: GitOptions, params: { workspace_id: string; project: string }): string {
@@ -47,15 +51,26 @@ export async function gitStatus(options: GitOptions, params: RunnerRequestParams
   };
 }
 
-/** Working tree against a ref (HEAD by default); on an unborn branch, the index. */
+/**
+ * Without a ref: the working tree against HEAD, tracked files only (the index on an unborn
+ * branch). With `ref`: the working tree as it is now — untracked files included, ignores honored —
+ * against that ref; with `to` as well, one ref against another (task 1.13, ADR-0079).
+ */
 export async function gitDiff(options: GitOptions, params: RunnerRequestParams<"git.diff">) {
+  if (params.ref) {
+    return diffRange(options, {
+      workspace_id: params.workspace_id,
+      project: params.project,
+      from: params.ref,
+      ...(params.to ? { to: params.to } : {}),
+    });
+  }
   const git = gitAt(dirOf(options, params));
-  const ref = params.ref ?? "HEAD";
   let diff: string;
   let files: { path: string; additions: number; deletions: number; binary: boolean }[];
   try {
-    diff = await git.diff([ref]);
-    const summary = await git.diffSummary([ref]);
+    diff = await git.diff(["HEAD"]);
+    const summary = await git.diffSummary(["HEAD"]);
     files = summary.files.map((file) => ({
       path: file.file,
       additions: "insertions" in file ? file.insertions : 0,
@@ -72,7 +87,7 @@ export async function gitDiff(options: GitOptions, params: RunnerRequestParams<"
       binary: file.binary,
     }));
   }
-  return { diff, files };
+  return { diff, files, patches: splitPatches(diff) };
 }
 
 export async function gitCommit(options: GitOptions, params: RunnerRequestParams<"git.commit">) {

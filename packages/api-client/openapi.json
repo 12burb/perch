@@ -1306,6 +1306,148 @@
           "title"
         ]
       },
+      "SessionCheckpoint": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "git_ref": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn",
+          "git_ref",
+          "created_at"
+        ]
+      },
+      "SessionDiff": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "from_turn": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_turn": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "oldPath": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "patch": {
+                  "type": "string"
+                },
+                "additions": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "deletions": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "added",
+                    "modified",
+                    "deleted",
+                    "renamed"
+                  ]
+                }
+              },
+              "required": [
+                "path",
+                "patch",
+                "additions",
+                "deletions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "turn",
+          "from_turn",
+          "to_turn",
+          "files"
+        ]
+      },
+      "ApplyDiff": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffDecision"
+            },
+            "minItems": 1,
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "decisions"
+        ]
+      },
+      "DiffDecision": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "hunk": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "header": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "hunk",
+          "action"
+        ]
+      },
       "SessionEventRecord": {
         "type": "object",
         "properties": {
@@ -1548,6 +1690,35 @@
                   "type",
                   "text",
                   "mode",
+                  "userId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "restore"
+                    ]
+                  },
+                  "turn": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "gitRef": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "type",
+                  "turn",
+                  "gitRef",
                   "userId"
                 ],
                 "additionalProperties": false
@@ -5325,6 +5496,381 @@
           },
           "422": {
             "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{s}/checkpoints": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The checkpoints taken before each turn",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkpoints, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checkpoints": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SessionCheckpoint"
+                      }
+                    }
+                  },
+                  "required": [
+                    "checkpoints"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{s}/diff": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "The diff of one turn, or of the whole session",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "required": false,
+            "name": "turn",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One FileDiff per changed file: a turn's checkpoint to the next (or to the tree now), or the first checkpoint to now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDiff"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{s}/diff/apply": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Accept or reject hunks of a diff",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyDiff"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The files the rejected hunks were taken back out of",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "files"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{s}/checkpoints/{turn}/restore": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Put the project back to before a turn",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "s",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "required": true,
+            "name": "turn",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The checkpoint restored and the files it changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "turn": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "git_ref": {
+                      "type": "string"
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "turn",
+                    "git_ref",
+                    "files"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {

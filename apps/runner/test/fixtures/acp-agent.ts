@@ -112,6 +112,60 @@ async function runTurn(
       }
       return;
     }
+    // Task 1.13: a 30-line file, then three edits far apart (three hunks), then a code block.
+    case "seed": {
+      const path = `${session.cwd}/notes.txt`;
+      const content = `${Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+      await notify({
+        sessionUpdate: "tool_call",
+        toolCallId: "call_seed",
+        title: "Write notes.txt",
+        kind: "edit",
+        status: "pending",
+        rawInput: { path },
+      });
+      await cx.request(acp.methods.client.fs.writeTextFile, { sessionId, path, content });
+      await notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_seed",
+        status: "completed",
+        content: [{ type: "diff", path, oldText: null, newText: content }],
+      });
+      await say("Seeded notes.txt with 30 lines.");
+      return;
+    }
+    case "spread": {
+      const path = `${session.cwd}/notes.txt`;
+      const file = await cx.request(acp.methods.client.fs.readTextFile, { sessionId, path });
+      const edited = file.content
+        .split("\n")
+        .map((line) =>
+          ["line 2", "line 15", "line 28"].includes(line) ? `${line} (edited)` : line,
+        )
+        .join("\n");
+      await notify({
+        sessionUpdate: "tool_call",
+        toolCallId: "call_spread",
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "pending",
+        rawInput: { path },
+      });
+      await cx.request(acp.methods.client.fs.writeTextFile, { sessionId, path, content: edited });
+      await notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_spread",
+        status: "completed",
+        content: [{ type: "diff", path, oldText: file.content, newText: edited }],
+      });
+      await say("Edited lines 2, 15, and 28.");
+      return;
+    }
+    case "snippet":
+      await say(
+        "Here is a note to apply:\n```txt path=snippet.txt\nhello from a code block\n```\n",
+      );
+      return;
     case "mode?":
       await say(session.mode);
       return;

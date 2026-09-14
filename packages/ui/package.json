@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./i18n": "./src/i18n/index.ts",
     "./session": "./src/components/session-transcript.tsx",
+    "./diff": "./src/components/diff-view.tsx",
     "./tokens.css": "./src/tokens/tokens.css",
     "./styles.css": "./src/styles.css"
   },

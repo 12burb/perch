@@ -5,4 +5,5 @@ export * from "./errors.ts";
 export * from "./runner-cap.ts";
 export * from "./runner-link.ts";
 export * from "./runner-rpc.ts";
+export * from "./unified-diff.ts";
 export * from "./ws.ts";

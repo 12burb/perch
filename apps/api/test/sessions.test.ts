@@ -400,11 +400,13 @@ describe("sessions api (task 1.8)", () => {
       body: SessionBody & { title: string; forked_from_id: string | null };
     };
     expect(forked.status).toBe(201);
+    // The fork carries the transcript, so it carries its turn count too (ADR-0079): the turns in
+    // the copied transcript are the ones its checkpoints and Restore refer to.
     expect(forked.body).toMatchObject({
       title: "Renamed (fork)",
       forked_from_id: id,
       status: "idle",
-      turns: 0,
+      turns: 1,
     });
     const original = (await call(`/api/sessions/${id}/events`, cookie)) as { body: EventsBody };
     const copy = (await call(`/api/sessions/${forked.body.id}/events`, cookie)) as {

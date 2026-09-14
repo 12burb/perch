@@ -6,6 +6,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { CodingSession } from "@perch/db";
 import {
+  fileDiffSchema,
   permissionAnswerSchema,
   sessionEventSchema,
   sessionModeSchema,
@@ -277,6 +278,126 @@ const eventsRoute = createRoute({
   },
 });
 
+const checkpointSchema = z
+  .object({ turn: z.number().int().positive(), git_ref: z.string(), created_at: z.string() })
+  .openapi("SessionCheckpoint");
+
+const diffSchema = z
+  .object({
+    turn: z.number().int().positive().nullable(),
+    from_turn: z.number().int().nonnegative(),
+    to_turn: z.number().int().positive().nullable(),
+    files: z.array(fileDiffSchema),
+  })
+  .openapi("SessionDiff");
+
+const decisionSchema = z
+  .object({
+    path: z.string().min(1).max(4096),
+    hunk: z.number().int().nonnegative(),
+    header: z.string().max(200).optional(),
+    action: z.enum(["accept", "reject"]),
+  })
+  .openapi("DiffDecision");
+
+const checkpointsRoute = createRoute({
+  method: "get",
+  path: "/api/sessions/{s}/checkpoints",
+  tags: ["sessions"],
+  summary: "The checkpoints taken before each turn",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: sessionParam },
+  responses: {
+    200: {
+      description: "Checkpoints, oldest first",
+      content: {
+        "application/json": { schema: z.object({ checkpoints: z.array(checkpointSchema) }) },
+      },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
+const diffRoute = createRoute({
+  method: "get",
+  path: "/api/sessions/{s}/diff",
+  tags: ["sessions"],
+  summary: "The diff of one turn, or of the whole session",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: sessionParam,
+    query: z.object({ turn: z.coerce.number().int().positive().optional() }),
+  },
+  responses: {
+    200: {
+      description:
+        "One FileDiff per changed file: a turn's checkpoint to the next (or to the tree now), or the first checkpoint to now",
+      content: { "application/json": { schema: diffSchema } },
+    },
+    ...errorResponses(403, 404, 409, 502),
+  },
+});
+
+const applyRoute = createRoute({
+  method: "post",
+  path: "/api/sessions/{s}/diff/apply",
+  tags: ["sessions"],
+  summary: "Accept or reject hunks of a diff",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: sessionParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              turn: z.number().int().positive().optional(),
+              decisions: z.array(decisionSchema).min(1).max(500),
+            })
+            .openapi("ApplyDiff"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "The files the rejected hunks were taken back out of",
+      content: { "application/json": { schema: z.object({ files: z.array(z.string()) }) } },
+    },
+    ...errorResponses(403, 404, 409, 422, 502),
+  },
+});
+
+const restoreRoute = createRoute({
+  method: "post",
+  path: "/api/sessions/{s}/checkpoints/{turn}/restore",
+  tags: ["sessions"],
+  summary: "Put the project back to before a turn",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: z.object({ s: z.uuid(), turn: z.coerce.number().int().positive() }),
+  },
+  responses: {
+    200: {
+      description: "The checkpoint restored and the files it changed",
+      content: {
+        "application/json": {
+          schema: z.object({
+            turn: z.number().int().positive(),
+            git_ref: z.string(),
+            files: z.array(z.string()),
+          }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 409, 502),
+  },
+});
+
 export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   const sessions = deps.sessions;
 
@@ -391,6 +512,51 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const user = currentUser(c);
     const fork = await sessions.fork(session, user.id, actorOf(c));
     return c.json(sessionBody(fork), 201);
+  });
+
+  app.openapi(checkpointsRoute, async (c) => {
+    const session = await load(c, c.req.valid("param").s, "sessions.read");
+    const rows = await sessions.checkpoints(session);
+    return c.json(
+      {
+        checkpoints: rows.map((row) => ({
+          turn: row.turn,
+          git_ref: row.gitRef,
+          created_at: row.createdAt.toISOString(),
+        })),
+      },
+      200,
+    );
+  });
+
+  app.openapi(diffRoute, async (c) => {
+    const session = await load(c, c.req.valid("param").s, "sessions.read");
+    const { turn } = c.req.valid("query");
+    const diff = await sessions.diff(session, currentUser(c).id, turn ?? null);
+    return c.json(
+      { turn: diff.turn, from_turn: diff.fromTurn, to_turn: diff.toTurn, files: diff.files },
+      200,
+    );
+  });
+
+  app.openapi(applyRoute, async (c) => {
+    const session = await load(c, c.req.valid("param").s, "sessions.update");
+    const body = c.req.valid("json");
+    const result = await sessions.applyDecisions(
+      session,
+      currentUser(c).id,
+      body.turn ?? null,
+      body.decisions,
+      actorOf(c),
+    );
+    return c.json(result, 200);
+  });
+
+  app.openapi(restoreRoute, async (c) => {
+    const { s, turn } = c.req.valid("param");
+    const session = await load(c, s, "sessions.update");
+    const result = await sessions.restore(session, currentUser(c).id, turn, actorOf(c));
+    return c.json({ turn: result.turn, git_ref: result.gitRef, files: result.files }, 200);
   });
 
   app.openapi(eventsRoute, async (c) => {

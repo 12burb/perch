@@ -4,14 +4,24 @@
  * usage and cost footer, a plan/build switch, the composer in session mode, rename, fork, cancel.
  */
 import type { WsServerEnvelope } from "@perch/events";
-import { Badge, Button, Composer, Input, t } from "@perch/ui";
-import { type PermissionAnswerKind, SessionTranscript } from "@perch/ui/session";
+// The pure diff helpers, not the schema barrel: it would bring Zod into the bundle (ADR-0079).
+import { parseHunks } from "@perch/events/diff";
+import { Badge, Button, Composer, Dialog, Input, t } from "@perch/ui";
+import { type DiffDecisionKind, type DiffFileView, DiffView } from "@perch/ui/diff";
+import { type CodeBlock, type PermissionAnswerKind, SessionTranscript } from "@perch/ui/session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitFork, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, unwrap } from "../lib/api.ts";
-import { type SessionEventRecord, sessionQuery } from "../lib/queries.ts";
+import {
+  checkpointsQuery,
+  fsKey,
+  type SessionEventRecord,
+  sessionDiffQuery,
+  sessionQuery,
+} from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { editorFor, useEditorStore } from "./editor-store.ts";
 import { reduceTranscript, type TranscriptRecord } from "./transcript.ts";
 
 type Mode = "plan" | "build";
@@ -100,8 +110,14 @@ function useTranscript(sessionId: string) {
     };
   }, [sessionId, catchUp, queryClient]);
 
-  return { records, answers };
+  return { records, answers, catchUp };
 }
+
+type View = "transcript" | "changes";
+/** Which diff the Changes view shows: the whole session or one turn. */
+type Scope = "all" | number;
+
+const decisionKey = (path: string, header: string) => `${path}@@${header}`;
 
 export type SessionPaneProps = {
   workspaceId: string;
@@ -115,7 +131,7 @@ export function SessionPane(props: SessionPaneProps) {
   const { sessionId } = props;
   const queryClient = useQueryClient();
   const session = useQuery(sessionQuery(sessionId));
-  const { records, answers } = useTranscript(sessionId);
+  const { records, answers, catchUp } = useTranscript(sessionId);
   const status = session.data?.status ?? "idle";
   const running = status === "running" || status === "needs_you";
   const transcript = useMemo(
@@ -126,6 +142,38 @@ export function SessionPane(props: SessionPaneProps) {
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [view, setView] = useState<View>("transcript");
+  const [scope, setScope] = useState<Scope>("all");
+  /** Hunks accepted in this view: a review decision, the edit itself is already in the tree (ADR-0079). */
+  const [accepted, setAccepted] = useState<ReadonlySet<string>>(() => new Set());
+  const [reviewing, setReviewing] = useState(false);
+  const [restoreTurn, setRestoreTurn] = useState<number | null>(null);
+  const checkpoints = useQuery({ ...checkpointsQuery(sessionId), enabled: view === "changes" });
+  const diff = useQuery({
+    ...sessionDiffQuery(sessionId, scope === "all" ? null : scope),
+    enabled: view === "changes",
+  });
+  const files = useMemo<DiffFileView[]>(
+    () =>
+      (diff.data?.files ?? []).map((file) => ({
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+        ...(file.status ? { status: file.status } : {}),
+        additions: file.additions,
+        deletions: file.deletions,
+        binary: /\nBinary files .* differ/.test(file.patch),
+        hunks: parseHunks(file.patch).hunks.map((hunk, index) => ({
+          index,
+          header: hunk.header,
+          lines: hunk.lines,
+          ...(accepted.has(decisionKey(file.path, hunk.header))
+            ? { decision: "accept" as const }
+            : {}),
+        })),
+      })),
+    [diff.data, accepted],
+  );
 
   useEffect(() => {
     if (session.data?.mode) setMode(session.data.mode);
@@ -210,8 +258,125 @@ export function SessionPane(props: SessionPaneProps) {
     [act, sessionId, props.onOpenSession],
   );
 
+  /** The disk changed under the editor and the tree: fetch both again. */
+  const filesChanged = useCallback(
+    (paths?: readonly string[]) => {
+      useEditorStore.getState().reload(props.projectId, paths);
+      void queryClient.invalidateQueries({ queryKey: fsKey(props.workspaceId, props.projectId) });
+      void queryClient.invalidateQueries({ queryKey: ["session", sessionId, "diff"] });
+    },
+    [queryClient, props.projectId, props.workspaceId, sessionId],
+  );
+
+  const reject = useCallback(
+    async (decisions: { path: string; hunk: number; header: string }[]) => {
+      if (decisions.length === 0) return;
+      setReviewing(true);
+      setError(null);
+      try {
+        const result = unwrap(
+          await api.POST("/api/sessions/{s}/diff/apply", {
+            params: { path: { s: sessionId } },
+            body: {
+              ...(scope === "all" ? {} : { turn: scope }),
+              decisions: decisions.map((d) => ({ ...d, action: "reject" as const })),
+            },
+          }),
+        );
+        filesChanged(result.files);
+        refresh();
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : String(failure));
+        // The diff may have moved on under us (409): show what is actually there now.
+        void queryClient.invalidateQueries({ queryKey: ["session", sessionId, "diff"] });
+      } finally {
+        setReviewing(false);
+      }
+    },
+    [sessionId, scope, filesChanged, refresh, queryClient],
+  );
+
+  const decide = useCallback(
+    (path: string, hunkIndex: number, action: DiffDecisionKind) => {
+      const file = files.find((f) => f.path === path);
+      const hunk = file?.hunks.find((h) => h.index === hunkIndex);
+      if (!hunk) return;
+      if (action === "accept") {
+        setAccepted((current) => new Set(current).add(decisionKey(path, hunk.header)));
+        return;
+      }
+      void reject([{ path, hunk: hunk.index, header: hunk.header }]);
+    },
+    [files, reject],
+  );
+
+  const decideFile = useCallback(
+    (path: string, action: DiffDecisionKind) => {
+      const file = files.find((f) => f.path === path);
+      if (!file) return;
+      const open = file.hunks.filter((h) => !h.decision);
+      if (action === "accept") {
+        setAccepted((current) => {
+          const next = new Set(current);
+          for (const hunk of open) next.add(decisionKey(path, hunk.header));
+          return next;
+        });
+        return;
+      }
+      void reject(open.map((h) => ({ path, hunk: h.index, header: h.header })));
+    },
+    [files, reject],
+  );
+
+  const restore = useCallback(
+    (turn: number) =>
+      act(async () => {
+        const result = unwrap(
+          await api.POST("/api/sessions/{s}/checkpoints/{turn}/restore", {
+            params: { path: { s: sessionId, turn } },
+          }),
+        );
+        setRestoreTurn(null);
+        setAccepted(new Set());
+        filesChanged(result.files);
+        await catchUp();
+      }),
+    [act, sessionId, filesChanged, catchUp],
+  );
+
+  const apply = useCallback(
+    (block: CodeBlock) =>
+      act(async () => {
+        const target = block.path ?? editorFor(useEditorStore.getState(), props.projectId).active;
+        if (!target) throw new Error(t("session.applyNoTarget"));
+        const content = block.code.endsWith("\n") ? block.code : `${block.code}\n`;
+        unwrap(
+          await api.PUT("/api/workspaces/{ws}/projects/{project}/fs/write", {
+            params: { path: { ws: props.workspaceId, project: props.projectId } },
+            body: { path: target, content, encoding: "utf8" },
+          }),
+        );
+        useEditorStore.getState().saved(props.projectId, target, content);
+        filesChanged([target]);
+        setNotice(t("session.applied", { path: target }));
+        setScope("all");
+        setView("changes");
+      }),
+    [act, props.projectId, props.workspaceId, filesChanged],
+  );
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 3_000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   const name = session.data?.title ?? t("session.untitled");
   const usage = transcript.usage;
+  const tabs: { id: View; label: string }[] = [
+    { id: "transcript", label: t("session.tab.transcript") },
+    { id: "changes", label: t("session.tab.changes") },
+  ];
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="session-pane">
       <div className="flex items-center gap-2 border-border border-b px-3 py-2">
@@ -270,11 +435,108 @@ export function SessionPane(props: SessionPaneProps) {
       {session.data?.forked_from_id ? (
         <p className="px-3 py-1 text-fg-muted text-xs">{t("session.forkedFrom")}</p>
       ) : null}
-      <SessionTranscript
-        items={transcript.items}
-        status={status}
-        onPermission={(id, choice) => void answer(id, choice)}
-      />
+      <div
+        role="tablist"
+        aria-label={t("session.tabs")}
+        className="flex items-center gap-1 border-border border-b px-3 py-1"
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`session-tab-${tab.id}-${sessionId}`}
+            aria-selected={view === tab.id}
+            aria-controls={`session-view-${tab.id}-${sessionId}`}
+            className={
+              view === tab.id
+                ? "rounded bg-accent-soft px-2 py-0.5 text-sm"
+                : "rounded px-2 py-0.5 text-fg-muted text-sm hover:bg-raised"
+            }
+            onClick={() => setView(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {view === "transcript" ? (
+        <div
+          role="tabpanel"
+          id={`session-view-transcript-${sessionId}`}
+          aria-labelledby={`session-tab-transcript-${sessionId}`}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <SessionTranscript
+            items={transcript.items}
+            status={status}
+            onPermission={(id, choice) => void answer(id, choice)}
+            onRestore={running ? undefined : (turn) => setRestoreTurn(turn)}
+            onApply={(block) => void apply(block)}
+          />
+        </div>
+      ) : (
+        <div
+          role="tabpanel"
+          id={`session-view-changes-${sessionId}`}
+          aria-labelledby={`session-tab-changes-${sessionId}`}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex items-center gap-2 px-3 py-1 text-xs">
+            <select
+              aria-label={t("session.scope")}
+              className="h-7 rounded border border-border bg-surface px-1 text-sm"
+              value={scope === "all" ? "all" : String(scope)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setScope(value === "all" ? "all" : Number(value));
+                setAccepted(new Set());
+              }}
+            >
+              <option value="all">{t("session.scope.all")}</option>
+              {(checkpoints.data ?? []).map((checkpoint) => (
+                <option key={checkpoint.turn} value={String(checkpoint.turn)}>
+                  {t("session.scope.turn", { turn: String(checkpoint.turn) })}
+                </option>
+              ))}
+            </select>
+            {diff.isError ? <span className="text-danger">{t("session.diffError")}</span> : null}
+          </div>
+          <DiffView
+            files={files}
+            busy={reviewing || running}
+            onDecide={decide}
+            onDecideFile={decideFile}
+            onOpen={(path) => useEditorStore.getState().open(props.projectId, path)}
+          />
+        </div>
+      )}
+      <Dialog
+        open={restoreTurn !== null}
+        onOpenChange={(open) => {
+          if (!open) setRestoreTurn(null);
+        }}
+        title={t("session.restoreTitle", { turn: String(restoreTurn ?? 0) })}
+        description={t("session.restoreBody")}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setRestoreTurn(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (restoreTurn !== null) void restore(restoreTurn);
+            }}
+          >
+            {t("session.restoreConfirm")}
+          </Button>
+        </div>
+      </Dialog>
+      {notice ? (
+        <p role="status" className="px-3 py-1 text-fg-muted text-xs">
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="px-3 py-1 text-danger text-sm">
           {error}
