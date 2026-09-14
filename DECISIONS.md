@@ -1491,7 +1491,9 @@ can be starved by other traffic, so a pump can block JavaScript indefinitely (CI
 and a frozen thread; a keep-alive `WM_TIMER` did not help). So on Windows `window.ts` calls
 `runSync()`, tao's own loop, on the main thread, and `laptop-child.ts` runs laptop mode in a child
 process of the same binary (`perch-desktop --serve`, which prints one JSON line when it listens and
-stops when its stdin closes, so the server never outlives the window). A Bun worker thread was the
+stops when its stdin closes, so the server never outlives the window; the parent forwards the child's
+output, and when the parent has no standard streams of its own, a console-less binary started by a
+click, everything goes to `<data-dir>/desktop/perch-desktop.log`). A Bun worker thread was the
 first design and worked from source, but the compiled binary on Windows resolves an embedded worker
 entrypoint to a disk path under `B:\~BUN\root` and fails with ENOENT (Linux resolves the same
 `file:///$bunfs/...` URL fine); a process of the same executable has no such path. Page events cannot

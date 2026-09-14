@@ -147,7 +147,7 @@ async function openWindowNative(
         "--after",
         String(afterMs),
       ],
-      { stdout: "ignore", stderr: "inherit" },
+      { stdout: "ignore", stderr: "ignore" },
     );
     trace(`smoke: the window closes after ${afterMs} ms`);
   }

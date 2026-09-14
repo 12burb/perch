@@ -30,7 +30,9 @@ storage, and cache are in `~/.perch/desktop/webview`.
 - `--check` loads the platform webview and exits 0 or 1, naming the engine version: what CI uses.
   `--smoke` goes further: a throwaway laptop mode on a random port, one window, closed after the first
   page load, exit 0; every step and page event is traced on stderr, so a stalled platform says where.
-  On Windows the binary has no console window, so from a terminal only the exit code is visible.
+  On Windows the binary has no console window: started from a shell it still writes to that shell's
+  pipes, and started by a click (nothing attached) it writes everything, the server's log included, to
+  `%USERPROFILE%\.perch\desktop\perch-desktop.log` (rotated once past 5 MB).
 - `--data-dir` and `--log-level` mirror `perch dev`.
 - On Windows the window runs the platform's native event loop on the main thread and the server runs in
   a second process of the same binary (`perch-desktop --serve`, stopped when the window closes; ADR-0063

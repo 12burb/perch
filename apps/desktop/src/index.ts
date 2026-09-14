@@ -8,21 +8,24 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataDirFrom, startLaptop } from "@perch/cli/laptop";
-import { probePerch, runDesktop } from "./desktop.ts";
-import { startLaptopInChild } from "./laptop-child.ts";
+import { parseDesktopArgs, probePerch, runDesktop } from "./desktop.ts";
+import { childLaptopStarter } from "./laptop-child.ts";
+import { chooseSink } from "./sink.ts";
 import { checkWebview, openWindow } from "./window.ts";
 
 export const packageName = "@perch/desktop";
 
-export function main(argv: string[]): Promise<number> {
+export async function main(argv: string[]): Promise<number> {
   // Windows: the main thread owns the native run loop, so the server runs in a child process of this
   // binary (`--serve`, which always serves in-process: no recursion). PERCH_DESKTOP_SERVER=child|inprocess
   // overrides the choice on the other platforms (the tests exercise both layouts).
   const serverMode =
     process.env.PERCH_DESKTOP_SERVER ?? (process.platform === "win32" ? "child" : "inprocess");
   const inChild = serverMode === "child" && !argv.includes("--serve");
+  const parsed = parseDesktopArgs(argv);
+  const sink = await chooseSink(dataDirFrom("dataDir" in parsed ? parsed.dataDir : undefined));
   return runDesktop(argv, {
-    startLaptop: inChild ? startLaptopInChild : startLaptop,
+    startLaptop: inChild ? childLaptopStarter((stream, line) => sink[stream](line)) : startLaptop,
     openWindow,
     checkWebview,
     isPerchAt: probePerch,
@@ -49,8 +52,8 @@ export function main(argv: string[]): Promise<number> {
       const WM_CLOSE = 0x0010;
       user32.symbols.PostMessageW(BigInt(hwnd), WM_CLOSE, 0n, 0n);
     },
-    log: (line) => console.log(line),
-    error: (line) => console.error(line),
+    log: sink.out,
+    error: sink.err,
   });
 }
 
