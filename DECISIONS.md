@@ -1379,3 +1379,30 @@ called, or how pre-releases differ.
 ### Consequences
 A tagged pre-release exercises the whole release path without touching `latest`. The compose smoke is
 the "fresh Ubuntu VM" check for task 0.13.
+
+## ADR-0061: Timestamp parameters go through the column encoders, never as a bare Date in a sql template
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 0.6 (found by the task 0.13 compose smoke)
+
+### Context
+The first compose smoke booted the api on postgres.js and the jobs worker crashed on its first claim:
+`TypeError: The "string" argument must be of type string ... Received an instance of Date` inside
+postgres.js's `Bind`. Drizzle's postgres-js driver replaces the postgres.js serializers for the timestamp
+types (oids 1082, 1083, 1114, 1184) with identity functions, because drizzle maps Dates to ISO strings
+itself in every column encoder. A `Date` interpolated straight into a `` sql`…` `` template has no column
+encoder, so it reaches postgres.js as a Date and the transparent serializer hands it to
+`Buffer.byteLength`. PGlite's driver serializes Dates on its own, which is why every unit test passed.
+
+### Decision
+Timestamp (and every other typed) parameter is bound through a column encoder: the drizzle operators
+(`eq`, `lt`, `lte`, `gt`, `gte`, `between`, `inArray`, …) and `.set({ column: value })` do this; inside a
+raw template use `sql.param(value, column)`. A bare `Date` in a `` sql`…` `` template is a bug. The jobs
+claim query is built from operators, and the `@perch/jobs` suite runs on Postgres as well as PGlite
+whenever `PERCH_TEST_DATABASE_URL` is set (the CI `check` job), so the postgres.js binding path is
+covered where it differs.
+
+### Consequences
+Suites for code that issues queries run on both drivers when they can (the `queueSuite`/`schemaSuite`
+pattern); the compose smoke stays the last line of defence for the team-mode wire path.

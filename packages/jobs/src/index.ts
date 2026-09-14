@@ -5,7 +5,7 @@
  */
 import { type Db, type Job, newId, schema } from "@perch/db";
 import { Cron } from "croner";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 const { jobs } = schema;
 
@@ -146,6 +146,22 @@ export function createQueue(options: QueueOptions): Queue {
       if (queues.length === 0) return null;
       const at = now();
       const staleBefore = new Date(at.getTime() - lockTimeoutMs);
+      // The operators bind `at` and `staleBefore` through the column encoders (ISO strings). A bare Date
+      // inside a sql`` template reaches postgres.js unserialized and crashes the worker (ADR-0061).
+      const due = db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(
+          and(
+            inArray(jobs.queue, queues),
+            lte(jobs.runAt, at),
+            lt(jobs.attempts, jobs.maxAttempts),
+            or(isNull(jobs.lockedAt), lt(jobs.lockedAt, staleBefore)),
+          ),
+        )
+        .orderBy(jobs.runAt)
+        .limit(1)
+        .for("update", { skipLocked: true });
       const [row] = await db
         .update(jobs)
         .set({
@@ -154,21 +170,7 @@ export function createQueue(options: QueueOptions): Queue {
           attempts: sql`${jobs.attempts} + 1`,
           updatedAt: at,
         })
-        .where(
-          eq(
-            jobs.id,
-            sql`(
-              select ${jobs.id} from ${jobs}
-              where ${jobs.queue} in ${queues}
-                and ${jobs.runAt} <= ${at}
-                and ${jobs.attempts} < ${jobs.maxAttempts}
-                and (${jobs.lockedAt} is null or ${jobs.lockedAt} < ${staleBefore})
-              order by ${jobs.runAt}
-              limit 1
-              for update skip locked
-            )`,
-          ),
-        )
+        .where(eq(jobs.id, due))
         .returning();
       return row ?? null;
     },

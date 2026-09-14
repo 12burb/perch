@@ -89,6 +89,8 @@ gateway, engines, connect, bots, policy, preview, inspector, bot-sdk, ui, api-cl
 - Typed `PerchError(code, message, details, status)`; wire shape in spec §7.8; never leak stacks or secrets.
 - `authorize(ctx, action, resource)` from `packages/policy` in every handler; workspace scoping enforced in
   repositories.
+- Query parameters are bound through column encoders: drizzle operators or `sql.param(value, column)`;
+  never a bare `Date` (or other typed value) inside a `` sql`…` `` template (ADR-0061).
 - Migrations generated with `drizzle-kit`, committed, run on boot under an advisory lock, never edited once
   shipped.
 - pino, one line per request with `request_id`, `workspace_id`, `user_id`; secrets redacted by key list.
