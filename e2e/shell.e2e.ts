@@ -11,6 +11,10 @@ import { createWorkspace, isMobile, openAccountMenu, signUp, uniqueEmail } from 
 const SCREENSHOTS = process.env.E2E_SCREENSHOTS === "1";
 
 async function checkPage(page: Page, name: string, project: string): Promise<void> {
+  // A theme switch animates colors (transition-colors): axe must not sample a blend of two themes.
+  await page.evaluate(
+    "Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)))",
+  );
   const results = await new AxeBuilder({ page }).analyze();
   expect(
     results.violations,

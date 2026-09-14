@@ -107,12 +107,14 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
     let done = false;
     let ticks = 0;
     let loadStarted = false;
+    let navigated = false;
     const finish = (why: string) => {
       if (done) return;
       done = true;
       trace(`closing: ${why}`);
       clearInterval(pump);
       clearInterval(liveness);
+      clearTimeout(retry);
       try {
         app.exit();
       } catch {
@@ -127,8 +129,14 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
       if (!app.pumpEvents()) finish("the event loop reported exit");
       else if (ticks === 1) trace("event loop pumping");
     }, 16);
-    // With a trace: a liveness line every 5 s, and one re-navigation when nothing has started
-    // loading after 10 s (a platform that dropped the initial navigation gets a second chance).
+    // WebView2 sometimes drops the navigation requested at creation (seen on Windows: the window sits
+    // blank until a later loadUrl). One retry after 1.5 s costs nothing where the first one worked.
+    const retry = setTimeout(() => {
+      if (done || navigated || loadStarted) return;
+      trace(`no navigation yet: loading ${options.url} again`);
+      webview.loadUrl(options.url);
+    }, 1_500);
+    // With a trace: a liveness line every 5 s, and one more re-navigation after 10 s.
     const liveness = setInterval(() => {
       if (!options.trace) return;
       trace(`alive: ${ticks} ticks, visible=${win.isVisible()}, url=${webview.url() ?? "none"}`);
@@ -142,7 +150,10 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
       loadStarted = true;
       trace(`page load started ${event.url ?? ""}`);
     });
-    webview.on("navigation", (event) => trace(`navigation ${event.url ?? ""}`));
+    webview.on("navigation", (event) => {
+      navigated = true;
+      trace(`navigation ${event.url ?? ""}`);
+    });
     webview.on("page-load-finished", (event) => {
       const url = event.url ?? webview.url() ?? "";
       trace(`page load finished ${url}`);

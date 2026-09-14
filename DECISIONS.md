@@ -1482,5 +1482,7 @@ and a bundled Chromium) and Tauri (Rust in the repo) are out.
 
 ### Consequences
 The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no
-IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. Signing and
+IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. WebView2 was seen to
+drop the navigation requested at creation (a blank window until a later `loadUrl`), so the window
+re-navigates once after 1.5 s when no navigation has started. Signing and
 notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.
