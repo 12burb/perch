@@ -4,6 +4,9 @@
  * live in desktop.ts (testable with fakes); the native window in window.ts; laptop mode itself comes
  * from @perch/cli.
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { dataDirFrom, startLaptop } from "@perch/cli/laptop";
 import { probePerch, runDesktop } from "./desktop.ts";
 import { checkWebview, openWindow } from "./window.ts";
@@ -17,6 +20,7 @@ export function main(argv: string[]): Promise<number> {
     checkWebview,
     isPerchAt: probePerch,
     dataDirFrom,
+    tempDir: () => mkdtempSync(join(tmpdir(), "perch-desktop-smoke-")),
     log: (line) => console.log(line),
     error: (line) => console.error(line),
   });

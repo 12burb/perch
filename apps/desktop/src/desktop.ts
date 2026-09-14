@@ -22,12 +22,14 @@ Options:
   --data-dir <path>   PGlite, files, the master key, and the window's browsing data (default: ~/.perch)
   --log-level <lvl>   trace|debug|info|warn|error|fatal|silent (default: ${DEFAULT_LOG_LEVEL})
   --check             load the platform webview and exit (for doctor and CI)
+  --smoke             open a window on a throwaway laptop mode, exit 0 once the app has loaded (CI)
   -h, --help          show this help`;
 
 export type DesktopArgs =
   | { kind: "help" }
   | { kind: "error"; message: string }
   | { kind: "check" }
+  | { kind: "smoke"; dataDir?: string; logLevel: string }
   | { kind: "open"; url: string; dataDir?: string }
   | { kind: "laptop"; port: number; dataDir?: string; logLevel: string };
 
@@ -38,6 +40,7 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
     "data-dir"?: string;
     "log-level"?: string;
     check?: boolean;
+    smoke?: boolean;
     help?: boolean;
   };
   try {
@@ -49,6 +52,7 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
         "data-dir": { type: "string" },
         "log-level": { type: "string" },
         check: { type: "boolean" },
+        smoke: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
       strict: true,
@@ -58,6 +62,13 @@ export function parseDesktopArgs(argv: string[]): DesktopArgs {
   }
   if (values.help) return { kind: "help" };
   if (values.check) return { kind: "check" };
+  if (values.smoke) {
+    return {
+      kind: "smoke",
+      dataDir: values["data-dir"],
+      logLevel: values["log-level"] ?? DEFAULT_LOG_LEVEL,
+    };
+  }
   if (values.url !== undefined) {
     if (!/^https?:\/\//.test(values.url)) {
       return { kind: "error", message: `--url must start with http:// or https://: ${values.url}` };
@@ -97,7 +108,17 @@ export async function probePerch(
   }
 }
 
-export type WindowRequest = { url: string; title: string; dataDir: string };
+export type WindowRequest = {
+  url: string;
+  title: string;
+  dataDir: string;
+  /** Called after every page load with the loaded URL. */
+  onLoaded?: (url: string) => void;
+  /** Close the window after the first page load (--smoke). */
+  closeAfterLoad?: boolean;
+  /** One line per step and event, for --smoke and for finding out where a platform stalls. */
+  trace?: (line: string) => void;
+};
 
 export type LaptopHandle = { url: string; dataDir: string; stop(): Promise<void> };
 
@@ -115,6 +136,8 @@ export type DesktopDeps = {
   checkWebview: () => Promise<string>;
   isPerchAt: (url: string) => Promise<boolean>;
   dataDirFrom: (flag?: string) => string;
+  /** A fresh throwaway directory (--smoke never touches ~/.perch). */
+  tempDir: () => string;
   log: (line: string) => void;
   error: (line: string) => void;
 };
@@ -140,6 +163,49 @@ export async function runDesktop(argv: string[], deps: DesktopDeps): Promise<num
         deps.error(`webview: ${message(error)}`);
         return 1;
       }
+    case "smoke": {
+      // The self-test: a throwaway laptop mode on a random port, one window, closed after the first
+      // page load. Exit 0 when the app loaded; 3 when the window closed before that; 1 on a boot error.
+      const trace = (line: string) =>
+        deps.error(`[perch-desktop] ${new Date().toISOString()} ${line}`);
+      const dataDir = args.dataDir ?? deps.tempDir();
+      let laptop: LaptopHandle;
+      try {
+        laptop = await deps.startLaptop({
+          dataDir,
+          port: 0,
+          host: "127.0.0.1",
+          publicUrl: "http://localhost:0",
+          logLevel: args.logLevel,
+        });
+      } catch (error) {
+        deps.error(`perch-desktop: smoke could not start laptop mode: ${message(error)}`);
+        return 1;
+      }
+      trace(`laptop mode at ${laptop.url}`);
+      const loaded: string[] = [];
+      try {
+        await deps.openWindow({
+          url: laptop.url,
+          title: `${WINDOW_TITLE} smoke`,
+          dataDir,
+          onLoaded: (url) => loaded.push(url),
+          closeAfterLoad: true,
+          trace,
+        });
+      } finally {
+        await laptop.stop();
+      }
+      const first = loaded[0];
+      deps.log(
+        JSON.stringify({
+          smoke: first ? "ok" : "closed-before-load",
+          url: laptop.url,
+          loaded: first ?? null,
+        }),
+      );
+      return first ? 0 : 3;
+    }
     case "open":
       await deps.openWindow({
         url: args.url,

@@ -1466,16 +1466,19 @@ and a bundled Chromium) and Tauri (Rust in the repo) are out.
   valid passkey relying party. If a Perch already answers there, the app attaches instead of booting a
   second server; `--url` opens a team instance with no local server.
 - **Data beside laptop mode.** `~/.perch` (shared with `perch dev`); the window's cookies, storage, and
-  cache in `~/.perch/desktop/webview` through a persistent WebContext (and `WEBVIEW2_USER_DATA_FOLDER`
-  on Windows). Closing the window stops the server.
+  cache in `~/.perch/desktop/webview` through a persistent WebContext (on Windows that is the WebView2
+  user data folder, which must never sit beside the executable). Closing the window stops the server.
 - **Built per platform.** The addon is installed per platform, so the release workflow builds the app
   on one runner each for Linux x64 and arm64, macOS arm64, and Windows x64: on Windows with the icon,
   product metadata, and no console window (`--windows-*` flags of `bun build --compile`); on macOS as
   an unsigned `Perch.app` bundle zipped with `ditto`. Intel macOS waits for a runner or a signing
   decision. The icon is drawn in `apps/desktop/assets/icon.svg` and rendered by `scripts/make-icons.ts`.
 - **Verified where a window can open.** Unit tests cover the flow with fakes; `--check` loads the real
-  addon; a real window on laptop mode runs under xvfb on Linux and natively on macOS and Windows in the
-  laptop-smoke job, with `PERCH_DESKTOP_NATIVE=1` so nothing skips in CI.
+  addon and names the engine version; `--smoke` (a throwaway laptop mode, one window, closed after the
+  first page load, every step traced) runs from the test suite in a child process with a hard kill, and
+  from the compiled binary behind a watchdog, under xvfb on Linux and natively on macOS and Windows in
+  the laptop-smoke job, with `PERCH_DESKTOP_NATIVE=1` so nothing skips in CI. A platform that stalls
+  inside its webview blocks that process's event loop, which is why the smoke never runs in-process.
 
 ### Consequences
 The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no

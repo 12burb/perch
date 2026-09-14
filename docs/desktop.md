@@ -27,8 +27,10 @@ storage, and cache are in `~/.perch/desktop/webview`.
 - Closing the window stops the server. On macOS the app menu has Quit and the Edit shortcuts.
 - `--url https://perch.example.com` opens a team instance in the same window, with its own persistent
   browsing data; no local server runs.
-- `--check` loads the platform webview and exits 0 or 1: what `perch doctor` and CI use. On Windows the
-  binary has no console window, so only the exit code is visible.
+- `--check` loads the platform webview and exits 0 or 1, naming the engine version: what CI uses.
+  `--smoke` goes further: a throwaway laptop mode on a random port, one window, closed after the first
+  page load, exit 0; every step and page event is traced on stderr, so a stalled platform says where.
+  On Windows the binary has no console window, so from a terminal only the exit code is visible.
 - `--data-dir` and `--log-level` mirror `perch dev`.
 
 ## Build

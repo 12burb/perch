@@ -112,17 +112,35 @@ jobs:
       - name: Desktop prerequisites (WebKitGTK, libxdo, xvfb)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libxdo3 xvfb
+      - name: Desktop prerequisites (the WebView2 runtime, when the image lacks it)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $installed = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).pv
+          if ($installed) { Write-Host "WebView2 runtime $installed present"; exit 0 }
+          Write-Host "installing the WebView2 runtime (Evergreen bootstrapper)"
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:TEMP\MicrosoftEdgeWebview2Setup.exe"
+          Start-Process -FilePath "$env:TEMP\MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent','/install' -Wait
+          (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).pv
       - name: The desktop app (a native window on laptop mode)
         shell: bash
         env:
           PERCH_DESKTOP_NATIVE: "1"
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a bun test apps/desktop; else bun test apps/desktop; fi
-      - name: Build the desktop app and check the native layer from the binary
+      - name: Build the desktop app; --check and --smoke from the binary
         shell: bash
         run: |
           bun scripts/build-desktop.ts --out dist/desktop --version 0.0.0-ci
-          "dist/desktop/$(cat dist/desktop/BINARY)" --check
+          bin="dist/desktop/$(cat dist/desktop/BINARY)"
+          "$bin" --check
+          # A watchdog: a stalled webview must fail the step in minutes, not at the job timeout.
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$bin" --smoke & else "$bin" --smoke & fi
+          pid=$!
+          for i in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$pid" 2>/dev/null; then echo "::error::perch-desktop --smoke stalled for 150 s"; kill "$pid"; exit 1; fi
+          wait "$pid"
           ls -la dist/desktop
 
   compose-smoke:

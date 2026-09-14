@@ -2,7 +2,6 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startLaptop } from "@perch/cli/laptop";
 import {
   DEFAULT_PORT,
   type DesktopDeps,
@@ -12,7 +11,7 @@ import {
   probePerch,
   runDesktop,
 } from "../src/desktop.ts";
-import { browsingDataDir, checkWebview, openWindow } from "../src/window.ts";
+import { browsingDataDir, checkWebview } from "../src/window.ts";
 
 /**
  * The desktop app (ADR-0063). The flow is checked with fakes (no display needed); the native layer
@@ -95,6 +94,7 @@ function fakeDeps(overrides: Partial<DesktopDeps> = {}): { deps: DesktopDeps; ca
     checkWebview: async () => "test-platform ok",
     isPerchAt: async () => false,
     dataDirFrom: (flag) => flag ?? "/home/x/.perch",
+    tempDir: () => "/tmp/perch-smoke",
     log: (line) => calls.log.push(line),
     error: (line) => calls.error.push(line),
     ...overrides,
@@ -151,6 +151,37 @@ describe("perch-desktop flow", () => {
     ]);
   });
 
+  test("--smoke boots a throwaway laptop mode, closes after the first load, and reports", async () => {
+    const { deps, calls } = fakeDeps({
+      startLaptop: async (o) => {
+        expect(o.port).toBe(0);
+        expect(o.dataDir).toBe("/tmp/perch-smoke");
+        return {
+          url: "http://127.0.0.1:54321",
+          dataDir: o.dataDir ?? "",
+          stop: async () => void calls.log.push("stopped"),
+        };
+      },
+      openWindow: async (w) => {
+        expect(w.closeAfterLoad).toBe(true);
+        w.trace?.("window created");
+        w.onLoaded?.(`${w.url}/setup`);
+      },
+    });
+    expect(await runDesktop(["--smoke"], deps)).toBe(0);
+    expect(calls.error.some((l) => l.includes("window created"))).toBe(true);
+    const report = JSON.parse(calls.log.at(-1) ?? "{}") as { smoke: string; loaded: string };
+    expect(report.smoke).toBe("ok");
+    expect(report.loaded).toBe("http://127.0.0.1:54321/setup");
+    expect(calls.log).toContain("stopped");
+
+    const closedEarly = fakeDeps({
+      startLaptop: async () => ({ url: "http://127.0.0.1:1", dataDir: "/x", stop: async () => {} }),
+      openWindow: async () => {},
+    });
+    expect(await runDesktop(["--smoke"], closedEarly.deps)).toBe(3);
+  });
+
   test("a boot failure is reported with a hint, not thrown; --check reports the native layer", async () => {
     const { deps, calls } = fakeDeps({
       startLaptop: async () => {
@@ -197,30 +228,51 @@ describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer
 
   test("--check loads the platform webview", async () => {
     expect(nativeError).toBe("");
-    expect(await checkWebview()).toContain(`${process.platform}-${process.arch} ok`);
+    const report = await checkWebview();
+    console.log(`webview: ${report}`);
+    expect(report).toContain(`${process.platform}-${process.arch} ok`);
     expect(browsingDataDir(dir)).toBe(join(dir, "desktop", "webview"));
   });
 
+  // In a child process: a platform that stalls inside its webview blocks that process's event loop,
+  // and a blocked loop cannot fire a test timeout. The parent kills it after two minutes and prints
+  // the trace, so a stall fails fast and says where it stopped.
   test.skipIf(!nativeRequired && !hasDisplay)(
-    "opens a window on laptop mode, loads the app, and closes",
+    "--smoke opens a window on laptop mode, loads the app, and closes",
     async () => {
-      const laptop = await startLaptop({ dataDir: dir, port: 0, logLevel: "warn" });
-      const loaded: string[] = [];
-      try {
-        await openWindow({
-          url: laptop.url,
-          title: "Perch smoke",
-          dataDir: dir,
-          onLoaded: (url) => loaded.push(url),
-          closeAfterLoad: true,
-        });
-      } finally {
-        await laptop.stop();
-      }
-      expect(loaded.length).toBeGreaterThan(0);
-      expect(loaded[0]?.startsWith(laptop.url)).toBe(true);
+      const proc = Bun.spawn(
+        [
+          process.execPath,
+          join(import.meta.dir, "..", "src", "index.ts"),
+          "--smoke",
+          "--data-dir",
+          join(dir, "smoke"),
+        ],
+        { stdout: "pipe", stderr: "pipe", env: { ...process.env, PERCH_LOG_LEVEL: "warn" } },
+      );
+      const killer = setTimeout(() => proc.kill(), 120_000);
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      clearTimeout(killer);
+      if (exitCode !== 0) console.error(`perch-desktop --smoke exited ${exitCode}\n${stderr}`);
+      expect(exitCode).toBe(0);
+      const report = stdout
+        .split("\n")
+        .map((line) => {
+          try {
+            return JSON.parse(line) as { smoke?: string; url?: string; loaded?: string | null };
+          } catch {
+            return null;
+          }
+        })
+        .find((line) => line?.smoke !== undefined);
+      expect(report?.smoke).toBe("ok");
+      expect(report?.loaded?.startsWith(report?.url ?? "?")).toBe(true);
     },
-    90_000,
+    150_000,
   );
 });
 
