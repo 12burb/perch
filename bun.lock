@@ -276,14 +276,14 @@
     "spikes/acp": {
       "name": "@perch/spike-acp",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@agentclientprotocol/sdk": "1.4.0",
       },
     },
     "spikes/better-auth": {
       "name": "@perch/spike-better-auth",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@better-auth/passkey": "1.7.4",
         "@electric-sql/pglite": "0.5.8",
         "better-auth": "1.7.4",
@@ -302,17 +302,15 @@
     "spikes/dockerode": {
       "name": "@perch/spike-dockerode",
       "version": "0.0.0",
-      "dependencies": {
-        "dockerode": "5.0.1",
-      },
       "devDependencies": {
         "@types/dockerode": "4.0.1",
+        "dockerode": "5.0.1",
       },
     },
     "spikes/opencode": {
       "name": "@perch/spike-opencode",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@opencode-ai/sdk": "1.18.30",
         "opencode-ai": "1.18.30",
       },
@@ -320,7 +318,7 @@
     "spikes/pglite": {
       "name": "@perch/spike-pglite",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@electric-sql/pglite-pgvector": "0.0.9",
       },
@@ -328,14 +326,14 @@
     "spikes/preview-tunnel": {
       "name": "@perch/spike-preview-tunnel",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "vite": "8.3.0",
       },
     },
     "spikes/pty": {
       "name": "@perch/spike-pty",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "bun-pty": "0.4.10",
         "node-pty": "1.1.0",
       },
@@ -343,7 +341,7 @@
     "spikes/quickjs": {
       "name": "@perch/spike-quickjs",
       "version": "0.0.0",
-      "dependencies": {
+      "devDependencies": {
         "quickjs-emscripten": "0.32.0",
       },
     },

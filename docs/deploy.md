@@ -66,3 +66,9 @@ invite link.
 
 Multi-arch (amd64, arm64), cosign-signed, SBOM attached by the release workflow (task 0.15). Renovate keeps
 the pins current. A local build: `docker build -f deploy/Dockerfile.api -t perch-api .` from the repo root.
+
+The api image's runtime tree holds only the api workspace, the packages it links, the web build, and
+their production dependencies (a fresh `bun install --production --omit=peer --filter @perch/api` in the
+build stage, ADR-0062); the base image gets Debian security updates at build time. The compose smoke in
+CI scans the image with Trivy and fails on fixed HIGH/CRITICAL findings, so anything that lands in the
+image has to be needed at runtime.

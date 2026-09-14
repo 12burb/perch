@@ -1406,3 +1406,37 @@ covered where it differs.
 ### Consequences
 Suites for code that issues queries run on both drivers when they can (the `queueSuite`/`schemaSuite`
 pattern); the compose smoke stays the last line of defence for the team-mode wire path.
+
+## ADR-0062: The api image ships a production-only runtime tree on an updated base image
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 0.13 (found by the task 0.15 compose smoke)
+
+### Context
+The first image that reached Trivy carried the whole monorepo install: Vite's esbuild and the native
+TypeScript compiler (Go binaries with dozens of fixed HIGH/CRITICAL CVEs), the spikes' dependencies
+including a 180 MB OpenCode binary, and the web and runner dependency trees. The base image was also
+behind on Debian security updates (54 fixed findings). The compose smoke gates on Trivy with
+`ignore-unfixed` and `CRITICAL,HIGH`, so the image has to be clean rather than the scan relaxed.
+
+### Decision
+- The build stage keeps the full install (the web build needs it) and then assembles `/prod`: every
+  workspace manifest (the frozen lockfile requires them), `apps/api`, `packages`, `apps/web/dist`, and
+  `bun install --frozen-lockfile --ignore-scripts --production --omit=peer --filter @perch/api`. Bun's
+  isolated store never prunes in place, which is why the runtime tree is installed fresh instead of
+  pruned. `--omit=peer` keeps better-auth's optional `drizzle-kit` peer, and esbuild with it, out; every
+  peer the api needs is one of its direct dependencies. `--filter @perch/api` limits the install to the
+  api and the workspaces it links (bus, db, events, jobs, policy, vault).
+- The runtime stage copies `/prod` as `/app` and runs `apt-get upgrade` before dropping to the `bun` user.
+- Spike packages declare their libraries as devDependencies: they are test-only and never belong in a
+  production install.
+
+Locally the tree is 151 MB (138 MB of dependencies, 174 store entries, no native binaries) and boots the
+api through migrations, the setup wizard, sign-in, and the web app.
+
+### Consequences
+A runtime import of anything outside the api's dependency graph fails in the image, which is the
+intended signal: a workspace the api starts to import goes into `apps/api/package.json`, and the
+filtered install follows it. The Trivy image scan stays a hard gate; base-image findings the Debian
+archive has not fixed are excluded by `ignore-unfixed`.

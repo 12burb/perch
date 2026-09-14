@@ -10,7 +10,7 @@
     "test": "bun test",
     "prepare-binary": "node node_modules/opencode-ai/postinstall.mjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@opencode-ai/sdk": "1.18.30",
     "opencode-ai": "1.18.30"
   }

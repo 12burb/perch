@@ -23,6 +23,17 @@ COPY scripts ./scripts
 # node-gyp and Python; nothing that runs in this image needs a lifecycle script.
 RUN bun install --frozen-lockfile --ignore-scripts
 RUN bun run --filter @perch/web build
+# The runtime tree (ADR-0062): the api workspace, the packages it links, and the web build, with
+# production dependencies only, installed fresh from the same lockfile (Bun's isolated store never
+# prunes in place). --omit=peer keeps better-auth's optional drizzle-kit peer, and esbuild with it, out;
+# every peer the api needs is one of its direct dependencies. The other workspaces contribute only the
+# manifests the frozen install requires.
+RUN mkdir -p /prod \
+ && find apps packages connectors templates spikes scripts -name package.json -not -path '*/node_modules/*' -exec cp --parents {} /prod/ \; \
+ && cp package.json bun.lock tsconfig.base.json /prod/ \
+ && tar cf - --exclude=node_modules apps/api packages apps/web/dist | tar xf - -C /prod \
+ && cd /prod \
+ && bun install --frozen-lockfile --ignore-scripts --production --omit=peer --filter @perch/api
 
 FROM oven/bun:${BUN_VERSION}-slim AS runtime
 ARG PERCH_VERSION=0.0.0
@@ -34,13 +45,13 @@ ENV NODE_ENV=production \
     PERCH_DATA_DIR=/data \
     PORT=3000 \
     HOST=0.0.0.0
+# Debian security updates for the base image: the compose smoke gates on Trivy's fixed HIGH/CRITICAL findings.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=build --chown=bun:bun /app/package.json /app/bun.lock ./
-COPY --from=build --chown=bun:bun /app/node_modules ./node_modules
-COPY --from=build --chown=bun:bun /app/apps/api ./apps/api
-COPY --from=build --chown=bun:bun /app/apps/web/dist ./apps/web/dist
-COPY --from=build --chown=bun:bun /app/apps/web/package.json ./apps/web/package.json
-COPY --from=build --chown=bun:bun /app/packages ./packages
+COPY --from=build --chown=bun:bun /prod ./
 RUN mkdir -p /data/files && chown -R bun:bun /data
 USER bun
 VOLUME ["/data/files"]

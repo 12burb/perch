@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
+  "devDependencies": {
     "@better-auth/passkey": "1.7.4",
     "@electric-sql/pglite": "0.5.8",
     "better-auth": "1.7.4",

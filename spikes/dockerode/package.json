@@ -9,10 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
-    "dockerode": "5.0.1"
-  },
   "devDependencies": {
-    "@types/dockerode": "4.0.1"
+    "@types/dockerode": "4.0.1",
+    "dockerode": "5.0.1"
   }
 }

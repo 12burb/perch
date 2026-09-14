@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
+  "devDependencies": {
     "bun-pty": "0.4.10",
     "node-pty": "1.1.0"
   }
