@@ -1,6 +1,16 @@
 // @perch/runner — Runner agent: PTY, engines, fs, git, ports, preview tunnel (spec §3.2, §7.6).
 export const packageName = "@perch/runner";
 
+export {
+  ACP_AGENTS,
+  type AcpAgentSpec,
+  AcpSession,
+  agentTable,
+  installedAgents,
+  pickMode,
+  resolveAgentLaunch,
+  selectPermissionOption,
+} from "./acp.ts";
 export { detectToolVersions, localCapabilities } from "./capabilities.ts";
 export {
   connectRunner,
@@ -12,6 +22,7 @@ export {
   runnerSocketUrl,
   runnerStreamUrl,
 } from "./client.ts";
+export { unifiedDiff } from "./diff.ts";
 export { type ExecOptions, type ExecResult, exec } from "./exec.ts";
 export {
   type FsOptions,
@@ -91,4 +102,5 @@ export {
   tmux,
   tmuxSessionName,
 } from "./pty.ts";
+export { SessionManager, type SessionsOptions } from "./sessions.ts";
 export { createStreamPair, Inbox, type StreamOpener, streamOverSocket } from "./streams.ts";

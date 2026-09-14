@@ -35,6 +35,43 @@ Adding an engine: implement `Engine` (or `runnerEngine` for one hosted in the ru
 register it at boot (`boot({ engines: [...] })` or `engines.register(id, factory)`); a project's
 `defaultEngine` (project.json) or the request's `engine` picks it.
 
+## The ACP engine (`acp`, task 1.9)
+
+The Agent Client Protocol is the engine contract (spec §3.3, ADR-0013): every runner hosts the
+adapter (apps/runner/src/acp.ts), so any registry agent becomes an engine without code of its own.
+The api registers `acp` as a `runnerEngine` bridge per runner; the runner spawns the agent over
+stdio with the official SDK and maps its session updates onto EngineEvents:
+
+| ACP | EngineEvent |
+|---|---|
+| `agent_message_chunk` (text) | `text {delta}` |
+| `tool_call {toolCallId, title, rawInput}` | `tool_call {id, name: title, args: rawInput}` |
+| `tool_call_update` completed / failed | `tool_result {id, output, diff?}`; `diff` content blocks become unified patches |
+| `session/request_permission` | `permission {id, tool, args}`; the answer picks the agent's closest option (`allow` → allow_once, `always` → allow_always, `deny` → reject_once) |
+| `usage_update` cost, `PromptResponse.usage` | `usage {input, output, costUsd}` per round (ACP counts are cumulative; the runner keeps the difference) |
+| stop `end_turn` / `cancelled` | `done`; `refusal` → `error` |
+
+Which agent runs is the session's `model.provider`: `gemini`, `codex`, `claude`, `goose`,
+`opencode`, `qwen`, `cline` (the registry's launch commands, pinned as the registry pins them), or
+any id from `PERCH_ACP_AGENTS`; `engine` or `default` means the runner's `PERCH_ACP_AGENT`
+(default `gemini`). A binary on PATH wins over `npx`; an agent that is neither installed nor
+fetchable fails the first turn with the reason. Perch's `plan`/`build` map onto the agent's own
+modes when it has any (a mode whose id or name says "plan", otherwise the build-like one). Agents
+read and write files through the client's fs capability, confined to the session's directory and
+the runner's policy (`.git/**` stays read-only; writes announce `fs.changed`). The agent's
+`stderr` goes to the runner's log; thoughts, plans, and `user_message_chunk` echoes are not stored
+(the spec's union has no place for them yet). MCP servers for Perch's own tools ride the same
+`session/new` request once the MCP gateway (task 1.17) exists.
+
+Running the acceptance against a real agent needs its credentials on the machine:
+
+```
+PERCH_ACP_TEST_AGENT=gemini GEMINI_API_KEY=… bun test apps/runner/test/acp.test.ts
+PERCH_ACP_TEST_AGENT=codex OPENAI_API_KEY=… bun test apps/runner/test/acp.test.ts
+```
+
+CI runs the same flow against a registry-shaped agent (apps/runner/test/fixtures/acp-agent.ts).
+
 ## The lifecycle
 
 ```
@@ -106,6 +143,11 @@ model profiles (brains, task 1.15) choose one.
   registry's memoisation.
 - `packages/engines/test/runner-engine.test.ts`: the bridge maps calls onto `session.*` and turns
   notifications into a round.
+- `apps/runner/test/acp.test.ts`: the adapter against the fixture agent (two turns, one permission,
+  the diff, modes, cancel, deny, a failing prompt, fs confinement, refusals) and, with
+  `PERCH_ACP_TEST_AGENT`, a real registry agent.
+- `apps/api/test/sessions-acp.test.ts`: the same two turns through the REST routes and the
+  in-process runner.
 - `apps/api/test/sessions.test.ts`: open → turn → replay with monotonic seqs and WS fan-out;
   permission parks and resumes with cost; one round at a time, cancel, an engine error and
   recovery; strangers, unknown engines, signed-out callers.

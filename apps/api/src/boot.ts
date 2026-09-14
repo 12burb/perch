@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createBus } from "@perch/bus";
 import { createDb, type PgliteRuntime } from "@perch/db";
-import { type Engine, EngineRegistry } from "@perch/engines";
+import { type Engine, EngineError, EngineRegistry, runnerEngine } from "@perch/engines";
 import { createQueue } from "@perch/jobs";
 import { createVault } from "@perch/vault";
 import { type AppOptions, createApp } from "./app.ts";
@@ -88,6 +88,11 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const auth = createAuth({ env, db, log });
   const runners = new RunnerRegistry(bus);
   const engines = new EngineRegistry();
+  // The ACP adapter lives on the project's runner (task 1.9): one bridge per runner link.
+  engines.register("acp", ({ link }) => {
+    if (!link) throw new EngineError("the acp engine runs on a project's runner", "unavailable");
+    return runnerEngine({ id: "acp", link });
+  });
   for (const engine of options.engines ?? []) engines.register(engine.id, engine);
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, log },

@@ -279,8 +279,14 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       by,
     });
     if (body.prompt) {
-      const sent = await sessions.sendTurn(session, user.id, { text: body.prompt }, { by });
-      session = sent.session;
+      try {
+        const sent = await sessions.sendTurn(session, user.id, { text: body.prompt }, { by });
+        session = sent.session;
+      } catch (error) {
+        // The session exists; a first turn that could not start is on it as an error.
+        if (!(error instanceof PerchError)) throw error;
+        session = (await sessions.get(session.id)) ?? session;
+      }
     }
     return c.json(sessionBody(session), 201);
   });

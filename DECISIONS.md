@@ -1978,3 +1978,61 @@ The api never talks to an agent runtime directly: a runner-hosted engine is one 
 per runner link, and the same session service drives the fake in tests. Replay and live updates
 share one seq, so a client resumes from `last_seq` with no gaps. Checkpoints, diffs per turn, and
 sharing (the remaining `/api/sessions/{s}` routes) come with their tasks on the same tables.
+
+## ADR-0075: The ACP adapter: one client on every runner, agents chosen by the model's provider
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.9
+
+### Context
+ADR-0013 makes the Agent Client Protocol the engine contract and ADR-0030 verified the SDK on Bun
+against a stub agent. Spec §7.6 gives `session.create {project, engine, model, mode, worktree,
+env}` and `session.event` notifications, but not how a session names its agent, how ACP's updates
+map onto the EngineEvent union, what happens to thoughts and plans, or where the agents' launch
+commands come from. Gemini CLI and Codex, the acceptance agents, need vendor credentials this
+environment does not have.
+
+### Decision
+1. **Where.** The adapter runs in the runner (apps/runner/src/acp.ts, sessions.ts): the api's
+   `acp` engine is the `runnerEngine` bridge of ADR-0074, one per runner link, so hosted, local,
+   and in-process runners all host agents the same way, next to the project.
+2. **Which agent.** `model.provider` names the agent (`gemini`, `codex`, `claude`, `goose`,
+   `opencode`, `qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`); `engine`/`default` means the
+   runner's `PERCH_ACP_AGENT` (default `gemini`). The built-in table mirrors the ACP registry as of
+   2026-09-14 with its pinned versions (`@google/gemini-cli@0.59.0 --acp`,
+   `@agentclientprotocol/codex-acp@1.11.0`, `@agentclientprotocol/claude-agent-acp@0.77.0`,
+   `goose acp`, `opencode acp`, `@qwen-code/qwen-code@0.23.3 --acp --experimental-skills`,
+   `cline@3.0.61 --acp`); a binary on PATH wins, npx is the fallback, and neither is a clear error
+   at the first turn. Registry updates are ordinary dependency bumps of the table.
+3. **Mapping.** Text chunks → `text`; `tool_call` → `tool_call` with the title as the name and
+   `rawInput` as args; a completed or failed `tool_call_update` → one `tool_result` whose `diff`
+   comes from `diff` content blocks rendered as unified patches (apps/runner/src/diff.ts, no
+   dependency); `request_permission` → `permission` with ids `p1, p2, …` per session, answered by
+   `session.permission` with the agent's closest option kind; `PromptResponse.usage` (cumulative in
+   ACP) → per-round `usage` by difference, cost from `usage_update` when in USD; `end_turn` and
+   `cancelled` → `done`, `refusal` → `error`. Thoughts, plans, and user-message echoes are dropped
+   until the EngineEvent union has a place for them. The transcript keeps the agent's order: a
+   permission request yields to the update queue before it is emitted.
+4. **Modes.** Perch's `plan`/`build` are mapped onto the agent's `availableModes` (an id or name
+   containing "plan"; otherwise a build-like id, else the first non-plan mode) through
+   `session/set_mode`; agents without modes ignore it.
+5. **The client capabilities.** `fs/read_text_file` and `fs/write_text_file` are served inside the
+   session's directory (the project or its worktree) through the runner's policy hook, writes
+   announcing `fs.changed`; terminals are declared unsupported for now. MCP servers ride the
+   `session/new` request; Perch's own tools attach once the MCP gateway (task 1.17) exists.
+6. **Environment and lifetime.** The agent inherits the terminal's environment (ADR-0073: PERCH_*
+   blanked, HOME per person) plus the session's `env`; its stderr is logged; a session idle for
+   thirty minutes is closed and re-created on the next turn. `session.send` answers `{started}` at
+   once; a round's events are notifications, so long turns never hit the request timeout.
+7. **Acceptance.** CI drives the whole flow against a registry-shaped agent built on the SDK
+   (apps/runner/test/fixtures/acp-agent.ts): two turns, one permission prompt, the edit through the
+   fs capability with its diff, modes, cancel, deny, a failing prompt. The same test runs against
+   Gemini CLI or Codex with `PERCH_ACP_TEST_AGENT` and the vendor's credentials; CI has none, so
+   that run is a documented command rather than a job.
+
+### Consequences
+A new registry agent is a table entry, not an adapter. The api never sees agent binaries or
+credentials; a local runner runs its owner's agents under their own login (lane C). Per-turn usage
+is only as good as what the agent reports, and cost only when the agent reports USD. The runner
+protocol gains a result shape for `session.create` (additive).

@@ -16,6 +16,7 @@ import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
 import { type ProjectsOptions, projectsRoot, removeProject, setupProject } from "./projects.ts";
 import { PtyManager, type PtyOptions } from "./pty.ts";
+import { SessionManager, type SessionsOptions } from "./sessions.ts";
 import type { StreamOpener } from "./streams.ts";
 
 export type RunnerHandler<M extends ApiToRunnerMethod> = (
@@ -33,15 +34,22 @@ export type HandlerOptions = {
   /** Shell options (tmux, grace, homes) and how the runner reaches the api's stream endpoint. */
   pty?: Omit<PtyOptions, "root" | "notify" | "streams">;
   streams?: StreamOpener;
+  /** Session options (the ACP agents this runner may launch, the default agent, idle reaping). */
+  sessions?: Omit<SessionsOptions, "root" | "policy" | "notify" | "homes">;
 };
 
-/** Handlers plus what the runner must shut down with them (shells). */
-export type RunnerServices = { handlers: RunnerHandlers; ptys: PtyManager; close(): void };
+/** Handlers plus what the runner must shut down with them (shells, agent sessions). */
+export type RunnerServices = {
+  handlers: RunnerHandlers;
+  ptys: PtyManager;
+  sessions: SessionManager;
+  close(): void;
+};
 
 /**
- * What every runner answers today (tasks 1.4, 1.5, and 1.7): projects, the fs, git, worktree,
- * ports, exec, and pty methods. Sessions, the preview tunnel, and MCP spawning arrive with their
- * tasks.
+ * What every runner answers today (tasks 1.4, 1.5, 1.7, and 1.9): projects, the fs, git, worktree,
+ * ports, exec, pty, and session methods (ACP agents). The preview tunnel and MCP spawning arrive
+ * with their tasks.
  */
 export function defaultHandlers(options: HandlerOptions = {}): RunnerHandlers {
   return createServices(options).handlers;
@@ -52,17 +60,30 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
   const policy = options.policy ?? runnerPolicy();
   const fs = { root: projects.root, policy, ...(options.notify ? { notify: options.notify } : {}) };
   const git = { root: projects.root, policy };
+  const homes =
+    process.env.PERCH_HOMES_DIR || existsSync("/data/homes")
+      ? { homes: process.env.PERCH_HOMES_DIR ?? "/data/homes" }
+      : {};
   const ptys = new PtyManager({
     root: projects.root,
-    ...(process.env.PERCH_HOMES_DIR || existsSync("/data/homes")
-      ? { homes: process.env.PERCH_HOMES_DIR ?? "/data/homes" }
-      : {}),
+    ...homes,
     ...options.pty,
     ...(options.notify ? { notify: options.notify } : {}),
     ...(options.streams ? { streams: options.streams } : {}),
   });
+  const sessions = new SessionManager({
+    root: projects.root,
+    policy,
+    ...homes,
+    ...(options.notify ? { notify: options.notify } : {}),
+    ...options.sessions,
+  });
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
+    "session.create": (params) => sessions.create(params),
+    "session.send": (params) => sessions.send(params),
+    "session.permission": (params) => sessions.permission(params),
+    "session.cancel": (params) => sessions.cancel(params),
     "pty.open": (params) => ptys.open(params),
     "pty.input": async (params) => ({ written: ptys.write(params.pty_id, params.data) }),
     "pty.resize": async (params) => ({
@@ -85,7 +106,15 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     "worktree.remove": (params) => worktreeRemove(git, params),
     exec: (params) => exec(git, params),
   };
-  return { handlers, ptys, close: () => ptys.closeAll() };
+  return {
+    handlers,
+    ptys,
+    sessions,
+    close: () => {
+      ptys.closeAll();
+      void sessions.closeAll();
+    },
+  };
 }
 
 export function implementedMethods(handlers: RunnerHandlers): ApiToRunnerMethod[] {

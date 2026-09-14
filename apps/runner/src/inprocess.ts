@@ -47,6 +47,8 @@ export type InProcessRunnerOptions = {
   portsIntervalMs?: number;
   /** Shell options (tmux, grace period); laptop mode keeps the defaults. */
   pty?: HandlerOptions["pty"];
+  /** Session options (ACP agents, the default agent); laptop mode keeps the defaults. */
+  sessions?: HandlerOptions["sessions"];
 };
 
 export type InProcessRunner = RunnerLink & {
@@ -66,6 +68,7 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
     ...(options.projectsDir ? { projects: { root: options.projectsDir } } : {}),
     ...(options.policy ? { policy: options.policy } : {}),
     ...(options.pty ? { pty: options.pty } : {}),
+    ...(options.sessions ? { sessions: options.sessions } : {}),
     notify: emit,
     streams: {
       open: async (token) => {

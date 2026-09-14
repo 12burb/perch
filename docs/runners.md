@@ -190,6 +190,33 @@ a shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on
 `HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use. See
 [`terminal.md`](terminal.md).
 
+## Sessions on a runner (task 1.9)
+
+The `session.*` methods run agent sessions where the project is (spec §7.6); the runner answers
+`session.create` and `session.send` and streams a round's EngineEvents back as `session.event
+{session_id, event}` notifications (`session.send` returns `{started}` as soon as the round is
+under way).
+
+| Method | Params (beyond `workspace_id`, `user_id`, `cap`) | Result |
+|---|---|---|
+| `session.create` | `{session_id, project, engine, model, mode, worktree?, env?}` | `{engine_session_id?, agent?: {id, name}, modes?: {current, available}}` |
+| `session.send` | `{session_id, turn: {text, attachments?}, mode?}` | `{started}` |
+| `session.permission` | `{session_id, permission_id, answer}` | `{answered}` |
+| `session.cancel` | `{session_id}` | `{cancelled}` |
+
+Today `engine` is `acp` (ADR-0075; `opencode` and `cli-harness` come with tasks 1.10 and 1.11):
+`model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
+`qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`; `engine`/`default` → `PERCH_ACP_AGENT`, default
+`gemini`). The agent runs in the project directory (or the named worktree) with the shell
+environment of [`terminal.md`](terminal.md) plus the session's `env`; sessions idle for thirty
+minutes are closed. Runners report `engines: ["acp"]` and the agents on PATH as
+`capabilities.agents`. See [`sessions.md`](sessions.md).
+
+| Variable | Does |
+|---|---|
+| `PERCH_ACP_AGENT` | the agent for sessions that name none (default `gemini`) |
+| `PERCH_ACP_AGENTS` | JSON `{ "<id>": { "name", "command"?, "args"?, "npx"?: { "package", "args"? }, "env"? } }` adding or overriding agents |
+
 ### Policy hooks
 
 Every fs, git, and exec call asks one function, `RunnerPolicy` (apps/runner/src/policy.ts), before

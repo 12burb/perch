@@ -342,6 +342,25 @@ export const execResultSchema = z
   })
   .strict();
 
+/** session.create's answer (task 1.9, ADR-0075): the engine's own session id, the agent, and its modes. */
+export const sessionCreateResultSchema = z
+  .object({
+    engine_session_id: z.string().optional(),
+    agent: z.object({ id: z.string(), name: z.string() }).optional(),
+    modes: z
+      .object({
+        current: z.string(),
+        available: z.array(z.object({ id: z.string(), name: z.string() })),
+      })
+      .optional(),
+  })
+  .strict();
+export type SessionCreateResult = z.infer<typeof sessionCreateResultSchema>;
+/** session.send answers as soon as the round started; its events arrive as session.event notifications. */
+export const sessionSendResultSchema = z.object({ started: z.boolean() }).strict();
+export const sessionPermissionResultSchema = z.object({ answered: z.boolean() }).strict();
+export const sessionCancelResultSchema = z.object({ cancelled: z.boolean() }).strict();
+
 /** Methods whose result is a stream token for a data socket at /api/runner/stream/{token}. */
 export const STREAM_TOKEN_METHODS = ["pty.open", "http.open", "mcp.spawn"] as const;
 export const streamTokenResultSchema = z

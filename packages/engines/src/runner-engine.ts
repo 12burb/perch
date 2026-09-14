@@ -4,7 +4,13 @@
  * 1.9 on). Calls map one to one onto the runner protocol; the runner's session.event notifications
  * for a session become the AsyncIterable a round answers with.
  */
-import type { EngineEvent, PermissionAnswer, RunnerLink, UserTurn } from "@perch/events";
+import {
+  type EngineEvent,
+  type PermissionAnswer,
+  type RunnerLink,
+  sessionCreateResultSchema,
+  type UserTurn,
+} from "@perch/events";
 import {
   type CreateSessionParams,
   type Engine,
@@ -71,8 +77,9 @@ export function runnerEngine(options: RunnerEngineOptions): RunnerEngine {
         running: false,
       };
       sessions.set(params.sessionId, session);
+      let raw: unknown;
       try {
-        await link.call("session.create", {
+        raw = await link.call("session.create", {
           ...ctx(session),
           session_id: params.sessionId,
           project: params.projectId,
@@ -86,7 +93,9 @@ export function runnerEngine(options: RunnerEngineOptions): RunnerEngine {
         sessions.delete(params.sessionId);
         throw error;
       }
-      return { id: params.sessionId };
+      const result = sessionCreateResultSchema.safeParse(raw);
+      const engineSessionId = result.success ? result.data.engine_session_id : undefined;
+      return { id: params.sessionId, ...(engineSessionId ? { engineSessionId } : {}) };
     },
     async *send(
       sessionId: string,

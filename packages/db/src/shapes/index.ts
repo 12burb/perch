@@ -90,6 +90,8 @@ export type ProjectConfig = z.infer<typeof projectConfigSchema>;
 export const runnerCapabilitiesSchema = z
   .object({
     engines: z.array(z.string().min(1)).optional(),
+    /** ACP agents installed on the runner (task 1.9). */
+    agents: z.array(z.string().min(1)).optional(),
     pty: z.boolean().optional(),
     docker: z.boolean().optional(),
     gpu: z.boolean().optional(),

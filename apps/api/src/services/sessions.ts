@@ -8,13 +8,14 @@
 import type { Bus } from "@perch/bus";
 import type { CodingSession, Db, Project } from "@perch/db";
 import { type Engine, EngineError, type EngineRegistry } from "@perch/engines";
-import type {
-  ModelRef,
-  PermissionAnswer,
-  SessionEvent,
-  SessionMode,
-  SessionStatus,
-  UserTurn,
+import {
+  type ModelRef,
+  type PermissionAnswer,
+  RunnerRpcError,
+  type SessionEvent,
+  type SessionMode,
+  type SessionStatus,
+  type UserTurn,
 } from "@perch/events";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
@@ -30,6 +31,7 @@ import {
 } from "../repos/sessions.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import { getProject, projectRunnerLink } from "./projects.ts";
+import { runnerError } from "./runners.ts";
 
 export type SessionDeps = {
   db: Db;
@@ -70,6 +72,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** An engine's refusal as the §7.8 error it means to the caller. */
 export function engineFailure(error: unknown): PerchError {
   if (error instanceof PerchError) return error;
+  if (error instanceof RunnerRpcError) return runnerError(error);
   if (error instanceof EngineError) {
     switch (error.code) {
       case "busy":
@@ -172,7 +175,16 @@ export class SessionService {
     if (this.rounds.has(session.id)) {
       throw PerchError.conflict("a round is already running", { status: session.status });
     }
-    const engine = await this.engineFor(session, userId);
+    let engine: Engine;
+    try {
+      engine = await this.engineFor(session, userId);
+    } catch (error) {
+      // The engine could not be reached or opened: the transcript says so, and so does the caller.
+      const failure = engineFailure(error);
+      await this.record(session, { type: "error", message: failure.message }, options.by);
+      await this.setStatus(session, "error", failure.message, options.by);
+      throw failure;
+    }
     const mode = options.mode ?? session.mode;
     const { seq } = await this.record(
       session,
