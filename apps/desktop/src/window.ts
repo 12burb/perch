@@ -105,11 +105,14 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
   trace(`webview created for ${options.url}`);
   return new Promise<void>((resolve) => {
     let done = false;
+    let ticks = 0;
+    let loadStarted = false;
     const finish = (why: string) => {
       if (done) return;
       done = true;
       trace(`closing: ${why}`);
       clearInterval(pump);
+      clearInterval(liveness);
       try {
         app.exit();
       } catch {
@@ -120,10 +123,25 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
     // The documented equivalent of app.run(): pump the OS queue from a timer; false means the last
     // window closed.
     const pump = setInterval(() => {
+      ticks += 1;
       if (!app.pumpEvents()) finish("the event loop reported exit");
+      else if (ticks === 1) trace("event loop pumping");
     }, 16);
+    // With a trace: a liveness line every 5 s, and one re-navigation when nothing has started
+    // loading after 10 s (a platform that dropped the initial navigation gets a second chance).
+    const liveness = setInterval(() => {
+      if (!options.trace) return;
+      trace(`alive: ${ticks} ticks, visible=${win.isVisible()}, url=${webview.url() ?? "none"}`);
+      if (!loadStarted && ticks > 0 && ticks * 16 >= 10_000 && ticks * 16 < 15_000) {
+        trace(`nothing loaded yet: navigating again to ${options.url}`);
+        webview.loadUrl(options.url);
+      }
+    }, 5_000);
     win.on("close", () => finish("window closed"));
-    webview.on("page-load-started", (event) => trace(`page load started ${event.url ?? ""}`));
+    webview.on("page-load-started", (event) => {
+      loadStarted = true;
+      trace(`page load started ${event.url ?? ""}`);
+    });
     webview.on("navigation", (event) => trace(`navigation ${event.url ?? ""}`));
     webview.on("page-load-finished", (event) => {
       const url = event.url ?? webview.url() ?? "";
