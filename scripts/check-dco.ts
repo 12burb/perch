@@ -13,9 +13,23 @@ const RECORD = "";
 const FIELD = "";
 const SIGNED_OFF = /^Signed-off-by: .+ <[^>]+>$/m;
 
+/**
+ * Merge commits are exempt (the DCO app skips them too). Counted from the raw commit object rather than
+ * `git log --no-merges`: a shallow clone grafts the parents away at its boundary, so the synthetic merge
+ * commit of a pull request checked out at depth 1 would otherwise look like a root commit.
+ */
+function parentCount(sha: string, cwd?: string): number {
+  const proc = Bun.spawnSync(["git", "cat-file", "commit", sha], { cwd });
+  if (proc.exitCode !== 0) {
+    throw new Error(`git cat-file failed: ${proc.stderr.toString().trim()}`);
+  }
+  const header = proc.stdout.toString().split("\n\n", 1)[0] ?? "";
+  return header.split("\n").filter((line) => line.startsWith("parent ")).length;
+}
+
 export function checkDco(range: string, cwd?: string): DcoResult {
   const proc = Bun.spawnSync(
-    ["git", "log", "--no-merges", `--format=%H${FIELD}%an <%ae>${FIELD}%B${RECORD}`, range],
+    ["git", "log", `--format=%H${FIELD}%an <%ae>${FIELD}%B${RECORD}`, range],
     { cwd },
   );
   if (proc.exitCode !== 0) {
@@ -28,13 +42,16 @@ export function checkDco(range: string, cwd?: string): DcoResult {
     .filter((s) => s.length > 0);
 
   const failures: string[] = [];
+  let checked = 0;
   for (const raw of records) {
     const [sha = "", author = "", body = ""] = raw.split(FIELD);
+    if (parentCount(sha, cwd) > 1) continue;
+    checked++;
     if (!SIGNED_OFF.test(body)) {
       failures.push(`${sha.slice(0, 12)} (${author}) is missing a Signed-off-by trailer`);
     }
   }
-  return { ok: failures.length === 0, checked: records.length, failures };
+  return { ok: failures.length === 0, checked, failures };
 }
 
 if (import.meta.main) {

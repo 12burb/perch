@@ -59,3 +59,44 @@ describe("DCO check", () => {
     expect(result.failures).toEqual([]);
   });
 });
+
+describe("DCO check on merge commits", () => {
+  let repo = "";
+  let shallow = "";
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "perch-dco-merge-"));
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "a\n");
+    git(repo, "add", "a.txt");
+    git(repo, "commit", "-q", "-s", "-m", "feat: base");
+    git(repo, "tag", "base");
+    git(repo, "checkout", "-q", "-b", "topic");
+    writeFileSync(join(repo, "b.txt"), "b\n");
+    git(repo, "add", "b.txt");
+    git(repo, "commit", "-q", "-s", "-m", "feat: on the topic branch");
+    git(repo, "checkout", "-q", "main");
+    // An unsigned merge commit, like the one GitHub synthesizes for a pull request's merge ref.
+    git(repo, "merge", "-q", "--no-ff", "-m", "Merge topic into main", "topic");
+    // A depth-1 clone grafts the merge's parents away.
+    shallow = mkdtempSync(join(tmpdir(), "perch-dco-shallow-"));
+    git(shallow, "clone", "-q", "--depth", "1", `file://${repo}`, ".");
+  });
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(shallow, { recursive: true, force: true });
+  });
+
+  test("an unsigned merge commit is exempt; the commits it merges are still checked", () => {
+    const result = checkDco("base..HEAD", repo);
+    expect(result.ok).toBe(true);
+    expect(result.checked).toBe(1);
+  });
+
+  test("the merge stays exempt at the boundary of a shallow clone", () => {
+    const result = checkDco("HEAD", shallow);
+    expect(result.ok).toBe(true);
+    expect(result.checked).toBe(0);
+  });
+});

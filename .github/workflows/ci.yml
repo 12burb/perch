@@ -40,6 +40,9 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The DCO test in scripts/ checks the whole history, not the one commit a depth-1 clone sees.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
