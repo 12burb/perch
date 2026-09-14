@@ -89,14 +89,8 @@ function RunnerList(props: { workspaceId: string; myId: string; canAdmin: boolea
           {error}
         </p>
       ) : null}
-      {/* Scrollable on narrow screens, so it must be reachable from the keyboard (axe). */}
-      <div
-        className="overflow-x-auto"
-        tabIndex={0}
-        role="group"
-        aria-label={t("environments.title")}
-      >
-        <table className="w-full text-sm">
+      <div>
+        <table className="w-full table-fixed text-sm break-words">
           <thead>
             <tr className="text-left text-fg-muted">
               <th scope="col" className="py-1 pr-3 font-medium">
@@ -105,10 +99,10 @@ function RunnerList(props: { workspaceId: string; myId: string; canAdmin: boolea
               <th scope="col" className="py-1 pr-3 font-medium">
                 {t("environments.status")}
               </th>
-              <th scope="col" className="py-1 pr-3 font-medium">
+              <th scope="col" className="hidden py-1 pr-3 font-medium sm:table-cell">
                 {t("environments.kind")}
               </th>
-              <th scope="col" className="py-1 pr-3 font-medium">
+              <th scope="col" className="hidden py-1 pr-3 font-medium sm:table-cell">
                 {t("environments.lastSeen")}
               </th>
               <th scope="col" className="py-1 pr-3 font-medium">
@@ -136,7 +130,7 @@ function RunnerList(props: { workspaceId: string; myId: string; canAdmin: boolea
                       </span>
                     ) : null}
                   </td>
-                  <td className="py-2 pr-3">
+                  <td className="hidden py-2 pr-3 sm:table-cell">
                     {kindLabel(runner)}
                     {runner.platform ? (
                       <span className="ml-1 text-fg-muted">
@@ -144,7 +138,7 @@ function RunnerList(props: { workspaceId: string; myId: string; canAdmin: boolea
                       </span>
                     ) : null}
                   </td>
-                  <td className="py-2 pr-3 text-fg-muted">
+                  <td className="hidden py-2 pr-3 text-fg-muted sm:table-cell">
                     {runner.last_seen_at
                       ? new Date(runner.last_seen_at).toLocaleString()
                       : t("environments.never")}
@@ -232,11 +226,7 @@ function ConnectSection(props: { workspaceId: string }) {
           <h3 id="command-heading" className="text-sm font-semibold">
             {t("environments.commandHeading")}
           </h3>
-          <pre
-            className="overflow-x-auto rounded border border-border bg-raised p-3 text-sm"
-            tabIndex={0}
-            aria-label={t("environments.commandHeading")}
-          >
+          <pre className="whitespace-pre-wrap break-all rounded border border-border bg-raised p-3 text-sm">
             <code data-testid="connect-command">{command}</code>
           </pre>
           <p className="text-sm text-fg-muted">{t("environments.commandHint")}</p>
