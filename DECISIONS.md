@@ -1869,3 +1869,57 @@ counts as the app's. The initial budget (180 KB) and the CSS and WS-envelope bud
 The app budget is what a session actually pays for a route; the packs budget still bounds what the
 editor can pull in over time. Either budget is raised only by an ADR that names what grew. The
 manifest ships inside `dist` (and the binary's embedded assets); it is a few KB.
+
+## ADR-0073: The terminal: stream sockets, reattachable shells, tmux, and a clean environment
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.7
+
+### Context
+Spec §7.6 puts terminal data on "extra sockets at `/api/runner/stream/{stream_token}`" and gives
+`pty.open {cols, rows, cwd, user} → stream token`; §5.1 asks for per-user, tmux-persistent shells
+with clickable paths, and the acceptance criterion is that a reload keeps the shell. The spec does
+not say how the api pairs a runner's data socket with the browser that asked, how a browser finds
+its shell again, or what a shell's environment is.
+
+### Decision
+1. **Stream sockets, one hub.** `RunnerLink.openStream(token)` is the api-side contract: the socket
+   runner opens `/api/runner/stream/{token}` (its connect token as the bearer, verified like the
+   control channel) and a `StreamHub` pairs it with the awaiting caller; the in-process runner pairs
+   two in-memory ends. Tokens are single-use and unclaimed ones expire after 15 s
+   (`STREAM_OPEN_TIMEOUT_MS`). Frames buffer until the first subscriber on both sides, so scrollback
+   sent before a handler attached is not lost. The spec's `pty.data` notification stays unused:
+   output has its own socket, and a notification on the control channel would head-of-line-block
+   RPCs behind a busy build.
+2. **`pty_id` and a grace period.** `pty.open` accepts an optional `pty_id` (additive) and answers
+   `{stream_token, pty_id, reattached}`. A shell whose stream closed lives on for `graceMs`
+   (10 min) with `scrollbackBytes` (64 KiB) of output replayed to the next stream. The browser keeps
+   the `pty_id` per project in session storage, so a reload, a closed drawer, or a dropped socket
+   reattaches; "New shell" forgets it. Terminal query sequences (DA, DSR, XTVERSION, DECRQM, kitty
+   keyboard, XTGETTCAP, OSC colour queries) are stripped from the scrollback before replay: a
+   reattaching xterm would otherwise answer each one into the shell as keystrokes.
+3. **tmux.** Where tmux exists the shell is `tmux -u new-session -A -s perch-<sha1(user\ncwd)[:12]>
+   -x cols -y rows -c cwd ; set-option status off`: the same person in the same directory gets the
+   same session even after the runner process restarts (the tmux server outlives it), and the
+   status line is off because the drawer already shows the project and its default colours fail
+   contrast in the app's theme. Windows and machines without tmux get `$SHELL -l` / `%COMSPEC%`
+   with the grace period only.
+4. **Per-user shells and a clean environment.** The shell's environment is the runner's minus every
+   `PERCH_*` variable (the connect token, the master key, session secrets: AGENTS.md §1.6), plus
+   `TERM`, `COLORTERM`, `PERCH=1`, `PERCH_USER`, and `HOME=<homes>/<user>` on a hosted runner
+   (`/data/homes`, `PERCH_HOMES_DIR`; created 0700 on first use). A person's own variables on a
+   local runner stay: it is their machine and their login (lane C).
+5. **The browser side.** xterm.js 6 with the fit and web-links addons, loaded on demand
+   (`lazy(() => import(...))`) from the project route, so the app JS budget of ADR-0072 rises from
+   420 KB to 520 KB for the terminal's chunk while the initial route budget stays. File paths are a
+   link provider over the buffer's lines (`path.ext`, `path:line`, `path:line:col`) that opens the
+   editor; the drawer is a labelled region with a status line, and closing the drawer does not close
+   the shell.
+
+### Consequences
+A terminal costs one control RPC and one extra socket per shell; the api relays frames without
+parsing them beyond the JSON envelope. Reattach works across api restarts as long as the runner
+keeps the shell (the id is the runner's), and across runner restarts on tmux machines. Per-user
+homes are a directory per user on the homes volume, as the supervisor mounts it; OS-level user
+separation inside the runner image is a later task. The `pty.data` notification remains reserved.

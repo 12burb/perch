@@ -12,6 +12,7 @@
 | [`desktop.md`](desktop.md) | The desktop app: laptop mode in a native window |
 | [`projects.md`](projects.md) | Projects: empty, upload, clone with a token or the deploy key; project.json and devcontainer.json |
 | [`editor.md`](editor.md) | Code mode's file tree and editor: CodeMirror 6, tabs, breadcrumbs, search, markdown and image preview |
+| [`terminal.md`](terminal.md) | The terminal drawer: shells on the project's runner, tmux persistence, reattach after a reload, path links |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |
 | [`policies/providers.md`](policies/providers.md) | The credential matrix and the three lanes |

@@ -26,6 +26,7 @@ import {
   type RunnerNotification,
   type RunnerNotificationParams,
   RunnerRpcError,
+  type RunnerStream,
   type RunnerToApiMethod,
   runnerToApiParams,
 } from "@perch/events";
@@ -38,6 +39,7 @@ import { recordHeartbeat, updateRunner } from "../repos/runners.ts";
 import { authenticateRunnerToken } from "../services/runners.ts";
 import type { WsServer } from "../ws/server.ts";
 import type { RunnerRegistry } from "./registry.ts";
+import { type SocketStream, StreamHub } from "./streams.ts";
 
 export type RunnerChannelDeps = { db: Db; bus: Bus; registry: RunnerRegistry; log: Logger };
 export type RunnerChannelOptions = {
@@ -45,6 +47,8 @@ export type RunnerChannelOptions = {
   registerTimeoutMs?: number;
   /** How long an api → runner request may take before the link rejects it. */
   requestTimeoutMs?: number;
+  /** How long a stream token waits for its other side (tests). */
+  streamWaitMs?: number;
 };
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: Timer };
@@ -61,7 +65,13 @@ class WsRunnerLink implements RunnerLink {
     private readonly ws: WSContext<unknown>,
     private readonly capSecret: string,
     private readonly requestTimeoutMs: number,
+    private readonly streams: StreamHub,
   ) {}
+
+  /** The socket the runner opens for a stream token (pty.open and friends). */
+  openStream(token: string): Promise<RunnerStream> {
+    return this.streams.open(this.id, token);
+  }
 
   async call<M extends ApiToRunnerMethod>(
     method: M,
@@ -158,6 +168,7 @@ export function createRunnerChannel(
   const registerTimeoutMs = options.registerTimeoutMs ?? RUNNER_REGISTER_TIMEOUT_MS;
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   const sessions = new Set<Session>();
+  const streams = new StreamHub(options.streamWaitMs);
 
   function armHeartbeatWatchdog(session: Session): void {
     if (session.heartbeatTimer) clearTimeout(session.heartbeatTimer);
@@ -212,6 +223,7 @@ export function createRunnerChannel(
       session.ws,
       capSecret,
       requestTimeoutMs,
+      streams,
     );
     session.link = link;
     deps.registry.attach(link, { workspaceId: session.runner.workspaceId });
@@ -340,8 +352,7 @@ export function createRunnerChannel(
     };
   });
 
-  /** GET /api/runner: a valid connect token as the bearer, then the WebSocket upgrade. */
-  const handler: MiddlewareHandler<AppEnv> = async (c, next) => {
+  async function runnerFromBearer(c: Context<AppEnv>): Promise<Runner> {
     const header = c.req.header("authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
     const runner = token ? await authenticateRunnerToken(deps.db, token) : null;
@@ -350,18 +361,54 @@ export function createRunnerChannel(
         reason: "runner_token_invalid",
       });
     }
-    c.set("runner", runner);
+    return runner;
+  }
+
+  /** GET /api/runner: a valid connect token as the bearer, then the WebSocket upgrade. */
+  const handler: MiddlewareHandler<AppEnv> = async (c, next) => {
+    c.set("runner", await runnerFromBearer(c));
     return upgrade(c, next);
+  };
+
+  const streamUpgrade = upgradeWebSocket((c: Context<AppEnv>) => {
+    const runner = c.get("runner");
+    const token = c.req.param("token") ?? "";
+    let stream: SocketStream | null = null;
+    return {
+      onOpen(_evt, ws) {
+        if (!runner) {
+          ws.close(1008, "runner token required");
+          return;
+        }
+        stream = streams.attach(runner.id, token, ws);
+        if (!stream) ws.close(1008, "unknown stream token");
+      },
+      onMessage(evt) {
+        if (typeof evt.data === "string") stream?.deliver(evt.data);
+      },
+      onClose() {
+        stream?.markClosed();
+      },
+    };
+  });
+
+  /** GET /api/runner/stream/:token: the runner's data socket for a token it minted (task 1.7). */
+  const streamHandler: MiddlewareHandler<AppEnv> = async (c, next) => {
+    c.set("runner", await runnerFromBearer(c));
+    return streamUpgrade(c, next);
   };
 
   return {
     handler,
+    streamHandler,
+    streams,
     /** Open control sockets (registered or not), for health details and tests. */
     get size() {
       return sessions.size;
     },
     /** Closes every control socket; the registry entries go with them. */
     async close(): Promise<void> {
+      streams.closeAll();
       for (const session of [...sessions]) session.ws.close(1001, "api shutting down");
     },
   };

@@ -13,9 +13,10 @@ export const BUDGETS = {
   initialGzipKb: 180,
   /**
    * The app's own JavaScript (gzip): the entry, everything it imports, and every route chunk the
-   * app itself splits off (ADR-0072). Since the editor (task 1.6) it carries CodeMirror's core.
+   * app itself splits off (ADR-0072). Since the editor (task 1.6) it carries CodeMirror's core and
+   * since the terminal (task 1.7, ADR-0073) xterm.js, loaded with the drawer.
    */
-  appJsGzipKb: 420,
+  appJsGzipKb: 520,
   /**
    * On-demand library packs (gzip): chunks a library loads lazily on its own, one per file type
    * (CodeMirror's ~40 language grammars behind @codemirror/language-data); a user downloads only

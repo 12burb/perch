@@ -317,5 +317,15 @@
   "editor.discardConfirm": "Discard unsaved changes in this file?",
   "projects.notFound": "Project not found",
   "projects.notFoundHint": "It may have been deleted, or the link is wrong.",
-  "projects.open": "Open {name}"
+  "projects.open": "Open {name}",
+  "terminal.title": "Terminal",
+  "terminal.label": "Terminal for {name}",
+  "terminal.connecting": "Connecting…",
+  "terminal.connected": "Connected",
+  "terminal.reattached": "Reattached to your shell",
+  "terminal.ended": "Shell ended",
+  "terminal.disconnected": "Disconnected",
+  "terminal.restart": "New shell",
+  "terminal.reconnect": "Reconnect",
+  "terminal.openLink": "Open {path} in the editor"
 }

@@ -86,6 +86,8 @@ export const apiToRunnerParams = {
     rows: z.number().int().positive(),
     cwd: z.string(),
     user: z.string(),
+    /** Additive (ADR-0073): reattach to a shell the runner still holds (a reload, a closed drawer). */
+    pty_id: z.string().optional(),
   }),
   "pty.input": z.object({ ...ctx, pty_id: z.string(), data: z.string() }),
   "pty.resize": z.object({
@@ -347,7 +349,21 @@ export const execResultSchema = z
 
 /** Methods whose result is a stream token for a data socket at /api/runner/stream/{token}. */
 export const STREAM_TOKEN_METHODS = ["pty.open", "http.open", "mcp.spawn"] as const;
-export const streamTokenResultSchema = z.object({ stream_token: z.string().min(1) }).strict();
+export const streamTokenResultSchema = z
+  .object({ stream_token: z.string().min(1), pty_id: z.string().optional() })
+  .strict();
+/** pty.open's answer: the stream token and the shell's id, for input, resize, close, and reattach. */
+export const ptyOpenResultSchema = z
+  .object({
+    stream_token: z.string().min(1),
+    pty_id: z.string().min(1),
+    /** Whether an existing shell was reattached (its scrollback is replayed on the stream). */
+    reattached: z.boolean(),
+  })
+  .strict();
+export type PtyOpenResult = z.infer<typeof ptyOpenResultSchema>;
+/** How long the runner waits for the api to open a stream it announced. */
+export const STREAM_OPEN_TIMEOUT_MS = 15_000;
 
 export const jsonRpcRequestSchema = z
   .object({

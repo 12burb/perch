@@ -24,13 +24,15 @@ import {
 } from "@perch/events";
 import { localCapabilities } from "./capabilities.ts";
 import {
-  defaultHandlers,
+  createServices,
   errorCode,
   type HandlerOptions,
   type RunnerHandlers,
+  type RunnerServices,
 } from "./handlers.ts";
 import { createNotifier } from "./notify.ts";
 import { watchPorts } from "./ports.ts";
+import { streamOverSocket } from "./streams.ts";
 
 export type RunnerClientStatus =
   | "connecting"
@@ -58,7 +60,7 @@ export type RunnerClientOptions = {
   ownerUserId?: string;
   handlers?: RunnerHandlers;
   /** Options for the default handlers when `handlers` is not given (projects root, policy). */
-  handlerOptions?: Omit<HandlerOptions, "notify">;
+  handlerOptions?: Omit<HandlerOptions, "notify" | "streams">;
   /** ports.changed polling period; 0 disables the watcher. */
   portsIntervalMs?: number;
   /** Reconnect policy; false gives up on the first drop. */
@@ -89,6 +91,16 @@ export function runnerSocketUrl(apiUrl: string): string {
   return url.toString();
 }
 
+/** The data socket for a stream token (spec §7.6 /api/runner/stream/{stream_token}). */
+export function runnerStreamUrl(apiUrl: string, token: string): string {
+  const url = new URL(`/api/runner/stream/${encodeURIComponent(token)}`, apiUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
+type SocketCtor = new (url: string, options: { headers: Record<string, string> }) => WebSocket;
+type RunnerStreamHandle = ReturnType<typeof streamOverSocket>;
+
 export function measureLoad(): RunnerNotificationParams<"runner.heartbeat">["load"] {
   const cores = Math.max(1, cpus().length);
   const oneMinute = loadavg()[0] ?? 0;
@@ -102,8 +114,26 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
   const log: RunnerLogger = options.log ?? (() => {});
   const kind = options.kind ?? "hosted";
   const notifier = createNotifier();
-  const handlers =
-    options.handlers ?? defaultHandlers({ ...options.handlerOptions, notify: notifier.emit });
+  // Streams: a second socket per token, with the same connect token as the bearer.
+  const openStreamSocket = (token: string): Promise<RunnerStreamHandle> =>
+    new Promise((resolve, reject) => {
+      const Ctor = WebSocket as unknown as SocketCtor;
+      const ws = new Ctor(runnerStreamUrl(options.apiUrl, token), {
+        headers: { authorization: `Bearer ${options.token}` },
+      });
+      const stream = streamOverSocket(ws);
+      ws.addEventListener("open", () => resolve(stream), { once: true });
+      ws.addEventListener("error", () => reject(new Error("stream socket failed")), { once: true });
+      ws.addEventListener("close", () => reject(new Error("stream socket closed")), { once: true });
+    });
+  const services: RunnerServices | null = options.handlers
+    ? null
+    : createServices({
+        ...options.handlerOptions,
+        notify: notifier.emit,
+        streams: { open: openStreamSocket },
+      });
+  const handlers: RunnerHandlers = options.handlers ?? services?.handlers ?? {};
   const info: RunnerInfo = {
     name: options.name ?? hostname(),
     kind,
@@ -396,6 +426,7 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
       stopTimers();
       stopPorts?.();
       stopPorts = null;
+      services?.close();
       const ws = socket;
       if (ws && ws.readyState <= OPEN) {
         await new Promise<void>((resolve) => {

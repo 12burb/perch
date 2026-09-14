@@ -10,6 +10,7 @@ export {
   type RunnerClientStatus,
   type RunnerLogger,
   runnerSocketUrl,
+  runnerStreamUrl,
 } from "./client.ts";
 export { type ExecOptions, type ExecResult, exec } from "./exec.ts";
 export {
@@ -35,12 +36,14 @@ export {
   worktreeRemove,
 } from "./git.ts";
 export {
+  createServices,
   defaultHandlers,
   errorCode,
   type HandlerOptions,
   implementedMethods,
   type RunnerHandler,
   type RunnerHandlers,
+  type RunnerServices,
 } from "./handlers.ts";
 export {
   createInProcessRunner,
@@ -80,3 +83,12 @@ export {
   scrubUrl,
   setupProject,
 } from "./projects.ts";
+export {
+  PtyManager,
+  type PtyOptions,
+  shellCommand,
+  shellEnv,
+  tmux,
+  tmuxSessionName,
+} from "./pty.ts";
+export { createStreamPair, Inbox, type StreamOpener, streamOverSocket } from "./streams.ts";

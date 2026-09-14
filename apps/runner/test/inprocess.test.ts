@@ -21,7 +21,7 @@ describe("in-process runner (task 0.14)", () => {
     expect(Array.isArray(ports.ports)).toBe(true);
     // Methods of later tasks are refused with "method not found"…
     const err = await runner
-      .call("pty.open", { ...ctx, cols: 80, rows: 24, cwd: "/", user: "x" })
+      .call("mcp.spawn", { ...ctx, command: "x", args: [] })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RunnerRpcError);
     expect((err as RunnerRpcError).code).toBe(-32601);

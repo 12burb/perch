@@ -25,6 +25,19 @@ export type RunnerNotification = {
   [M in RunnerToApiMethod]: { method: M; params: RunnerNotificationParams<M> };
 }[RunnerToApiMethod];
 
+/**
+ * A data stream beside the control channel (spec §7.6 "data streams as extra sockets at
+ * /api/runner/stream/{stream_token}"): text frames both ways, closed by either side. A PTY's output
+ * and input travel here; the in-process runner pairs two ends in memory.
+ */
+export interface RunnerStream {
+  send(data: string): void;
+  onMessage(handler: (data: string) => void): () => void;
+  onClose(handler: () => void): () => void;
+  close(): void;
+  readonly closed: boolean;
+}
+
 export interface RunnerLink {
   /** Stable per connection; hosted runners use the runner row id, local ones the connect token id. */
   readonly id: string;
@@ -33,6 +46,8 @@ export interface RunnerLink {
   call<M extends ApiToRunnerMethod>(method: M, params: RunnerCallParams<M>): Promise<unknown>;
   /** Runner→api notifications (heartbeats, port changes, session events, …). */
   onNotification(handler: (notification: RunnerNotification) => void): () => void;
+  /** The stream a method answered with a stream token opens (task 1.7); absent before then. */
+  openStream?(token: string): Promise<RunnerStream>;
   close(): Promise<void>;
 }
 

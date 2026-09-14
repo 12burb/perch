@@ -112,14 +112,7 @@ describe("runner control channel (task 1.1)", () => {
     // A method a later task brings is refused as "method not found"; an implemented one (fs.read,
     // task 1.5) runs and reports its own failure (no such project on this runner).
     const refused = await link
-      .call("pty.open", {
-        workspace_id: workspaceId,
-        user_id: userId,
-        cols: 80,
-        rows: 24,
-        cwd: "/",
-        user: "x",
-      })
+      .call("mcp.spawn", { workspace_id: workspaceId, user_id: userId, command: "x", args: [] })
       .catch((e: unknown) => e);
     expect((refused as { code: number }).code).toBe(-32601);
     const missing = await link

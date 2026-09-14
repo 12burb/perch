@@ -18,6 +18,7 @@ import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerRunners } from "./routes/runners.ts";
 import { registerSetup } from "./routes/setup.ts";
+import { registerTerminal } from "./routes/terminal.ts";
 import { registerVersion } from "./routes/version.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
 import type { RunnerChannel } from "./runners/channel.ts";
@@ -78,12 +79,14 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
     // Runners authenticate with a connect token, not a user (spec §7.6): mounted before the user
     // authentication middleware, which never sees this route.
     app.get("/api/runner", options.runnerChannel.handler);
+    app.get("/api/runner/stream/:token", options.runnerChannel.streamHandler);
   }
   app.use("/api/*", authenticate(deps));
 
   if (options.ws) {
     // Upgrades need a signed-in user (cookie or bearer); the §7.8 forbidden body is returned otherwise.
     app.get("/api/ws", requireUser, options.ws.handler);
+    registerTerminal(app, deps, options.ws);
   }
 
   registerHealth(app, deps);

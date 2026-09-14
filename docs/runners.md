@@ -160,6 +160,36 @@ on every change; the api keeps it per runner (the Environments list shows it), a
 `GET /api/workspaces/{ws}/runners/{runner}/ports` live, and announces new ports on a workspace's
 runner as `preview.port_detected` (spec §5.6).
 
+## Shells and stream sockets (task 1.7)
+
+The `pty.*` methods run a shell per person and project; output and input travel on a data socket
+rather than on the control channel (spec §7.6: "data streams as extra sockets at
+`/api/runner/stream/{stream_token}`").
+
+| Method | Params (beyond `workspace_id`, `user_id`, `cap`) | Result |
+|---|---|---|
+| `pty.open` | `{cols, rows, cwd, user, pty_id?}` | `{stream_token, pty_id, reattached}`; `pty_id` reattaches to a shell the runner still holds |
+| `pty.input` | `{pty_id, data}` | `{written}` (the stream carries input too; this is the fallback) |
+| `pty.resize` | `{pty_id, cols, rows}` | `{resized}` |
+| `pty.close` | `{pty_id}` | `{closed}` |
+
+Runner → api notification: `pty.exit {pty_id, code}`. After `pty.open` the runner opens
+`GET /api/runner/stream/{stream_token}` (a WebSocket, its connect token as the bearer, the same
+`prt_` token as the control channel); the api pairs that socket with whoever asked for the stream
+(`StreamHub`, apps/api/src/runners/streams.ts) and drops tokens nobody claims within 15 s. Each
+token is single-use. The in-process runner of laptop mode pairs stream ends in memory through the
+same `RunnerLink.openStream(token)` interface. The `pty.data` notification the spec lists is not
+used while output has a stream of its own (ADR-0073).
+
+The shell: tmux where the machine has it (`tmux -u new-session -A -s perch-<hash> -x cols -y rows
+-c cwd ; set-option status off`; the hash is of the user and directory, so a reopen finds the same
+session), otherwise `$SHELL -l` (`%COMSPEC%` on Windows). A shell whose stream closed stays for ten
+minutes (`graceMs`) with 64 KiB of scrollback (`scrollbackBytes`) replayed to the next stream. Its
+environment is the runner's minus every `PERCH_*` variable (the connect token never reaches a
+shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on a hosted runner,
+`HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use. See
+[`terminal.md`](terminal.md).
+
 ### Policy hooks
 
 Every fs, git, and exec call asks one function, `RunnerPolicy` (apps/runner/src/policy.ts), before

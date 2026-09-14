@@ -15,9 +15,11 @@ import {
   type RunnerLink,
   type RunnerNotification,
   RunnerRpcError,
+  type RunnerStream,
 } from "@perch/events";
 import { localCapabilities } from "./capabilities.ts";
 import {
+  createServices,
   defaultHandlers,
   errorCode,
   type HandlerOptions,
@@ -25,6 +27,7 @@ import {
   type RunnerHandlers,
 } from "./handlers.ts";
 import { watchPorts } from "./ports.ts";
+import { createStreamPair } from "./streams.ts";
 
 export const IMPLEMENTED_METHODS: ReadonlySet<ApiToRunnerMethod> = new Set<ApiToRunnerMethod>(
   implementedMethods(defaultHandlers()),
@@ -42,6 +45,8 @@ export type InProcessRunnerOptions = {
   policy?: HandlerOptions["policy"];
   /** ports.changed polling period; 0 disables the watcher (tests). */
   portsIntervalMs?: number;
+  /** Shell options (tmux, grace period); laptop mode keeps the defaults. */
+  pty?: HandlerOptions["pty"];
 };
 
 export type InProcessRunner = RunnerLink & {
@@ -55,11 +60,22 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
   const emit = (notification: RunnerNotification) => {
     for (const handler of handlers) handler(notification);
   };
-  const methods: RunnerHandlers = defaultHandlers({
+  // Streams never leave the process: the runner side gets one end of a pair, the api the other.
+  const streams = new Map<string, RunnerStream>();
+  const services = createServices({
     ...(options.projectsDir ? { projects: { root: options.projectsDir } } : {}),
     ...(options.policy ? { policy: options.policy } : {}),
+    ...(options.pty ? { pty: options.pty } : {}),
     notify: emit,
+    streams: {
+      open: async (token) => {
+        const pair = createStreamPair();
+        streams.set(token, pair.a);
+        return pair.b;
+      },
+    },
   });
+  const methods: RunnerHandlers = services.handlers;
   const capabilities = localCapabilities();
   const info: RunnerInfo = {
     name: options.name ?? `${hostname()} (in-process)`,
@@ -114,9 +130,17 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
+    async openStream(token) {
+      // pty.open registers the pair before it answers, so the end is there by the time this runs.
+      const stream = streams.get(token);
+      if (!stream) throw new RunnerRpcError(-32602, `unknown stream token ${token}`);
+      streams.delete(token);
+      return stream;
+    },
     async close() {
       if (timer) clearInterval(timer);
       stopPorts?.();
+      services.close();
       handlers.clear();
     },
   };
