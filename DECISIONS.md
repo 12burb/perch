@@ -2088,3 +2088,51 @@ credentials for the server come from OpenCode's own configuration on the runner 
 1.15) inject them per session through the gateway. The adapter is the only code touching OpenCode's
 API (`/session`, `/session/{id}/message`, `/session/{id}/permissions/{id}`, `/session/{id}/abort`,
 `/session/{id}/diff`, `/event`); an SDK bump reruns the spike first.
+
+## ADR-0077: The cli-harness lane: a process per turn, resumed by the CLI's own session, local only
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.11
+
+### Context
+Spec §3.3 keeps a `cli-harness` engine behind a feature flag, off by default: the official CLIs in
+headless mode under the person's own login (Codex `exec --json`, Claude Code `-p --output-format
+stream-json`, Gemini CLI), personal scope only; §3.6 lane C says Perch is a terminal here, not a
+harness, and that Claude Code on this lane stays off until Anthropic's terms are confirmed. No
+feature-flag facility existed yet, the CLIs' JSONL formats are documented but not recorded here
+(no logins in this environment), and hosted runners run under a shared container account.
+
+### Decision
+1. **Flags** (spec §9.1): `apps/api/src/flags.ts` declares every flag with the release it appeared
+   in; `isOn(name)` reads the `flags` instance setting (an admin's JSON object, wins when it names
+   the flag) and otherwise `PERCH_FLAGS` (the operator's comma-separated list). A session on
+   `cli-harness` is refused with 422 and `details.flag` while `cli_harness` is off.
+2. **Local only.** The runner allows the engine only when it was connected by its owner (`perch
+   runner connect`, kind local or remote) or is the in-process laptop runner; a hosted runner
+   refuses it. The CLI runs with the person's own HOME, so their own login and subscription apply
+   and nothing is proxied.
+3. **A process per turn.** Each turn spawns the CLI in the project directory with its documented
+   headless flags; the CLI's own thread or session id, taken from the stream, resumes the next
+   turn (`codex exec … resume <id>`, `claude -p --resume <id>`). Perch's `plan` maps onto Codex's
+   read-only sandbox and Claude Code's `plan` permission mode; `build` onto `workspace-write` and
+   `acceptEdits`. Cancel ends the process (SIGTERM, then SIGKILL).
+4. **Mapping.** Codex: `agent_message` → text, `command_execution` → shell tool call and result
+   with the exit code, `file_change` → an `apply_patch` call and the changed paths,
+   `mcp_tool_call` and `web_search` → tool call and result, `turn.completed` → usage and done,
+   `turn.failed`/`error` → error; reasoning is dropped. Claude Code: assistant text → text,
+   `tool_use` → tool call (an `Edit` or `Write` yields the FileDiff from its own input, emitted with
+   the call), user `tool_result` → tool result, `result` → usage with `total_cost_usd` and done or
+   error. Unknown event types are ignored, so newer CLI versions degrade to fewer events rather
+   than failures. No permission prompts: the CLIs apply their own approval policies.
+5. **Gemini CLI** is not on this lane for now: it is already an engine through ACP (ADR-0075),
+   and its stream-json format is not recorded here.
+6. **Tests.** Stand-ins print the documented streams (apps/runner/test/fixtures/fake-codex.ts,
+   fake-claude.ts) and record their argv, so CI checks the flags the harness passes and the
+   mapping; the real-CLI acceptance runs on a machine with the logins.
+
+### Consequences
+The lane costs nothing when off. Its formats follow the CLIs' documentation at the time of
+writing; a format change shows up as missing events, corrected by a parser edit. Claude Code stays
+selectable only where the flag is on, and the spec's terms caveat is documented rather than
+enforced in code beyond the flag.

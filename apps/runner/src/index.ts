@@ -13,6 +13,13 @@ export {
 } from "./acp.ts";
 export { detectToolVersions, localCapabilities } from "./capabilities.ts";
 export {
+  CLI_HARNESS,
+  CliHarnessSession,
+  type CliHarnessSpec,
+  parseClaude,
+  parseCodex,
+} from "./cli-harness.ts";
+export {
   connectRunner,
   measureLoad,
   type RunnerClient,

@@ -204,7 +204,8 @@ under way).
 | `session.permission` | `{session_id, permission_id, answer}` | `{answered}` |
 | `session.cancel` | `{session_id}` | `{cancelled}` |
 
-`engine` is `acp` (ADR-0075) or `opencode` (ADR-0076; `cli-harness` comes with task 1.11). For
+`engine` is `acp` (ADR-0075), `opencode` (ADR-0076), or `cli-harness` (ADR-0077; local runners
+only, behind the api's `cli_harness` flag; `model.provider` is `codex` or `claude`). For
 `acp`, `model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
 `qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`; `engine`/`default` → `PERCH_ACP_AGENT`, default
 `gemini`). For `opencode`, the runner starts `opencode serve` per project directory (the pinned

@@ -419,7 +419,19 @@ describe("sessions api (task 1.8)", () => {
       json: { engine: "nope" },
     })) as { status: number; body: { error: { code: string; details: { available: string[] } } } };
     expect(unknown.status).toBe(422);
-    expect(unknown.body.error.details.available).toEqual(["acp", "opencode", "fake"]);
+    expect(unknown.body.error.details.available).toEqual([
+      "acp",
+      "opencode",
+      "cli-harness",
+      "fake",
+    ]);
+    // The cli-harness lane stays behind its feature flag (off here).
+    const gated = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie, {
+      method: "POST",
+      json: { engine: "cli-harness", model: { provider: "codex", model_id: "default" } },
+    })) as { status: number; body: { error: { code: string; details: { flag: string } } } };
+    expect(gated.status).toBe(422);
+    expect(gated.body.error.details.flag).toBe("cli_harness");
     expect((await call(`/api/sessions/${id}`, "")).status).toBe(403);
   }, 30_000);
 });

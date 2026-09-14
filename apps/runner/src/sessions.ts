@@ -6,7 +6,7 @@
  * as soon as the round started.
  */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import {
   type EngineEvent,
   JSON_RPC_ERRORS,
@@ -22,6 +22,7 @@ import {
   describeError,
   resolveAgentLaunch,
 } from "./acp.ts";
+import { CLI_HARNESS, CliHarnessSession, type CliHarnessSpec } from "./cli-harness.ts";
 import type { Notify } from "./notify.ts";
 import { OpenCodeHost, type OpenCodeOptions } from "./opencode.ts";
 import type { RunnerPolicy } from "./policy.ts";
@@ -42,6 +43,8 @@ export type SessionsOptions = {
   idleMs?: number;
   /** OpenCode: the binary, or a running server for tests. */
   opencode?: OpenCodeOptions;
+  /** The cli-harness lane: only local runners allow it (the person's own login); the CLIs it knows. */
+  cliHarness?: { allowed: boolean; tools?: Record<string, CliHarnessSpec> };
   log?: (line: string) => void;
 };
 
@@ -99,9 +102,16 @@ export class SessionManager {
       .map(([id]) => id);
   }
 
-  /** The engines this runner hosts: acp always, opencode when its binary (or server) is there. */
+  /**
+   * The engines this runner hosts: acp always, opencode when its binary (or server) is there,
+   * cli-harness on local runners (behind the api's feature flag).
+   */
   engines(): string[] {
-    return ["acp", ...(this.opencode.available() ? ["opencode"] : [])];
+    return [
+      "acp",
+      ...(this.opencode.available() ? ["opencode"] : []),
+      ...(this.options.cliHarness?.allowed ? ["cli-harness"] : []),
+    ];
   }
 
   async create(params: RunnerRequestParams<"session.create">): Promise<SessionCreateResult> {
@@ -109,6 +119,7 @@ export class SessionManager {
       throw new RunnerRpcError(JSON_RPC_ERRORS.invalidParams, "the session is already open here");
     }
     if (params.engine === "opencode") return this.createOpenCode(params);
+    if (params.engine === "cli-harness") return this.createCliHarness(params);
     if (params.engine !== "acp") {
       throw new RunnerRpcError(
         JSON_RPC_ERRORS.invalidParams,
@@ -204,6 +215,74 @@ export class SessionManager {
     return {
       engine_session_id: session.engineSessionId,
       agent: { id: "opencode", name: "OpenCode" },
+      modes: {
+        current: params.mode,
+        available: [
+          { id: "build", name: "Build" },
+          { id: "plan", name: "Plan" },
+        ],
+      },
+    };
+  }
+
+  private async createCliHarness(
+    params: RunnerRequestParams<"session.create">,
+  ): Promise<SessionCreateResult> {
+    if (!this.options.cliHarness?.allowed) {
+      throw new RunnerRpcError(
+        JSON_RPC_ERRORS.invalidParams,
+        "the cli-harness engine runs only on a local runner, under its owner's own login",
+      );
+    }
+    const tools = this.options.cliHarness.tools ?? CLI_HARNESS;
+    const spec = tools[params.model.provider];
+    if (!spec) {
+      throw new RunnerRpcError(
+        JSON_RPC_ERRORS.invalidParams,
+        `unknown CLI ${params.model.provider} (known: ${Object.keys(tools).join(", ")})`,
+      );
+    }
+    const binary = isAbsolute(spec.command)
+      ? existsSync(spec.command)
+        ? spec.command
+        : null
+      : Bun.which(spec.command);
+    if (!binary) {
+      throw new RunnerRpcError(
+        JSON_RPC_ERRORS.internal,
+        `${spec.name} is not installed on this machine (needs ${spec.command} on PATH)`,
+      );
+    }
+    const cwd = this.cwdOf(params);
+    const sessionId = params.session_id;
+    const session = new CliHarnessSession({
+      sessionId,
+      cwd,
+      env: this.envOf(params),
+      mode: params.mode,
+      spec: { ...spec, command: binary },
+      emit: (event) => this.emitEvent(sessionId, event),
+      log: (line) =>
+        this.options.log?.(`[${params.model.provider} ${sessionId.slice(0, 8)}] ${line}`),
+    });
+    this.sessions.set(sessionId, {
+      params,
+      session: {
+        get busy() {
+          return session.busy;
+        },
+        get engineSessionId() {
+          return session.engineSessionId;
+        },
+        runTurn: (text, mode) => session.runTurn(text, mode),
+        answerPermission: () => session.answerPermission(),
+        cancel: () => session.cancel(),
+        close: () => session.close(),
+      },
+      lastUsed: Date.now(),
+    });
+    return {
+      agent: { id: params.model.provider, name: spec.name },
       modes: {
         current: params.mode,
         available: [

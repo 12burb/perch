@@ -89,6 +89,29 @@ environment with brains (task 1.15); until then it uses OpenCode's own configura
 The adapter (apps/runner/src/opencode.ts) is the only code touching OpenCode's API, and a version
 bump reruns spike 0.4.3 first.
 
+## The cli-harness engine (`cli-harness`, task 1.11, behind a flag)
+
+Lane C of spec §3.6: the official CLIs in headless mode under the person's own login, on their own
+machine. Off by default; an operator turns it on with `PERCH_FLAGS=cli_harness` (or an admin sets
+the `flags` instance setting), and it only runs on a local runner (`perch runner connect`) or in
+laptop mode, never on a hosted runner (ADR-0077). A session's `model.provider` names the CLI:
+
+| CLI | A turn | Resumed as |
+|---|---|---|
+| `codex` | `codex exec --json --skip-git-repo-check -C <project> --sandbox workspace-write\|read-only <prompt>` | `codex exec … resume <thread_id> <prompt>` |
+| `claude` | `claude -p --output-format stream-json --verbose --permission-mode acceptEdits\|plan <prompt>` | `claude -p … --resume <session_id> <prompt>` |
+
+Perch's `plan` mode is Codex's read-only sandbox and Claude Code's `plan` permission mode. The
+JSONL streams become EngineEvents: Codex `agent_message` → `text`, `command_execution` →
+`tool_call`/`tool_result` (`shell`), `file_change` → `apply_patch` with the changed paths,
+`mcp_tool_call` and `web_search` likewise, `turn.completed` → `usage` and `done`, `turn.failed` →
+`error`; Claude Code assistant `text` blocks → `text`, `tool_use` → `tool_call` (an `Edit` or
+`Write` carries its change, so the FileDiff is emitted with the call), `tool_result` → `tool_result`,
+`result` → `usage` (with `total_cost_usd`) and `done` or `error`. The CLI's own session id resumes
+the conversation on the next turn; cancel ends the process. The CLIs apply their own approval
+policies, so this lane has no Perch permission prompts. Anthropic's terms keep Claude Code on this
+lane off until confirmed (spec §3.6); nothing here proxies a subscription.
+
 Running the acceptance against a real agent needs its credentials on the machine:
 
 ```
@@ -174,6 +197,10 @@ model profiles (brains, task 1.15) choose one.
   `PERCH_ACP_TEST_AGENT`, a real registry agent.
 - `apps/api/test/sessions-acp.test.ts`: the same two turns through the REST routes and the
   in-process runner.
+- `apps/runner/test/cli-harness.test.ts` and `apps/api/test/cli-harness.test.ts`: the harness
+  against stand-ins printing the documented Codex and Claude Code streams (two turns with the
+  thread or session resumed, tools and diffs, usage and cost, plan mode as the CLI's flag, a failing
+  CLI, cancel, refusals on hosted runners), and the flag gate through the api.
 - `apps/runner/test/opencode.test.ts`: the OpenCode adapter against a stand-in server speaking
   the SDK's endpoints and SSE stream (an edit with its diff, a side change as a diff tool call,
   plan mode, permissions, abort, a provider error, the refusal without a binary), and, with the

@@ -130,6 +130,11 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
     ? null
     : createServices({
         ...options.handlerOptions,
+        // The cli-harness lane is personal: only a runner someone connected from their own machine.
+        sessions: {
+          cliHarness: { allowed: kind !== "hosted" },
+          ...options.handlerOptions?.sessions,
+        },
         notify: notifier.emit,
         streams: { open: openStreamSocket },
       });

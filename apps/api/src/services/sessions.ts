@@ -20,6 +20,7 @@ import {
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
+import type { Flags } from "../flags.ts";
 import {
   addCost,
   appendEvent,
@@ -38,6 +39,7 @@ export type SessionDeps = {
   bus: Bus;
   registry: RunnerRegistry;
   engines: EngineRegistry;
+  flags: Flags;
   log: Logger;
 };
 
@@ -137,6 +139,13 @@ export class SessionService {
       throw PerchError.validation(`engine ${engineId} is not available`, {
         engine: engineId,
         available: this.deps.engines.ids(),
+      });
+    }
+    // The cli-harness lane (spec §3.3) stays behind its flag until the CLIs' terms are confirmed.
+    if (engineId === "cli-harness" && !(await this.deps.flags.isOn("cli_harness"))) {
+      throw PerchError.validation("engine cli-harness is behind the cli_harness feature flag", {
+        engine: engineId,
+        flag: "cli_harness",
       });
     }
     const link = await projectRunnerLink(this.deps, input.project, input.userId);

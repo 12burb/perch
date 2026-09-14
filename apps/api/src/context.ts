@@ -6,6 +6,7 @@ import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
 import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
+import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
 import type { SessionService } from "./services/sessions.ts";
 
@@ -36,6 +37,8 @@ export type Deps = {
   /** The engines sessions can open on (task 1.8). */
   engines: EngineRegistry;
   sessions: SessionService;
+  /** Feature flags (spec §9.1), default off. */
+  flags: Flags;
   log: Logger;
   version: VersionInfo;
 };

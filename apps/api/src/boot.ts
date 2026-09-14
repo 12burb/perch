@@ -14,6 +14,7 @@ import { startAuditSubscriber } from "./audit/subscriber.ts";
 import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
+import { createFlags } from "./flags.ts";
 import { createLogger, type Logger } from "./logging.ts";
 import {
   createRunnerChannel,
@@ -89,7 +90,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const runners = new RunnerRegistry(bus);
   const engines = new EngineRegistry();
   // The ACP adapter lives on the project's runner (task 1.9): one bridge per runner link.
-  for (const id of ["acp", "opencode"] as const) {
+  for (const id of ["acp", "opencode", "cli-harness"] as const) {
     engines.register(id, ({ link }) => {
       if (!link)
         throw new EngineError(`the ${id} engine runs on a project's runner`, "unavailable");
@@ -97,8 +98,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     });
   }
   for (const engine of options.engines ?? []) engines.register(engine.id, engine);
+  const flags = createFlags({ db: db.db, env });
   const sessions = new SessionService(
-    { db: db.db, bus, registry: runners, engines, log },
+    { db: db.db, bus, registry: runners, engines, flags, log },
     options.sessions ?? {},
   );
   const deps: Deps = {
@@ -111,6 +113,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     runners,
     engines,
     sessions,
+    flags,
     log,
     version: versionInfo(env),
   };

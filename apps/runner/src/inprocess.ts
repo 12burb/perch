@@ -68,7 +68,8 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
     ...(options.projectsDir ? { projects: { root: options.projectsDir } } : {}),
     ...(options.policy ? { policy: options.policy } : {}),
     ...(options.pty ? { pty: options.pty } : {}),
-    ...(options.sessions ? { sessions: options.sessions } : {}),
+    // Laptop mode runs on the person's own machine: the cli-harness lane is allowed.
+    sessions: { cliHarness: { allowed: true }, ...options.sessions },
     notify: emit,
     streams: {
       open: async (token) => {
