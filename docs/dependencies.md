@@ -49,6 +49,9 @@ only the packages it declares.
 | `@codemirror/search` | 6.7.2 | apps/web | |
 | `@codemirror/merge` | 6.12.2 | apps/web | diff review |
 | `@codemirror/language-data` | 6.5.2 | apps/web | ~40 languages, lazily loaded |
+| `@codemirror/lang-markdown` | 6.5.2 | apps/web | markdown editing (task 1.6) |
+| `@lezer/markdown` | 1.7.2 | apps/web | the markdown parser behind the preview renderer (task 1.6; no HTML pass-through) |
+| `@lezer/common` | 1.5.2 | apps/web | syntax-tree types for the markdown renderer |
 | `@xterm/xterm` | 6.0.0 | apps/web | terminal |
 | `@xterm/addon-fit` | 0.11.0 | apps/web | |
 | `@xterm/addon-web-links` | 0.12.0 | apps/web | |

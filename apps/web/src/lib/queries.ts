@@ -82,3 +82,60 @@ export function deployKeyQuery(workspaceId: string) {
       ),
   });
 }
+
+/** A project's file tree and files (task 1.6): one query per directory, one per open file. */
+export type FsEntry = {
+  name: string;
+  type: "file" | "dir" | "symlink" | "other";
+  size: number;
+  mtime: string;
+};
+export type FsFile = {
+  content: string;
+  encoding: "utf8" | "base64";
+  size: number;
+  truncated: boolean;
+};
+export type FsMatch = { path: string; line: number; column: number; text: string };
+
+export function fsKey(workspaceId: string, projectId: string) {
+  return ["workspace", workspaceId, "project", projectId, "fs"] as const;
+}
+
+export function fsListQuery(workspaceId: string, projectId: string, path: string) {
+  return queryOptions({
+    queryKey: [...fsKey(workspaceId, projectId), "list", path],
+    queryFn: async (): Promise<FsEntry[]> =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/fs/list", {
+          params: { path: { ws: workspaceId, project: projectId }, query: { path } },
+        }),
+      ).entries,
+  });
+}
+
+export function fsReadQuery(workspaceId: string, projectId: string, path: string) {
+  return queryOptions({
+    queryKey: [...fsKey(workspaceId, projectId), "read", path],
+    queryFn: async (): Promise<FsFile> =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/fs/read", {
+          params: { path: { ws: workspaceId, project: projectId }, query: { path } },
+        }),
+      ),
+    staleTime: 0,
+  });
+}
+
+export function fsSearchQuery(workspaceId: string, projectId: string, q: string) {
+  return queryOptions({
+    queryKey: [...fsKey(workspaceId, projectId), "search", q],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/fs/search", {
+          params: { path: { ws: workspaceId, project: projectId }, query: { q, limit: 200 } },
+        }),
+      ),
+    enabled: q.trim().length > 0,
+  });
+}

@@ -349,6 +349,24 @@ export function validateProjectPath(path: string): string {
   return normalized;
 }
 
+/**
+ * The link to call for a project's files (task 1.6): its runner when connected, else one the member
+ * may use (the in-process runner has no row). A project still being set up is a conflict.
+ */
+export async function projectRunnerLink(
+  deps: Pick<ProjectDeps, "db" | "registry">,
+  project: Project,
+  userId: string,
+): Promise<RunnerLink> {
+  if (project.status !== "ready") {
+    throw PerchError.conflict("the project is not ready yet", { status: project.status });
+  }
+  const live = project.runnerId ? deps.registry.get(project.runnerId) : undefined;
+  const link = live?.link ?? (await usableRunners(deps, project.workspaceId, userId))[0]?.link;
+  if (!link) throw PerchError.conflict("the project's runner is offline");
+  return link;
+}
+
 /** Writes uploaded files into a ready project on its runner. */
 export async function uploadProjectFiles(
   deps: ProjectDeps,
@@ -357,12 +375,7 @@ export async function uploadProjectFiles(
   userId: string,
   by: ActorContext,
 ): Promise<{ written: number }> {
-  if (project.status !== "ready") {
-    throw PerchError.conflict("the project is not ready yet", { status: project.status });
-  }
-  const live = project.runnerId ? deps.registry.get(project.runnerId) : undefined;
-  const link = live?.link ?? (await usableRunners(deps, project.workspaceId, userId))[0]?.link;
-  if (!link) throw PerchError.conflict("the project's runner is offline");
+  const link = await projectRunnerLink(deps, project, userId);
   const paths = files.map((f) => validateProjectPath(f.path));
   let written = 0;
   for (const [i, file] of files.entries()) {

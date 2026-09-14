@@ -22,6 +22,7 @@ import { Route as AppWorkspaceEnvironmentsRouteImport } from './routes/_app/$wor
 import { Route as AppWorkspaceSettingsRouteImport } from './routes/_app/$workspace/settings'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings/profile'
 import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
+import { Route as AppWorkspaceCodeProjectRouteImport } from './routes/_app/$workspace/code.$project'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -88,6 +89,11 @@ const AppSettingsSecurityRoute = AppSettingsSecurityRouteImport.update({
   path: '/settings/security',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWorkspaceCodeProjectRoute = AppWorkspaceCodeProjectRouteImport.update({
+  id: '/code/$project',
+  path: '/code/$project',
+  getParentRoute: () => AppWorkspaceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
+  '/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
+  '/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/_app/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/_app/settings/security': typeof AppSettingsSecurityRoute
+  '/_app/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -148,6 +157,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
+    | '/$workspace/code/$project'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -162,6 +172,7 @@ export interface FileRouteTypes {
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
+    | '/$workspace/code/$project'
   id:
     | '__root__'
     | '/'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/_app/$workspace/settings'
     | '/_app/settings/profile'
     | '/_app/settings/security'
+    | '/_app/$workspace/code/$project'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -281,6 +293,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsSecurityRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/$workspace/code/$project': {
+      id: '/_app/$workspace/code/$project'
+      path: '/code/$project'
+      fullPath: '/$workspace/code/$project'
+      preLoaderRoute: typeof AppWorkspaceCodeProjectRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
   }
 }
 
@@ -288,12 +307,14 @@ interface AppWorkspaceRouteChildren {
   AppWorkspaceModeRoute: typeof AppWorkspaceModeRoute
   AppWorkspaceEnvironmentsRoute: typeof AppWorkspaceEnvironmentsRoute
   AppWorkspaceSettingsRoute: typeof AppWorkspaceSettingsRoute
+  AppWorkspaceCodeProjectRoute: typeof AppWorkspaceCodeProjectRoute
 }
 
 const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
   AppWorkspaceModeRoute: AppWorkspaceModeRoute,
   AppWorkspaceEnvironmentsRoute: AppWorkspaceEnvironmentsRoute,
   AppWorkspaceSettingsRoute: AppWorkspaceSettingsRoute,
+  AppWorkspaceCodeProjectRoute: AppWorkspaceCodeProjectRoute,
 }
 
 const AppWorkspaceRouteWithChildren = AppWorkspaceRoute._addFileChildren(

@@ -1,6 +1,7 @@
 // @perch/ui — Tokens, themes, shadcn base, and the Perch components (spec §4). MIT.
 export const packageName = "@perch/ui";
 
+export { EditorGroup, type EditorGroupProps, type EditorTab } from "./components/editor-group.tsx";
 export {
   Dialog,
   type DialogProps,

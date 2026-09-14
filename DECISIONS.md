@@ -1797,3 +1797,49 @@ The editor (1.6), terminal path links, the git panel (1.20), and sessions build 
 without touching the runner again for the basics. `exec` is the escape hatch for engines and
 preflight (§5.6) with a policy floor that cannot be talked away by a prompt. On Windows the search
 engine is the built-in walk unless ripgrep is installed; the runner image always has it.
+
+## ADR-0071: The editor: file routes per project, EditorGroup in the ui package, a lezer-based markdown preview
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.6
+
+### Context
+Spec §5.1 asks for a CodeMirror 6 editor (~40 languages, search/replace, multi-cursor, markdown and
+image preview) and §4 for an editor group with tabs and breadcrumbs plus a file tree in the Code
+sidebar. §7.1's route list has no file routes for a project, §7.6 has the runner methods, and the
+spec names no markdown renderer. Every long list must be virtualized, every flow must work at 390 px,
+and a README from a cloned repository is untrusted content.
+
+### Decision
+- **Routes**: `GET/PUT /api/workspaces/{ws}/projects/{project}/fs/{list,read,stat,write,search}`
+  (a §7.1 deviation, additive), each forwarding the matching §7.6 method to the project's runner
+  with the member as `user_id`, so a local runner's owner-only rule and the runner's policy hook
+  apply unchanged; refusals map through `runnerError` (451 for policy). The api validates paths
+  before forwarding. `fs/write` publishes `project.updated {changes: ["files"]}`, which the tree
+  listens for.
+- **EditorGroup lives in packages/ui** (tabs, breadcrumbs, the tabpanel, keyboard navigation) with
+  no CodeMirror dependency; the CodeMirror wrapper, the store, the file tree, and the pane live in
+  apps/web, which already pins the CodeMirror packages. A tablist may own nothing but tabs, so the
+  per-tab × is a pointer-only affordance outside the accessibility tree; keyboards close with
+  Delete / ⌘W on the tab or the labelled Close in the breadcrumb bar.
+- **Markdown preview renders from the @lezer/markdown syntax tree into React elements**
+  (CommonMark + GFM tables, strikethrough, task lists; raw HTML shown as text; only http(s),
+  mailto, anchor, and relative links kept). No HTML string ever reaches the DOM, so no sanitizer
+  is needed and no renderer dependency is added; `@lezer/markdown` and `@lezer/common` are pinned
+  in apps/web (already installed transitively) and recorded in docs/dependencies.md.
+- **Images** preview from the read route's base64 (a data URL); svg, which reads as text, is
+  data-URL-encoded the same way. Other binaries explain themselves instead of opening.
+- **Open files are a zustand store per project** (buffer, original, dirty = differs, preview
+  flag, a line to reveal); tabs are per session. A tab with unsaved changes asks before closing.
+- **The file tree is an ARIA tree** (roving tabindex, arrows/Home/End/Enter, lazy directory loads
+  through React Query, rows virtualized with TanStack Virtual). On a phone the sidebar sheet closes
+  when a file opens. The project-wide search box runs `fs.search` and opens matches at their line.
+- **Project routes**: `/{workspace}/code/{project key}` opens a project; the Code sidebar's Projects
+  section becomes that project's tree with "All projects" to go back.
+
+### Consequences
+Sessions, the terminal's path links, and the git panel address files through the same routes and
+store. `fs.changed` from outside edits (agents, terminals) is not yet pushed into open buffers; the
+tree refetches on `project.updated`, and a later task wires runner watchers into the editor. Large
+files are read-only past 2 MiB.

@@ -53,8 +53,9 @@ test("clone a public repository and create an empty project", async ({ page }, i
 
   // The sidebar lists both (desktop; the sidebar is a drawer on a phone).
   if (info.project.name !== "mobile") {
-    await expect(page.getByRole("link", { name: "Hello World" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Scratch" })).toBeVisible();
+    // The sidebar item is named exactly; the row's link is "Open Hello World" (task 1.6).
+    await expect(page.getByRole("link", { name: "Hello World", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Scratch", exact: true })).toBeVisible();
   }
 
   // A bad URL is refused by the api and shown inline.

@@ -1,5 +1,6 @@
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import { deployKeyQuery, type ProjectRow, projectsQuery } from "../lib/queries.ts";
@@ -36,7 +37,11 @@ const STATUS_TONE: Record<ProjectRow["status"], "neutral" | "success" | "danger"
   error: "danger",
 };
 
-export function ProjectList(props: { workspaceId: string; canDelete: boolean }) {
+export function ProjectList(props: {
+  workspaceId: string;
+  workspaceSlug: string;
+  canDelete: boolean;
+}) {
   useLiveProjects(props.workspaceId);
   const queryClient = useQueryClient();
   const projects = useQuery(projectsQuery(props.workspaceId));
@@ -95,7 +100,18 @@ export function ProjectList(props: { workspaceId: string; canDelete: boolean }) 
             {rows.map((project) => (
               <tr key={project.id} className="border-t border-border" data-testid="project-row">
                 <td className="py-2 pr-3">
-                  <span className="font-medium">{project.name}</span>
+                  {project.status === "ready" ? (
+                    <Link
+                      to="/$workspace/code/$project"
+                      params={{ workspace: props.workspaceSlug, project: project.key }}
+                      className="font-medium hover:underline"
+                      aria-label={t("projects.open", { name: project.name })}
+                    >
+                      {project.name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium">{project.name}</span>
+                  )}
                   <span className="ml-2 text-fg-muted">{project.key}</span>
                 </td>
                 <td className="py-2 pr-3">
@@ -429,10 +445,18 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
 }
 
 /** Code mode's main column until the editor lands: the projects and the form. */
-export function ProjectsMain(props: { workspaceId: string; canAdmin: boolean }) {
+export function ProjectsMain(props: {
+  workspaceId: string;
+  workspaceSlug: string;
+  canAdmin: boolean;
+}) {
   return (
     <div className="flex flex-col gap-8 p-4">
-      <ProjectList workspaceId={props.workspaceId} canDelete={props.canAdmin} />
+      <ProjectList
+        workspaceId={props.workspaceId}
+        workspaceSlug={props.workspaceSlug}
+        canDelete={props.canAdmin}
+      />
       <NewProjectSection workspaceId={props.workspaceId} canRotateKey={props.canAdmin} />
     </div>
   );

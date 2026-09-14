@@ -4,7 +4,11 @@
  */
 import { type MessageKey, type RailMode, Sidebar, SidebarItem, SidebarSection, t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { useEditorStore } from "../code/editor-store.ts";
+import { FileTree } from "../code/file-tree.tsx";
 import { type MyWorkspace, projectsQuery } from "../lib/queries.ts";
+import { useAppShell } from "./app-shell.tsx";
 
 type Section = { title: MessageKey; empty: MessageKey };
 
@@ -67,9 +71,49 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
   );
 }
 
-/** Code mode's Projects section lists the workspace's projects (task 1.4). */
+/**
+ * Code mode's Projects section: the workspace's projects (task 1.4), and, with a project open, that
+ * project's file tree (task 1.6) with a way back to the list.
+ */
 function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
   const projects = useQuery(projectsQuery(props.workspace.id)).data ?? [];
+  const params = useParams({ strict: false }) as { project?: string };
+  const open = params.project ? projects.find((p) => p.key === params.project) : undefined;
+  const navigate = useNavigate();
+  const { shell } = useAppShell();
+  const openFile = useEditorStore((state) => state.open);
+  const activePath = useEditorStore((state) =>
+    open ? (state.byProject[open.id]?.active ?? null) : null,
+  );
+  if (open) {
+    return (
+      <SidebarSection title={open.name}>
+        <SidebarItem label={t("files.backToProjects")} href={`/${props.workspace.slug}/code`} />
+        <li className="h-[60vh] min-h-48">
+          {open.status === "ready" ? (
+            <FileTree
+              workspaceId={props.workspace.id}
+              projectId={open.id}
+              selectedPath={activePath}
+              onOpen={(path, line) => {
+                openFile(open.id, path, line === undefined ? undefined : { line });
+                // On a phone the sidebar is a sheet: close it to show the editor.
+                if (shell.state.mobileSheet) {
+                  shell.onStateChange({ ...shell.state, mobileSheet: null });
+                }
+                void navigate({
+                  to: "/$workspace/code/$project",
+                  params: { workspace: props.workspace.slug, project: open.key },
+                });
+              }}
+            />
+          ) : (
+            <p className="px-2 py-1 text-sm text-fg-subtle">{t("files.notReady")}</p>
+          )}
+        </li>
+      </SidebarSection>
+    );
+  }
   return (
     <SidebarSection title={t("shell.code.projects")}>
       {projects.length === 0 ? (
@@ -79,7 +123,7 @@ function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
           <SidebarItem
             key={project.id}
             label={project.name}
-            href={`/${props.workspace.slug}/code`}
+            href={`/${props.workspace.slug}/code/${project.key}`}
             muted={project.status !== "ready"}
           />
         ))

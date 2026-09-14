@@ -38,7 +38,11 @@ function ModeRoute() {
     <ModePage title={t(`ui.mode.${mode}`)} subtitle={workspace.name} shell={shell}>
       {mode === "home" ? <HomeMain workspaceId={workspace.id} /> : null}
       {mode === "code" ? (
-        <ProjectsMain workspaceId={workspace.id} canAdmin={workspace.role !== "member"} />
+        <ProjectsMain
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          canAdmin={workspace.role !== "member"}
+        />
       ) : null}
       {mode === "search" ? (
         <div className="p-4">
