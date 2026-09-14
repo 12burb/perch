@@ -58,28 +58,6 @@ const MAC_MENU = {
 };
 
 /**
- * Windows only: tao's `run_return`, which the addon's pumpEvents() uses there, leaves the loop through
- * `GetMessageW` after the exit flag is set and posts nothing to wake itself, so a pump returns only
- * when some unrelated message arrives; an idle queue blocks JavaScript indefinitely (seen in CI: the
- * window sat idle and no timer ever fired). A thread timer with no window posts WM_TIMER to the queue
- * every 16 ms, which DispatchMessageW ignores and which wakes every pump within a frame.
- */
-async function keepMessageQueueBusy(trace: (line: string) => void): Promise<() => void> {
-  if (process.platform !== "win32") return () => {};
-  const { dlopen, FFIType } = await import("bun:ffi");
-  const user32 = dlopen("user32.dll", {
-    SetTimer: { args: [FFIType.ptr, FFIType.u64, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
-    KillTimer: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
-  });
-  const id = user32.symbols.SetTimer(null, 0, 16, null);
-  trace(`windows: thread timer ${id} keeps the message queue busy`);
-  return () => {
-    user32.symbols.KillTimer(null, id);
-    user32.close();
-  };
-}
-
-/**
  * Loads the addon and the system webview it links; the message names the platform and the engine
  * version for --check (on Windows an empty version means no WebView2 runtime).
  */
@@ -99,8 +77,23 @@ export function browsingDataDir(dataDir: string): string {
   return join(dataDir, "desktop", "webview");
 }
 
-export async function openWindow(options: OpenWindowOptions): Promise<void> {
-  const trace = options.trace ?? (() => {});
+export type OpenedWindow = {
+  /** The URL of the first finished page load; null where the shell cannot observe page loads. */
+  loaded: string | null;
+  /** Whether page-load events reach the shell on this platform (false on Windows). */
+  pageEvents: boolean;
+};
+
+type Created = {
+  app: import("@webviewjs/webview").Application;
+  win: import("@webviewjs/webview").BrowserWindow;
+  webview: import("@webviewjs/webview").Webview;
+};
+
+async function createWindow(
+  options: OpenWindowOptions,
+  trace: (line: string) => void,
+): Promise<Created> {
   const { Application } = await import("@webviewjs/webview");
   trace("addon loaded");
   // The WebContext owns cookies, storage, and cache for every engine (on Windows it is the WebView2
@@ -125,12 +118,48 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
   trace(`web context at ${dataDirectory}`);
   const webview = win.createWebview({ url: options.url, webContext: context });
   trace(`webview created for ${options.url}`);
-  const stopQueueTimer = await keepMessageQueueBusy(trace);
-  return new Promise<void>((resolve) => {
+  return { app, win, webview };
+}
+
+/**
+ * Windows: the native run loop on this thread (the server runs on a worker thread, laptop-worker.ts).
+ * The addon's timer-driven pump is unreliable here: tao's `run_return` only leaves its loop when a
+ * message arrives after the exit flag is set, and the internal paint that carries MainEventsCleared
+ * can be starved, which left a blank window and a frozen JavaScript thread in CI. `runSync()` returns
+ * when the last window has been destroyed. Page events cannot reach JavaScript meanwhile; a smoke
+ * closes the window from a helper thread after `closeAfterMs`.
+ */
+async function openWindowNative(
+  options: OpenWindowOptions,
+  trace: (line: string) => void,
+): Promise<OpenedWindow> {
+  const { app, win } = await createWindow(options, trace);
+  let closer: Worker | null = null;
+  if (options.closeAfterLoad) {
+    closer = new Worker(new URL("./closer-worker.js", import.meta.url));
+    const afterMs = options.closeAfterMs ?? 8_000;
+    closer.postMessage({ hwnd: win.getNativeHandleAnyThread().toString(), afterMs });
+    trace(`smoke: the window closes after ${afterMs} ms`);
+  }
+  trace("entering the native run loop");
+  app.runSync();
+  trace("native run loop returned: the window closed");
+  closer?.terminate();
+  return { loaded: null, pageEvents: false };
+}
+
+/** macOS and Linux: the addon's timer-driven pump, so the in-process server keeps serving. */
+async function openWindowPumped(
+  options: OpenWindowOptions,
+  trace: (line: string) => void,
+): Promise<OpenedWindow> {
+  const { app, win, webview } = await createWindow(options, trace);
+  return new Promise<OpenedWindow>((resolve) => {
     let done = false;
     let ticks = 0;
     let loadStarted = false;
     let navigated = false;
+    let loaded: string | null = null;
     const finish = (why: string) => {
       if (done) return;
       done = true;
@@ -138,13 +167,12 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
       clearInterval(pump);
       clearInterval(liveness);
       clearTimeout(retry);
-      stopQueueTimer();
       try {
         app.exit();
       } catch {
         // The loop already reported the app gone; exit after that is best effort.
       }
-      resolve();
+      resolve({ loaded, pageEvents: true });
     };
     // The documented equivalent of app.run(): pump the OS queue from a timer; false means the last
     // window closed.
@@ -153,21 +181,16 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
       if (!app.pumpEvents()) finish("the event loop reported exit");
       else if (ticks === 1) trace("event loop pumping");
     }, 16);
-    // WebView2 sometimes drops the navigation requested at creation (seen on Windows: the window sits
-    // blank until a later loadUrl). One retry after 1.5 s costs nothing where the first one worked.
+    // A webview that dropped the navigation requested at creation gets one more loadUrl after 1.5 s.
     const retry = setTimeout(() => {
       if (done || navigated || loadStarted) return;
       trace(`no navigation yet: loading ${options.url} again`);
       webview.loadUrl(options.url);
     }, 1_500);
-    // With a trace: a liveness line every 5 s, and one more re-navigation after 10 s.
+    // With a trace: a liveness line every 5 s.
     const liveness = setInterval(() => {
       if (!options.trace) return;
       trace(`alive: ${ticks} ticks, visible=${win.isVisible()}, url=${webview.url() ?? "none"}`);
-      if (!loadStarted && ticks > 0 && ticks * 16 >= 10_000 && ticks * 16 < 15_000) {
-        trace(`nothing loaded yet: navigating again to ${options.url}`);
-        webview.loadUrl(options.url);
-      }
     }, 5_000);
     win.on("close", () => finish("window closed"));
     webview.on("page-load-started", (event) => {
@@ -180,9 +203,18 @@ export async function openWindow(options: OpenWindowOptions): Promise<void> {
     });
     webview.on("page-load-finished", (event) => {
       const url = event.url ?? webview.url() ?? "";
+      loaded ??= url;
       trace(`page load finished ${url}`);
       options.onLoaded?.(url);
       if (options.closeAfterLoad) finish("closeAfterLoad");
     });
   });
+}
+
+/** Opens the window and resolves when it has been closed. */
+export function openWindow(options: OpenWindowOptions): Promise<OpenedWindow> {
+  const trace = options.trace ?? (() => {});
+  return process.platform === "win32"
+    ? openWindowNative(options, trace)
+    : openWindowPumped(options, trace);
 }

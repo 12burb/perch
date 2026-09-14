@@ -9,13 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dataDirFrom, startLaptop } from "@perch/cli/laptop";
 import { probePerch, runDesktop } from "./desktop.ts";
+import { startLaptopInWorker } from "./laptop-worker.ts";
 import { checkWebview, openWindow } from "./window.ts";
 
 export const packageName = "@perch/desktop";
 
 export function main(argv: string[]): Promise<number> {
   return runDesktop(argv, {
-    startLaptop,
+    // Windows: the main thread owns the native run loop, so the server runs on a worker thread.
+    startLaptop: process.platform === "win32" ? startLaptopInWorker : startLaptop,
     openWindow,
     checkWebview,
     isPerchAt: probePerch,

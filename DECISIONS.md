@@ -1482,11 +1482,18 @@ and a bundled Chromium) and Tauri (Rust in the repo) are out.
 
 ### Consequences
 The desktop app is a thin shell: every feature stays in the web app and the api, and the shell has no
-IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed. Two Windows findings
-from CI live in `window.ts`: the addon's `pumpEvents()` uses tao's `run_return` there, which leaves
-the loop through `GetMessageW` after the exit flag is set and posts nothing to wake itself, so an idle
-message queue blocks JavaScript indefinitely; a Win32 thread timer (`SetTimer` with no window, 16 ms,
-through `bun:ffi`) keeps the queue busy so every pump returns within a frame. And WebView2 was seen to
-drop the navigation requested at creation, so the window re-navigates once after 1.5 s when nothing has
-started loading. Both belong upstream (webviewjs/webview) and are noted as follow-ups. Signing and
+IPC surface of its own. Linux needs `libwebkit2gtk-4.1` and `libxdo` installed.
+
+**Windows runs the native loop, with the server on a worker thread.** The addon's timer-driven
+`pumpEvents()` is unreliable on Windows: it calls tao's `run_return`, which leaves its loop only when a
+message arrives after the exit flag is set, and the internal paint that carries `MainEventsCleared`
+can be starved by other traffic, so a pump can block JavaScript indefinitely (CI showed a blank window
+and a frozen thread; a keep-alive `WM_TIMER` did not help). So on Windows `window.ts` calls
+`runSync()`, tao's own loop, on the main thread, and `laptop-worker.ts` starts laptop mode on a Bun
+worker thread (`server-worker.ts`, embedded in the binary as a second entrypoint). Page events cannot
+reach JavaScript while the loop runs, so `--smoke` closes the window from a helper thread
+(`closer-worker.ts`, `PostMessageW(WM_CLOSE)` through `bun:ffi`) after 8 s and the test verifies the
+page load from the server's request log. macOS and Linux keep the pump and the in-process server; the
+pump path also re-navigates once after 1.5 s when a webview dropped the navigation requested at
+creation. The pump behaviour is an upstream (webviewjs/webview) follow-up. Signing and
 notarization (macOS), an installer (Windows), tray and auto-start, and an Intel macOS build are follow-ups.

@@ -90,6 +90,7 @@ function fakeDeps(overrides: Partial<DesktopDeps> = {}): { deps: DesktopDeps; ca
     }),
     openWindow: async (w) => {
       calls.windows.push({ url: w.url, dataDir: w.dataDir });
+      return { loaded: `${w.url}/`, pageEvents: true };
     },
     checkWebview: async () => "test-platform ok",
     isPerchAt: async () => false,
@@ -165,7 +166,7 @@ describe("perch-desktop flow", () => {
       openWindow: async (w) => {
         expect(w.closeAfterLoad).toBe(true);
         w.trace?.("window created");
-        w.onLoaded?.(`${w.url}/setup`);
+        return { loaded: `${w.url}/setup`, pageEvents: true };
       },
     });
     expect(await runDesktop(["--smoke"], deps)).toBe(0);
@@ -175,11 +176,17 @@ describe("perch-desktop flow", () => {
     expect(report.loaded).toBe("http://127.0.0.1:54321/setup");
     expect(calls.log).toContain("stopped");
 
+    // A shell that sees page loads must see one; a shell that cannot (Windows) passes on a clean close.
     const closedEarly = fakeDeps({
       startLaptop: async () => ({ url: "http://127.0.0.1:1", dataDir: "/x", stop: async () => {} }),
-      openWindow: async () => {},
+      openWindow: async () => ({ loaded: null, pageEvents: true }),
     });
     expect(await runDesktop(["--smoke"], closedEarly.deps)).toBe(3);
+    const blind = fakeDeps({
+      startLaptop: async () => ({ url: "http://127.0.0.1:1", dataDir: "/x", stop: async () => {} }),
+      openWindow: async () => ({ loaded: null, pageEvents: false }),
+    });
+    expect(await runDesktop(["--smoke"], blind.deps)).toBe(0);
   });
 
   test("a boot failure is reported with a hint, not thrown; --check reports the native layer", async () => {
@@ -247,6 +254,8 @@ describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer
           "--smoke",
           "--data-dir",
           join(dir, "smoke"),
+          "--log-level",
+          "info",
         ],
         { stdout: "pipe", stderr: "pipe", env: { ...process.env, PERCH_LOG_LEVEL: "warn" } },
       );
@@ -259,18 +268,36 @@ describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer
       clearTimeout(killer);
       if (exitCode !== 0) console.error(`perch-desktop --smoke exited ${exitCode}\n${stderr}`);
       expect(exitCode).toBe(0);
-      const report = stdout
+      const lines = stdout
         .split("\n")
         .map((line) => {
           try {
-            return JSON.parse(line) as { smoke?: string; url?: string; loaded?: string | null };
+            return JSON.parse(line) as {
+              smoke?: string;
+              url?: string;
+              loaded?: string | null;
+              pageEvents?: boolean;
+              path?: string;
+              status?: number;
+              msg?: string;
+            };
           } catch {
             return null;
           }
         })
-        .find((line) => line?.smoke !== undefined);
+        .filter((line) => line !== null);
+      const report = lines.find((line) => line.smoke !== undefined);
       expect(report?.smoke).toBe("ok");
-      expect(report?.loaded?.startsWith(report?.url ?? "?")).toBe(true);
+      if (report?.pageEvents) {
+        expect(report.loaded?.startsWith(report.url ?? "?")).toBe(true);
+      } else {
+        // Windows: the shell cannot see page loads; the server's request log shows the webview
+        // fetched the app (info level, one line per request).
+        const pageRequests = lines.filter(
+          (line) => line.msg === "request" && line.path === "/" && line.status === 200,
+        );
+        expect(pageRequests.length).toBeGreaterThan(0);
+      }
     },
     150_000,
   );

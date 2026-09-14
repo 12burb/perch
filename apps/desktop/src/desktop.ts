@@ -116,11 +116,20 @@ export type WindowRequest = {
   onLoaded?: (url: string) => void;
   /** Close the window after the first page load (--smoke). */
   closeAfterLoad?: boolean;
+  /** Where page loads cannot be observed (Windows), close the window after this long instead. */
+  closeAfterMs?: number;
   /** One line per step and event, for --smoke and for finding out where a platform stalls. */
   trace?: (line: string) => void;
 };
 
 export type LaptopHandle = { url: string; dataDir: string; stop(): Promise<void> };
+
+export type OpenedWindowReport = {
+  /** The URL of the first finished page load; null where the shell cannot observe page loads. */
+  loaded: string | null;
+  /** Whether page-load events reach the shell on this platform (false on Windows). */
+  pageEvents: boolean;
+};
 
 export type DesktopDeps = {
   startLaptop: (options: {
@@ -130,8 +139,8 @@ export type DesktopDeps = {
     publicUrl: string;
     logLevel: string;
   }) => Promise<LaptopHandle>;
-  /** Opens the window and resolves when it has been closed. */
-  openWindow: (request: WindowRequest) => Promise<void>;
+  /** Opens the window and resolves when it has been closed, with what it could observe. */
+  openWindow: (request: WindowRequest) => Promise<OpenedWindowReport>;
   /** Loads the platform webview; throws when it cannot. */
   checkWebview: () => Promise<string>;
   isPerchAt: (url: string) => Promise<boolean>;
@@ -183,28 +192,30 @@ export async function runDesktop(argv: string[], deps: DesktopDeps): Promise<num
         return 1;
       }
       trace(`laptop mode at ${laptop.url}`);
-      const loaded: string[] = [];
+      let report: OpenedWindowReport;
       try {
-        await deps.openWindow({
+        report = await deps.openWindow({
           url: laptop.url,
           title: `${WINDOW_TITLE} smoke`,
           dataDir,
-          onLoaded: (url) => loaded.push(url),
           closeAfterLoad: true,
           trace,
         });
       } finally {
         await laptop.stop();
       }
-      const first = loaded[0];
+      // Where the shell sees page loads, one must have finished; elsewhere the window closing cleanly
+      // is the shell's part and the caller checks the server's request log for the page.
+      const ok = report.pageEvents ? report.loaded !== null : true;
       deps.log(
         JSON.stringify({
-          smoke: first ? "ok" : "closed-before-load",
+          smoke: ok ? "ok" : "closed-before-load",
           url: laptop.url,
-          loaded: first ?? null,
+          loaded: report.loaded,
+          pageEvents: report.pageEvents,
         }),
       );
-      return first ? 0 : 3;
+      return ok ? 0 : 3;
     }
     case "open":
       await deps.openWindow({

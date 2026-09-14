@@ -84,7 +84,10 @@ try {
           "--windows-copyright=AGPL-3.0-only",
         ]
       : []),
+    // The worker threads are extra entrypoints, embedded as server-worker.js and closer-worker.js.
     "apps/desktop/src/index.ts",
+    "apps/desktop/src/server-worker.ts",
+    "apps/desktop/src/closer-worker.ts",
     "--outfile",
     outfile,
   ]);
