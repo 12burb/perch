@@ -7,9 +7,9 @@
  * run with their own approval policies; there are no Perch permission prompts on this lane.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { isAbsolute, relative, sep } from "node:path";
 import type { EngineEvent, FileDiff, SessionMode } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
+import { projectRelative } from "./paths.ts";
 
 export type CliHarnessSpec = {
   name: string;
@@ -32,11 +32,6 @@ export type ParseContext = {
   /** Tool calls already reported this turn (so a result can follow a call). */
   tools: Map<string, { name: string }>;
 };
-
-function relativePath(cwd: string, file: string): string {
-  const rel = isAbsolute(file) ? relative(cwd, file) : file;
-  return rel.split(sep).join("/");
-}
 
 function text(value: unknown): string {
   if (typeof value === "string") return value;
@@ -135,7 +130,7 @@ export function parseCodex(line: Record<string, unknown>, ctx: ParseContext): En
           type: "tool_result",
           id: item.id,
           output: changes
-            .map((c) => `${c.kind ?? "update"} ${relativePath(ctx.cwd, c.path ?? "")}`)
+            .map((c) => `${c.kind ?? "update"} ${projectRelative(ctx.cwd, c.path ?? "")}`)
             .join("\n"),
         });
       }
@@ -182,7 +177,7 @@ export function parseCodex(line: Record<string, unknown>, ctx: ParseContext): En
 function claudeDiff(cwd: string, name: string, input: Record<string, unknown>): FileDiff | null {
   const filePath = typeof input.file_path === "string" ? input.file_path : null;
   if (!filePath) return null;
-  const path = relativePath(cwd, filePath);
+  const path = projectRelative(cwd, filePath);
   if (name === "Write" && typeof input.content === "string") {
     const unified = unifiedDiff(path, null, input.content);
     return { path, ...unified, status: "added" };
@@ -319,18 +314,27 @@ export type CliHarnessSessionOptions = {
   log?: (line: string) => void;
 };
 
+/** One process and its stream: a turn is over when the stream said done or error, even if the process lingers. */
+interface Turn {
+  proc: ChildProcess;
+  ended: boolean;
+  cancelled: boolean;
+}
+
 /** One CLI conversation: a process per turn, resumed through the CLI's own session id. */
 export class CliHarnessSession {
-  private proc: ChildProcess | null = null;
-  /** A round is over when its stream said done or error, even if the process lingers a moment. */
-  private turning = false;
+  /**
+   * The turn in flight. Every flag lives on the turn itself, so a previous process exiting late
+   * (its stream already said error) can never clear the state of the turn that replaced it.
+   */
+  private current: Turn | null = null;
   private cliSessionId: string | null = null;
   private closed = false;
 
   constructor(private readonly options: CliHarnessSessionOptions) {}
 
   get busy(): boolean {
-    return this.turning;
+    return this.current !== null && !this.current.ended;
   }
 
   /** The CLI's own session id once the first turn reported it. */
@@ -343,9 +347,9 @@ export class CliHarnessSession {
       this.options.emit({ type: "error", message: "the session is closed" });
       return;
     }
-    if (this.turning) throw new Error("a round is already running");
-    if (this.proc && this.proc.exitCode === null) this.proc.kill("SIGTERM");
-    this.turning = true;
+    if (this.busy) throw new Error("a round is already running");
+    const previous = this.current;
+    if (previous && previous.proc.exitCode === null) previous.proc.kill("SIGTERM");
     const { spec, cwd, emit } = this.options;
     const args = spec.args({
       prompt,
@@ -358,7 +362,8 @@ export class CliHarnessSession {
       env: this.options.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    this.proc = proc;
+    const turn: Turn = { proc, ended: false, cancelled: false };
+    this.current = turn;
     const ctx: ParseContext = {
       cwd,
       session: (id) => {
@@ -366,12 +371,10 @@ export class CliHarnessSession {
       },
       tools: new Map(),
     };
-    let ended = false;
-    let cancelled = false;
     let buffered = "";
     const handleLine = (raw: string) => {
       const line = raw.trim();
-      if (!line || ended) return;
+      if (!line || turn.ended) return;
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
@@ -381,11 +384,8 @@ export class CliHarnessSession {
       }
       if (!parsed || typeof parsed !== "object") return;
       for (const event of spec.parse(parsed as Record<string, unknown>, ctx)) {
-        if (ended) break;
-        if (event.type === "done" || event.type === "error") {
-          ended = true;
-          this.turning = false;
-        }
+        if (turn.ended) break;
+        if (event.type === "done" || event.type === "error") turn.ended = true;
         emit(event);
       }
     };
@@ -407,16 +407,12 @@ export class CliHarnessSession {
         resolve({ code: null, signal: null });
       });
     });
-    this.cancelHook = () => {
-      cancelled = true;
-    };
     try {
       const { code, signal } = await exit;
       if (buffered.trim()) handleLine(buffered);
-      if (!ended) {
-        ended = true;
-        this.turning = false;
-        if (cancelled || code === 0) emit({ type: "done" });
+      if (!turn.ended) {
+        turn.ended = true;
+        if (turn.cancelled || code === 0) emit({ type: "done" });
         else {
           emit({
             type: "error",
@@ -425,33 +421,36 @@ export class CliHarnessSession {
         }
       }
     } finally {
-      this.turning = false;
-      if (this.proc === proc) this.proc = null;
-      this.cancelHook = null;
+      if (this.current === turn) this.current = null;
     }
   }
-
-  private cancelHook: (() => void) | null = null;
 
   /** No permission prompts on this lane: the CLIs apply their own approval policy. */
   answerPermission(): boolean {
     return false;
   }
 
+  /** Ends the turn in flight by ending its process; the stream then closes with `done`. */
   async cancel(): Promise<boolean> {
-    const proc = this.proc;
-    if (!proc || !this.turning || this.closed) return false;
-    this.cancelHook?.();
-    proc.kill("SIGTERM");
-    const timer = setTimeout(() => {
-      if (proc.exitCode === null) proc.kill("SIGKILL");
-    }, 2_000);
-    timer.unref?.();
+    const turn = this.current;
+    if (!turn || turn.ended) return false;
+    stop(turn);
     return true;
   }
 
+  /** Ends the session: whatever process is still around is ended, cancelled or lingering. */
   async close(): Promise<void> {
     this.closed = true;
-    await this.cancel();
+    const turn = this.current;
+    if (turn && turn.proc.exitCode === null) stop(turn);
   }
+}
+
+function stop(turn: Turn): void {
+  turn.cancelled = true;
+  turn.proc.kill("SIGTERM");
+  const timer = setTimeout(() => {
+    if (turn.proc.exitCode === null) turn.proc.kill("SIGKILL");
+  }, 2_000);
+  timer.unref?.();
 }

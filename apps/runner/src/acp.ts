@@ -14,6 +14,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { EngineEvent, FileDiff, PermissionAnswer, SessionMode } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
 import type { Notify } from "./notify.ts";
+import { projectRelative } from "./paths.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 
 /** How a registry agent is launched: a binary on PATH, or an npm package through npx. */
@@ -140,8 +141,7 @@ function diffsOf(
   const diffs: FileDiff[] = [];
   for (const entry of content) {
     if (entry.type !== "diff") continue;
-    const raw = isAbsolute(entry.path) ? relative(cwd, entry.path) : entry.path;
-    const path = raw.split(sep).join("/");
+    const path = projectRelative(cwd, entry.path);
     const unified = unifiedDiff(path, entry.oldText, entry.newText);
     diffs.push({
       path,

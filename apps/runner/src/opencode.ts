@@ -9,7 +9,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
-import { isAbsolute, relative, sep } from "node:path";
+import { isAbsolute } from "node:path";
 import {
   type AssistantMessage,
   createOpencodeClient,
@@ -21,6 +21,7 @@ import {
 } from "@opencode-ai/sdk/client";
 import type { EngineEvent, FileDiff, PermissionAnswer, SessionMode } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
+import { projectRelative } from "./paths.ts";
 
 export type OpenCodeOptions = {
   /** The opencode binary (default: `opencode` on PATH). */
@@ -290,7 +291,7 @@ function fileDiffFrom(cwd: string, metadata: Record<string, unknown> | undefined
   const raw = metadata.filediff as Partial<OpenCodeFileDiff> | undefined;
   const patch = typeof metadata.diff === "string" ? metadata.diff : undefined;
   if (raw && typeof raw.file === "string") {
-    const path = relativePath(cwd, raw.file);
+    const path = projectRelative(cwd, raw.file);
     const before = typeof raw.before === "string" ? raw.before : "";
     const after = typeof raw.after === "string" ? raw.after : "";
     const computed = patch === undefined ? unifiedDiff(path, before || null, after) : null;
@@ -308,7 +309,7 @@ function fileDiffFrom(cwd: string, metadata: Record<string, unknown> | undefined
     const additions = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
     const deletions = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
     return {
-      path: relativePath(cwd, filepath),
+      path: projectRelative(cwd, filepath),
       patch,
       additions,
       deletions,
@@ -316,11 +317,6 @@ function fileDiffFrom(cwd: string, metadata: Record<string, unknown> | undefined
     };
   }
   return null;
-}
-
-function relativePath(cwd: string, file: string): string {
-  const rel = isAbsolute(file) ? relative(cwd, file) : file;
-  return rel.split(sep).join("/");
 }
 
 /**
@@ -335,7 +331,7 @@ function turnDiff(
 ): FileDiff[] {
   const out: FileDiff[] = [];
   for (const entry of diffs) {
-    const path = relativePath(cwd, entry.file);
+    const path = projectRelative(cwd, entry.file);
     if (reportedThisTurn.has(path)) {
       known.set(path, entry.after);
       continue;

@@ -19,7 +19,9 @@ say({ type: "thread.started", thread_id: threadId });
 say({ type: "turn.started" });
 if (prompt.startsWith("fail")) {
   say({ type: "turn.failed", error: { message: "the model refused" } });
-  process.exit(1);
+  // The real CLIs flush and tear down after their last event; the exit arriving after the next
+  // turn has started is the race the harness has to survive.
+  setTimeout(() => process.exit(1), 250);
 }
 if (prompt.startsWith("slow")) {
   const timer = setInterval(() => {
