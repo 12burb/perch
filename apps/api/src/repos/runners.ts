@@ -1,12 +1,13 @@
 import { type Db, type Runner, type RunnerCapabilities, type RunnerToken, schema } from "@perch/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const { runners, runnerTokens } = schema;
 
 export async function insertRunner(
   db: Db,
   values: {
-    workspaceId: string;
+    /** Null: a runner every workspace may use (the shared hosted runner). */
+    workspaceId: string | null;
     kind: Runner["kind"];
     name: string;
     ownerUserId?: string | null;
@@ -44,12 +45,33 @@ export async function updateRunner(
     name?: string;
     capabilities?: RunnerCapabilities;
     lastSeenAt?: Date;
+    idleSince?: Date | null;
     containerId?: string | null;
   },
 ): Promise<void> {
   await db
     .update(runners)
     .set({ ...patch, updatedAt: new Date() })
+    .where(eq(runners.id, id));
+}
+
+/** A heartbeat: the runner is idle from now on when it carries no sessions, busy otherwise. */
+export async function recordHeartbeat(
+  db: Db,
+  id: string,
+  sessions: number,
+  at: Date,
+): Promise<void> {
+  await db
+    .update(runners)
+    .set({
+      lastSeenAt: at,
+      idleSince:
+        sessions > 0
+          ? null
+          : sql`coalesce(${runners.idleSince}, ${sql.param(at, runners.idleSince)})`,
+      updatedAt: at,
+    })
     .where(eq(runners.id, id));
 }
 

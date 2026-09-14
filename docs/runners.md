@@ -45,6 +45,36 @@ The supervisor (task 1.2) mints the token, starts the container with these varia
 `runner.online`. The agent reconnects with jittered backoff (1 s to 30 s) when the api restarts; a
 refused upgrade three times in a row ends the process with exit code 1 so the supervisor sees it.
 
+## The supervisor (hosted runners)
+
+The `supervisor` entrypoint of the api image (`docker compose` service `supervisor`, the only service
+that mounts the Docker socket) runs the hosted runners:
+
+- **On demand.** The api enqueues `supervisor.ensure {workspaceId}` (jobs queue); the supervisor creates
+  one container per workspace from `PERCH_RUNNER_IMAGE` with the limits of `PERCH_RUNNER_LIMITS`
+  (`cpus=2,memory=4g,pids=512`), the homes and projects volumes at `/data/homes` and `/data/projects`,
+  a fresh connect token, and the labels `dev.perch.role=runner`, `dev.perch.workspace=<id>`,
+  `dev.perch.runner=<runner id>`. A workspace whose container is already running gets nothing new.
+- **Shared mode.** `PERCH_RUNNER_MODE=shared` runs one container for the whole instance, on a runner row
+  without a workspace, which every workspace may use.
+- **Idle stop.** The api records `idle_since` on every heartbeat that carries no sessions; after
+  `PERCH_RUNNER_IDLE_MINUTES` (30) the supervisor stops and removes the container and the next request
+  starts a new one. A container whose runner has been offline for as long (a crashed agent) is removed
+  the same way.
+- **Reconcile.** At start, containers no runner row owns are removed and rows pointing at containers
+  that no longer exist are cleared.
+
+| Variable (supervisor) | Meaning |
+|---|---|
+| `PERCH_RUNNER_MODE` | `docker` (default in team mode), `shared`, or `inprocess` (laptop mode; no supervisor) |
+| `PERCH_RUNNER_IMAGE` | the runner image (`ghcr.io/12burb/perch-runner:<tag>`) |
+| `PERCH_RUNNER_LIMITS` | `cpus=<n>,memory=<size>,pids=<n>` |
+| `PERCH_RUNNER_IDLE_MINUTES` | minutes without sessions before a container is stopped |
+| `PERCH_RUNNER_API_URL` | what runner containers reach the api at (`http://api:3000` in compose; the public URL when unset) |
+| `PERCH_RUNNER_HOMES_VOLUME`, `PERCH_RUNNER_PROJECTS_VOLUME`, `PERCH_RUNNER_NETWORK` | override the volume and network names; by default the supervisor mirrors its own `/data/homes` and `/data/projects` mounts and its first network |
+
+Design notes: ADR-0067.
+
 ## From code
 
 ```ts

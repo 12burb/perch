@@ -22,6 +22,10 @@ const rawEnvSchema = z.object({
   PERCH_RUNNER_IMAGE: z.string().min(1).optional(),
   PERCH_RUNNER_LIMITS: z.string().default("cpus=2,memory=4g,pids=512"),
   PERCH_RUNNER_IDLE_MINUTES: z.coerce.number().int().positive().default(30),
+  PERCH_RUNNER_API_URL: z.string().url().optional(),
+  PERCH_RUNNER_HOMES_VOLUME: z.string().min(1).optional(),
+  PERCH_RUNNER_PROJECTS_VOLUME: z.string().min(1).optional(),
+  PERCH_RUNNER_NETWORK: z.string().min(1).optional(),
   PERCH_FILES_DIR: z.string().min(1).optional(),
   PERCH_S3_ENDPOINT: z.string().optional(),
   PERCH_S3_BUCKET: z.string().optional(),
@@ -64,6 +68,12 @@ export type Env = {
     image: string;
     limits: string;
     idleMinutes: number;
+    /** What runner containers reach the api at; the public URL when unset. */
+    apiUrl: string | undefined;
+    /** Volume and network names for runner containers; mirrored from the supervisor's own when unset. */
+    homesVolume: string | undefined;
+    projectsVolume: string | undefined;
+    network: string | undefined;
   };
   s3: { endpoint: string; bucket: string; key: string; secret: string; region: string } | undefined;
   smtpUrl: string | undefined;
@@ -162,6 +172,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
       image: raw.PERCH_RUNNER_IMAGE ?? "ghcr.io/12burb/perch-runner:latest",
       limits: raw.PERCH_RUNNER_LIMITS,
       idleMinutes: raw.PERCH_RUNNER_IDLE_MINUTES,
+      apiUrl: raw.PERCH_RUNNER_API_URL,
+      homesVolume: raw.PERCH_RUNNER_HOMES_VOLUME,
+      projectsVolume: raw.PERCH_RUNNER_PROJECTS_VOLUME,
+      network: raw.PERCH_RUNNER_NETWORK,
     },
     s3,
     smtpUrl: raw.PERCH_SMTP_URL,

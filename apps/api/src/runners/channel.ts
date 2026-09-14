@@ -24,6 +24,7 @@ import {
   type RunnerInfo,
   type RunnerLink,
   type RunnerNotification,
+  type RunnerNotificationParams,
   RunnerRpcError,
   type RunnerToApiMethod,
   runnerToApiParams,
@@ -33,7 +34,7 @@ import type { WSContext } from "hono/ws";
 import type { Logger } from "pino";
 import type { AppEnv } from "../context.ts";
 import { PerchError } from "../errors.ts";
-import { updateRunner } from "../repos/runners.ts";
+import { recordHeartbeat, updateRunner } from "../repos/runners.ts";
 import { authenticateRunnerToken } from "../services/runners.ts";
 import type { WsServer } from "../ws/server.ts";
 import type { RunnerRegistry } from "./registry.ts";
@@ -220,6 +221,7 @@ export function createRunnerChannel(
       name: params.data.name,
       capabilities: capabilities.data,
       lastSeenAt: new Date(),
+      idleSince: new Date(),
     });
     reply(session.ws, {
       jsonrpc: "2.0",
@@ -245,7 +247,8 @@ export function createRunnerChannel(
     }
     if (method === "runner.heartbeat") {
       armHeartbeatWatchdog(session);
-      await updateRunner(deps.db, session.runner.id, { lastSeenAt: new Date() });
+      const beat = parsed.data as RunnerNotificationParams<"runner.heartbeat">;
+      await recordHeartbeat(deps.db, session.runner.id, beat.sessions.length, new Date());
     }
     session.link.emit({ method, params: parsed.data } as RunnerNotification);
   }

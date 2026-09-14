@@ -27,13 +27,18 @@ export const busEventPayloads = {
   "project.created": z.object({ ...ws, projectId: uuid }),
   "project.updated": z.object({ ...ws, projectId: uuid, changes: z.array(z.string()).optional() }),
   "project.deleted": z.object({ ...ws, projectId: uuid }),
+  // workspaceId is null for the shared hosted runner (PERCH_RUNNER_MODE=shared, ADR-0067).
   "runner.registered": z.object({
-    ...ws,
+    workspaceId: uuid.nullable(),
     runnerId: uuid,
     kind: z.enum(["hosted", "local", "remote"]),
   }),
-  "runner.online": z.object({ ...ws, runnerId: uuid }),
-  "runner.offline": z.object({ ...ws, runnerId: uuid, reason: z.string().optional() }),
+  "runner.online": z.object({ workspaceId: uuid.nullable(), runnerId: uuid }),
+  "runner.offline": z.object({
+    workspaceId: uuid.nullable(),
+    runnerId: uuid,
+    reason: z.string().optional(),
+  }),
   "channel.created": z.object({ ...ws, channelId: uuid, type: z.string() }),
   "channel.updated": z.object({ ...ws, channelId: uuid, changes: z.array(z.string()).optional() }),
   "channel.archived": z.object({ ...ws, channelId: uuid }),

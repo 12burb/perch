@@ -48,15 +48,16 @@ export const runners = pgTable(
   "runners",
   {
     id: id(),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Null for a runner every workspace may use: the shared hosted runner (PERCH_RUNNER_MODE=shared). */
+    workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").$type<RunnerKind>().notNull(),
     ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     status: text("status").notNull().default("offline"),
     capabilities: jsonb("capabilities").$type<RunnerCapabilities>().notNull().default({}),
     lastSeenAt: timestamptz("last_seen_at"),
+    /** Set when the last heartbeat carried no sessions; the supervisor stops idle containers (task 1.2). */
+    idleSince: timestamptz("idle_since"),
     containerId: text("container_id"),
     ...timestamps(),
   },

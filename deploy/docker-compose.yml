@@ -55,6 +55,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://perch:${POSTGRES_PASSWORD}@postgres:5432/perch}
       DOCKER_HOST: unix:///var/run/docker.sock
       PERCH_RUNNER_IMAGE: ${PERCH_RUNNER_IMAGE:-ghcr.io/12burb/perch-runner:${PERCH_IMAGE_TAG:-latest}}
+      # Runner containers join this compose network and reach the api by service name.
+      PERCH_RUNNER_API_URL: ${PERCH_RUNNER_API_URL:-http://api:3000}
     # The supervisor is the only service that mounts the Docker socket (spec §1.6).
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

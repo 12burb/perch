@@ -39,7 +39,7 @@ the phase, ADR-0018); each line names the commit that carries its evidence.
 ## Phase 1 — IDE core
 
 - [x] **1.1** apps/runner control channel: register, heartbeat, capability token verification, hosted mode in the runner image (a launched runner registers within 5 s) — commit `feat(runner): the control channel` (ADR-0066; apps/api/test/runner-channel.test.ts, apps/runner/test/client.test.ts)
-- [ ] **1.2** Supervisor: dockerode lifecycle, limits, idle stop, per-user home volumes, shared mode (two workspaces get two containers; idle stop works)
+- [x] **1.2** Supervisor: dockerode lifecycle, limits, idle stop, per-user home volumes, shared mode (two workspaces get two containers; idle stop works) — commit `feat(api): the supervisor` (ADR-0067; apps/api/test/supervisor.test.ts, apps/api/test/supervisor.docker.test.ts)
 - [ ] **1.3** Local runner: perch runner connect with a minted token, owner-only access, Environments page (a laptop registers and shows online from a phone)
 - [ ] **1.4** Projects: create empty, upload, clone via HTTPS token or SSH deploy key; project volume; .perch/project.json read and validated; devcontainer.json honored (clone a public repo; defaults applied)
 - [ ] **1.5** Runner fs, git, ports, exec methods with policy hooks (fs.search under 200 ms on a 50k-file repo)

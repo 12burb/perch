@@ -21,7 +21,7 @@ export const RUNNER_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export function createRunner(
   db: Db,
   input: {
-    workspaceId: string;
+    workspaceId: string | null;
     kind: Runner["kind"];
     name: string;
     ownerUserId?: string | null;
@@ -70,3 +70,5 @@ export async function authenticateRunnerToken(
   if (found.token.expiresAt.getTime() <= now.getTime()) return null;
   return found.runner;
 }
+
+export { requestRunner } from "../supervisor/supervisor.ts";

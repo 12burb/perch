@@ -1606,3 +1606,41 @@ the request without `cap`. Everything a later task adds to a runner is a handler
 built only by the release workflow (its Chromium download is too heavy for the compose smoke); a broken
 agent build shows up there, not in CI.
 
+## ADR-0067: The supervisor: jobs as the api → supervisor channel, one container per scope, idle by heartbeat
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.2
+
+### Context
+Spec §3.1 gives the supervisor the Docker socket and one runner container per workspace with limits and
+idle stop; §8 names the knobs (mode, image, limits, idle minutes). It leaves open how the api asks for a
+container from another process, how "idle" is known outside the api, what a shared runner is in the
+schema, and where the volumes come from.
+
+### Decision
+The api and the supervisor share the database, so the jobs queue (`packages/jobs`) is the channel:
+`requestRunner(queue, workspaceId)` enqueues `supervisor.ensure`; the supervisor's worker ensures a
+running container for that scope (idempotent, one in-flight ensure per scope). A hosted runner's row
+carries `container_id`; a shared runner (`PERCH_RUNNER_MODE=shared`) is a row with a null
+`workspace_id`, the meaning the registry already gave workspace-less runners (every workspace may use
+it), so `runners.workspace_id` became nullable (migration 0004) and the `runner.*` bus events carry a
+nullable workspaceId. Idleness is recorded by the api's channel on every heartbeat: `idle_since` is set
+when a heartbeat carries no sessions and cleared when it carries some; the supervisor stops and removes
+containers idle past `PERCH_RUNNER_IDLE_MINUTES`, and containers whose runner has been offline that long.
+Containers carry `dev.perch.role`, `dev.perch.workspace`, and `dev.perch.runner` labels, a
+`RestartPolicy` of unless-stopped, the parsed limits as `NanoCpus`, `Memory`, and `PidsLimit`, the homes
+and projects volumes, and the compose network; the volume and network names come from the environment
+or, by default, from the supervisor's own container (inspected by hostname), so compose project names
+need no configuration. Per-user homes are directories under the shared homes volume
+(`/data/homes/<user>`), one volume per instance rather than per user. Runner containers reach the api at
+`PERCH_RUNNER_API_URL` (`http://api:3000` in compose). Reconciliation at start removes containers no row
+owns and clears rows whose containers are gone. The Docker Engine sits behind a small interface
+(`supervisor/docker.ts`): the lifecycle is unit-tested with a fake, and `supervisor.docker.test.ts`
+drives the real daemon with a stock image wherever one exists (the CI check job).
+
+### Consequences
+Nothing else in the api touches Docker. Anything that needs a runner (sessions, terminals, clones)
+calls `requestRunner` and waits for `runner.online`. Idle stop trusts heartbeats: a runner that lies
+about sessions stays up. The Docker path is exercised by the CI check job, not by the compose smoke.
+
