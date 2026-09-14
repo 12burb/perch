@@ -15,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     BUN_INSTALL=/opt/bun \
     UV_INSTALL_DIR=/opt/uv \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
-    PATH=/opt/bun/bin:/opt/uv:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+    PATH=/opt/bun/bin:/opt/uv:/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl unzip xz-utils git ripgrep tmux openssh-client jq less procps \
