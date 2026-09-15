@@ -409,5 +409,16 @@
   "session.restoreConfirm": "Restore",
   "session.applyNoTarget": "Open a file to apply the code block to, or name one in the block (```ts path=src/a.ts).",
   "session.applied": "Applied to {path}",
-  "session.diffError": "The changes could not be loaded."
+  "session.diffError": "The changes could not be loaded.",
+  "editor.inline.label": "Edit selection",
+  "editor.inline.instruction": "Instruction",
+  "editor.inline.placeholder": "Describe the edit…",
+  "editor.inline.send": "Edit",
+  "editor.inline.running": "Asking the agent…",
+  "editor.inline.proposed": "Proposed edit",
+  "editor.inline.accept": "Accept edit",
+  "editor.inline.reject": "Reject edit",
+  "editor.inline.removed": "Replaced text",
+  "editor.inline.empty": "The agent had nothing to put there.",
+  "editor.inline.moved": "The file changed while the agent was working, so the edit was not applied."
 }

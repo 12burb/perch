@@ -257,6 +257,7 @@
       "name": "@perch/ui",
       "version": "0.0.1",
       "dependencies": {
+        "@perch/events": "workspace:*",
         "@tanstack/react-virtual": "3.14.12",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",

@@ -19,6 +19,7 @@
     "test:ct": "playwright test -c playwright-ct.config.ts"
   },
   "dependencies": {
+    "@perch/events": "workspace:*",
     "@tanstack/react-virtual": "3.14.12",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

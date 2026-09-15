@@ -2250,3 +2250,48 @@ every time, and the pane never holds a patch the runner has not agreed with. Wor
 here: an accepted hunk is not remembered across a reload (it is a decision about a diff that no
 longer exists once the next turn runs), and a rejected hunk that the agent re-makes next turn shows
 up again.
+
+## ADR-0080: ⌘K inline edit: a hidden session per person and project, and a proposal the editor owns
+
+- Status: accepted
+- Date: 2026-09-14
+- Task: 1.14
+
+### Context
+Spec §4 puts ⌘K on a selection in the editor ("inline edit on a selection with the diff in place")
+and says ⌘K is the command palette everywhere else. §7.1 has no route for it, and §6 has no place
+to put the conversation it needs. An agent that edits the file directly would be the wrong shape:
+the person has an unsaved buffer open, and the point of ⌘K is to see the change before it lands.
+
+### Decision
+1. **A route that writes nothing.** `POST /api/workspaces/{ws}/projects/{p}/inline-edit`
+   `{path, selection, instruction, language?}` → `{replacement, session_id}` (additive to §7.1).
+   The api asks the agent for the replacement and hands it back; nothing touches the project. The
+   editor puts it in the buffer and ⌘S writes it, as with any other edit.
+2. **The lane is a session, and it is hidden.** The turns are a real conversation, so they belong
+   in `coding_sessions` — but not in the list of sessions a person browses. `kind` (migration 0008,
+   `agent` by default) marks the editor's lane; the list filters it out, one is reused per person
+   and project, and its bus events stay on `session:<id>` instead of the workspace topic, because
+   its turns carry whatever the person had selected.
+3. **The engine comes from the runner.** ⌘K has no engine picker, so the lane opens on the
+   project's default engine when the project's runner reports it, and otherwise on one the runner
+   does report. A laptop without OpenCode installed still gets ⌘K.
+4. **A permission mid-round is refused.** Nobody is watching an inline round, and the edit belongs
+   in the buffer, so the api answers `deny` and lets the agent finish. An empty reply is not an
+   error: the editor says the agent had nothing to put there.
+5. **The diff is in the document.** The proposal replaces the selection in the buffer, the new text
+   is marked, and the replaced text sits struck through above it as a block widget until Accept
+   (which keeps the buffer) or Reject (which puts the original back). A tab switch drops an
+   unanswered proposal, because its range means nothing in another document.
+6. **⌘K ownership is per event, not per state.** CodeMirror draws its own selection, so the native
+   DOM selection is collapsed and the shell cannot tell whether the editor has one. The editor sees
+   the keydown first and claims that exact event; the palette's window listener stands down for it.
+7. **One code-block parser.** Reading the replacement out of a reply is the same work as rendering
+   a reply's blocks, so the parser moved to `@perch/events/code-blocks` (pure, no schemas) and both
+   the ui and the api use it.
+
+### Consequences
+⌘K costs one round on a session the person already owns, and the transcript of that session is an
+honest record of what was asked. The file only changes when the person saves, so a bad proposal
+costs nothing. What is not here: streaming the proposal as it arrives, edits that span files, and a
+model picker for the lane — all of which want the brains of task 1.15 first.

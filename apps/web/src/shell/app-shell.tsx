@@ -35,6 +35,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { editorOwnsCommandKey } from "../code/editor-focus.ts";
 import { authClient } from "../lib/auth-client.ts";
 import { type Me, type MyWorkspace, workspacesQuery } from "../lib/queries.ts";
 import { forgetWorkspace, rememberWorkspace } from "../lib/workspace.ts";
@@ -138,7 +139,9 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
   );
   useShellShortcuts(state, onStateChange);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
-  useCommandPaletteShortcut(openPalette);
+  // ⌘K is the palette everywhere except a focused editor with a selection, where it is the inline
+  // edit (spec §4 keyboard; task 1.14).
+  useCommandPaletteShortcut(openPalette, { isEditorOwning: editorOwnsCommandKey });
 
   const goMode = useCallback(
     (target: RailMode) => {

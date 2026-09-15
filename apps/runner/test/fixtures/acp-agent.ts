@@ -28,6 +28,32 @@ async function runTurn(
     });
   const notify = (update: acp.SessionNotification["update"]) =>
     cx.notify(acp.methods.client.session.update, { sessionId, update });
+  // Task 1.14: the api's ⌘K prompt asks for a replacement and nothing else.
+  if (text.startsWith("Perch inline edit")) {
+    const fenced = /```[^\n]*\n([\s\S]*?)\n?```/.exec(text);
+    const selection = fenced?.[1] ?? "";
+    if (/permission/i.test(text)) {
+      // Nobody is watching an inline round: the api refuses, and the agent carries on anyway.
+      const answer = await cx.request(acp.methods.client.session.requestPermission, {
+        sessionId,
+        toolCall: { toolCallId: "call_inline", title: "Edit selection", kind: "edit" },
+        options: [
+          { kind: "allow_once", name: "Allow once", optionId: "once" },
+          { kind: "reject_once", name: "Deny", optionId: "no" },
+        ],
+      });
+      const denied = answer.outcome.outcome === "cancelled" || answer.outcome.optionId === "no";
+      await say(denied ? "Denied, answering anyway.\n" : "Allowed.\n");
+    }
+    const rewritten = /uppercase/i.test(text)
+      ? selection.toUpperCase()
+      : selection
+          .split("\n")
+          .map((line) => (line ? `// ${line}` : line))
+          .join("\n");
+    await say(`Here you go:\n\`\`\`\n${rewritten}\n\`\`\`\n`);
+    return;
+  }
   const [word] = text.split(/\s+/);
   switch (word) {
     case "edit": {

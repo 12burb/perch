@@ -93,10 +93,13 @@ export function CommandPalette(props: {
   );
 }
 
-/** ⌘K / Ctrl+K opens the palette, except when a focused editor with a selection owns ⌘K (spec §4). */
+/**
+ * ⌘K / Ctrl+K opens the palette, except when an editor claimed that very keydown for an inline
+ * edit (spec §4). The editor sees the event first, so it answers for the event, not for a state.
+ */
 export function useCommandPaletteShortcut(
   onOpen: () => void,
-  options: { isEditorOwning?: () => boolean } = {},
+  options: { isEditorOwning?: (event: KeyboardEvent) => boolean } = {},
 ): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -107,7 +110,7 @@ export function useCommandPaletteShortcut(
         event.altKey
       )
         return;
-      if (options.isEditorOwning?.()) return;
+      if (options.isEditorOwning?.(event)) return;
       event.preventDefault();
       onOpen();
     };

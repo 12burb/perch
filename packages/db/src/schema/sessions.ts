@@ -28,6 +28,10 @@ export type SessionModeValue = (typeof SESSION_MODES)[number];
 export const CODING_SESSION_STATUSES = ["idle", "running", "needs_you", "error", "ended"] as const;
 export type CodingSessionStatus = (typeof CODING_SESSION_STATUSES)[number];
 
+/** What a session is for: one a person drives, or the editor's ⌘K lane (task 1.14, ADR-0080). */
+export const CODING_SESSION_KINDS = ["agent", "inline"] as const;
+export type CodingSessionKind = (typeof CODING_SESSION_KINDS)[number];
+
 /** A stored transcript event: an EngineEvent or a person's turn (@perch/events sessionEventSchema). */
 export type StoredSessionEvent = { type: string } & Record<string, unknown>;
 
@@ -52,6 +56,8 @@ export const codingSessions = pgTable(
     // References model_profiles once the brains group lands (task 1.15); until then a bare uuid.
     modelProfileId: uuid("model_profile_id"),
     mode: text("mode").$type<SessionModeValue>().notNull().default("build"),
+    /** agent: a session in the pane; inline: the editor's ⌘K lane, kept out of the session list. */
+    kind: text("kind").$type<CodingSessionKind>().notNull().default("agent"),
     status: text("status").$type<CodingSessionStatus>().notNull().default("idle"),
     title: text("title"),
     worktree: text("worktree"),
@@ -73,6 +79,8 @@ export const codingSessions = pgTable(
   },
   (t) => [
     index("coding_sessions_project_idx").on(t.projectId, t.startedAt),
+    // The editor reuses one inline session per person and project (task 1.14).
+    index("coding_sessions_inline_idx").on(t.projectId, t.userId, t.kind),
     index("coding_sessions_workspace_idx").on(t.workspaceId, t.startedAt),
   ],
 );

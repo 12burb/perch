@@ -221,13 +221,16 @@ so lists and the inbox can follow without subscribing to every session. Subscrib
 | `PATCH /api/sessions/{s}` `{title}` | Renames the session |
 | `POST /api/sessions/{s}/fork` | A new session with the transcript, turn count, and checkpoints so far → `201 Session` (`forked_from_id` set) |
 | `GET /api/sessions/{s}/events?after_seq&limit` | Replays the transcript |
+| `POST /api/workspaces/{ws}/projects/{p}/inline-edit` `{path, selection, instruction, language?}` | Rewrites a selection for the editor's ⌘K → `{replacement, session_id}`; writes nothing (task 1.14) |
 | `GET /api/sessions/{s}/checkpoints` | The checkpoint taken before each turn |
 | `GET /api/sessions/{s}/diff?turn` | One turn's diff, or the whole session's → `{turn, from_turn, to_turn, files: FileDiff[]}` |
 | `POST /api/sessions/{s}/diff/apply` `{turn?, decisions}` | Accepts and rejects hunks; rejects reverse-apply as one patch → `{files}` |
 | `POST /api/sessions/{s}/checkpoints/{turn}/restore` | Puts the project back to before the turn → `{turn, git_ref, files}` |
 
 Every route authorizes `sessions.read` / `sessions.create` / `sessions.update` in the session's
-workspace (every member has them); strangers get 404. `model` defaults to
+workspace (every member has them); strangers get 404. A session has a `kind`: `agent` for the ones
+the Sessions list shows, `inline` for the editor's ⌘K lane, which is hidden and stays off the
+workspace topic (ADR-0080). `model` defaults to
 `{provider: "engine", model_id: "default"}`, meaning whatever the engine is configured with, until
 model profiles (brains, task 1.15) choose one.
 

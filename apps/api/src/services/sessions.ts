@@ -6,7 +6,7 @@
  * engine that goes silent mid-round is cancelled after `silenceMs`.
  */
 import type { Bus } from "@perch/bus";
-import type { CodingSession, Db, Project, SessionCheckpoint } from "@perch/db";
+import type { CodingSession, CodingSessionKind, Db, Project, SessionCheckpoint } from "@perch/db";
 import { type Engine, EngineError, type EngineRegistry } from "@perch/engines";
 import {
   type FileDiff,
@@ -25,6 +25,7 @@ import {
   sessionRestoreResultSchema,
   type UserTurn,
 } from "@perch/events";
+import { proposedCode } from "@perch/events/code-blocks";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -34,6 +35,7 @@ import {
   appendEvent,
   copyCheckpoints,
   copyEvents,
+  findInlineSession,
   getCheckpoint,
   getSession,
   insertSession,
@@ -59,6 +61,8 @@ export type SessionDeps = {
 export type SessionServiceOptions = {
   /** A round with no event for this long is cancelled (default 10 minutes); a waiting permission does not count. */
   silenceMs?: number;
+  /** An inline edit (task 1.14) waits this long for the agent (default 60 s); a person is waiting. */
+  inlineMs?: number;
 };
 
 /** "Whatever the engine uses" until model profiles (brains, task 1.15) pick one. */
@@ -90,8 +94,50 @@ export type CreateSessionInput = {
   model?: ModelRef;
   mode?: SessionMode;
   title?: string | null;
+  /** agent (the default) or the editor's inline lane. */
+  kind?: CodingSessionKind;
   by: ActorContext;
 };
+
+/** What ⌘K asks for (task 1.14): an instruction about one selection in one file. */
+export type InlineEditInput = {
+  project: Project;
+  userId: string;
+  path: string;
+  selection: string;
+  instruction: string;
+  language?: string;
+  /** Overrides the engine the lane opens on; without it the runner's engines decide. */
+  engine?: string;
+  by: ActorContext;
+};
+
+/**
+ * The turn an inline edit sends. The first line is a marker so an engine (and the tests' agent)
+ * can tell this apart from a person talking; the reply is meant to be the replacement and nothing
+ * else, because the editor puts it straight into the buffer.
+ */
+export function inlineEditPrompt(input: {
+  path: string;
+  selection: string;
+  instruction: string;
+  language?: string;
+}): string {
+  const fence = input.language ?? "";
+  return [
+    "Perch inline edit.",
+    `File: ${input.path}`,
+    "Rewrite the selected lines as instructed. Reply with the rewritten lines only, in one fenced",
+    "code block, with no explanation and no surrounding lines. Do not edit any file yourself.",
+    "",
+    `Instruction: ${input.instruction}`,
+    "",
+    "Selection:",
+    `\`\`\`${fence}`,
+    input.selection,
+    "```",
+  ].join("\n");
+}
 
 type Round = {
   engine: Engine;
@@ -129,12 +175,14 @@ export class SessionService {
   /** Sessions this process has opened on their engine (engines forget across api restarts). */
   private readonly known = new Set<string>();
   private readonly silenceMs: number;
+  private readonly inlineMs: number;
 
   constructor(
     private readonly deps: SessionDeps,
     options: SessionServiceOptions = {},
   ) {
     this.silenceMs = options.silenceMs ?? 10 * 60_000;
+    this.inlineMs = options.inlineMs ?? 60_000;
   }
 
   get engines(): EngineRegistry {
@@ -190,6 +238,7 @@ export class SessionService {
       model: input.model ?? ENGINE_DEFAULT_MODEL,
       mode: input.mode ?? "build",
       title: input.title ?? null,
+      ...(input.kind ? { kind: input.kind } : {}),
     });
     await this.deps.bus.publish(
       "session.created",
@@ -458,12 +507,123 @@ export class SessionService {
     return { turn, gitRef: git_ref, files };
   }
 
+  /**
+   * ⌘K in the editor (task 1.14): one round on this person's inline session for the project, whose
+   * reply is the replacement for a selection. The agent never writes the file — the editor does,
+   * once the person accepts — so a permission it asks for mid-round is refused and the round goes
+   * on. An empty reply is not an error: the editor says there was nothing to put there.
+   */
+  async inlineEdit(input: InlineEditInput): Promise<{ replacement: string; sessionId: string }> {
+    const session = await this.inlineSession(input);
+    if (this.rounds.has(session.id)) {
+      throw PerchError.conflict("an inline edit is already running on this project");
+    }
+    let engine: Engine;
+    try {
+      engine = await this.engineFor(session, input.userId);
+    } catch (error) {
+      const failure = engineFailure(error);
+      await this.setStatus(session, "error", failure.message, input.by);
+      throw failure;
+    }
+    const prompt = inlineEditPrompt(input);
+    await this.record(
+      session,
+      { type: "turn", text: prompt, mode: session.mode, userId: input.userId },
+      input.by,
+    );
+    await updateSession(this.deps.db, session.id, { turns: session.turns + 1 });
+    const running = await this.setStatus(session, "running", null, input.by);
+    const round: Round = { engine, timer: null, cancelled: false };
+    this.rounds.set(session.id, round);
+    let text = "";
+    try {
+      this.armInline(running, round);
+      for await (const event of engine.send(session.id, { text: prompt }, { mode: running.mode })) {
+        await this.record(running, event);
+        if (event.type === "text") text += event.delta;
+        else if (event.type === "permission") {
+          // Nobody is watching this round, and the edit belongs in the buffer, not on disk.
+          await engine.respondPermission(session.id, event.id, "deny");
+        } else if (event.type === "usage" && event.costUsd > 0) {
+          await addCost(this.deps.db, session.id, event.costUsd);
+        } else if (event.type === "done") {
+          break;
+        } else if (event.type === "error") {
+          throw new PerchError("upstream_failed", event.message);
+        }
+        this.armInline(running, round);
+      }
+      if (round.cancelled) {
+        throw new PerchError("upstream_failed", "the agent did not answer in time");
+      }
+    } catch (error) {
+      const failure = error instanceof PerchError ? error : engineFailure(error);
+      await this.record(running, { type: "error", message: failure.message }, input.by);
+      await this.setStatus(running, "error", failure.message, input.by);
+      throw failure;
+    } finally {
+      if (round.timer) clearTimeout(round.timer);
+      this.rounds.delete(session.id);
+    }
+    await this.setStatus(running, "idle", null, input.by);
+    return { replacement: proposedCode(text), sessionId: session.id };
+  }
+
+  /** The project's inline session for this person, opened the first time ⌘K is used. */
+  private async inlineSession(input: InlineEditInput): Promise<CodingSession> {
+    const existing = await findInlineSession(this.deps.db, input.project.id, input.userId);
+    if (existing) return existing;
+    return this.create({
+      project: input.project,
+      userId: input.userId,
+      kind: "inline",
+      title: "Inline edits",
+      ...(input.engine ? { engine: input.engine } : { engine: await this.inlineEngine(input) }),
+      by: input.by,
+    });
+  }
+
+  /**
+   * ⌘K has no engine picker, so the inline lane opens on one the project's runner actually has:
+   * the project's default when the runner reports it (or reports none), else the first it does.
+   */
+  private async inlineEngine(input: InlineEditInput): Promise<string> {
+    const fallback = input.project.defaultEngine;
+    try {
+      const link = await projectRunnerLink(this.deps, input.project, input.userId);
+      const engines = link.info.capabilities.engines;
+      if (!Array.isArray(engines) || engines.length === 0) return fallback;
+      const available = engines.filter((id): id is string => typeof id === "string");
+      if (available.includes(fallback)) return fallback;
+      return available.find((id) => this.deps.engines.has(id)) ?? fallback;
+    } catch {
+      // The runner is not there; create() will say so in the language of the api.
+      return fallback;
+    }
+  }
+
+  /** A person is waiting on an inline round, so a quiet agent is cancelled sooner than a chat one. */
+  private armInline(session: CodingSession, round: Round): void {
+    if (round.timer) clearTimeout(round.timer);
+    round.timer = setTimeout(() => {
+      round.cancelled = true;
+      this.deps.log.warn({ sessionId: session.id }, "inline edit went silent; cancelling");
+      void round.engine.cancel(session.id).catch(() => {});
+    }, this.inlineMs);
+    round.timer.unref?.();
+  }
+
   close(): void {
     for (const round of this.rounds.values()) if (round.timer) clearTimeout(round.timer);
   }
 
   private wide(session: CodingSession): string[] {
-    return [`session:${session.id}`, `ws:${session.workspaceId}`];
+    // An inline session carries someone's selection through its turns, so it stays off the
+    // workspace topic: the editor is the only audience (ADR-0080).
+    return session.kind === "inline"
+      ? [`session:${session.id}`]
+      : [`session:${session.id}`, `ws:${session.workspaceId}`];
   }
 
   private async linkFor(

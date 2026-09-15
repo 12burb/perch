@@ -1,0 +1,2 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "kind" text DEFAULT 'agent' NOT NULL;--> statement-breakpoint
+CREATE INDEX "coding_sessions_inline_idx" ON "coding_sessions" USING btree ("project_id","user_id","kind");

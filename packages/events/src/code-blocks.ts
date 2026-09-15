@@ -1,7 +1,8 @@
 /**
- * Fenced code blocks in an agent's reply (task 1.13 "Apply on code blocks"): the text splits on
- * ``` fences; a fence's info string may name a language and a file (```ts path=src/a.ts,
- * ```ts:src/a.ts, ```ts title="src/a.ts", or a bare src/a.ts), which Apply writes the block to.
+ * Fenced code blocks in an agent's reply (tasks 1.13, 1.14): the text splits on ``` fences; a
+ * fence's info string may name a language and a file (```ts path=src/a.ts, ```ts:src/a.ts,
+ * ```ts title="src/a.ts", or a bare src/a.ts), which Apply writes the block to. Pure string work,
+ * so the ui renders with it and the api reads a ⌘K proposal out of a reply with it.
  */
 export type TextPart =
   | { kind: "text"; text: string }
@@ -114,4 +115,21 @@ export function splitCodeBlocks(text: string): TextPart[] {
     parts.push({ kind: "code", lang, path, code: code.join("\n"), open: true });
   } else flushPlain();
   return parts;
+}
+
+/**
+ * The code a reply proposes: its first complete fenced block, or — when the model answered with
+ * bare text — the text itself. Trailing newlines are left to the caller.
+ */
+export function proposedCode(reply: string): string {
+  const parts = splitCodeBlocks(reply);
+  const fenced = parts.find((part) => part.kind === "code" && !part.open);
+  if (fenced && fenced.kind === "code") return fenced.code;
+  const open = parts.find((part) => part.kind === "code");
+  if (open && open.kind === "code") return open.code;
+  return parts
+    .filter((part): part is Extract<typeof part, { kind: "text" }> => part.kind === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
 }

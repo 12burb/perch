@@ -1,9 +1,9 @@
-import { Button, EditorGroup, type EditorTab, t } from "@perch/ui";
+import { Button, EditorGroup, type EditorTab, Input, t } from "@perch/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import { fsKey, fsReadQuery } from "../lib/queries.ts";
-import { CodeEditor } from "./code-editor.tsx";
+import { CodeEditor, type CodeEditorHandle } from "./code-editor.tsx";
 import { editorFor, isMarkdown, type OpenFile, useEditorStore } from "./editor-store.ts";
 import { Markdown } from "./markdown.tsx";
 
@@ -11,7 +11,25 @@ import { Markdown } from "./markdown.tsx";
  * The editor for one project (task 1.6): tabs from the store, each file loaded through the api on
  * first open, edited in CodeMirror, saved with ⌘S or the Save button; markdown toggles between
  * source and preview; images and other binaries preview or explain themselves.
+ *
+ * ⌘K on a selection asks the project's agent to rewrite it (task 1.14): the instruction goes in a
+ * bar above the editor, the proposal lands in the buffer with the diff in place, and Accept keeps
+ * it (⌘S still writes it) while Reject puts the original back.
  */
+
+/** The life of one ⌘K edit. */
+type InlineEdit =
+  | { phase: "asking"; from: number; to: number; selection: string }
+  | { phase: "running"; from: number; to: number; selection: string; instruction: string }
+  | { phase: "proposed"; instruction: string };
+
+/** The fence language for a file, so the agent sees the selection as code. */
+function fenceFor(path: string): string | undefined {
+  const dot = path.lastIndexOf(".");
+  if (dot < 0 || dot === path.length - 1) return undefined;
+  const extension = path.slice(dot + 1).toLowerCase();
+  return /^[a-z0-9]+$/.test(extension) ? extension : undefined;
+}
 
 const IMAGE_TYPES: Record<string, string> = {
   png: "image/png",
@@ -52,6 +70,9 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
   const { close, select, loaded, failed, edit, saved, setPreview, revealed } = useEditorStore();
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const editorRef = useRef<CodeEditorHandle>(null);
+  const [inline, setInline] = useState<InlineEdit | null>(null);
+  const [instruction, setInstruction] = useState("");
   const active = editor.files.find((file) => file.path === editor.active) ?? null;
 
   // Load every open file that has no content yet.
@@ -99,6 +120,79 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
     const timer = setTimeout(() => setNotice(null), 2_000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  // A file change or a tab switch drops a proposal nobody answered: its range no longer means
+  // anything in the new document.
+  const activePath = active?.path ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the proposal belongs to the file it was made in
+  useEffect(() => {
+    setInline(null);
+    setInstruction("");
+  }, [activePath]);
+
+  const runInlineEdit = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault();
+      if (inline?.phase !== "asking" || !active) return;
+      const asked = instruction.trim();
+      if (!asked) return;
+      setError(null);
+      setInline({ ...inline, phase: "running", instruction: asked });
+      try {
+        const language = fenceFor(active.path);
+        const result = unwrap(
+          await api.POST("/api/workspaces/{ws}/projects/{project}/inline-edit", {
+            params: { path: { ws: props.workspaceId, project: props.projectId } },
+            body: {
+              path: active.path,
+              selection: inline.selection,
+              instruction: asked,
+              ...(language ? { language } : {}),
+            },
+          }),
+        );
+        if (!result.replacement) {
+          setInline(null);
+          setNotice(t("editor.inline.empty"));
+          return;
+        }
+        // The person may have typed while the agent was thinking: only replace the text we sent.
+        const placed = editorRef.current?.propose(
+          { from: inline.from, to: inline.to },
+          result.replacement,
+          inline.selection,
+        );
+        if (!placed) {
+          setInline(null);
+          setNotice(t("editor.inline.moved"));
+          return;
+        }
+        setInline({ phase: "proposed", instruction: asked });
+      } catch (failure) {
+        setError(message(failure));
+        setInline({ ...inline, phase: "asking" });
+      }
+    },
+    [inline, instruction, active, props.workspaceId, props.projectId],
+  );
+
+  const resolveInline = useCallback((action: "accept" | "reject") => {
+    editorRef.current?.resolve(action);
+    setInline(null);
+    setInstruction("");
+  }, []);
+
+  // Esc drops a proposal from wherever the person is — the buffer is what it is about, not the bar.
+  useEffect(() => {
+    if (inline?.phase !== "proposed") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      resolveInline("reject");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inline?.phase, resolveInline]);
 
   const tabs: EditorTab[] = editor.files.map((file) => ({
     id: file.path,
@@ -188,8 +282,60 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
                 {t("editor.truncated")}
               </p>
             ) : null}
+            {inline ? (
+              <div className="border-border border-b px-3 py-2" data-testid="inline-edit">
+                {inline.phase === "proposed" ? (
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 truncate text-fg-muted text-xs" role="status">
+                      {t("editor.inline.proposed")}: {inline.instruction}
+                    </span>
+                    <Button size="sm" variant="primary" onClick={() => resolveInline("accept")}>
+                      {t("editor.inline.accept")}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => resolveInline("reject")}>
+                      {t("editor.inline.reject")}
+                    </Button>
+                  </div>
+                ) : (
+                  <form
+                    className="flex items-center gap-2"
+                    aria-label={t("editor.inline.label")}
+                    onSubmit={(event) => void runInlineEdit(event)}
+                  >
+                    <Input
+                      aria-label={t("editor.inline.instruction")}
+                      placeholder={t("editor.inline.placeholder")}
+                      className="h-8 flex-1"
+                      value={instruction}
+                      disabled={inline.phase === "running"}
+                      autoFocus
+                      onChange={(event) => setInstruction(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Escape") return;
+                        event.preventDefault();
+                        resolveInline("reject");
+                      }}
+                    />
+                    <Button size="sm" type="submit" disabled={inline.phase === "running"}>
+                      {inline.phase === "running"
+                        ? t("editor.inline.running")
+                        : t("editor.inline.send")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      type="button"
+                      onClick={() => resolveInline("reject")}
+                    >
+                      {t("common.cancel")}
+                    </Button>
+                  </form>
+                )}
+              </div>
+            ) : null}
             <div className="min-h-0 flex-1">
               <CodeEditor
+                ref={editorRef}
                 path={active.path}
                 value={active.content}
                 readOnly={active.truncated}
@@ -198,6 +344,11 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
                 revealLine={active.revealLine}
                 onRevealed={() => revealed(props.projectId, active.path)}
                 label={active.path}
+                onInlineEdit={(selection) => {
+                  setInstruction("");
+                  setError(null);
+                  setInline({ phase: "asking", ...selection, selection: selection.text });
+                }}
               />
             </div>
           </div>

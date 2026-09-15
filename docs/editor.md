@@ -51,5 +51,23 @@ import { EditorGroup } from "@perch/ui"; // tabs + breadcrumbs + the tabpanel; t
 `apps/web/src/code/` holds the rest: `code-editor.tsx` (CodeMirror), `markdown.tsx` (the
 renderer), `file-tree.tsx`, `editor-store.ts` (open files per project, zustand), `editor-pane.tsx`.
 
+## ⌘K inline edit (task 1.14)
+
+Select something in the editor and press ⌘K (Ctrl+K): a bar above the editor asks what to change.
+The agent answers with the replacement, which lands in the buffer with the replaced lines struck
+through above it and the new lines highlighted — the diff in place of spec §4.
+
+- **Accept** keeps the proposal in the buffer. Nothing is written until ⌘S, like any other edit.
+- **Reject** (or Esc, or switching tabs) puts the original text back.
+- The agent is asked for the replacement and nothing else, and is told not to edit files; a
+  permission it asks for mid-round is refused, since nobody is watching (ADR-0080).
+- ⌘K with no selection is still the command palette. The editor claims the keydown only when it
+  has a selection, and the palette stands down for that one event.
+
+`POST /api/workspaces/{ws}/projects/{p}/inline-edit` `{path, selection, instruction, language?}`
+answers `{replacement, session_id}`. The round runs on a hidden session of kind `inline`, one per
+person and project, reused across edits and kept out of the Sessions list; its events stay on
+`session:<id>` because its turns carry the selection.
+
 The session pane (task 1.12) opens in the panel beside the editor from the sidebar's Sessions
 section; see [`sessions.md`](sessions.md).

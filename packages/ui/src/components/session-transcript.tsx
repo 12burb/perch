@@ -4,6 +4,7 @@
  * and diffs, permission prompts (Allow once / Always this session / Deny), and errors. The pane
  * itself (composer, usage footer, list) lives in the app; these are the accessible building blocks.
  */
+import { splitCodeBlocks } from "@perch/events/code-blocks";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertTriangle,
@@ -16,7 +17,6 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { t } from "../i18n/index.ts";
 import { cn } from "../utils.ts";
-import { splitCodeBlocks } from "./code-blocks.ts";
 import { Badge, Button } from "./primitives.tsx";
 
 export type TranscriptDiff = {

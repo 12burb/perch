@@ -300,6 +300,44 @@ const decisionSchema = z
   })
   .openapi("DiffDecision");
 
+const inlineEditRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/inline-edit",
+  tags: ["sessions"],
+  summary: "Rewrite a selection with the project's agent (⌘K)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: projectParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              path: z.string().min(1).max(4096),
+              selection: z.string().min(1).max(100_000),
+              instruction: z.string().min(1).max(4000),
+              language: z.string().max(64).optional(),
+            })
+            .openapi("InlineEdit"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description:
+        "The replacement for the selection; empty when the agent had nothing to put there",
+      content: {
+        "application/json": {
+          schema: z.object({ replacement: z.string(), session_id: z.uuid() }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 409, 422, 502),
+  },
+});
+
 const checkpointsRoute = createRoute({
   method: "get",
   path: "/api/sessions/{s}/checkpoints",
@@ -512,6 +550,24 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const user = currentUser(c);
     const fork = await sessions.fork(session, user.id, actorOf(c));
     return c.json(sessionBody(fork), 201);
+  });
+
+  app.openapi(inlineEditRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "sessions.create", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const result = await sessions.inlineEdit({
+      project,
+      userId: currentUser(c).id,
+      path: body.path,
+      selection: body.selection,
+      instruction: body.instruction,
+      ...(body.language ? { language: body.language } : {}),
+      by: actorOf(c),
+    });
+    return c.json({ replacement: result.replacement, session_id: result.sessionId }, 200);
   });
 
   app.openapi(checkpointsRoute, async (c) => {

@@ -5,6 +5,7 @@
  */
 import {
   type CodingSession,
+  type CodingSessionKind,
   type CodingSessionStatus,
   type Db,
   type SessionCheckpoint,
@@ -14,7 +15,7 @@ import {
   schema,
 } from "@perch/db";
 import type { ModelRef, SessionEvent } from "@perch/events";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ne, sql } from "drizzle-orm";
 
 const { codingSessions, sessionCheckpoints, sessionEvents } = schema;
 
@@ -30,6 +31,7 @@ export async function insertSession(
     mode: SessionModeValue;
     title: string | null;
     forkedFromId?: string | null;
+    kind?: CodingSessionKind;
     /** A fork starts with the turns of the transcript it copied, so turn numbers keep meaning. */
     turns?: number;
   },
@@ -48,6 +50,7 @@ export async function insertSession(
       mode: values.mode,
       title: values.title,
       forkedFromId: values.forkedFromId ?? null,
+      ...(values.kind ? { kind: values.kind } : {}),
       ...(values.turns === undefined ? {} : { turns: values.turns }),
     })
     .returning();
@@ -71,7 +74,12 @@ export function listSessions(
     .select()
     .from(codingSessions)
     .where(
-      and(eq(codingSessions.workspaceId, workspaceId), eq(codingSessions.projectId, projectId)),
+      and(
+        eq(codingSessions.workspaceId, workspaceId),
+        eq(codingSessions.projectId, projectId),
+        // The editor's ⌘K lane is not a session anyone browses (task 1.14, ADR-0080).
+        eq(codingSessions.kind, "agent"),
+      ),
     )
     .orderBy(desc(codingSessions.startedAt), desc(codingSessions.id))
     .limit(limit);
@@ -220,4 +228,26 @@ export async function copyCheckpoints(db: Db, from: string, to: string): Promise
     .insert(sessionCheckpoints)
     .values(rows.map((row) => ({ sessionId: to, turn: row.turn, gitRef: row.gitRef })));
   return rows.length;
+}
+
+/** The editor's inline session for a person and project, reused across ⌘K edits (task 1.14). */
+export async function findInlineSession(
+  db: Db,
+  projectId: string,
+  userId: string,
+): Promise<CodingSession | null> {
+  const [row] = await db
+    .select()
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.projectId, projectId),
+        eq(codingSessions.userId, userId),
+        eq(codingSessions.kind, "inline"),
+        ne(codingSessions.status, "ended"),
+      ),
+    )
+    .orderBy(desc(codingSessions.startedAt))
+    .limit(1);
+  return row ?? null;
 }
