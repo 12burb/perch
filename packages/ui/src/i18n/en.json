@@ -68,6 +68,7 @@
   "ui.composer": "Message composer",
   "ui.composerPlaceholder": "Write a message…",
   "ui.composerHint": "Enter to send · Shift+Enter for a new line",
+  "ui.mentions": "Mentions",
   "ui.formatting": "Formatting",
   "ui.bold": "Bold",
   "ui.italic": "Italic",

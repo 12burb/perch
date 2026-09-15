@@ -3,6 +3,44 @@ import { expectNoA11yViolations } from "../../playwright/axe.ts";
 import { ComposerDemo } from "./shell.demo.tsx";
 
 test.describe("Composer", () => {
+  test("mentions: @ opens a list, the keyboard drives it, and picking writes the token", async ({
+    mount,
+    page,
+  }) => {
+    await mount(<ComposerDemo draftKey={`ct-m-${Date.now()}`} mentions />);
+    const box = page.getByRole("textbox", { name: "Write a message…" });
+    const list = page.getByRole("listbox", { name: "Mentions" });
+    await expect(list).toBeHidden();
+
+    // Typing the trigger opens it; typing more narrows it.
+    await box.click();
+    await page.keyboard.type("morning @");
+    await expect(list).toBeVisible();
+    await expect(list.getByRole("option")).toHaveText(["Robin@robin", "Wren@wren"]);
+    await page.keyboard.type("wr");
+    await expect(list.getByRole("option")).toHaveText(["Wren@wren"]);
+
+    // Enter takes the highlighted one and writes what the api reads.
+    await page.keyboard.press("Enter");
+    await expect(box).toHaveValue("morning <@wren> ");
+    await expect(list).toBeHidden();
+
+    // The arrows move the highlight, and Tab takes it.
+    await page.keyboard.type("and #");
+    await expect(list.getByRole("option")).toHaveText(["#generaleverything"]);
+    await page.keyboard.press("Tab");
+    await expect(box).toHaveValue("morning <@wren> and <#general> ");
+
+    // Esc closes the list without sending anything.
+    await page.keyboard.type("@");
+    await expect(list).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(list).toBeHidden();
+    await expect(page.getByRole("list", { name: "Sent" }).getByRole("listitem")).toHaveCount(0);
+
+    await expectNoA11yViolations(page);
+  });
+
   test("Enter sends, Shift+Enter adds a line, drafts persist, Esc stops a running turn", async ({
     mount,
     page,

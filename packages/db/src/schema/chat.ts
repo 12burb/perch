@@ -99,6 +99,30 @@ export const messages = pgTable(
   ],
 );
 
+/**
+ * What a message said before it was edited (spec §5.2 "edit/delete with history"; task 2.2). One
+ * row per edit, holding the blocks as they were, so "(edited)" can be opened rather than merely
+ * believed. The current text stays on the message itself.
+ */
+export const messageEdits = pgTable(
+  "message_edits",
+  {
+    id: id(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    /** The blocks this edit replaced. */
+    blocks: jsonb("blocks").$type<MessageBlock[]>().notNull(),
+    editedByType: text("edited_by_type").$type<AuthorType>().notNull(),
+    editedById: uuid("edited_by_id").notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("message_edits_message_idx").on(t.messageId, t.createdAt.desc()),
+    check("message_edits_type_check", sql`${t.editedByType} in ('user', 'bot', 'system')`),
+  ],
+);
+
 export const messageReactions = pgTable(
   "message_reactions",
   {
@@ -193,6 +217,7 @@ export type Channel = typeof channels.$inferSelect;
 export type NewChannel = typeof channels.$inferInsert;
 export type ChannelMember = typeof channelMembers.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type MessageEdit = typeof messageEdits.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageReaction = typeof messageReactions.$inferSelect;
 export type Pin = typeof pins.$inferSelect;

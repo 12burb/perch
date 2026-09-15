@@ -24,6 +24,7 @@ export type ConnectionRow = components["schemas"]["Connection"];
 export type ConnectionProviderRow = components["schemas"]["ConnectionProvider"];
 export type ChannelRow = components["schemas"]["Channel"];
 export type ChannelMemberRow = components["schemas"]["ChannelMember"];
+export type MessageRow = components["schemas"]["Message"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -273,6 +274,34 @@ export function channelMembersQuery(workspaceId: string, channelId: string) {
         }),
       ).members,
     enabled: workspaceId !== "" && channelId !== "",
+  });
+}
+
+/** A page of a channel, oldest first (task 2.2). */
+export function messagesQuery(workspaceId: string, channelId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "messages", channelId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/channels/{channel}/messages", {
+          params: { path: { ws: workspaceId, channel: channelId }, query: { limit: 200 } },
+        }),
+      ).messages,
+    enabled: workspaceId !== "" && channelId !== "",
+  });
+}
+
+/** A thread: its root and everything hanging off it (task 2.2). */
+export function threadQuery(workspaceId: string, rootId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "thread", rootId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/messages/{message}/thread", {
+          params: { path: { ws: workspaceId, message: rootId } },
+        }),
+      ).messages,
+    enabled: workspaceId !== "" && rootId !== "",
   });
 }
 

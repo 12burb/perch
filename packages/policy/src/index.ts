@@ -43,6 +43,9 @@ export const ACTIONS = [
   "channels.create",
   "channels.update",
   "channels.archive",
+  "messages.read",
+  "messages.write",
+  "messages.moderate",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -116,6 +119,11 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "channels.create": ["owner", "admin", "member"],
   "channels.update": ["owner", "admin", "member"],
   "channels.archive": ["owner", "admin"],
+  // Messages (task 2.2): everybody reads and writes in the channels they are in; editing and
+  // deleting your own is part of writing. Taking down somebody else's is moderation.
+  "messages.read": ["owner", "admin", "member"],
+  "messages.write": ["owner", "admin", "member"],
+  "messages.moderate": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -152,6 +160,9 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "channels.create": "write",
   "channels.update": "write",
   "channels.archive": "write",
+  "messages.read": "read",
+  "messages.write": "write",
+  "messages.moderate": "write",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

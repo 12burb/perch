@@ -20,6 +20,7 @@ import {
   meQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { ChannelTranscript } from "./transcript.tsx";
 
 function message(error: unknown): string {
   return error instanceof RequestFailed ? error.message : t("common.error");
@@ -414,13 +415,18 @@ export function ChannelView(props: {
         </Button>
       </form>
 
-      <div className="flex-1 overflow-auto p-3">
-        {channel.member ? (
-          <EmptyState title={t("chat.noMessages")} hint={t("chat.noMessagesHint")} />
-        ) : (
+      {channel.member ? null : (
+        <div className="p-3">
           <EmptyState title={t("chat.notMember")} hint={t("chat.notMemberHint")} />
-        )}
-      </div>
+        </div>
+      )}
+      <ChannelTranscript
+        workspaceId={props.workspaceId}
+        channelId={props.channelId}
+        channelName={channel.name ?? t("chat.private")}
+        canModerate={props.canArchive}
+        member={channel.member}
+      />
 
       <div className="border-t border-border p-3">
         <h3 className="text-sm font-semibold">{t("chat.membersHeading")}</h3>

@@ -2905,3 +2905,70 @@ client WebSocket, a 200 KB echo — the answer arrives whole and the api is the 
 The test fails on the old code (`hungUpBy: "runner"`, the body short) and passes on the new.
 `apps/api/test/preview-tunnel.test.ts` (the acceptance for task 1.19) and
 `apps/cli/test/parity.test.ts` stay green, as does `bun run check`.
+
+## ADR-0092: A message is blocks, a thread is one deep, and unread is what the flow shows
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.2
+
+### Context
+§5.2 asks for messages with blocks, edit history, delete, threads with reply counts, a hover
+toolbar, pins, bookmarks, read state, and mentions with autocomplete. The schema for most of it
+landed in task 0.5; what this task decides is the shape on the wire, who may do what, and the three
+rules that only show up once somebody is actually reading a channel.
+
+### Decision
+1. **Blocks, with `text` as a courtesy.** The column is `blocks jsonb` and the api validates the
+   discriminated union before storing anything, so a bot's diff card and a person's "morning" are
+   the same kind of thing. The composer's `POST` may send `text` instead, and the api makes the one
+   block it is — a convenience for the client, not a second shape in the database.
+2. **Edit history is a table, not a column.** `message_edits` (migration 0013) keeps the blocks each
+   edit replaced, with who did it and when. §6 does not name the table; "(edited)" that cannot be
+   opened is a claim rather than a history, and an array growing inside the message row would be
+   the wrong place for an append-only trail.
+3. **A thread is one deep.** Replying to a reply joins the same thread. Slack's rule, because a tree
+   of replies is a thing nobody can follow in a chat window, and because the reply count on the root
+   is then a number that means something.
+4. **Replies are not in the channel's flow, and not in its unread.** The flow lists messages with no
+   `thread_root_id`; the unread count does the same. Counting a reply would leave an unread that
+   reading the channel could never clear, because the channel never shows it. Threads get their own
+   surface in the Inbox (task 2.10).
+5. **Deleting empties, it does not remove.** The row stays with `deleted_at` set and no blocks, so a
+   thread keeps its shape, a reply count stays honest, and the transcript says plainly that
+   something was taken down. Editing is the author's alone; deleting is the author's or an admin's
+   (`messages.moderate`).
+6. **A pin is the channel's, a bookmark is yours.** Anybody in a channel pins, and everybody in it
+   sees the pin, so it travels as a `message.updated`. A bookmark is one person's Later list and is
+   published to nobody.
+7. **Mentions are `<@handle>` and `<#name>` on the wire.** §7.3 already promises bots that shape.
+   The composer writes the token when somebody picks from the list; the client renders it back as a
+   name. The list matches a handle *or* a name, because a handle comes from an email address and is
+   frequently not what somebody is called.
+8. **The mention list is a listbox beside a textbox, not a combobox.** The textarea keeps
+   `role=textbox` — it is one, every caller finds it by that role, and the session composer would
+   otherwise change shape too. The list is a `listbox` the textarea points at with `aria-controls`
+   and `aria-activedescendant`; the caret never leaves the composer, which is what makes typing
+   through a suggestion work at all.
+9. **Reading is the client's statement.** `POST …/read` with the last message the client has shown.
+   The api does not guess from a scroll position it cannot see.
+
+### Consequences
+Chat works: a team can talk, thread, pin and correct itself. The unread weight the sidebar has been
+drawing since task 2.1 now has something to count.
+
+What is not here: reactions, files and unfurls (2.3), interactive blocks (2.5), bots as authors
+(2.6), and search (2.4). Message blocks from a bot are already storable — nothing else can write
+one yet.
+
+### What was actually verified
+`e2e/messages.e2e.ts` at both viewports, two browsers: a message arrives for the other person; a
+mention is picked from the list and lands as a mention rather than the token typed; a reply makes a
+thread with a reply count; a pin shows for everybody and a save for only one of them; an edit shows
+"(edited)" and opens what it said before; a delete leaves "This message was deleted."; and the
+second person's unread badge goes quiet once they have read the channel. `apps/api/test/messages.
+test.ts` covers the rules directly: posting into a channel you are not in is refused, paging by id
+both ways, the edit history, a thread that stays one deep, pins against bookmarks, a mention that
+weighs on the channel, a thread reply that does not, and the delete a member may not do to somebody
+else's message. The mention list's keyboard and its axe pass are
+`packages/ui/src/shell/composer.ct.tsx`.

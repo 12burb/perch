@@ -22,7 +22,7 @@ import {
   type PaletteCommand,
   useCommandPaletteShortcut,
 } from "./command-palette.tsx";
-import { Composer } from "./composer.tsx";
+import { Composer, type MentionQuery } from "./composer.tsx";
 import { Drawer } from "./drawer.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { MobileTabBar } from "./mobile-tab-bar.tsx";
@@ -164,7 +164,14 @@ export function PaletteDemo() {
   );
 }
 
-export function ComposerDemo(props: { draftKey?: string; running?: boolean }) {
+/** The people and channels the mention list offers in the component tests (task 2.2). */
+const SUGGESTIONS = [
+  { id: "u1", label: "Robin", hint: "@robin", insert: "<@robin>", trigger: "@" },
+  { id: "u2", label: "Wren", hint: "@wren", insert: "<@wren>", trigger: "@" },
+  { id: "c1", label: "#general", hint: "everything", insert: "<#general>", trigger: "#" },
+] as const;
+
+export function ComposerDemo(props: { draftKey?: string; running?: boolean; mentions?: boolean }) {
   const [sent, setSent] = useState<string[]>([]);
   const [cancelled, setCancelled] = useState(0);
   const [running, setRunning] = useState(props.running ?? false);
@@ -185,6 +192,21 @@ export function ComposerDemo(props: { draftKey?: string; running?: boolean }) {
           setRunning(false);
         }}
         onAttach={() => undefined}
+        {...(props.mentions
+          ? {
+              suggest: (query: MentionQuery) =>
+                SUGGESTIONS.filter(
+                  (row) =>
+                    row.trigger === query.trigger &&
+                    (query.text === "" || row.label.toLowerCase().includes(query.text)),
+                ).map((row) => ({
+                  id: row.id,
+                  label: row.label,
+                  hint: row.hint,
+                  insert: row.insert,
+                })),
+            }
+          : {})}
       />
     </div>
   );

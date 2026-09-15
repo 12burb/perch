@@ -19,6 +19,7 @@ import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
+import { registerMessages } from "./routes/messages.ts";
 import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
@@ -123,6 +124,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerMcp(app, deps);
   registerPreviews(app, deps);
   registerChannels(app, deps);
+  registerMessages(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

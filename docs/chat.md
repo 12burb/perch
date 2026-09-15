@@ -1,8 +1,7 @@
 # Chat: channels
 
-Spec §5.2, §7.1. A workspace is a place to talk. This page is the room itself — who can see it, who
-is in it, and what happens to it when it has served its purpose. Messages, threads and reactions
-arrive with task 2.2.
+Spec §5.2, §7.1. A workspace is a place to talk: the rooms, and what is said in them. Reactions,
+files and unfurls arrive with task 2.3.
 
 ## The five kinds of room
 
@@ -61,3 +60,57 @@ A channel you may not see answers 404 rather than 403: a private channel's name 
 Every change publishes a bus event — `channel.created`, `channel.updated` (with `changes`, which is
 `["members"]` for a join or a leave), `channel.archived` — which is what fans out over the
 WebSocket, writes the audit line, and makes the sidebar update itself in every open tab.
+
+## Messages
+
+A message is **blocks**, never a string (spec §6 `messages.blocks`). The composer sends `text` and
+the api makes the one text block it is; a bot sends blocks itself, which is how a diff card, a
+session card or a button arrives in the same column as "morning". The blocks a client may send are
+the discriminated union in `packages/db/src/shapes`; anything else is refused before it is stored.
+
+| Route | Does |
+|---|---|
+| `GET …/channels/{c}/messages?before&after&limit` | a page, oldest first |
+| `POST …/channels/{c}/messages` | `{text \| blocks, thread_root_id?}` |
+| `GET …/messages/{m}/thread` | a thread: its root and everything hanging off it |
+| `PATCH …/messages/{m}` | `{text \| blocks}` to edit, `{pinned}`, `{bookmarked}` |
+| `DELETE …/messages/{m}` | take it down |
+| `GET …/messages/{m}/edits` | what it said before |
+| `GET …/channels/{c}/pins` · `GET …/bookmarks` | the channel's pins; your own Later list |
+| `POST …/channels/{c}/read` | `{message_id}`: where you have read up to |
+
+Paging is by message id. Ids are UUIDv7 (ADR-0025), so `before` is "older than this" and `after` is
+"newer than this" with no cursor of its own, and two messages written in the same instant cannot
+make a page slip.
+
+### Threads
+
+A reply carries `thread_root_id`. Threads are one deep: replying to a reply joins the same thread
+rather than starting another. The root keeps `reply_count`, which is what the channel shows beside
+it, and replies stay out of the channel's flow — they are read in the thread.
+
+### Editing and deleting
+
+Editing is the author's own; each edit files the blocks it replaced in `message_edits`, so
+"(edited)" can be opened rather than merely believed. Deleting is the author's, or an admin's when
+something has to go (`messages.moderate`); the row stays, empty, so a thread keeps its shape and a
+reply count stays honest.
+
+### Pins, bookmarks, and what is unread
+
+A **pin** belongs to the channel: everybody sees it, anybody in the channel sets it. A **bookmark**
+is one person's own Later list and is published to nobody.
+
+The unread count is every message in the channel's flow that arrived after the one you last read —
+not your own, not deleted ones, and **not replies in a thread**, because a reply is not in the flow
+and reading the channel could never clear it. Reading is the client saying where it has got to:
+`POST …/read` with the last message it has shown you.
+
+### Mentions
+
+A mention is `<@handle>` for a person and `<#name>` for a channel — the shape §7.3 already promises
+bots ("a bot posting `<@dawn>` triggers exactly the same mention path as a human"). The composer
+writes the token when somebody picks from its list, and the client renders it back as a name; the
+api resolves the handles, and every mentioned member of that channel gets one more on their mention
+count. Typing `@` or `#` at a word boundary opens the list, the arrows move through it, Enter or Tab
+takes the highlighted one, and Esc closes it — the caret never leaves the composer.

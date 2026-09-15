@@ -32,7 +32,12 @@ export {
   type PaletteCommand,
   useCommandPaletteShortcut,
 } from "./shell/command-palette.tsx";
-export { Composer, type ComposerProps } from "./shell/composer.tsx";
+export {
+  Composer,
+  type ComposerProps,
+  type MentionQuery,
+  type Suggestion,
+} from "./shell/composer.tsx";
 export { Drawer, type DrawerTab } from "./shell/drawer.tsx";
 export { EmptyState } from "./shell/empty-state.tsx";
 export { type MobileTab, MobileTabBar } from "./shell/mobile-tab-bar.tsx";

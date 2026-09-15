@@ -39,6 +39,7 @@ const channelSchema = z
     /** Whether the caller is in it, and what is waiting for them there. */
     member: z.boolean(),
     unread: z.number().int(),
+    mentions: z.number().int(),
     member_count: z.number().int(),
     created_at: z.string(),
   })
@@ -202,6 +203,7 @@ function channelBody(row: ChannelWithState) {
     archived: row.archivedAt !== null,
     member: row.member,
     unread: row.unread,
+    mentions: row.mentions,
     member_count: row.memberCount,
     created_at: row.createdAt.toISOString(),
   };

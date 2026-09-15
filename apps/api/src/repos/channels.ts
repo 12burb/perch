@@ -10,9 +10,10 @@ import { alias } from "drizzle-orm/pg-core";
 const { channels, channelMembers, messages, readState, users } = schema;
 
 export type ChannelWithState = Channel & {
-  /** Whether the caller is in it, and how many messages they have not read. */
+  /** Whether the caller is in it, how much they have not read, and how much of it named them. */
   member: boolean;
   unread: number;
+  mentions: number;
   memberCount: number;
 };
 
@@ -53,11 +54,13 @@ export async function listChannelsFor(
     .groupBy(channelMembers.channelId);
   const memberCounts = new Map(counts.map((row) => [row.channelId, Number(row.total)]));
   const unread = await unreadCounts(db, userId, ids);
+  const mentions = await mentionCounts(db, userId, ids);
   const mineSet = new Set(mine);
   return rows.map((row) => ({
     ...row,
     member: mineSet.has(row.id),
     unread: unread.get(row.id) ?? 0,
+    mentions: mentions.get(row.id) ?? 0,
     memberCount: memberCounts.get(row.id) ?? 0,
   }));
 }
@@ -89,12 +92,29 @@ export async function unreadCounts(
       and(
         inArray(messages.channelId, channelIds),
         isNull(messages.deletedAt),
+        // A thread's replies are not in the channel's flow, so they cannot be read by reading it;
+        // counting them would leave an unread nobody can clear (task 2.2).
+        isNull(messages.threadRootId),
         ne(messages.authorId, userId),
         or(isNull(mark.id), gt(messages.id, mark.id)),
       ),
     )
     .groupBy(messages.channelId);
   return new Map(rows.map((row) => [row.channelId, Number(row.total)]));
+}
+
+/** How many unread messages named the caller (task 2.2): the weight a mention carries. */
+export async function mentionCounts(
+  db: Db,
+  userId: string,
+  channelIds: string[],
+): Promise<Map<string, number>> {
+  if (channelIds.length === 0) return new Map();
+  const rows = await db
+    .select({ channelId: readState.channelId, mentions: readState.mentionCount })
+    .from(readState)
+    .where(and(eq(readState.userId, userId), inArray(readState.channelId, channelIds)));
+  return new Map(rows.map((row) => [row.channelId, row.mentions]));
 }
 
 export async function getChannel(db: Db, id: string): Promise<Channel | null> {
