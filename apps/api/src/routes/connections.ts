@@ -11,6 +11,9 @@ import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { getProject, projectRunnerLink } from "../services/projects.ts";
+import { openPullRequest } from "../services/pull-requests.ts";
+import { projectDeps } from "./projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const wsParam = z.object({ ws: z.uuid() });
@@ -188,6 +191,134 @@ const metadataRoute = createRoute({
   },
 });
 
+const startRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/connections/start",
+  tags: ["connections"],
+  summary: "Begin an OAuth authorization; answers the URL to send the person to",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: wsParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              provider: z.string().min(1).max(64),
+              owner_type: z.enum(["user", "workspace"]).default("user"),
+              scopes: z.array(z.string().min(1).max(200)).max(50).optional(),
+            })
+            .openapi("StartConnection"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Where to send the person, and the state the callback is checked against",
+      content: {
+        "application/json": { schema: z.object({ url: z.string(), state: z.string() }) },
+      },
+    },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const callbackRoute = createRoute({
+  method: "get",
+  path: "/api/connect/callback/{provider}",
+  tags: ["connections"],
+  summary: "Where a provider sends someone back after they approve",
+  request: {
+    params: z.object({ provider: z.string().min(1).max(64) }),
+    query: z.object({
+      code: z.string().min(1).max(4096).optional(),
+      state: z.string().min(1).max(512).optional(),
+      error: z.string().max(200).optional(),
+      error_description: z.string().max(1000).optional(),
+    }),
+  },
+  responses: {
+    302: { description: "Back to the workspace's Connections page, with the outcome" },
+    ...errorResponses(422),
+  },
+});
+
+const oauthClientBody = z
+  .object({
+    provider: z.string().min(1).max(64),
+    client_id: z.string().min(1).max(200),
+    client_secret: z.string().min(1).max(8192).optional(),
+  })
+  .openapi("RegisterOauthClient");
+
+const oauthClientRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/oauth-clients",
+  tags: ["connections"],
+  summary: "Register your own app with a provider (the pre-registered lane of §3.5)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: wsParam,
+    body: { content: { "application/json": { schema: oauthClientBody } } },
+  },
+  responses: {
+    201: {
+      description: "The app, with its redirect URI, and never its secret",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ provider: z.string(), client_id: z.string(), redirect_uri: z.string() })
+            .openapi("OauthClient"),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const pullRequestRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/pull-request",
+  tags: ["connections"],
+  summary: "Push the branch and open a pull request through a connection",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: z.object({ ws: z.uuid(), project: z.uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              connection_id: z.uuid(),
+              title: z.string().min(1).max(300),
+              body: z.string().max(60_000).optional(),
+              head: z.string().min(1).max(200).optional(),
+              base: z.string().min(1).max(200).optional(),
+            })
+            .openapi("OpenPullRequest"),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "The pull request the provider opened",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ number: z.number().int(), url: z.string(), branch: z.string() })
+            .openapi("PullRequest"),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422, 502),
+  },
+});
+
 export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   const connections = deps.connections;
 
@@ -258,6 +389,98 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
             installationId: body.installation_id,
           });
     return c.json(toConnection(connections.view(row)), 201);
+  });
+
+  app.openapi(startRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(
+      c,
+      deps,
+      body.owner_type === "workspace" ? "connections.admin" : "connections.write",
+      { type: "workspace", id: ws },
+    );
+    return c.json(
+      await connections.startOAuth({
+        workspaceId: ws,
+        userId: currentUser(c).id,
+        provider: body.provider,
+        ownerType: body.owner_type,
+        ...(body.scopes ? { scopes: body.scopes } : {}),
+      }),
+      200,
+    );
+  });
+
+  app.openapi(callbackRoute, async (c) => {
+    const { provider } = c.req.valid("param");
+    const query = c.req.valid("query");
+    const back = `${deps.env.publicUrl.replace(/\/+$/, "")}/connections`;
+    // A provider that refuses, or a state Perch is not waiting for, is a message on the page the
+    // person came from — never a stack trace on a URL they were redirected to.
+    if (query.error || !query.code || !query.state) {
+      const reason = query.error_description ?? query.error ?? "the provider sent nothing back";
+      return c.redirect(`${back}?error=${encodeURIComponent(reason)}`, 302);
+    }
+    try {
+      const row = await connections.finishOAuth({
+        state: query.state,
+        code: query.code,
+        by: actorOf(c),
+      });
+      return c.redirect(`${back}?connected=${encodeURIComponent(row.provider)}`, 302);
+    } catch (error) {
+      const reason = error instanceof PerchError ? error.message : `could not connect ${provider}`;
+      return c.redirect(`${back}?error=${encodeURIComponent(reason)}`, 302);
+    }
+  });
+
+  app.openapi(oauthClientRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const body = c.req.valid("json");
+    // An app the whole workspace authorizes through belongs to the admins.
+    await authorize(c, deps, "connections.admin", { type: "workspace", id: ws });
+    const client = await connections.registerApp({
+      workspaceId: ws,
+      provider: body.provider,
+      clientId: body.client_id,
+      ...(body.client_secret ? { clientSecret: body.client_secret } : {}),
+    });
+    return c.json(
+      {
+        provider: client.provider,
+        client_id: client.clientId,
+        redirect_uri: client.redirectUri,
+      },
+      201,
+    );
+  });
+
+  app.openapi(pullRequestRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    // Opening a pull request is a write to the repository, so it is a project write here too.
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const link = await projectRunnerLink(projectDeps(deps), project, user.id);
+    return c.json(
+      await openPullRequest(
+        { connections },
+        {
+          project,
+          link,
+          userId: user.id,
+          connectionId: body.connection_id,
+          title: body.title,
+          ...(body.body ? { body: body.body } : {}),
+          ...(body.head ? { head: body.head } : {}),
+          ...(body.base ? { base: body.base } : {}),
+        },
+      ),
+      201,
+    );
   });
 
   app.openapi(testRoute, async (c) => {

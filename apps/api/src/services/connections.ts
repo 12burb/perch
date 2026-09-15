@@ -10,11 +10,13 @@ import type { Bus } from "@perch/bus";
 import {
   apiBaseOf,
   callbackUrl,
+  exchangeCode,
   type FetchLike,
   GitHubAppError,
   installationToken,
   type Manifest,
   parseManifest,
+  startAuthorization,
 } from "@perch/connect";
 import { MANIFESTS } from "@perch/connectors";
 import type {
@@ -23,6 +25,7 @@ import type {
   ConnectionMetadata,
   ConnectionOwner,
   Db,
+  OauthClient,
 } from "@perch/db";
 import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
@@ -30,10 +33,12 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import {
   deleteConnection,
+  findOauthClient,
   getConnection,
   insertConnection,
   listConnections,
   setConnectionStatus,
+  upsertOauthClient,
 } from "../repos/connections.ts";
 
 export type ConnectionsDeps = {
@@ -78,6 +83,8 @@ const AAD = (workspaceId: string) => `connection:${workspaceId}`;
 
 export class ConnectionsService {
   private readonly manifests = new Map<string, Manifest>();
+  /** Authorizations in flight, by state (see Pending below). */
+  private readonly pending = new Map<string, Pending>();
 
   constructor(private readonly deps: ConnectionsDeps) {
     for (const [id, source] of Object.entries(MANIFESTS)) {
@@ -227,6 +234,121 @@ export class ConnectionsService {
     });
   }
 
+  /**
+   * The OAuth2 lane (spec §3.5): where to send someone, remembering the state and verifier the
+   * callback will be checked against. The app's own credentials come from oauth_clients.
+   */
+  async startOAuth(input: {
+    workspaceId: string;
+    userId: string;
+    provider: string;
+    ownerType: ConnectionOwner;
+    scopes?: string[];
+  }): Promise<{ url: string; state: string }> {
+    const manifest = this.manifest(input.provider);
+    if (!manifest.oauth) {
+      throw PerchError.validation(`${manifest.name} has no OAuth lane; paste a token instead`);
+    }
+    const client = await findOauthClient(this.deps.db, input.workspaceId, input.provider);
+    if (!client) {
+      throw PerchError.validation(
+        `no ${manifest.name} app is registered here; add one under Use my own app`,
+        { provider: input.provider },
+      );
+    }
+    const started = startAuthorization({
+      manifest,
+      clientId: client.clientId,
+      redirectUri: this.callback(input.provider),
+      ...(input.scopes ? { scopes: input.scopes } : {}),
+    });
+    this.pending.set(started.state, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      provider: input.provider,
+      codeVerifier: started.codeVerifier,
+      ownerType: input.ownerType,
+      expiresAt: Date.now() + PENDING_MS,
+    });
+    this.sweep();
+    return { url: started.url, state: started.state };
+  }
+
+  /**
+   * The other half: the code comes back, is traded for tokens, and becomes a connection. The state
+   * is single-use — a replayed callback finds nothing, which is the point of keeping it.
+   */
+  async finishOAuth(input: { state: string; code: string; by: ActorContext }): Promise<Connection> {
+    const pending = this.pending.get(input.state);
+    this.pending.delete(input.state);
+    if (!pending || pending.expiresAt < Date.now()) {
+      throw PerchError.validation("this authorization is not one Perch is waiting for");
+    }
+    const manifest = this.manifest(pending.provider);
+    const client = await findOauthClient(this.deps.db, pending.workspaceId, pending.provider);
+    if (!client) throw PerchError.validation("the app this started with is gone");
+    const secret = client.ciphertextSecret
+      ? await this.deps.vault
+          .decryptString(client.ciphertextSecret, AAD(pending.workspaceId))
+          .catch(() => null)
+      : null;
+    const tokens = await exchangeCode({
+      manifest,
+      clientId: client.clientId,
+      clientSecret: secret,
+      redirectUri: this.callback(pending.provider),
+      code: input.code,
+      codeVerifier: pending.codeVerifier,
+    });
+    const checked = await this.check(manifest, tokens.accessToken).catch(() => ({
+      account: null,
+      scopes: [] as string[],
+    }));
+    return this.store({
+      workspaceId: pending.workspaceId,
+      userId: pending.userId,
+      provider: pending.provider,
+      kind: "oauth2",
+      ownerType: pending.ownerType,
+      // Both halves together: a refresh needs the pair, and neither is ever read back out.
+      secret: JSON.stringify({
+        access: tokens.accessToken,
+        ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
+      }),
+      scopes: tokens.scopes.length > 0 ? tokens.scopes : checked.scopes,
+      expiresAt: tokens.expiresAt ?? null,
+      metadata: checked.account ? { account: checked.account } : {},
+      by: input.by,
+    });
+  }
+
+  /** The pre-registered lane (spec §3.5): an app this workspace registered with a provider. */
+  async registerApp(input: {
+    workspaceId: string;
+    provider: string;
+    clientId: string;
+    clientSecret?: string;
+  }): Promise<OauthClient> {
+    this.manifest(input.provider);
+    return upsertOauthClient(this.deps.db, {
+      workspaceId: input.workspaceId,
+      provider: input.provider,
+      clientId: input.clientId.trim(),
+      ciphertextSecret: input.clientSecret
+        ? await this.deps.vault.encrypt(input.clientSecret, AAD(input.workspaceId))
+        : null,
+      redirectUri: this.callback(input.provider),
+    });
+  }
+
+  /** Forgets authorizations nobody came back from, so the map cannot grow without bound. */
+  private sweep(): void {
+    const now = Date.now();
+    for (const [state, pending] of this.pending) {
+      if (pending.expiresAt < now) this.pending.delete(state);
+    }
+  }
+
   /** A connection the person may use here, or nothing (§3.5: personal ones are theirs alone). */
   async connectionFor(workspaceId: string, userId: string, id: string): Promise<Connection | null> {
     const row = await getConnection(this.deps.db, id);
@@ -243,6 +365,18 @@ export class ConnectionsService {
   async tokenFor(row: Connection): Promise<string> {
     const manifest = this.manifest(row.provider);
     const secret = await this.secret(row);
+    if (row.kind === "oauth2") {
+      try {
+        return (JSON.parse(secret) as { access: string }).access;
+      } catch {
+        throw new PerchError(
+          "upstream_failed",
+          "this connection could not be read",
+          undefined,
+          502,
+        );
+      }
+    }
     if (row.kind !== "github_app") return secret;
     let app: AppSecret;
     try {
@@ -395,3 +529,20 @@ export class ConnectionsService {
     );
   }
 }
+
+/**
+ * A pending authorization (spec §3.5 PKCE): the state and verifier a callback is checked against.
+ * In memory with a short life, like presence and rate limits (§3.1) — an authorization that
+ * outlives an api restart is an authorization nobody is waiting on any more.
+ */
+export type Pending = {
+  workspaceId: string;
+  userId: string;
+  provider: string;
+  codeVerifier: string;
+  ownerType: ConnectionOwner;
+  expiresAt: number;
+};
+
+/** How long someone has to finish at the provider before the state is forgotten. */
+export const PENDING_MS = 10 * 60_000;

@@ -4186,6 +4186,276 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/connections/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin an OAuth authorization; answers the URL to send the person to */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["StartConnection"];
+                };
+            };
+            responses: {
+                /** @description Where to send the person, and the state the callback is checked against */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            url: string;
+                            state: string;
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connect/callback/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where a provider sends someone back after they approve */
+        get: {
+            parameters: {
+                query?: {
+                    code?: string;
+                    state?: string;
+                    error?: string;
+                    error_description?: string;
+                };
+                header?: never;
+                path: {
+                    provider: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Back to the workspace's Connections page, with the outcome */
+                302: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/oauth-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register your own app with a provider (the pre-registered lane of §3.5) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["RegisterOauthClient"];
+                };
+            };
+            responses: {
+                /** @description The app, with its redirect URI, and never its secret */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OauthClient"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/projects/{project}/pull-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Push the branch and open a pull request through a connection */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["OpenPullRequest"];
+                };
+            };
+            responses: {
+                /** @description The pull request the provider opened */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PullRequest"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/connections/{id}/test": {
         parameters: {
             query?: never;
@@ -4883,6 +5153,38 @@ export type components = {
             owner_type: "user" | "workspace";
             /** Format: uri */
             api_base?: string;
+        };
+        StartConnection: {
+            provider: string;
+            /**
+             * @default user
+             * @enum {string}
+             */
+            owner_type: "user" | "workspace";
+            scopes?: string[];
+        };
+        OauthClient: {
+            provider: string;
+            client_id: string;
+            redirect_uri: string;
+        };
+        RegisterOauthClient: {
+            provider: string;
+            client_id: string;
+            client_secret?: string;
+        };
+        PullRequest: {
+            number: number;
+            url: string;
+            branch: string;
+        };
+        OpenPullRequest: {
+            /** Format: uuid */
+            connection_id: string;
+            title: string;
+            body?: string;
+            head?: string;
+            base?: string;
         };
     };
     responses: never;

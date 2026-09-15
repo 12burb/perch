@@ -2316,6 +2316,130 @@
             ]
           }
         ]
+      },
+      "StartConnection": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "owner_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "workspace"
+            ],
+            "default": "user"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "provider"
+        ]
+      },
+      "OauthClient": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "redirect_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "client_id",
+          "redirect_uri"
+        ]
+      },
+      "RegisterOauthClient": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "client_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "client_secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "provider",
+          "client_id"
+        ]
+      },
+      "PullRequest": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "url",
+          "branch"
+        ]
+      },
+      "OpenPullRequest": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 60000
+          },
+          "head": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "base": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "connection_id",
+          "title"
+        ]
       }
     },
     "parameters": {}
@@ -7623,6 +7747,344 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/connections/start": {
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Begin an OAuth authorization; answers the URL to send the person to",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConnection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Where to send the person, and the state the callback is checked against",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "state"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connect/callback/{provider}": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Where a provider sends someone back after they approve",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "provider",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "required": false,
+            "name": "code",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "error",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "required": false,
+            "name": "error_description",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Back to the workspace's Connections page, with the outcome"
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/oauth-clients": {
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Register your own app with a provider (the pre-registered lane of §3.5)",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterOauthClient"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The app, with its redirect URI, and never its secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OauthClient"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/pull-request": {
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Push the branch and open a pull request through a connection",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenPullRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The pull request the provider opened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullRequest"
                 }
               }
             }

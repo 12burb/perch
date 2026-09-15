@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
@@ -17,6 +21,11 @@ let running: RunningServer;
 let base = "";
 let github: ReturnType<typeof Bun.serve> | null = null;
 let githubUrl = "";
+let projectsDir = "";
+/** Where the stand-in serves the repository a clone actually pulls from. */
+let originDir = "";
+let originUrl = "";
+let bare = "";
 
 const TOKEN = "github_pat_11ABCDE0000secret0000wxyz";
 /** A throwaway RSA key, generated per run: nothing here is a credential. */
@@ -24,6 +33,60 @@ let appKeyPem = "";
 
 /** What the stand-in saw, so the test can prove what went out and what did not. */
 const seen: { path: string; auth: string | null; method: string }[] = [];
+
+/**
+ * `git http-backend` as CGI, which is how a real git host serves the smart protocol. Served under
+ * /git/o/r so the pull-request route can read an owner and a repo off the URL.
+ */
+async function gitHttpBackend(request: Request, url: URL): Promise<Response> {
+  const body = request.method === "POST" ? new Uint8Array(await request.arrayBuffer()) : undefined;
+  const proc = Bun.spawn(["git", "http-backend"], {
+    env: {
+      ...process.env,
+      GIT_PROJECT_ROOT: originDir,
+      GIT_HTTP_EXPORT_ALL: "1",
+      REQUEST_METHOD: request.method,
+      PATH_INFO: `/origin.git${url.pathname.slice("/git/o/r".length)}`,
+      QUERY_STRING: url.search.slice(1),
+      CONTENT_TYPE: request.headers.get("content-type") ?? "",
+      REMOTE_USER: "perch",
+      // The push is not a fast-forward of anything the test cares about; let git decide.
+      HTTP_CONTENT_ENCODING: request.headers.get("content-encoding") ?? "",
+    },
+    stdin: body ? "pipe" : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (body && proc.stdin) {
+    proc.stdin.write(body);
+    await proc.stdin.end();
+  }
+  const out = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+  await proc.exited;
+  // CGI: headers, a blank line, then the body.
+  const separator = indexOfDoubleCrlf(out);
+  if (separator < 0) return new Response(out, { status: 200 });
+  const headers = new Headers();
+  let status = 200;
+  for (const line of new TextDecoder().decode(out.subarray(0, separator)).split("\r\n")) {
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    const name = line.slice(0, colon).trim();
+    const value = line.slice(colon + 1).trim();
+    if (name.toLowerCase() === "status") status = Number.parseInt(value, 10) || 200;
+    else headers.set(name, value);
+  }
+  return new Response(out.subarray(separator + 4), { status, headers });
+}
+
+function indexOfDoubleCrlf(bytes: Uint8Array): number {
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 function cookiesFrom(res: Response): string {
   return res.headers
@@ -68,6 +131,26 @@ beforeAll(async () => {
   const body = btoa(String.fromCharCode(...new Uint8Array(pkcs8))).replace(/(.{64})/g, "$1\n");
   appKeyPem = `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
 
+  originDir = mkdtempSync(join(tmpdir(), "perch-origin-"));
+  const work = join(originDir, "work");
+  bare = join(originDir, "origin.git");
+  const run = (cwd: string, ...args: string[]) => {
+    const out = Bun.spawnSync(["git", ...args], { cwd });
+    if (out.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${out.stderr.toString()}`);
+  };
+  Bun.spawnSync(["git", "init", "--bare", "-b", "main", bare]);
+  Bun.spawnSync(["git", "init", "-b", "main", work]);
+  await Bun.write(join(work, "README.md"), "# origin\n");
+  run(work, "config", "user.email", "origin@perch.test");
+  run(work, "config", "user.name", "Origin");
+  run(work, "add", "-A");
+  run(work, "commit", "-m", "first");
+  run(work, "remote", "add", "origin", bare);
+  run(work, "push", "-u", "origin", "main");
+  // Dumb HTTP is enough for a clone, and serving it ourselves lets the test see the credentials
+  // git was given — which is the point: they must be the token Perch minted, not something stored.
+  run(bare, "config", "http.receivepack", "true");
+
   github = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -75,6 +158,19 @@ beforeAll(async () => {
       const url = new URL(request.url);
       const auth = request.headers.get("authorization");
       seen.push({ path: url.pathname, auth, method: request.method });
+      // The repository itself, over git's smart HTTP protocol, behind the same credentials — so
+      // both the clone and the push really happen, with whatever git was handed.
+      if (url.pathname.startsWith("/git/")) {
+        const basic = auth?.startsWith("Basic ") ? atob(auth.slice(6)) : "";
+        const password = basic.slice(basic.indexOf(":") + 1);
+        if (password !== "ghs_minted_for_this_call" && password !== TOKEN) {
+          return new Response("no", {
+            status: 401,
+            headers: { "www-authenticate": 'Basic realm="git"' },
+          });
+        }
+        return gitHttpBackend(request, url);
+      }
       // The app lane: a JWT signed by the app's key buys an installation token.
       if (url.pathname.endsWith("/access_tokens")) {
         if (!auth?.startsWith("Bearer ey"))
@@ -84,6 +180,15 @@ beforeAll(async () => {
           expires_at: new Date(Date.now() + 3_600_000).toISOString(),
           repository_selection: "selected",
         });
+      }
+      if (url.pathname.endsWith("/pulls") && request.method === "POST") {
+        if (auth !== "Bearer ghs_minted_for_this_call" && auth !== `Bearer ${TOKEN}`) {
+          return Response.json({ message: "Bad credentials" }, { status: 401 });
+        }
+        return Response.json(
+          { number: 7, html_url: "https://github.test/o/r/pull/7" },
+          { status: 201 },
+        );
       }
       if (url.pathname === "/user") {
         if (auth !== `Bearer ${TOKEN}` && auth !== "Bearer ghs_minted_for_this_call") {
@@ -97,8 +202,11 @@ beforeAll(async () => {
     },
   });
   githubUrl = `http://127.0.0.1:${github.port}`;
+  originUrl = `${githubUrl}/git/o/r`;
 
   booted = await bootTestApp({});
+  projectsDir = mkdtempSync(join(tmpdir(), "perch-connections-"));
+  booted.runners.attach(createInProcessRunner({ projectsDir, portsIntervalMs: 0 }));
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
   base = running.url;
 }, 60_000);
@@ -106,6 +214,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await running.stop();
   github?.stop(true);
+  rmSync(projectsDir, { recursive: true, force: true });
+  rmSync(originDir, { recursive: true, force: true });
 });
 
 type ConnectionBody = {
@@ -214,6 +324,91 @@ describe("connections (task 1.16)", () => {
       ).status,
     ).toBe(204);
   }, 60_000);
+
+  test("the acceptance: clone through a GitHub connection, then open a pull request on it", async () => {
+    const owner = await signUp("Ren", "ren-conn@perch.test");
+    const created = (await call("/api/workspaces", owner.cookie, {
+      method: "POST",
+      json: { name: "PR Nest" },
+    })) as { body: { id: string } };
+    const ws = created.body.id;
+
+    const connection = (await call(`/api/workspaces/${ws}/connections`, owner.cookie, {
+      method: "POST",
+      json: {
+        kind: "github_app",
+        provider: "github",
+        app_id: "424242",
+        private_key: appKeyPem,
+        installation_id: "77",
+        api_base: githubUrl,
+      },
+    })) as { status: number; body: ConnectionBody };
+    expect(connection.status).toBe(201);
+
+    // The clone runs on the connection: Perch mints the token, hands it to the runner for this one
+    // clone, and never writes it down.
+    const project = (await call(`/api/workspaces/${ws}/projects/clone`, owner.cookie, {
+      method: "POST",
+      json: {
+        name: "Cloned",
+        repo_url: originUrl,
+        auth: { kind: "connection", connection_id: connection.body.id },
+      },
+    })) as { status: number; text: string; body: { id: string } };
+    expect(project.status, project.text).toBe(201);
+    const projectId = project.body.id;
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      const res = (await call(`/api/workspaces/${ws}/projects/${projectId}`, owner.cookie)) as {
+        body: { status: string; status_message: string | null };
+      };
+      if (res.body.status === "ready") break;
+      if (res.body.status === "error" || Date.now() > deadline) {
+        throw new Error(`clone ${res.body.status}: ${res.body.status_message}`);
+      }
+      await Bun.sleep(50);
+    }
+
+    // A branch with a change on it, the way a session would leave one. The HTTP routes for these
+    // arrive with the git panel (task 1.20), so the test arranges it through the runner directly.
+    const link = booted.runners.forWorkspace(ws)[0]?.link;
+    if (!link) throw new Error("no runner attached");
+    const runner = { workspace_id: ws, user_id: "", project: projectId };
+    const me = (await call("/api/me", owner.cookie)) as { body: { id: string } };
+    runner.user_id = me.body.id;
+    await link.call("git.branch", { ...runner, name: "perch/change", create: true });
+    await link.call("fs.write", { ...runner, path: "NOTES.md", content: "a change\n" });
+    await link.call("git.commit", {
+      ...runner,
+      message: "a change",
+      author: { name: "Ren", email: "ren-conn@perch.test" },
+    });
+
+    // And the pull request, pushed and opened on the same connection.
+    const pr = (await call(
+      `/api/workspaces/${ws}/projects/${projectId}/pull-request`,
+      owner.cookie,
+      {
+        method: "POST",
+        json: { connection_id: connection.body.id, title: "A change", head: "perch/change" },
+      },
+    )) as { status: number; text: string; body: { number: number; url: string; branch: string } };
+    expect(pr.status, pr.text).toBe(201);
+    expect(pr.body).toMatchObject({ number: 7, branch: "perch/change" });
+    expect(pr.body.url).toBe("https://github.test/o/r/pull/7");
+    // The token that did all of this is in none of it.
+    expect(pr.text).not.toContain("ghs_minted");
+    expect(seen.some((s) => s.path.endsWith("/pulls") && s.method === "POST")).toBe(true);
+    // And git really was handed the minted installation token — not a stored one, and not the
+    // app's private key. The push is the one that matters: it is a write.
+    const pushes = seen.filter((s) => s.path.includes("/git-receive-pack"));
+    expect(pushes.length).toBeGreaterThan(0);
+    for (const request of pushes) {
+      const basic = request.auth?.startsWith("Basic ") ? atob(request.auth.slice(6)) : "";
+      expect(basic).toBe("x-access-token:ghs_minted_for_this_call");
+    }
+  }, 90_000);
 
   test("a wrong token is refused before it is kept; scope and ownership are enforced", async () => {
     const owner = await signUp("Cal", "cal-conn@perch.test");
