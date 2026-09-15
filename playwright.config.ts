@@ -6,7 +6,21 @@ import { defineConfig, devices } from "@playwright/test";
  * Playwright download is unavailable (the browser revision must be compatible with the pinned version).
  */
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
-const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3999";
+/**
+ * The app answers on `perch.localhost` and previews on `<port>--<slug>.perch.localhost`: previews
+ * are then same-site with Perch, so the cookie that lets a member into a framed preview survives
+ * (ADR-0084), and every `.localhost` name is both resolved and trusted by the browser — a secure
+ * context, which passkeys and WebCrypto need. It is the layout the docs recommend for a real
+ * instance, with `localhost` standing in for the domain.
+ */
+const baseURL = process.env.E2E_BASE_URL ?? "http://perch.localhost:3999";
+/**
+ * Previews get a hostname each (spec §5.6), and the preview spec needs those names to resolve to
+ * the same server: Chromium maps them itself rather than the machine needing DNS or /etc/hosts.
+ */
+// Everything this browser talks to is on this machine; an ambient proxy would swallow the
+// WebSocket upgrades (HMR's and Perch's own), which is not what a real browser would do here.
+const launchArgs = ["--no-proxy-server"];
 
 export default defineConfig({
   testDir: "e2e",
@@ -21,7 +35,7 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "retain-on-failure",
-    ...(executablePath ? { launchOptions: { executablePath } } : {}),
+    launchOptions: { args: launchArgs, ...(executablePath ? { executablePath } : {}) },
   },
   projects: [
     {
@@ -32,7 +46,8 @@ export default defineConfig({
   ],
   webServer: {
     command: "bun scripts/e2e-server.ts",
-    url: `${baseURL}/api/health`,
+    // Node does not have Chromium's resolver rules, so the readiness check uses the address.
+    url: `http://127.0.0.1:${new URL(baseURL).port || 80}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },

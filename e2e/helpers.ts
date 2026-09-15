@@ -2,6 +2,16 @@ import { type Browser, expect, type Page } from "@playwright/test";
 
 export const PASSWORD = "correct horse battery staple";
 
+/**
+ * The api as Node can reach it. The browser uses `perch.localhost` (see playwright.config.ts), which
+ * it resolves itself; Playwright's request contexts run in Node, which has no such convention, so a
+ * call made outside a page addresses the loopback interface directly.
+ */
+export const apiBase = (process.env.E2E_BASE_URL ?? "http://perch.localhost:3999").replace(
+  "perch.localhost",
+  "127.0.0.1",
+);
+
 export function uniqueEmail(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }

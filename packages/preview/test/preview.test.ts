@@ -92,7 +92,8 @@ describe("where a preview lives", () => {
     expect(previewUrl({ ...base, previewDomain: DOMAIN, workspaceSlug: "a nest!" })).toBe(
       "https://perch.test/p/ws-1/5173/",
     );
-    // Laptop mode is plain HTTP, and a preview of it should not claim otherwise.
+    // Laptop mode is plain HTTP on its own port, and a preview of it says so: Perch answers the
+    // preview hostname on the same listener.
     expect(
       previewUrl({
         ...base,
@@ -100,7 +101,7 @@ describe("where a preview lives", () => {
         previewDomain: DOMAIN,
         workspaceSlug: "nest",
       }),
-    ).toBe(`http://5173--nest.${DOMAIN}/`);
+    ).toBe(`http://5173--nest.${DOMAIN}:3000/`);
     expect(previewUrl({ ...base, path: "/about" })).toBe("https://perch.test/p/ws-1/5173/about");
   });
 

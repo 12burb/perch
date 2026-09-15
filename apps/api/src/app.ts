@@ -17,7 +17,7 @@ import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
-import { registerPreview } from "./routes/preview.ts";
+import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
@@ -54,7 +54,14 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   });
 
   app.use("*", requestLogger(deps.log));
-  app.use("*", secureHeaders({ crossOriginEmbedderPolicy: false }));
+  // Perch's own framing and isolation headers; a preview's response is the dev server's and must
+  // not inherit them, or the Preview tab could not frame it (spec §5.6).
+  const headers = secureHeaders({ crossOriginEmbedderPolicy: false });
+  app.use("*", (c, next) =>
+    isPreviewRequest(c.req.header("host"), new URL(c.req.url).pathname, deps.env.previewDomain)
+      ? next()
+      : headers(c, next),
+  );
   app.use("/api/*", async (c, next) => {
     const requested = c.req.header("perch-version");
     if (requested && !SUPPORTED_API_VERSIONS.includes(requested)) {

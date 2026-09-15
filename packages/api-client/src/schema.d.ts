@@ -5397,6 +5397,7 @@ export type components = {
             url: string;
             runner_id: string;
             configured: boolean;
+            ticket: string;
         };
         PreviewShare: {
             /** Format: uuid */

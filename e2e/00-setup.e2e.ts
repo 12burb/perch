@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { PASSWORD } from "./helpers.ts";
+import { apiBase, PASSWORD } from "./helpers.ts";
 
 /**
  * Task 0.13 acceptance (spec §8): the first run lands on the setup wizard (admin, workspace,
@@ -12,7 +12,7 @@ test("first run: the wizard creates the admin and workspace, then disappears", a
   page,
   request,
 }) => {
-  const instance = (await (await request.get("/api/instance")).json()) as {
+  const instance = (await (await request.get(`${apiBase}/api/instance`)).json()) as {
     setup_complete: boolean;
     public_url: string;
   };
@@ -28,7 +28,7 @@ test("first run: the wizard creates the admin and workspace, then disappears", a
   await page.goto("/sign-up");
   await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole("heading", { name: "Set up Perch" })).toBeVisible();
-  const blocked = await request.post("/api/auth/sign-up/email", {
+  const blocked = await request.post(`${apiBase}/api/auth/sign-up/email`, {
     data: { name: "Eve", email: "eve@example.test", password: PASSWORD },
   });
   expect(blocked.status()).toBe(403);
@@ -48,7 +48,7 @@ test("first run: the wizard creates the admin and workspace, then disappears", a
 
   await expect(page).toHaveURL(/\/the-nest\/home$/);
   await expect(page.getByTestId("signed-in-as")).toHaveText("Signed in as Dawn Bird");
-  const after = (await (await request.get("/api/instance")).json()) as {
+  const after = (await (await request.get(`${apiBase}/api/instance`)).json()) as {
     setup_complete: boolean;
     telemetry: boolean;
   };

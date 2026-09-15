@@ -6,9 +6,10 @@
  *
  * It also stands up a fake OpenAI-compatible provider on E2E_PROVIDER_PORT (3998) so the brains
  * spec (task 1.15) can add a key and an endpoint that really answer `GET /v1/models` without
- * reaching the internet.
+ * reaching the internet, and a real Vite dev server on E2E_VITE_PORT (3997) so the preview spec
+ * (task 1.18) proves HMR through the proxy against the thing itself, not a stand-in.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -49,6 +50,45 @@ const provider = Bun.serve({
   },
 });
 
+/**
+ * A one-file Vite app for the preview spec (task 1.18): the page prints a message from a module it
+ * accepts hot, so an edit that changes the text without a reload is HMR and nothing else.
+ */
+const vitePort = Number(process.env.E2E_VITE_PORT ?? "3997");
+// A fixed path, because the spec (a separate process) edits a module in it to prove HMR.
+const viteDir = process.env.E2E_VITE_DIR ?? join(tmpdir(), "perch-e2e-preview-app");
+rmSync(viteDir, { recursive: true, force: true });
+mkdirSync(join(viteDir, "src"), { recursive: true });
+writeFileSync(
+  join(viteDir, "index.html"),
+  '<!doctype html><html lang="en"><head><title>Preview app</title></head><body>' +
+    '<h1 id="app">booting</h1><script type="module" src="/src/main.js"></script></body></html>\n',
+);
+writeFileSync(
+  join(viteDir, "src", "main.js"),
+  [
+    'import { message } from "./message.js";',
+    'const paint = (text) => { document.getElementById("app").textContent = text; };',
+    "paint(message);",
+    'if (import.meta.hot) import.meta.hot.accept("./message.js", (next) => paint(next.message));',
+    "",
+  ].join("\n"),
+);
+writeFileSync(join(viteDir, "src", "message.js"), 'export const message = "version one";\n');
+writeFileSync(
+  join(viteDir, "vite.config.mjs"),
+  // allowedHosts: a preview hostname is not one Vite knows about, and it is right to ask.
+  `export default { server: { host: "127.0.0.1", port: ${vitePort}, strictPort: true, allowedHosts: true } };\n`,
+);
+writeFileSync(join(viteDir, "package.json"), '{ "name": "perch-e2e-preview", "type": "module" }\n');
+const viteBin = resolve(root, "apps/web/node_modules/.bin/vite");
+const vite = Bun.spawn(["bun", viteBin], {
+  cwd: viteDir,
+  stdout: "inherit",
+  stderr: "inherit",
+  env: { ...process.env, VITE_CONFIG_NATIVE_IGNORE_WARNING: "true" },
+});
+
 const dataDir = mkdtempSync(join(tmpdir(), "perch-e2e-"));
 const api = Bun.spawn(
   [
@@ -60,11 +100,13 @@ const api = Bun.spawn(
     "--host",
     "127.0.0.1",
     "--public-url",
-    `http://localhost:${port}`,
+    process.env.E2E_BASE_URL ?? `http://perch.localhost:${port}`,
     "--data-dir",
     dataDir,
     "--log-level",
     process.env.PERCH_LOG_LEVEL ?? "warn",
+    "--preview-domain",
+    process.env.E2E_PREVIEW_DOMAIN ?? "perch.localhost",
   ],
   {
     cwd: root,
@@ -98,6 +140,7 @@ const api = Bun.spawn(
 
 const stop = () => {
   provider.stop(true);
+  vite.kill();
   api.kill();
 };
 process.on("SIGTERM", stop);
@@ -106,7 +149,10 @@ process.on("SIGINT", stop);
 // The wizard is one-time per database: complete it here (as e2e/00-setup.e2e.ts would through the UI)
 // unless E2E_SETUP=wizard leaves it to that spec, so every other spec starts from a set-up instance.
 if (process.env.E2E_SETUP !== "wizard") {
-  const base = `http://localhost:${port}`;
+  // Reached by address (this process has no resolver rules), but the wizard is told the public URL
+  // the browser uses, which is what the instance is configured with.
+  const base = `http://127.0.0.1:${port}`;
+  const publicUrl = process.env.E2E_BASE_URL ?? `http://perch.localhost:${port}`;
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
       const health = await fetch(`${base}/api/health`);
@@ -118,7 +164,7 @@ if (process.env.E2E_SETUP !== "wizard") {
   }
   const res = await fetch(`${base}/api/setup`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: base },
+    headers: { "content-type": "application/json", origin: publicUrl },
     body: JSON.stringify({
       admin: {
         name: "E2E Admin",
@@ -126,7 +172,7 @@ if (process.env.E2E_SETUP !== "wizard") {
         password: "admin-passphrase-for-tests",
       },
       workspace: { name: "Admin" },
-      public_url: base,
+      public_url: publicUrl,
       telemetry: false,
     }),
   });

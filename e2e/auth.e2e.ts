@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
+  apiBase,
   createWorkspace,
   isMobile,
   openAccountMenu,
@@ -59,7 +60,9 @@ test("an api token is shown once and lists without its secret", async ({ page })
   expect(token?.startsWith("pat_")).toBe(true);
   await expect(page.getByRole("list", { name: "API tokens" })).toContainText("laptop");
   await expect(page.getByRole("list", { name: "API tokens" })).not.toContainText(token ?? "pat_");
-  const me = await page.request.get("/api/me", { headers: { authorization: `Bearer ${token}` } });
+  const me = await page.request.get(`${apiBase}/api/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
   expect(me.ok()).toBe(true);
   expect(((await me.json()) as { auth_kind: string }).auth_kind).toBe("token");
 });

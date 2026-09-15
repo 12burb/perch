@@ -1,4 +1,4 @@
-import { Drawer, EmptyState, t, useIsMobile } from "@perch/ui";
+import { Button, Drawer, EmptyState, t, useIsMobile } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
@@ -14,21 +14,39 @@ const TerminalDrawer = lazy(() =>
   import("../../../code/terminal.tsx").then((m) => ({ default: m.TerminalDrawer })),
 );
 
+// The Preview pane loads when somebody asks for it, not with the editor.
+const PreviewPane = lazy(() =>
+  import("../../../code/preview-pane.tsx").then((m) => ({ default: m.PreviewPane })),
+);
+
 /** A project open in Code mode (task 1.6): the file tree in the sidebar, the editor in main. */
 export const Route = createFileRoute("/_app/$workspace/code/$project")({
   component: ProjectCode,
   validateSearch,
 });
 
-/** `?session=<id>` names the session in the panel. Checked by hand: Zod would join the initial bundle (ADR-0078). */
-function validateSearch(search: Record<string, unknown>): { session?: string } {
-  return typeof search.session === "string" && search.session ? { session: search.session } : {};
+/**
+ * `?session=<id>` names the session in the panel; `?view=preview` puts the Preview in main and
+ * `?port=<n>` picks which one (spec §4). Checked by hand: Zod would join the initial bundle
+ * (ADR-0078).
+ */
+function validateSearch(search: Record<string, unknown>): {
+  session?: string;
+  view?: "preview";
+  port?: number;
+} {
+  const port = Number(search.port);
+  return {
+    ...(typeof search.session === "string" && search.session ? { session: search.session } : {}),
+    ...(search.view === "preview" ? { view: "preview" as const } : {}),
+    ...(Number.isInteger(port) && port > 0 && port <= 65535 ? { port } : {}),
+  };
 }
 
 function ProjectCode() {
   const { shell, workspace, setDrawer, setPanel } = useAppShell();
   const { project: key } = Route.useParams();
-  const { session: sessionId } = Route.useSearch();
+  const { session: sessionId, view, port } = Route.useSearch();
   const navigate = useNavigate();
   const mobile = useIsMobile();
   const projects = useQuery({ ...projectsQuery(workspace?.id ?? ""), enabled: workspace !== null });
@@ -38,6 +56,33 @@ function ProjectCode() {
   const projectName = project?.name ?? "";
   const workspaceId = workspace?.id ?? null;
   const workspaceSlug = workspace?.slug ?? "";
+
+  const showPreview = useCallback(
+    (on: boolean, forPort?: number) => {
+      void navigate({
+        to: "/$workspace/code/$project",
+        params: { workspace: workspaceSlug, project: key },
+        search: (previous: Record<string, unknown>) => ({
+          ...previous,
+          ...(on ? { view: "preview" as const } : { view: undefined }),
+          ...(forPort ? { port: forPort } : {}),
+        }),
+      });
+    },
+    [navigate, workspaceSlug, key],
+  );
+
+  // ⌘⇧P toggles the Preview (spec §4 keyboard).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+      if (event.key.toLowerCase() !== "p") return;
+      event.preventDefault();
+      showPreview(view !== "preview");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showPreview, view]);
 
   const openSession = useCallback(
     (id: string | null) => {
@@ -135,7 +180,27 @@ function ProjectCode() {
       shell={shell}
     >
       {project.status === "ready" ? (
-        <EditorPane workspaceId={workspace.id} projectId={project.id} />
+        view === "preview" ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex items-center justify-between gap-2 px-2 pt-2">
+              <h2 className="text-sm font-semibold">{t("preview.title")}</h2>
+              <Button variant="ghost" size="sm" onClick={() => showPreview(false)}>
+                {t("preview.close")}
+              </Button>
+            </div>
+            <Suspense fallback={<p className="p-4 text-sm text-fg-muted">{t("common.loading")}</p>}>
+              <PreviewPane
+                workspaceId={workspace.id}
+                projectId={project.id}
+                projectName={project.name}
+                port={port ?? null}
+                onPort={(next) => showPreview(true, next)}
+              />
+            </Suspense>
+          </div>
+        ) : (
+          <EditorPane workspaceId={workspace.id} projectId={project.id} />
+        )
       ) : (
         <EmptyState
           title={t(`projects.status.${project.status}`)}

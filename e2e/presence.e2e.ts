@@ -12,16 +12,20 @@ test("two tabs see each other's presence in a shared workspace", async ({ page, 
   const slug = await createWorkspace(page, workspaceName);
   await expect(page.getByTestId("online-count")).toHaveText("1 online");
 
-  const workspaceId = await page.evaluate(async () => {
-    const res = await fetch("/api/workspaces");
-    const body = (await res.json()) as { workspaces: Array<{ id: string; slug: string }> };
-    return body.workspaces[0]?.id ?? "";
-  });
   const inviteeEmail = uniqueEmail("julius");
-  const invited = await page.request.post(`/api/workspaces/${workspaceId}/invites`, {
-    data: { email: inviteeEmail, role: "member" },
-  });
-  const { accept_url } = (await invited.json()) as { accept_url: string };
+  // From the page, so the request carries the session cookie and resolves the app's own hostname.
+  const { accept_url } = await page.evaluate(async (email: string) => {
+    const body = (await (await fetch("/api/workspaces")).json()) as {
+      workspaces: Array<{ id: string }>;
+    };
+    const workspaceId = body.workspaces[0]?.id ?? "";
+    const invited = await fetch(`/api/workspaces/${workspaceId}/invites`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, role: "member" }),
+    });
+    return (await invited.json()) as { accept_url: string };
+  }, inviteeEmail);
 
   const julius = await secondBrowser(browser);
   await julius.goto(new URL(accept_url).pathname);

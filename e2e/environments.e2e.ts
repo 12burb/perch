@@ -37,7 +37,7 @@ test("a laptop registers and shows online from a phone", async ({ page, baseURL 
     cwd: root,
     env: {
       ...process.env,
-      PERCH_API_URL: baseURL ?? "http://localhost:3999",
+      PERCH_API_URL: (baseURL ?? "http://127.0.0.1:3999").replace("perch.localhost", "127.0.0.1"),
       PERCH_RUNNER_TOKEN: token ?? "",
       PERCH_RUNNER_NAME: "Laptop",
       PERCH_RUNNER_KIND: "local",

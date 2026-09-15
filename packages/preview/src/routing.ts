@@ -115,8 +115,18 @@ export function previewUrl(options: PreviewUrlOptions): string {
   const domain = options.previewDomain?.trim().replace(/^\.+|\.+$/g, "");
   const slug = options.workspaceSlug?.toLowerCase();
   if (domain && slug && LABEL.test(slug)) {
-    const scheme = options.publicUrl.startsWith("http://") ? "http" : "https";
-    return `${scheme}://${options.port}--${slug}.${domain}${path}`;
+    // Perch answers preview hostnames on its own listener, so a non-default port comes along: in
+    // laptop mode that is :3000, and behind Caddy there is none.
+    let scheme = "https";
+    let port = "";
+    try {
+      const base = new URL(options.publicUrl);
+      scheme = base.protocol.replace(":", "");
+      port = base.port ? `:${base.port}` : "";
+    } catch {
+      scheme = options.publicUrl.startsWith("http://") ? "http" : "https";
+    }
+    return `${scheme}://${options.port}--${slug}.${domain}${port}${path}`;
   }
   const base = options.publicUrl.replace(/\/+$/, "");
   return `${base}/p/${options.workspaceId}/${options.port}${path === "/" ? "/" : path}`;

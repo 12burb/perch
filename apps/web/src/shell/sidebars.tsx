@@ -8,7 +8,7 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEditorStore } from "../code/editor-store.ts";
 import { FileTree } from "../code/file-tree.tsx";
 import { SessionsSection } from "../code/sessions-list.tsx";
-import { type MyWorkspace, projectsQuery } from "../lib/queries.ts";
+import { type MyWorkspace, previewsQuery, projectsQuery } from "../lib/queries.ts";
 import { useAppShell } from "./app-shell.tsx";
 
 type Section = { title: MessageKey; empty: MessageKey };
@@ -68,6 +68,12 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
             workspace={props.workspace}
             empty={section.empty}
           />
+        ) : section.title === "shell.code.previews" && props.workspace ? (
+          <OpenProjectPreviews
+            key={section.title}
+            workspace={props.workspace}
+            empty={section.empty}
+          />
         ) : (
           <SidebarSection key={section.title} title={t(section.title)}>
             <li className="px-2 py-1 text-sm text-fg-subtle">{t(section.empty)}</li>
@@ -75,6 +81,35 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
         ),
       )}
     </Sidebar>
+  );
+}
+
+/**
+ * Code mode's Previews section (task 1.18): the ports the open project is serving, each a link that
+ * puts the Preview in main. Nothing is listed until a project is open, because a port belongs to a
+ * project's runner, not to the workspace.
+ */
+function OpenProjectPreviews(props: { workspace: MyWorkspace; empty: MessageKey }) {
+  const params = useParams({ strict: false }) as { project?: string };
+  const projects = useQuery(projectsQuery(props.workspace.id)).data ?? [];
+  const open = params.project ? projects.find((p) => p.key === params.project) : undefined;
+  const previews = useQuery(previewsQuery(props.workspace.id, open?.id ?? ""));
+  const ports = previews.data?.ports ?? [];
+  return (
+    <SidebarSection title={t("shell.code.previews")}>
+      {!open || ports.length === 0 ? (
+        <li className="px-2 py-1 text-sm text-fg-subtle">{t(props.empty)}</li>
+      ) : (
+        ports.map((port) => (
+          <SidebarItem
+            key={port.port}
+            label={`:${port.port}${port.configured ? " ★" : ""}`}
+            href={`/${props.workspace.slug}/code/${open.key}?view=preview&port=${port.port}`}
+            muted={port.runner_id === ""}
+          />
+        ))
+      )}
+    </SidebarSection>
   );
 }
 

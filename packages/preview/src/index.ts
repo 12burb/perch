@@ -32,5 +32,13 @@ export {
   type ShareVerdict,
   shareAllows,
 } from "./share.ts";
+export {
+  mintPreviewTicket,
+  type PreviewTicket,
+  TICKET_COOKIE,
+  TICKET_MS,
+  TICKET_QUERY,
+  verifyPreviewTicket,
+} from "./ticket.ts";
 
 export const packageName = "@perch/preview";

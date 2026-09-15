@@ -24,6 +24,8 @@ export type LaptopOptions = {
   host?: string;
   /** PERCH_PUBLIC_URL when it differs from http://<host>:<port>. */
   publicUrl?: string;
+  /** PERCH_PREVIEW_DOMAIN: previews get a hostname each instead of a path (spec §5.6). */
+  previewDomain?: string;
   logLevel?: string;
 };
 
@@ -60,6 +62,7 @@ export async function startLaptop(options: LaptopOptions = {}): Promise<Laptop> 
     PERCH_RUNNER_MODE: "inprocess",
     PORT: String(envPort),
     HOST: host,
+    ...(options.previewDomain ? { PERCH_PREVIEW_DOMAIN: options.previewDomain } : {}),
     ...(options.logLevel ? { PERCH_LOG_LEVEL: options.logLevel } : {}),
   });
   const webDist = webDistDir();

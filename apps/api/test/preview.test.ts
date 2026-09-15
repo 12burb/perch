@@ -235,7 +235,8 @@ describe("the preview proxy (task 1.18)", () => {
     }
     const found = ports.find((p) => p.port === devPort);
     expect(found).toBeDefined();
-    expect(found?.url).toBe(`http://${devPort}--${slug}.${DOMAIN}/`);
+    // Perch answers preview hostnames on its own listener, so its port comes along.
+    expect(found?.url).toBe(`http://${devPort}--${slug}.${DOMAIN}:${new URL(base).port}/`);
 
     // Signed out is not a member.
     const anonymous = await fetch(`${base}/p/${ws}/${devPort}/`);
@@ -264,7 +265,7 @@ describe("the preview proxy (task 1.18)", () => {
     const url = new URL(created.body.url);
     shareToken = url.searchParams.get("perch_share") ?? "";
     expect(shareToken).not.toBe("");
-    expect(url.hostname).toBe(`${devPort}--${slug}.${DOMAIN}`);
+    expect(url.host).toBe(`${devPort}--${slug}.${DOMAIN}:${new URL(base).port}`);
 
     // The link, opened by a browser that has never seen Perch.
     const opened = await fetch(`${base}/?perch_share=${shareToken}`, {

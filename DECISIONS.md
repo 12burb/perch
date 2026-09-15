@@ -2478,3 +2478,114 @@ and calls a tool through `/mcp/{connectionId}`, the provider sees only its own P
 only Perch's token, the allow-list refuses a tool, and both outcomes are audited. What is *not*
 proven is that GitHub's own MCP server accepts the same traffic. Whoever has a fine-grained PAT
 should point a connection at `https://api.githubcopilot.com/mcp/` and confirm before relying on it.
+
+## ADR-0084: Previews are a proxy with two doors, and a ticket to get through either
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.18
+
+### Context
+§5.6 says every listening runner port becomes `https://<port>--<workspace>.preview.<domain>` with a
+path-mode fallback at `/p/<workspace>/<port>/`, gated by the Perch session, with WebSocket
+passthrough for HMR and share links that expire and revoke. What it does not say is where the api
+reaches a runner's port, how a browser stays signed in on an origin that is not Perch's, or what
+happens to a dev server's own HMR configuration in the middle.
+
+### Decision
+1. **One hostname label, not two.** The preview host is `<port>--<workspace>.<PERCH_PREVIEW_DOMAIN>`
+   rather than §5.6's `<port>--<workspace>.preview.<domain>`: a `*.<domain>` wildcard certificate
+   covers exactly one label, and one label is what §8's Caddyfile (`*.{$PERCH_PREVIEW_DOMAIN}`) asks
+   for. `.env.example` already pointed the variable at `preview.perch.example.com`, so the "preview"
+   part lives in the operator's domain, where it belongs.
+2. **A runner says where it can be reached.** `runner.register` gains an optional `preview_host`
+   (additive to §7.6). A hosted runner is a container on the api's own network and names itself; the
+   in-process runner is loopback; a laptop stays silent, because the api has no route to it, and
+   gets the tunnel of task 1.19 with an error that says so rather than hanging.
+3. **The proxy is thin on purpose.** Hop-by-hop headers are dropped, Perch's own cookie and
+   authorization never go upstream, redirects to the dev server's own origin are moved under the
+   path prefix in path mode, and bodies are streamed. A dev server is a moving target; the less the
+   proxy reinterprets, the fewer frameworks it breaks.
+4. **Perch's framing headers stop at the preview.** X-Frame-Options and the COOP/COEP family are
+   Perch's own; applied to a proxied response they would keep the Preview tab from framing it at
+   all. The shell skips them for preview requests, which is what §5.6's "CSP relaxed for previews"
+   means in practice.
+5. **A member gets in with a ticket, not a cookie Perch cannot send.** A preview's origin is not
+   Perch's, so the session cookie does not reach it. The Preview tab puts a short-lived HMAC ticket
+   (workspace, user, port, fifteen minutes) on the frame's URL once; the proxy exchanges it for a
+   cookie on that origin and the dev server's own links work from there. Over HTTPS the cookie is
+   `SameSite=None; Secure`, so it survives the frame; over plain HTTP it is `Lax`, which is enough
+   when the preview domain sits under Perch's own domain — the layout the docs recommend and the
+   Caddyfile assumes.
+6. **A share is a hash and an expiry.** `preview_shares.token_hash` holds a SHA-256 of a 32-byte
+   token; Perch cannot show a link twice. A share opens one port in one workspace until it expires
+   or is revoked, and `runner_id` became nullable (migration 0012) because a share is resolved by
+   port when it is used — a restarted container should not invalidate a link, and laptop mode has no
+   runner row to point at.
+7. **HMR works out of the box in wildcard mode, and takes one line in path mode.** Vite 8's client
+   dials the page's own origin, which in wildcard mode is the preview's — so the socket comes
+   through Perch and nothing needs configuring. In path mode the same client dials the root of
+   Perch's origin, because it has no way to know the prefix; a project that wants hot reload there
+   sets its dev server's `base` (or `server.hmr.path`). That is why §5.6 makes the wildcard the
+   primary and the path the fallback, and why the docs say so plainly.
+8. **Never 22, 5432, 6379.** The proxy answers only for ports a workspace's own runner reported
+   listening, and refuses a short list that is never a dev server. A preview is a window onto an
+   app, not a tunnel to the database.
+
+### Consequences
+A dev server on a runner is watchable from anywhere, on a phone or a desktop, with its hot reload
+intact and a link you can hand to someone who has no account. What is not here: the inspector and
+click-to-source, the console strip, screenshots, and previews on a local runner — 1.19 and Phase 2.
+
+### What was actually verified
+The acceptance runs a real Vite 8 dev server beside the e2e server and watches it through Perch:
+the page renders in the Preview tab, an edit to one of its modules changes the page without a
+reload, and the socket that carried the update was on the preview's hostname while the dev server
+was never reached directly — a deliberately mutated build (WebSocket passthrough disabled) fails
+that assertion, which is how we know it is not Vite's own direct-connection fallback passing the
+test. Path mode is exercised over HTTP in the same spec. The e2e instance answers on
+`perch.localhost` with previews on `<port>--<slug>.perch.localhost`, which is the recommended
+production layout with `localhost` standing in for the domain — and a secure context, so passkeys
+and WebCrypto still work in the rest of the suite.
+
+## ADR-0085: The message catalog is split by route, and the entry chunk is checked for leaks
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.18
+
+### Context
+§9.1 says every user-facing string goes through `t("key")`. The catalog was one JSON file imported
+by the i18n module, which the shell imports, so it shipped whole in the entry chunk: 21.9 KB of
+strings in front of the first paint, growing with every screen. Task 1.15 added 30 keys, 1.16 added
+28, and at 179.2 KB of a 180 KB budget (ADR-0072) the Preview tab would have breached it. Raising
+the budget would have been the wrong answer: the strings were not needed yet.
+
+### Decision
+1. **`en.json` is the shell's vocabulary.** The rail, the sidebars, sign-in, the command palette,
+   settings' chrome, the setup wizard — everything the first screen can say.
+2. **A route's vocabulary is a fragment beside it.** `en.code.json` (editor, files, terminal,
+   session, diff, projects, preview) and `en.settings.json` (brains, connections) register
+   themselves through a side-effect import; ES module order guarantees the strings are in the
+   catalog before anything in the chunk renders. `t()` and `MessageKey` are unchanged for callers:
+   the key union spans every fragment, so a typo is still a type error.
+3. **The import goes in a component module, never a route file.** TanStack Router's
+   autoCodeSplitting keeps a route file's own imports in the eagerly loaded half, so a fragment
+   registered there lands in the entry anyway. A route's components register it instead, and the
+   route's own `t()` calls live in the component half that loads with them.
+4. **A barrel-reachable component cannot register for itself.** A side-effect import is never
+   tree-shaken, so it rides into the entry even when the component it sits in does not. Subpath-only
+   components (SessionTranscript, DiffView) register for themselves; EditorGroup's consumers do it
+   for it, its demo included.
+5. **`bun run perf` fails on a fragment key found in the built entry chunk.** That catches both
+   mistakes at once — a shell string filed under a route, and a fragment dragged into the first
+   paint — and it is checked on the build, where the truth is.
+6. **Setup and invite stay in the core catalog.** They are single-file routes with no component
+   module to hang a fragment on, and contorting a route to save 660 bytes is not worth the reader's
+   confusion.
+
+### Consequences
+Initial js+css went from 179.2 KB to 176.5 KB with no change to what any screen says, and a route's
+strings now cost the route rather than the first paint. A second locale would follow the same split.
+The rule to remember: a fragment key may only be used from a module in a chunk that imports the
+fragment, and the perf audit is what enforces it.

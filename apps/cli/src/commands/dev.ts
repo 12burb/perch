@@ -14,6 +14,7 @@ Options:
   --host <addr>       address to bind (default: 127.0.0.1)
   --data-dir <path>   where PGlite, files, and the master key live (default: ~/.perch)
   --public-url <url>  PERCH_PUBLIC_URL when it differs from http://<host>:<port>
+  --preview-domain <d>  PERCH_PREVIEW_DOMAIN: a hostname per preview instead of a path
   --log-level <lvl>   trace|debug|info|warn|error|fatal|silent (default: info)
   -h, --help          show this help`;
 
@@ -25,6 +26,7 @@ export async function runDev(argv: string[]): Promise<number> {
       host: { type: "string" },
       "data-dir": { type: "string" },
       "public-url": { type: "string" },
+      "preview-domain": { type: "string" },
       "log-level": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -44,6 +46,7 @@ export async function runDev(argv: string[]): Promise<number> {
     port,
     host: values.host,
     publicUrl: values["public-url"],
+    previewDomain: values["preview-domain"],
     logLevel: values["log-level"],
   });
   console.log(

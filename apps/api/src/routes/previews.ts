@@ -29,6 +29,11 @@ const portSchema = z
     /** Empty when the port is configured but nothing is serving it yet. */
     runner_id: z.string(),
     configured: z.boolean(),
+    /**
+     * A short-lived ticket that lets this member's browser onto the preview's own origin, where a
+     * Perch session cookie does not reach (ADR-0084). Empty when nothing is serving the port.
+     */
+    ticket: z.string(),
   })
   .openapi("PreviewPort");
 
@@ -139,14 +144,19 @@ export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     if (!workspace || !project) throw PerchError.notFound("project");
     const ports = deps.previews.ports(workspace, project);
     const shares = await deps.previews.shares(workspace, project);
+    const userId = currentUser(c).id;
+    const withTickets = await Promise.all(
+      ports.map(async (port) => ({
+        port: port.port,
+        url: port.url,
+        runner_id: port.runnerId,
+        configured: port.configured,
+        ticket: port.runnerId ? await deps.previews.ticket(ws, userId, port.port) : "",
+      })),
+    );
     return c.json(
       {
-        ports: ports.map((port) => ({
-          port: port.port,
-          url: port.url,
-          runner_id: port.runnerId,
-          configured: port.configured,
-        })),
+        ports: withTickets,
         shares: shares.map(toShare),
         config: {
           command: previewCommand(project) ?? null,

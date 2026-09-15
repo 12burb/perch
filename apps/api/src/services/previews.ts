@@ -11,12 +11,14 @@ import type { Db, PreviewShare, Project, Workspace } from "@perch/db";
 import type { RunnerLink } from "@perch/events";
 import {
   hashShareToken,
+  mintPreviewTicket,
   mintShareToken,
   previewUrl,
   SHARE_DEFAULT_MS,
   SHARE_MAX_MS,
   shareAllows,
   shareUrl,
+  TICKET_MS,
 } from "@perch/preview";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -35,6 +37,8 @@ export type PreviewDeps = {
   registry: RunnerRegistry;
   publicUrl: string;
   previewDomain?: string | undefined;
+  /** Signs the tickets a member's browser carries onto a preview origin (ADR-0084). */
+  secret: string;
 };
 
 /** A port Perch can put in front of a browser. */
@@ -86,6 +90,19 @@ export class PreviewService {
     }
     const host = hostOf(reachable) as string;
     return { link: reachable.link, runnerId: reachable.link.id, host, port };
+  }
+
+  /**
+   * A member's way in (ADR-0084). In wildcard mode the preview is an origin of its own, so Perch's
+   * session cookie does not reach it; this ticket does, once, and becomes a cookie there.
+   */
+  ticket(workspaceId: string, userId: string, port: number): Promise<string> {
+    return mintPreviewTicket(this.deps.secret, {
+      ws: workspaceId,
+      user: userId,
+      port,
+      exp: Date.now() + TICKET_MS,
+    });
   }
 
   /** Every port this workspace's runners are listening on, as URLs a browser can open. */

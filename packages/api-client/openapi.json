@@ -2520,13 +2520,17 @@
           },
           "configured": {
             "type": "boolean"
+          },
+          "ticket": {
+            "type": "string"
           }
         },
         "required": [
           "port",
           "url",
           "runner_id",
-          "configured"
+          "configured",
+          "ticket"
         ]
       },
       "PreviewShare": {

@@ -274,3 +274,19 @@ export function connectionsQuery(workspaceId: string) {
     enabled: workspaceId !== "",
   });
 }
+
+/** The ports a project is serving and the links shared from them (task 1.18). */
+export function previewsQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["previews", workspaceId, projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/previews", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: workspaceId !== "" && projectId !== "",
+    // A dev server comes up while somebody is looking at the tab; the poller is how they find out.
+    refetchInterval: 4_000,
+  });
+}

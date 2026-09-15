@@ -131,6 +131,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     registry: runners,
     publicUrl: env.publicUrl,
     previewDomain: env.previewDomain,
+    secret: env.sessionSecret,
   });
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, flags, brains, mcp, log },

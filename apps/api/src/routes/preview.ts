@@ -23,7 +23,10 @@ import {
   proxyRequest,
   SHARE_COOKIE,
   SHARE_QUERY,
+  TICKET_COOKIE,
+  TICKET_QUERY,
   upstreamWebSocketUrl,
+  verifyPreviewTicket,
 } from "@perch/preview";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
@@ -34,14 +37,29 @@ import { PerchError } from "../errors.ts";
 import { findMembership } from "../repos/workspaces.ts";
 import type { WsServer } from "../ws/server.ts";
 
+/**
+ * Whether this request is for a preview rather than for Perch. The framing and isolation headers
+ * Perch sets for itself (X-Frame-Options, COOP/COEP) would keep a preview out of the Preview tab's
+ * own iframe, and they are not the dev server's to inherit anyway (spec §5.6 relaxes them for
+ * previews); the shell skips them here.
+ */
+export function isPreviewRequest(
+  host: string | null | undefined,
+  pathname: string,
+  previewDomain: string | null | undefined,
+): boolean {
+  if (parsePreviewPath(pathname)) return true;
+  return parsePreviewHost(host, previewDomain) !== null;
+}
+
 /** What a resolved preview request carries into the proxy. */
 type Resolved = {
   workspace: Workspace;
   target: ProxyTarget;
   path: string;
   prefix?: string;
-  /** Set when a share token arrived on the query string and should become a cookie. */
-  keepShare?: { token: string; expiresAt: Date };
+  /** Set when a share token or a member's ticket arrived on the query and should become a cookie. */
+  keepShare?: { name: string; token: string; expiresAt: Date };
 };
 
 export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?: WsServer): void {
@@ -146,7 +164,12 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
       if (found.keepShare) {
         answer.headers.append(
           "set-cookie",
-          shareCookie(found.keepShare.token, found.keepShare.expiresAt, c.req.url),
+          previewCookie(
+            found.keepShare.name,
+            found.keepShare.token,
+            found.keepShare.expiresAt,
+            c.req.url,
+          ),
         );
       }
       return answer;
@@ -197,28 +220,58 @@ async function admitted(
   deps: Deps,
   workspace: Workspace,
   port: number,
-): Promise<{ ok: boolean; keepShare?: { token: string; expiresAt: Date } }> {
+): Promise<{ ok: boolean; keepShare?: { name: string; token: string; expiresAt: Date } }> {
   const user = c.get("user");
   if (user) {
     const membership = await findMembership(deps.db.db, workspace.id, user.id);
     if (membership) return { ok: true };
   }
   const url = new URL(c.req.url);
+
+  // A member's ticket (ADR-0084): in wildcard mode the preview has an origin of its own — which is
+  // the point — and Perch's session cookie does not reach it, so the tab that opened the preview
+  // brought a short-lived ticket of its own.
+  const ticketed = url.searchParams.get(TICKET_QUERY) ?? "";
+  const ticket = ticketed || getCookie(c, TICKET_COOKIE) || "";
+  if (ticket) {
+    const claims = await verifyPreviewTicket(deps.env.sessionSecret, ticket);
+    if (claims && claims.ws === workspace.id && claims.port === port) {
+      const membership = await findMembership(deps.db.db, workspace.id, claims.user);
+      if (membership) {
+        return ticketed
+          ? {
+              ok: true,
+              keepShare: { name: TICKET_COOKIE, token: ticket, expiresAt: new Date(claims.exp) },
+            }
+          : { ok: true };
+      }
+    }
+  }
+
   const fromQuery = url.searchParams.get(SHARE_QUERY) ?? "";
   const token = fromQuery || getCookie(c, SHARE_COOKIE) || "";
   const share = await deps.previews.shareFor(token, { workspaceId: workspace.id, port });
   if (!share) return { ok: false };
-  return fromQuery ? { ok: true, keepShare: { token, expiresAt: share.expiresAt } } : { ok: true };
+  return fromQuery
+    ? { ok: true, keepShare: { name: SHARE_COOKIE, token, expiresAt: share.expiresAt } }
+    : { ok: true };
 }
 
-/** The share cookie, scoped to whatever origin the link was opened on. */
-function shareCookie(token: string, expiresAt: Date, requestUrl: string): string {
+/**
+ * A preview cookie — a share's or a member's ticket — scoped to the origin it was opened on.
+ *
+ * The Preview tab frames the preview, so over HTTPS the cookie must survive a third-party context:
+ * `SameSite=None; Secure`. Plain HTTP cannot have that (a browser drops `None` without `Secure`),
+ * so it gets `Lax`, which is enough when the preview domain sits under the same registrable domain
+ * as Perch — the layout §8's Caddyfile assumes, and the one the docs recommend.
+ */
+function previewCookie(name: string, token: string, expiresAt: Date, requestUrl: string): string {
   const secure = new URL(requestUrl).protocol === "https:";
   return [
-    `${SHARE_COOKIE}=${token}`,
+    `${name}=${token}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    secure ? "SameSite=None" : "SameSite=Lax",
     `Expires=${expiresAt.toUTCString()}`,
     ...(secure ? ["Secure"] : []),
   ].join("; ");
