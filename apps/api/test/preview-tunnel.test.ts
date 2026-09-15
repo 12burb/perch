@@ -74,7 +74,14 @@ beforeAll(async () => {
   });
   devPort = dev.port as number;
 
-  booted = await bootTestApp({}, { runnerChannel: { heartbeatMs: 500, requestTimeoutMs: 5_000 } });
+  // Nothing here is about liveness, so the channel gets a realistic budget: a 500 ms heartbeat
+  // closes the runner's socket after three missed beats — a second and a half — which a loaded
+  // machine can spend inside one of the fetches below, and with `reconnect: false` the laptop
+  // never comes back. The request budget has to fit the 200 KB body this test pushes, too.
+  booted = await bootTestApp(
+    {},
+    { runnerChannel: { heartbeatMs: 5_000, requestTimeoutMs: 20_000 } },
+  );
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
   base = running.url;
   projectsDir = mkdtempSync(join(tmpdir(), "perch-tunnel-"));
@@ -109,7 +116,8 @@ beforeAll(async () => {
     // guess. This is what puts the request on the tunnel.
     previewHost: null,
     portsIntervalMs: 100,
-    reconnect: false,
+    // A laptop that loses its socket dials again, which is what `perch runner connect` does.
+    reconnect: true,
     handlerOptions: { projects: { root: projectsDir } },
   });
   await client.registered();
