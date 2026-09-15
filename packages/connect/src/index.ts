@@ -20,6 +20,16 @@ export {
   parseManifest,
 } from "./manifest.ts";
 export {
+  allowed,
+  argsHash,
+  listUpstreamTools,
+  McpError,
+  openUpstream,
+  permits,
+  type UpstreamOptions,
+  type UpstreamTool,
+} from "./mcp.ts";
+export {
   exchangeCode,
   OAuthError,
   type OAuthStart,
