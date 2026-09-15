@@ -116,8 +116,8 @@ beforeAll(async () => {
     // guess. This is what puts the request on the tunnel.
     previewHost: null,
     portsIntervalMs: 100,
-    // A laptop that loses its socket dials again, which is what `perch runner connect` does.
-    reconnect: true,
+    // No `reconnect: false`: a laptop that loses its socket dials again, which is what
+    // `perch runner connect` does and what keeps this test from failing on a missed beat.
     handlerOptions: { projects: { root: projectsDir } },
   });
   await client.registered();
