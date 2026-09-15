@@ -9,7 +9,8 @@ import { BotsSection, ChannelsSection, DirectMessagesSection } from "../chat/cha
 import { useEditorStore } from "../code/editor-store.ts";
 import { FileTree } from "../code/file-tree.tsx";
 import { SessionsSection } from "../code/sessions-list.tsx";
-import { type MyWorkspace, previewsQuery, projectsQuery } from "../lib/queries.ts";
+import { askFor, type InboxFilter, isFilter } from "../inbox/inbox.tsx";
+import { inboxQuery, type MyWorkspace, previewsQuery, projectsQuery } from "../lib/queries.ts";
 import { useAppShell } from "./app-shell.tsx";
 
 type Section = { title: MessageKey; empty: MessageKey };
@@ -48,6 +49,40 @@ const SECTIONS: Record<RailMode, Section[]> = {
   search: [{ title: "shell.search.filters", empty: "shell.search.filtersEmpty" }],
 };
 
+/** Inbox's four sections (spec §4), each one the queue asked for differently (task 2.10). */
+const INBOX_SECTIONS: Partial<Record<MessageKey, InboxFilter>> = {
+  "shell.inbox.needsYou": "needs-you",
+  "shell.inbox.mentions": "mentions",
+  "shell.inbox.threads": "threads",
+  "shell.inbox.later": "later",
+};
+
+function InboxSection(props: { workspace: MyWorkspace; title: MessageKey; filter: InboxFilter }) {
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { filter?: string };
+  const params = useParams({ strict: false }) as { mode?: string };
+  const queue = useQuery(inboxQuery(askFor(props.filter)));
+  const here = params.mode === "inbox";
+  const active = here && (isFilter(search.filter) ? search.filter : "needs-you") === props.filter;
+  const waiting = queue.data?.items.length ?? 0;
+  return (
+    <SidebarSection title={t(props.title)}>
+      <SidebarItem
+        label={t(props.title)}
+        active={active}
+        {...(waiting > 0 ? { unread: waiting } : {})}
+        onSelect={() =>
+          void navigate({
+            to: "/$workspace/$mode",
+            params: { workspace: props.workspace.slug, mode: "inbox" },
+            search: { filter: props.filter },
+          })
+        }
+      />
+    </SidebarSection>
+  );
+}
+
 export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | null }) {
   return (
     <Sidebar
@@ -67,6 +102,13 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
           <DirectMessagesSection key={section.title} workspace={props.workspace} />
         ) : section.title === "shell.home.bots" && props.workspace ? (
           <BotsSection key={section.title} workspace={props.workspace} empty={section.empty} />
+        ) : INBOX_SECTIONS[section.title] && props.workspace ? (
+          <InboxSection
+            key={section.title}
+            workspace={props.workspace}
+            title={section.title}
+            filter={INBOX_SECTIONS[section.title] ?? "needs-you"}
+          />
         ) : section.title === "shell.code.projects" && props.workspace ? (
           <ProjectsSection key={section.title} workspace={props.workspace} empty={section.empty} />
         ) : section.title === "shell.code.sessions" && props.workspace ? (

@@ -1,12 +1,13 @@
 import { Avatar, Badge, EmptyState, type RailMode, t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound, useSearch } from "@tanstack/react-router";
 import { Bot, Code, Inbox, MessageSquare, Search, SquareKanban } from "lucide-react";
 import type { ComponentType } from "react";
 import { ChannelsMain } from "../../../chat/channels.tsx";
 import { SearchMain } from "../../../chat/search.tsx";
 import { ProjectsMain } from "../../../code/projects.tsx";
-import { membersQuery } from "../../../lib/queries.ts";
+import { type InboxFilter, InboxMain, isFilter } from "../../../inbox/inbox.tsx";
+import { membersQuery, meQuery } from "../../../lib/queries.ts";
 import { usePresence } from "../../../lib/ws.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
@@ -34,6 +35,10 @@ const ICONS: Record<RailMode, ComponentType<{ className?: string; "aria-hidden"?
 function ModeRoute() {
   const { mode } = Route.useRouteContext();
   const { shell, workspace } = useAppShell();
+  // The Inbox's four sections are the same queue asked for differently, and the ask is in the URL.
+  const search = useSearch({ strict: false }) as { filter?: string };
+  const filter: InboxFilter = isFilter(search.filter) ? search.filter : "needs-you";
+  const me = useQuery(meQuery);
   if (!workspace) return null;
   const Icon = ICONS[mode];
   return (
@@ -54,7 +59,8 @@ function ModeRoute() {
       {mode === "search" ? (
         <SearchMain workspaceId={workspace.id} workspaceSlug={workspace.slug} />
       ) : null}
-      {mode === "code" || mode === "home" || mode === "search" ? null : (
+      {mode === "inbox" ? <InboxMain filter={filter} userId={me.data?.id ?? ""} /> : null}
+      {mode === "code" || mode === "home" || mode === "search" || mode === "inbox" ? null : (
         <EmptyState
           icon={<Icon className="size-8" aria-hidden="true" />}
           title={t(`shell.${mode}.emptyTitle`)}

@@ -380,6 +380,19 @@ export type BotMemoryMetadata = z.infer<typeof botMemoryMetadataSchema>;
 export const threadFactValueSchema = z.unknown();
 export type ThreadFactValue = z.infer<typeof threadFactValueSchema>;
 
+/**
+ * inbox_items.payload: the line the inbox and the phone both show (task 2.10, ADR-0100). `url` is a
+ * path in this Perch, never an address somewhere else.
+ */
+export const inboxPayloadSchema = z
+  .object({
+    title: z.string().max(200).optional(),
+    body: z.string().max(1000).optional(),
+    url: z.string().max(2000).optional(),
+  })
+  .strict();
+export type InboxPayload = z.infer<typeof inboxPayloadSchema>;
+
 // notifications.payload
 export const notificationPayloadSchema = z
   .object({

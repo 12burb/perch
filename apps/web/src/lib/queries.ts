@@ -3,7 +3,7 @@
  * can invalidate precisely.
  */
 
-import type { components } from "@perch/api-client";
+import type { components, paths } from "@perch/api-client";
 import { queryOptions } from "@tanstack/react-query";
 import { api, unwrap } from "./api.ts";
 
@@ -307,6 +307,33 @@ export function botRunsQuery(workspaceId: string, botId: string) {
     enabled: workspaceId !== "" && botId !== "",
   });
 }
+
+/**
+ * What needs this person (spec §7.1 `/api/inbox?status`; task 2.10). The inbox is personal and
+ * crosses workspaces, so the key has no workspace in it.
+ */
+export function inboxQuery(options: { status?: InboxStatusFilter; kind?: InboxKindFilter } = {}) {
+  const status = options.status ?? "open";
+  return queryOptions({
+    queryKey: ["inbox", status, options.kind ?? "any"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/inbox", {
+          params: {
+            query: { status, ...(options.kind ? { kind: options.kind } : {}), limit: 100 },
+          },
+        }),
+      ),
+  });
+}
+
+export type InboxStatusFilter = NonNullable<
+  NonNullable<paths["/api/inbox"]["get"]["parameters"]["query"]>["status"]
+>;
+export type InboxKindFilter = NonNullable<
+  NonNullable<paths["/api/inbox"]["get"]["parameters"]["query"]>["kind"]
+>;
+export type InboxItemRow = components["schemas"]["InboxItem"];
 
 export function channelsQuery(workspaceId: string) {
   return queryOptions({

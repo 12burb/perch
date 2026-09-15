@@ -18,6 +18,7 @@ import { registerConnections } from "./routes/connections.ts";
 import { registerFiles } from "./routes/files.ts";
 import { registerGit } from "./routes/git.ts";
 import { registerHealth } from "./routes/health.ts";
+import { registerInbox } from "./routes/inbox.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
@@ -133,6 +134,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerBots(app, deps);
   registerFiles(app, deps);
   registerUnfurl(app, deps);
+  registerInbox(app, deps);
   registerPush(app, deps);
   registerSearch(app, deps);
 

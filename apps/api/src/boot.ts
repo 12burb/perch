@@ -16,6 +16,7 @@ import { createAuth } from "./auth/auth.ts";
 import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createFlags } from "./flags.ts";
+import { startInboxSubscriber } from "./inbox/subscriber.ts";
 import { createLogger, type Logger } from "./logging.ts";
 import { startPushSubscriber } from "./push/subscriber.ts";
 import {
@@ -182,6 +183,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const stopBots = bots.start();
   // A mention reaches a phone through the same bus everything else travels on (task 2.3).
   const stopPush = startPushSubscriber({ bus, db, vault, env, log });
+  // And what needs a person lands in their inbox off the same bus (task 2.10).
+  const stopInbox = startInboxSubscriber({ bus, db, log });
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -198,6 +201,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       stopBots();
       stopAudit();
       stopPush();
+      stopInbox();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

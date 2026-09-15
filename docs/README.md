@@ -20,6 +20,7 @@
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
 | [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
+| [`inbox.md`](inbox.md) | The inbox: what needs you, where it comes from, and approving from a phone |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |
 | [`policies/providers.md`](policies/providers.md) | The credential matrix and the three lanes |

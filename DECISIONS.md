@@ -3441,3 +3441,39 @@ No migration: the room is a channel, the chat is a thread, the choice is a scope
 free, and a chat can be reopened from the picker with its own context intact. The cost is that a
 person cannot talk to a bot in a flat, unthreaded DM any more — every exchange belongs to a chat —
 which is the shape §5.2 asks for. Group DMs with a bot in them behave the same way.
+
+## ADR-0100: An inbox item says what it is, rather than being looked up
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.10
+
+### Context
+§6 gives `inbox_items` its columns: workspace, user, kind, ref_type, ref_id, status, snoozed_until,
+resolved_at. Nothing in that row says what the item is *about*, so rendering a queue of twenty means
+twenty lookups across five services — a session's pending permission, a message and its channel, a
+thread's chain, a bot and its ledger — each of which has to exist and be readable at that moment.
+
+### Decision
+1. **One added column: `payload` jsonb**, holding the title, the body and the path the item points
+   at, written by the subscriber when the item is made. A spec deviation, and the only one here:
+   `notifications.payload` already works this way, and it is what makes a queue one query and a
+   phone's launch tab cheap enough to ask for on every start.
+2. **A unique index on (user, kind, ref_type, ref_id)**, also not in §6. It is what makes the
+   subscriber idempotent: an event delivered twice is one row, and a thing that needs a person again
+   after being resolved re-opens the row it already had rather than piling up duplicates.
+3. **The inbox is read-only about the world.** Resolving an item puts the row away; it never acts on
+   what the row points at. The one exception is by design and lives in the client: Approve and Deny
+   on a permission call the session's own endpoint, and the item then resolves itself off
+   `session.permission_answered`. So there is one place that answers permissions, and the inbox is a
+   second way to reach it rather than a second implementation of it.
+4. **`ref_id` is text, not a uuid.** An engine's permission id is its own string (§7.6), so a
+   permission item points at `<session>:<permission>` and the client splits it.
+5. **A snooze is resolved on read.** `status=open` includes a snoozed item whose moment has passed,
+   so nothing has to sweep the table on a timer for a phone to show the right count.
+
+### Consequences
+A queue renders in one query and says the same thing the push notification said. What an item says
+is what was true when it arrived — a permission whose tool was renamed still reads as it did — which
+is right for a record of "this needed you", and is why the row also carries the path to the live
+thing. Migration 0018 adds the table.

@@ -18,6 +18,7 @@ import m14 from "../../drizzle/0014_push_subscriptions.sql" with { type: "text" 
 import m15 from "../../drizzle/0015_messages_blocks_index.sql" with { type: "text" };
 import m16 from "../../drizzle/0016_bots.sql" with { type: "text" };
 import m17 from "../../drizzle/0017_bot_chains.sql" with { type: "text" };
+import m18 from "../../drizzle/0018_inbox_items.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -52,4 +53,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 15, tag: "0015_messages_blocks_index", when: 1789456953088, breakpoints: true, sql: m15 },
   { idx: 16, tag: "0016_bots", when: 1789478158989, breakpoints: true, sql: m16 },
   { idx: 17, tag: "0017_bot_chains", when: 1789484479724, breakpoints: true, sql: m17 },
+  { idx: 18, tag: "0018_inbox_items", when: 1789489075432, breakpoints: true, sql: m18 },
 ];

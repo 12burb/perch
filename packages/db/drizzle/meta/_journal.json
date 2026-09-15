@@ -127,6 +127,13 @@
       "when": 1789484479724,
       "tag": "0017_bot_chains",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789489075432,
+      "tag": "0018_inbox_items",
+      "breakpoints": true
     }
   ]
 }
