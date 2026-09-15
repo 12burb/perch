@@ -1,3 +1,4 @@
+import "@perch/ui/i18n/code";
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";

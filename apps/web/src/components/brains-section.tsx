@@ -6,6 +6,7 @@
  * this screen has nothing to redact. "Test" asks the provider for its model list — a provider that
  * answers is a provider that took the key — and the same list fills the model picker.
  */
+import "@perch/ui/i18n/settings";
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";

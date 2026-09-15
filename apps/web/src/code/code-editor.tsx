@@ -1,3 +1,4 @@
+import "@perch/ui/i18n/code";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import {
   bracketMatching,

@@ -5,6 +5,7 @@
  * this screen has nothing to redact. Which lanes a service offers comes from its manifest, so a
  * new connector needs no code here.
  */
+import "@perch/ui/i18n/settings";
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";

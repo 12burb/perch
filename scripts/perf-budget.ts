@@ -123,6 +123,31 @@ export function measureBundle(dist: string): BundleReport {
   };
 }
 
+/**
+ * The message-catalog fragments (ADR-0085) and the keys each one owns. A fragment ships with the
+ * route chunk that imports it, so none of its keys may appear in the entry: a key that does means
+ * either a shell string was filed under a route, or a route's fragment was dragged into the first
+ * paint. Both put bytes in front of the first render, which is what the budget is for.
+ */
+export function fragmentKeysInEntry(dist: string, i18nDir: string): string[] {
+  const index = readFileSync(join(dist, "index.html"), "utf8");
+  const entryRef = [...index.matchAll(/src="\/?([^"]+\.js)"/g)].map((m) => m[1] ?? "")[0];
+  if (!entryRef) return [];
+  const entryPath = join(dist, entryRef);
+  if (!existsSync(entryPath)) return [];
+  const entry = readFileSync(entryPath, "utf8");
+  const found: string[] = [];
+  for (const file of readdirSync(i18nDir)) {
+    // en.json is the core catalog; en.<fragment>.json is a route's own.
+    if (!/^en\.[a-z]+\.json$/.test(file)) continue;
+    const keys = Object.keys(
+      JSON.parse(readFileSync(join(i18nDir, file), "utf8")) as Record<string, string>,
+    );
+    for (const key of keys) if (entry.includes(`"${key}"`)) found.push(`${file}: ${key}`);
+  }
+  return found;
+}
+
 /** Representative envelopes for the chattiest §7.7 events, as the WS server sends them. */
 export function sampleEnvelopes(): Array<{ type: string; bytes: number }> {
   const ws = "0190f2d0-1234-7000-8000-000000000001";
@@ -191,6 +216,15 @@ export function audit(dist: string): PerfResult {
   check("on-demand packs js (gzip)", bundle.packsJsGzipKb, BUDGETS.packsJsGzipKb, "KB");
   lines.push(`info  ${"total js (gzip)".padEnd(28)} ${bundle.totalJsGzipKb} KB`);
   check("css (gzip)", bundle.cssGzipKb, BUDGETS.cssGzipKb, "KB");
+  const i18nDir = resolve(import.meta.dir, "..", "packages", "ui", "src", "i18n");
+  if (existsSync(i18nDir)) {
+    const leaked = fragmentKeysInEntry(dist, i18nDir);
+    ok &&= leaked.length === 0;
+    lines.push(
+      `${leaked.length === 0 ? "ok  " : "FAIL"}  ${"i18n fragments out of entry".padEnd(28)} ${leaked.length} leaked (budget 0 leaked)`,
+    );
+    for (const leak of leaked.slice(0, 10)) lines.push(`        ${leak}`);
+  }
   for (const sample of sampleEnvelopes()) {
     check(`ws envelope ${sample.type}`, sample.bytes, BUDGETS.wsEnvelopeBytes, "B");
   }

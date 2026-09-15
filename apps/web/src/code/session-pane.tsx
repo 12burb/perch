@@ -3,6 +3,7 @@
  * (replayed from the api, then live from the session:<id> topic), the permission prompt, the
  * usage and cost footer, a plan/build switch, the composer in session mode, rename, fork, cancel.
  */
+import "@perch/ui/i18n/code";
 import type { WsServerEnvelope } from "@perch/events";
 // The pure diff helpers, not the schema barrel: it would bring Zod into the bundle (ADR-0079).
 import { parseHunks } from "@perch/events/diff";

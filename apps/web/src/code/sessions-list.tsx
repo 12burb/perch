@@ -3,6 +3,7 @@
  * form to start one: the engine, the brain to run on (task 1.15), and which agent or CLI runs it
  * when the runner's default is not wanted.
  */
+import "@perch/ui/i18n/code";
 import { Button, Field, Input, SidebarItem, SidebarSection, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";

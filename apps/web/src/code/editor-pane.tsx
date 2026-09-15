@@ -1,3 +1,4 @@
+import "@perch/ui/i18n/code";
 import { Button, EditorGroup, type EditorTab, Input, t } from "@perch/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";

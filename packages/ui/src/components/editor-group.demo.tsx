@@ -1,3 +1,4 @@
+import "../i18n/code.ts";
 import { useState } from "react";
 import { EditorGroup, type EditorTab } from "./editor-group.tsx";
 

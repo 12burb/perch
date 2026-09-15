@@ -1,3 +1,4 @@
+import "@perch/ui/i18n/code";
 import { Button, t } from "@perch/ui";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";

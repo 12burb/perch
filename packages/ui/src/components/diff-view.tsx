@@ -4,6 +4,7 @@
  * Reject all, and Open. Every hunk is labeled ("Hunk 2 of 3") for screen readers; rows are one
  * flat virtualized list so a long diff stays light.
  */
+import "../i18n/code.ts";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check, ExternalLink, X } from "lucide-react";
 import { useMemo, useRef } from "react";

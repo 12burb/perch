@@ -4,6 +4,7 @@
  * and diffs, permission prompts (Allow once / Always this session / Deny), and errors. The pane
  * itself (composer, usage footer, list) lives in the app; these are the accessible building blocks.
  */
+import "../i18n/code.ts";
 import { splitCodeBlocks } from "@perch/events/code-blocks";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
