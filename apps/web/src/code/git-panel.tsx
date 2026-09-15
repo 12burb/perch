@@ -16,6 +16,22 @@ function message(error: unknown): string {
   return error instanceof RequestFailed ? error.message : t("common.error");
 }
 
+/** What the scanner found, when a commit was stopped by one (task 2.12). */
+export type SecretFinding = { name: string; path: string; line: number; sample: string };
+
+export function findingsIn(error: unknown): SecretFinding[] {
+  if (!(error instanceof RequestFailed) || error.code !== "policy_violation") return [];
+  const found = error.details?.findings;
+  if (!Array.isArray(found)) return [];
+  return found.filter(
+    (one): one is SecretFinding =>
+      typeof one === "object" &&
+      one !== null &&
+      typeof (one as SecretFinding).path === "string" &&
+      typeof (one as SecretFinding).name === "string",
+  );
+}
+
 /** The letter git uses for a change, as a word. */
 function statusLabel(file: { index: string; working_tree: string }): string {
   const code = (file.working_tree.trim() || file.index.trim() || "?").toUpperCase();
@@ -32,6 +48,7 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<SecretFinding[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [newBranch, setNewBranch] = useState("");
   const [prTitle, setPrTitle] = useState("");
@@ -80,11 +97,17 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
     onSuccess: async (made) => {
       setNote(t("git.committed", { commit: made.commit.slice(0, 7) }));
       setError(null);
+      setBlocked([]);
       setText("");
       setSelected([]);
       await refresh();
     },
-    onError: (err: unknown) => setError(message(err)),
+    onError: (err: unknown) => {
+      // A commit stopped by the scanner is a card, not a line of red text (spec §5.7; task 2.12).
+      const found = findingsIn(err);
+      setBlocked(found);
+      setError(found.length > 0 ? null : message(err));
+    },
   });
 
   const push = useMutation({
@@ -318,6 +341,34 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
         </form>
       </div>
 
+      {blocked.length > 0 ? (
+        <section
+          role="alert"
+          aria-label={t("git.secrets.title")}
+          data-testid="secrets-card"
+          className="flex flex-col gap-1 rounded border border-danger bg-raised p-2"
+        >
+          <h3 className="text-sm font-semibold text-danger">{t("git.secrets.title")}</h3>
+          <ul className="flex flex-col gap-0.5 text-sm">
+            {blocked.map((one) => (
+              <li key={`${one.path}:${one.line}:${one.sample}`}>
+                {t("git.secrets.found", {
+                  name: one.name,
+                  path: one.path,
+                  line: one.line,
+                  sample: one.sample,
+                })}
+              </li>
+            ))}
+          </ul>
+          <p className="text-sm text-fg-muted">{t("git.secrets.hint")}</p>
+          <div>
+            <Button size="sm" variant="ghost" onClick={() => setBlocked([])}>
+              {t("git.secrets.dismiss")}
+            </Button>
+          </div>
+        </section>
+      ) : null}
       {note ? (
         <p role="status" data-testid="git-note" className="text-sm text-success">
           {note}

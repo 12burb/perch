@@ -9,11 +9,13 @@
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import {
+  fsReadResultSchema,
   gitBranchResultSchema,
   gitCommitResultSchema,
   gitDiffResultSchema,
   gitPushResultSchema,
   gitStatusResultSchema,
+  type RunnerLink,
 } from "@perch/events";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
@@ -303,6 +305,34 @@ export function registerGit(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const project = await target(c);
     const user = currentUser(c);
     const link = await projectRunnerLink(services, project, user.id);
+    // Nothing is committed before it has been read for secrets (spec §5.7; task 2.12). History is
+    // the one place a key cannot be taken out of, so this is the last gate before it gets there.
+    const change = await wholeChange(link, {
+      ws,
+      userId: user.id,
+      projectId: project.id,
+      ...(body.paths ? { paths: body.paths } : {}),
+    });
+    const found = await deps.policy.secretsIn(
+      { workspaceId: project.workspaceId, project },
+      change,
+      body.paths,
+    );
+    if (found.length > 0) {
+      await deps.policy.violated(
+        { workspaceId: project.workspaceId, project, subject: { type: "user", id: user.id } },
+        { kind: "fs.write", path: found[0]?.path ?? "" },
+        { allow: false, rule: "secrets.scan", reason: `${found.length} found` },
+        actorOf(c),
+      );
+      throw new PerchError(
+        "policy_violation",
+        found.length === 1
+          ? `${found[0]?.name} is in ${found[0]?.path}`
+          : `${found.length} things that look like credentials are in this change`,
+        { rule: "secrets.scan", findings: found },
+      );
+    }
     const raw = await runnerCall(link, "git.commit", {
       workspace_id: ws,
       user_id: user.id,
@@ -423,6 +453,47 @@ export function onlyPaths(diff: string, files: { path: string }[], wanted: Set<s
       return (a && wanted.has(a)) || (b && wanted.has(b));
     })
     .join("");
+}
+
+/** A file big enough that reading it to look for a key is not worth the wait. */
+const SCAN_MAX_BYTES = 512 * 1024;
+/** How many new files one commit may bring before the scan stops reading them one by one. */
+const SCAN_MAX_FILES = 200;
+
+/**
+ * Everything a commit is about to take, as one diff to read (task 2.12). `git diff` knows about
+ * files git already knows about; a file the agent has just written is untracked, so its content is
+ * added as if the whole thing were new — which, to history, it is.
+ */
+export async function wholeChange(
+  link: RunnerLink,
+  input: { ws: string; userId: string; projectId: string; paths?: readonly string[] | undefined },
+): Promise<string> {
+  const base = { workspace_id: input.ws, user_id: input.userId, project: input.projectId };
+  const tracked = gitDiffResultSchema.parse(await runnerCall(link, "git.diff", base));
+  const status = gitStatusResultSchema.parse(await runnerCall(link, "git.status", base));
+  const wanted = input.paths && input.paths.length > 0 ? new Set(input.paths) : null;
+  const fresh = status.files
+    .filter((file) => file.index === "?" && (!wanted || wanted.has(file.path)))
+    .slice(0, SCAN_MAX_FILES);
+  const parts = [tracked.diff];
+  for (const file of fresh) {
+    try {
+      const read = fsReadResultSchema.parse(
+        await runnerCall(link, "fs.read", { ...base, path: file.path }),
+      );
+      // A binary file has nothing to read, and a huge one is not worth the wait.
+      if (read.encoding !== "utf8" || read.size > SCAN_MAX_BYTES) continue;
+      const body = read.content
+        .split(/\r?\n/)
+        .map((line) => `+${line}`)
+        .join("\n");
+      parts.push(`diff --git a/${file.path} b/${file.path}\n+++ b/${file.path}\n@@\n${body}`);
+    } catch {
+      // A file that cannot be read is one the commit will not take either.
+    }
+  }
+  return parts.join("\n");
 }
 
 /** What a push authenticates with: a connection the member may use, or the workspace's key. */

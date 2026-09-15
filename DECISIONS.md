@@ -3520,3 +3520,43 @@ the model is ever built, and `git push --force` comes back refused from the same
 runner's floor refuses it with. What is not yet enforced at a second point — `commands.deny` and
 `paths.*` inside a running session — is the runner's floor today and named as such here, rather than
 quietly missing.
+
+## ADR-0102: Secrets are looked for in what a commit is about to take, not in the working tree
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.12
+
+### Context
+§5.7 asks for "secret scanning on every agent diff before commit". A scanner can run in many
+places — a file save, a diff apply, a commit, a push — and each catches a different set of
+mistakes at a different cost.
+
+### Decision
+1. **The gate is the commit.** A key in a file somebody is still editing is a draft; a key in a
+   commit is in history, and history is the one place it cannot be taken out of. So `POST
+   .../git/commit` reads what it is about to take and refuses before the runner is asked. Saving a
+   file stays fast and quiet, which is what makes the gate bearable.
+2. **What it reads is the whole change, not `git diff`.** `git diff` knows about files git already
+   knows about, and the file an agent has just written is untracked — exactly the case that
+   matters. The api asks for the status too and reads each untracked file the commit would take (up
+   to 200 files, skipping binaries and anything over 512 KB), so the scanner sees it as the new
+   file it is.
+3. **Findings carry a mask, never the value.** `sample` is the first and last four characters. A
+   card that repeats a key to warn about it has leaked it a second time, into a screenshot, a log,
+   or a bug report.
+4. **Lines being removed are not findings.** Taking a key *out* is the thing we want to encourage.
+5. **The rules are prefix-first.** A provider's own prefix (`ghp_`, `sk-ant-`, `AKIA`) is the
+   strongest signal there is; the one shape without a prefix — a name that says secret beside a long
+   value — is the only rule likely to be wrong about a repository, and is the one `allowRules` is
+   for. Placeholders and example files are skipped, because a scanner people learn to click past is
+   worse than none.
+6. **It is part of the policy document.** `secrets.scan`, `secrets.ignorePaths` and
+   `secrets.allowRules` live beside the other rules (ADR-0101), so a project can name its own
+   fixture directories and only a workspace can turn scanning off.
+
+### Consequences
+A planted key blocks the commit with a card at both viewports, and the same commit goes through once
+the key is out. The cost is one extra `git.diff`, one `git.status` and a read per new file on every
+commit; the scan itself is a few regular expressions over the added lines. What this does not catch
+is a key committed from a terminal inside the runner, which is the shell's own business (ADR-0101).

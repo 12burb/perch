@@ -9,6 +9,7 @@
 import type { Bus } from "@perch/bus";
 import type { Db, Project } from "@perch/db";
 import {
+  DEFAULT_IGNORED_PATHS,
   EMPTY_POLICY,
   evaluate,
   mergePolicies,
@@ -16,6 +17,8 @@ import {
   type PolicyDecision,
   type PolicyRequest,
   parsePolicy,
+  type SecretFinding,
+  scanDiff,
 } from "@perch/policy";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -123,6 +126,26 @@ export class PolicyService {
       },
       by,
     );
+  }
+
+  /**
+   * What a diff is about to commit (spec §5.7 "secret scanning on every agent diff before commit";
+   * task 2.12). Findings are where and what, never the secret itself; `paths` narrows the answer to
+   * the files this commit is actually taking.
+   */
+  async secretsIn(
+    scope: PolicyScope,
+    diff: string,
+    paths?: readonly string[] | undefined,
+  ): Promise<SecretFinding[]> {
+    const policy = await this.policyFor(scope);
+    if (policy.secrets?.scan === false) return [];
+    const found = scanDiff(diff, {
+      ignorePaths: [...DEFAULT_IGNORED_PATHS, ...(policy.secrets?.ignorePaths ?? [])],
+    });
+    const allowed = new Set(policy.secrets?.allowRules ?? []);
+    const wanted = paths && paths.length > 0 ? new Set(paths) : null;
+    return found.filter((one) => !allowed.has(one.rule) && (!wanted || wanted.has(one.path)));
   }
 
   private async cached(key: string, read: () => Promise<Policy>): Promise<Policy> {

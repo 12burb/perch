@@ -7,6 +7,7 @@
  */
 
 export * from "./document.ts";
+export * from "./secrets.ts";
 
 export const ROLES = ["owner", "admin", "member"] as const;
 export type Role = (typeof ROLES)[number];

@@ -83,6 +83,17 @@ export const policySchema = z
       })
       .strict()
       .optional(),
+    secrets: z
+      .object({
+        /** Whether every diff is read before it is committed. On unless the workspace says no. */
+        scan: z.boolean().optional(),
+        /** Globs where a key-shaped string is the point: fixtures, examples, a scanner's tests. */
+        ignorePaths: z.array(pattern).max(200).optional(),
+        /** Rules to leave out, by id, when one of them keeps being wrong about this repo. */
+        allowRules: z.array(pattern).max(100).optional(),
+      })
+      .strict()
+      .optional(),
     bots: z
       .object({
         /** Whether bots may tag other bots at all (spec §5.4). */
@@ -143,6 +154,13 @@ function narrowWith(base: Policy, layer: Policy): Policy {
       dailyUsd: lower(base.budgets?.dailyUsd, layer.budgets?.dailyUsd),
       perRunUsd: lower(base.budgets?.perRunUsd, layer.budgets?.perRunUsd),
       perThreadUsd: lower(base.budgets?.perThreadUsd, layer.budgets?.perThreadUsd),
+    },
+    secrets: {
+      // Only the workspace may turn scanning off: a project narrows, and this would loosen.
+      scan: base.secrets?.scan,
+      // Its own fixtures, though, a project does know about.
+      ignorePaths: join(base.secrets?.ignorePaths, layer.secrets?.ignorePaths),
+      allowRules: narrow(base.secrets?.allowRules, layer.secrets?.allowRules),
     },
     bots: {
       // On by default (spec §5.4): any layer saying no is what counts.

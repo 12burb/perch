@@ -52,6 +52,29 @@ A refusal is a `451` with the rule in its details, and a `policy.violation` on t
 puts it in the audit log. A bot refused in a channel says so in the channel, in the thread it was
 asked in, rather than answering.
 
+## Secret scanning
+
+Every commit is read before it is made (spec §5.7). The diff of what is about to be committed —
+including files git has not seen before, because those are the ones an agent has just written — goes
+through a scanner that knows the shapes providers stamp on their own tokens (AWS, GitHub, OpenAI,
+Anthropic, Google, Slack, Stripe, npm, Hugging Face, xAI), private key headers, passwords in
+connection strings, and a name that says secret beside a long value.
+
+A finding stops the commit with a `451` and a card in the Git panel saying what it is, which file it
+is in and which line — with the value masked, because a card that repeats a key has leaked it again.
+Nothing is committed, so taking the key out and committing again is all it takes.
+
+Lines being *removed* are not findings, and neither are placeholders (`your-api-key`, `xxxx`,
+`<token>`) or files where a key-shaped string is the point (`.env.example`, `**/fixtures/**`,
+snapshots). A repository with more of those says so:
+
+```yaml
+secrets:
+  scan: true                       # the default; only the workspace may turn it off
+  ignorePaths: ["docs/samples/**"] # added to the built-in list; a project may add its own
+  allowRules: ["generic.assignment"]
+```
+
 ## Reading and writing it
 
 ```

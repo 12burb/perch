@@ -198,6 +198,53 @@ describe("the git panel's routes (task 1.20)", () => {
     expect([409, 502]).toContain(pushed.status);
   }, 120_000);
 
+  test("a planted key stops the commit, and taking it out lets it through (task 2.12)", async () => {
+    const planted = `AKIA${"IOSFODNN7QQWERTY"}`;
+    const wrote = await call(`/api/workspaces/${ws}/projects/${project}/fs/write`, {
+      method: "PUT",
+      json: { path: "config.ts", content: `export const key = "${planted}";\n` },
+    });
+    expect(wrote.status).toBe(200);
+
+    const blocked = (await call(`/api/workspaces/${ws}/projects/${project}/git/commit`, {
+      method: "POST",
+      json: { message: "feat: add config" },
+    })) as {
+      status: number;
+      body: {
+        error: {
+          code: string;
+          message: string;
+          details?: { rule?: string; findings?: { path: string; sample: string }[] };
+        };
+      };
+    };
+    // 451: the policy engine's own status (spec §7.8).
+    expect(blocked.status).toBe(451);
+    expect(blocked.body.error.code).toBe("policy_violation");
+    expect(blocked.body.error.details?.rule).toBe("secrets.scan");
+    expect(blocked.body.error.details?.findings?.[0]?.path).toBe("config.ts");
+    // What the card shows is enough to find it and not enough to use it.
+    expect(JSON.stringify(blocked.body)).not.toContain(planted);
+
+    // Nothing was committed: the change is still sitting there.
+    const still = (await call(`/api/workspaces/${ws}/projects/${project}/git/status`)) as {
+      body: Status;
+    };
+    expect(still.body.files.map((f) => f.path)).toContain("config.ts");
+
+    // Taking it out lets the same commit through.
+    await call(`/api/workspaces/${ws}/projects/${project}/fs/write`, {
+      method: "PUT",
+      json: { path: "config.ts", content: 'export const key = process.env.AWS_KEY ?? "";\n' },
+    });
+    const through = (await call(`/api/workspaces/${ws}/projects/${project}/git/commit`, {
+      method: "POST",
+      json: { message: "feat: add config" },
+    })) as { status: number };
+    expect(through.status).toBe(201);
+  }, 120_000);
+
   test("only the chosen files are described", () => {
     const diff = [
       "diff --git a/a.ts b/a.ts",

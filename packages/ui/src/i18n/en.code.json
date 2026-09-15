@@ -228,5 +228,9 @@
   "git.notReady": "This project is not ready yet.",
   "projects.connection": "Connection",
   "projects.connectionHint": "Perch mints a token for this one clone; nothing is stored in the project.",
-  "projects.connectionPick": "Choose a connection…"
+  "projects.connectionPick": "Choose a connection…",
+  "git.secrets.title": "This change has something that looks like a credential",
+  "git.secrets.hint": "Nothing was committed. Take it out of the file, or put it in the project's environment, and commit again.",
+  "git.secrets.found": "{name} in {path}, line {line} ({sample})",
+  "git.secrets.dismiss": "Close"
 }
