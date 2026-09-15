@@ -167,6 +167,9 @@
       "name": "@perch/bots",
       "version": "0.0.1",
       "dependencies": {
+        "@perch/db": "workspace:*",
+        "@perch/gateway": "workspace:*",
+        "ai": "7.0.99",
         "quickjs-emscripten": "0.32.0",
         "zod": "4.6.3",
       },

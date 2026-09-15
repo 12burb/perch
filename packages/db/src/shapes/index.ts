@@ -236,6 +236,107 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
 export const messageBlocksSchema = z.array(messageBlockSchema);
 export type MessageBlock = z.infer<typeof messageBlockSchema>;
 
+// bots.spec, bots.budget, bot_installs.scopes, bot_memories.metadata (spec §5.3, §6; task 2.6)
+
+/** The native tools a bot may be given (spec §5.3). Anything not on this list does not exist. */
+export const BOT_TOOLS = [
+  "web_search",
+  "http_fetch",
+  "chat_post",
+  "chat_read",
+  "remember",
+  "recall",
+  "thread_facts",
+] as const;
+export type BotTool = (typeof BOT_TOOLS)[number];
+
+/** What sets a bot off (spec §5.3 "Triggers"). */
+export const BOT_TRIGGER_KINDS = [
+  "dm",
+  "mention",
+  "keyword",
+  "channel_join",
+  "reaction",
+  "schedule",
+  "webhook",
+] as const;
+export type BotTriggerKind = (typeof BOT_TRIGGER_KINDS)[number];
+
+const botTriggerSchema = z
+  .object({
+    on: z.enum(BOT_TRIGGER_KINDS),
+    /** `keyword`: the words or the pattern; `reaction`: the emoji; `schedule`: unused. */
+    match: z.string().min(1).optional(),
+    /** A `keyword` match read as a regular expression rather than as words. */
+    regex: z.boolean().optional(),
+    /** `schedule`: a cron expression, and what to do when it fires. */
+    cron: z.string().min(1).optional(),
+    prompt: z.string().min(1).max(4000).optional(),
+    /** `schedule`: the channel the answer is posted in. */
+    channel: z.string().min(1).optional(),
+  })
+  .strict();
+export type BotTrigger = z.infer<typeof botTriggerSchema>;
+
+/** What a bot keeps between turns (spec §5.3 `memory {window 30, long_term false}`). */
+const botMemorySchema = z
+  .object({
+    /** How many messages of the thread it is shown. */
+    window: z.number().int().min(1).max(200).optional(),
+    /** Whether `remember` and `recall` do anything. */
+    longTerm: z.boolean().optional(),
+    /** The model used to embed what it remembers; without one, recall matches on the words. */
+    embedModel: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const botBudgetSchema = z
+  .object({
+    /** What it may spend in a day, across every run (spec §5.3 `budget {daily_usd 5}`). */
+    dailyUsd: z.number().min(0).optional(),
+    /** What one run may spend. */
+    perRunUsd: z.number().min(0).optional(),
+    /** How many runs it may start in an hour. */
+    perHourRuns: z.number().int().min(1).optional(),
+  })
+  .strict();
+export type BotBudget = z.infer<typeof botBudgetSchema>;
+
+export const botSpecSchema = z
+  .object({
+    /** The system prompt: who it is and how it answers. */
+    persona: z.string().max(20_000).optional(),
+    /** Which brain it runs on: a model profile by name, and what to ask of it. */
+    brain: z
+      .object({
+        profile: z.string().min(1).optional(),
+        temperature: z.number().min(0).max(2).optional(),
+        maxOutputTokens: z.number().int().min(1).max(32_000).optional(),
+      })
+      .strict()
+      .optional(),
+    tools: z.array(z.enum(BOT_TOOLS)).optional(),
+    triggers: z.array(botTriggerSchema).max(20).optional(),
+    /** Where it works: channel names or ids. Empty means wherever it has been installed. */
+    scope: z
+      .object({ channels: z.array(z.string().min(1)).optional() })
+      .strict()
+      .optional(),
+    memory: botMemorySchema.optional(),
+    /** How many tool rounds one answer may take before it has to speak. */
+    maxSteps: z.number().int().min(1).max(12).optional(),
+  })
+  .strict();
+export type BotSpec = z.infer<typeof botSpecSchema>;
+
+export const botInstallScopesSchema = z
+  .object({ tools: z.array(z.enum(BOT_TOOLS)).optional(), post: z.boolean().optional() })
+  .strict();
+export type BotInstallScopes = z.infer<typeof botInstallScopesSchema>;
+
+export const botMemoryMetadataSchema = z.record(z.string(), z.unknown());
+export type BotMemoryMetadata = z.infer<typeof botMemoryMetadataSchema>;
+
 // thread_facts.value
 export const threadFactValueSchema = z.unknown();
 export type ThreadFactValue = z.infer<typeof threadFactValueSchema>;

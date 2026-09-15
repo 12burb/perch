@@ -16,3 +16,31 @@ export {
   interactionReceivedSchema,
   type Unsubscribe,
 } from "./events.ts";
+export {
+  type BotRunInput,
+  type BotRunResult,
+  type BudgetState,
+  type BudgetVerdict,
+  budgetLeft,
+  type Placeholder,
+  runBot,
+  systemPrompt,
+  withinBudget,
+} from "./runtime.ts";
+export {
+  type BotHost,
+  type ChatLine,
+  type MemoryHit,
+  type SearchHit,
+  toolsFor,
+  untrusted,
+} from "./tools.ts";
+export {
+  firesOn,
+  inScope,
+  matchesKeyword,
+  names,
+  schedules,
+  type TriggerEvent,
+  type TriggerMatch,
+} from "./triggers.ts";

@@ -10,6 +10,14 @@ export {
   listModels,
 } from "./catalog.ts";
 export {
+  costOf,
+  type ModelPrice,
+  type ModelRequest,
+  modelFor,
+  PRICES,
+  priceOf,
+} from "./models.ts";
+export {
   baseUrlFor,
   PROVIDERS,
   type ProviderInfo,
