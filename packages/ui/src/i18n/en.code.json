@@ -15,6 +15,7 @@
   "projects.auth": "Authentication",
   "projects.auth.none": "None (public repository)",
   "projects.auth.token": "Access token",
+  "projects.auth.connection": "A connected service",
   "projects.auth.deployKey": "Workspace deploy key",
   "projects.token": "Access token",
   "projects.tokenHint": "Handed to the runner for this clone only; Perch never stores it.",
@@ -224,5 +225,8 @@
   "git.status.D": "Deleted",
   "git.status.R": "Renamed",
   "git.status.?": "Untracked",
-  "git.notReady": "This project is not ready yet."
+  "git.notReady": "This project is not ready yet.",
+  "projects.connection": "Connection",
+  "projects.connectionHint": "Perch mints a token for this one clone; nothing is stored in the project.",
+  "projects.connectionPick": "Choose a connection…"
 }

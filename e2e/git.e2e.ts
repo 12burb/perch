@@ -7,8 +7,11 @@ import { createWorkspace, signUp, uniqueEmail } from "./helpers.ts";
  * Git tab, have the agent write the commit message, commit it, and watch the panel go quiet — then
  * branch from there.
  *
- * Push and Open PR need a provider, which this environment has none of; they are covered end to
- * end against a stand-in GitHub in apps/api/test/connections.test.ts.
+ * Push and Open PR need a provider; they are covered end to end against a stand-in GitHub in
+ * apps/api/test/connections.test.ts, and through this panel in phase1.e2e.ts.
+ *
+ * "Write it for me" has no engine picker either, so it runs on the project's default engine — see
+ * the note in inline-edit.e2e.ts.
  */
 
 test("write a file, let the agent name the commit, commit it, and branch", async ({

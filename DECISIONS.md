@@ -2735,3 +2735,68 @@ both halves of decision 2 and 3 and running `bun test spikes/opencode/spike.test
 apps/cli/test/parity.test.ts` reproduces the failure they fix: the commit-message and ⌘K lanes come
 back `502 upstream_failed` from an OpenCode that leaked onto the path, reaching for a provider
 catalogue this environment cannot fetch.
+
+## ADR-0089: The exit criterion is one spec run four times, against stand-ins for everything off this machine
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.22
+
+### Context
+§2 ends Phase 1 with a sentence: clone via GitHub, ask for a change, watch it in Preview from a
+phone, review the diff, commit, open a pull request — "on a paid key and on Ollama, through
+OpenCode and through ACP, and the same from `curl | sh` with no Docker". Every part of that exists
+by task 1.21 and each has its own spec; nothing had yet run the whole sentence in one go, and three
+of its four ways need something this project deliberately does not ship: a paid key, a GitHub
+account, and an OpenCode installation with a model behind it.
+
+### Decision
+1. **One spec, four Playwright projects.** `e2e/phase1.e2e.ts` is the sentence, start to finish.
+   `phase1-key`, `phase1-ollama`, `phase1-opencode` and `phase1-acp` each run it with a lane in
+   their `metadata`, so the four green runs the task asks for are four rows in the report rather
+   than four copies of a spec that would drift apart. `bun run e2e` runs them with everything else.
+2. **A phone's viewport, always.** The criterion says "from a phone"; the loop's hardest screens are
+   the ones that become sheets there. The desktop projects skip this spec rather than doubling it.
+3. **The lanes differ where a test can see it.** Each asks the agent which provider variables it was
+   started with before asking for the change: `OPENAI_API_KEY, OPENAI_BASE_URL` on the key lane,
+   `OLLAMA_HOST` on the Ollama one, `env: none` on the lane with no credential at all — names, never
+   values (§1.6). The OpenCode lane is told apart by what lands in the diff, which only its adapter
+   can write. Four runs that could pass identically would prove one thing four times.
+4. **Stand-ins for everything off this machine, and the real thing for everything on it.** A stand-in
+   GitHub per lane (`git http-backend` over smart HTTP, plus `/user`, an installation token, and
+   `/pulls`) so the clone, the push and the pull request really happen against credentials the
+   harness can inspect; the provider that answers the key and the endpoint; a real Vite dev server
+   for the Preview tab; and the runner, the api, the engines and the browser as they ship. A "paid
+   key" is therefore a credential of kind `api_key` against an OpenAI-shaped endpoint — the path a
+   real key takes, minus the vendor, which is the most a project with no paid plans (ADR-0064) can
+   run on every push.
+5. **OpenCode runs on the adapter's own `baseUrl` seam.** `PERCH_OPENCODE_URL` names an
+   `opencode serve` already running, and a runner told about one talks to it instead of spawning
+   per project. It is not a test-only seam: pointing a runner at a server you run yourself is a
+   reasonable way to run OpenCode, and the refusal message now names it. The harness points it at
+   the stand-in from task 1.10's own tests, because the real binary needs a provider key and the
+   internet to answer a prompt — the binary itself is spike 0.4.3's subject (ADR-0031).
+6. **Each lane gets its own origin, and pushes to its own branch.** Four runs of one loop must not
+   see each other's work: a second lane cloning the first lane's push would find the change already
+   made and nothing to commit. A branch named for the lane and the minute also makes a retry clean.
+7. **Two gaps the criterion exposed, both filled here.** Cloning through a connection was an api
+   route with no way to reach it from Code mode; it is now the "A connected service" choice under
+   Authentication. And a connection could only ever point at the public service, which left GitHub
+   Enterprise (and this spec) with nowhere to go; the Connect form now has an API base field, which
+   is the field the api already accepted.
+
+### Consequences
+Phase 1 has an acceptance that fails when any part of the loop breaks, on every push, in about
+thirty seconds. What it does not prove is a real model's judgement: every lane's agent is a
+stand-in, so the spec says the loop works, not that the change is good.
+
+A side effect worth knowing: with an OpenCode server reachable, a project that ships no
+`.perch/project.json` runs its picker-less lanes — ⌘K and the drafted commit message — on OpenCode,
+because `opencode` is a new project's default engine (§6). That is correct, and it is why the
+stand-in now answers those two prompts and why the exit-criterion repository declares
+`"engine": "acp"`.
+
+### What was actually verified
+`bunx playwright test --project=phase1-key --project=phase1-ollama --project=phase1-opencode
+--project=phase1-acp` — four passed. The whole suite (38 specs across six projects) is green, and
+`bun run check` covers the fixture the api's connections test now shares with the harness.

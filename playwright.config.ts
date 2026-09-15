@@ -40,9 +40,23 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
+      testIgnore: /phase1\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
-    { name: "mobile", use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } } },
+    {
+      name: "mobile",
+      testIgnore: /phase1\.e2e\.ts$/,
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+    },
+    // Phase 1's exit criterion, four times over (task 1.22): the same loop on a paid key, on
+    // Ollama, through OpenCode, and through ACP. At a phone's viewport, which is where the
+    // criterion says it has to work.
+    ...(["key", "ollama", "opencode", "acp"] as const).map((lane) => ({
+      name: `phase1-${lane}`,
+      testMatch: /phase1\.e2e\.ts$/,
+      metadata: { lane },
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+    })),
   ],
   webServer: {
     command: "bun scripts/e2e-server.ts",

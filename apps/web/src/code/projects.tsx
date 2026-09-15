@@ -4,13 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
-import { deployKeyQuery, type ProjectRow, projectsQuery } from "../lib/queries.ts";
+import {
+  connectionsQuery,
+  deployKeyQuery,
+  type ProjectRow,
+  projectsQuery,
+} from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
 
 /**
  * Projects in Code mode (spec §5.1, task 1.4): the workspace's projects with their live setup status,
- * and a form that creates one empty, clones a repository (public, with a token, or with the workspace
- * deploy key), or uploads files into a fresh one.
+ * and a form that creates one empty, clones a repository (public, with a token, through a connected
+ * service, or with the workspace deploy key), or uploads files into a fresh one.
  */
 
 function message(err: unknown): string {
@@ -155,7 +160,7 @@ export function ProjectList(props: {
 }
 
 type Source = "empty" | "clone" | "upload";
-type Auth = "none" | "token" | "deploy_key";
+type Auth = "none" | "token" | "connection" | "deploy_key";
 
 function DeployKeyCard(props: { workspaceId: string; canRotate: boolean }) {
   const queryClient = useQueryClient();
@@ -247,11 +252,15 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
   const queryClient = useQueryClient();
   const [source, setSource] = useState<Source>("empty");
   const [auth, setAuth] = useState<Auth>("none");
+  const [connectionId, setConnectionId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "projects"] });
+  // The services this workspace is connected to (task 1.16): cloning through one is how a private
+  // repository arrives without anybody pasting a token into Perch a second time.
+  const connections = useQuery(connectionsQuery(props.workspaceId));
 
   const create = useMutation({
     mutationFn: async (form: FormData) => {
@@ -262,9 +271,11 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
         const authBody =
           auth === "token"
             ? { kind: "token" as const, token }
-            : auth === "deploy_key"
-              ? { kind: "deploy_key" as const }
-              : undefined;
+            : auth === "connection"
+              ? { kind: "connection" as const, connection_id: connectionId }
+              : auth === "deploy_key"
+                ? { kind: "deploy_key" as const }
+                : undefined;
         return unwrap(
           await api.POST("/api/workspaces/{ws}/projects/clone", {
             params: { path: { ws: props.workspaceId } },
@@ -325,7 +336,7 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
   }
 
   const sources: Source[] = ["empty", "clone", "upload"];
-  const auths: Auth[] = ["none", "token", "deploy_key"];
+  const auths: Auth[] = ["none", "token", "connection", "deploy_key"];
   const authKey = (value: Auth) => (value === "deploy_key" ? "deployKey" : value);
   return (
     <section aria-labelledby="new-project-heading" className="flex max-w-2xl flex-col gap-3">
@@ -403,6 +414,31 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
               <Field id="project-token" label={t("projects.token")} hint={t("projects.tokenHint")}>
                 {(control) => (
                   <Input {...control} name="token" type="password" required autoComplete="off" />
+                )}
+              </Field>
+            ) : null}
+            {auth === "connection" ? (
+              <Field
+                id="project-connection"
+                label={t("projects.connection")}
+                hint={t("projects.connectionHint")}
+              >
+                {(control) => (
+                  <select
+                    {...control}
+                    name="connection_id"
+                    required
+                    value={connectionId}
+                    onChange={(event) => setConnectionId(event.currentTarget.value)}
+                    className="min-h-row rounded border border-border bg-surface px-2 text-md"
+                  >
+                    <option value="">{t("projects.connectionPick")}</option>
+                    {(connections.data ?? []).map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.provider_name} · {row.account ?? row.provider}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </Field>
             ) : null}

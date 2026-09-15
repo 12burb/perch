@@ -6,6 +6,7 @@ import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
+import { type StandInGitHub, startStandInGitHub } from "./fixtures/github.ts";
 
 /**
  * Task 1.16 (spec §3.5): connecting a service. The paste lane and the GitHub App lane both end up
@@ -19,74 +20,18 @@ import { bootTestApp } from "../src/testing.ts";
 let booted: Booted;
 let running: RunningServer;
 let base = "";
-let github: ReturnType<typeof Bun.serve> | null = null;
+let github: StandInGitHub | null = null;
 let githubUrl = "";
 let projectsDir = "";
 /** Where the stand-in serves the repository a clone actually pulls from. */
-let originDir = "";
 let originUrl = "";
-let bare = "";
 
 const TOKEN = "github_pat_11ABCDE0000secret0000wxyz";
 /** A throwaway RSA key, generated per run: nothing here is a credential. */
 let appKeyPem = "";
 
 /** What the stand-in saw, so the test can prove what went out and what did not. */
-const seen: { path: string; auth: string | null; method: string }[] = [];
-
-/**
- * `git http-backend` as CGI, which is how a real git host serves the smart protocol. Served under
- * /git/o/r so the pull-request route can read an owner and a repo off the URL.
- */
-async function gitHttpBackend(request: Request, url: URL): Promise<Response> {
-  const body = request.method === "POST" ? new Uint8Array(await request.arrayBuffer()) : undefined;
-  const proc = Bun.spawn(["git", "http-backend"], {
-    env: {
-      ...process.env,
-      GIT_PROJECT_ROOT: originDir,
-      GIT_HTTP_EXPORT_ALL: "1",
-      REQUEST_METHOD: request.method,
-      PATH_INFO: `/origin.git${url.pathname.slice("/git/o/r".length)}`,
-      QUERY_STRING: url.search.slice(1),
-      CONTENT_TYPE: request.headers.get("content-type") ?? "",
-      REMOTE_USER: "perch",
-      // The push is not a fast-forward of anything the test cares about; let git decide.
-      HTTP_CONTENT_ENCODING: request.headers.get("content-encoding") ?? "",
-    },
-    stdin: body ? "pipe" : "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (body && proc.stdin) {
-    proc.stdin.write(body);
-    await proc.stdin.end();
-  }
-  const out = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
-  await proc.exited;
-  // CGI: headers, a blank line, then the body.
-  const separator = indexOfDoubleCrlf(out);
-  if (separator < 0) return new Response(out, { status: 200 });
-  const headers = new Headers();
-  let status = 200;
-  for (const line of new TextDecoder().decode(out.subarray(0, separator)).split("\r\n")) {
-    const colon = line.indexOf(":");
-    if (colon < 0) continue;
-    const name = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-    if (name.toLowerCase() === "status") status = Number.parseInt(value, 10) || 200;
-    else headers.set(name, value);
-  }
-  return new Response(out.subarray(separator + 4), { status, headers });
-}
-
-function indexOfDoubleCrlf(bytes: Uint8Array): number {
-  for (let i = 0; i + 3 < bytes.length; i++) {
-    if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) {
-      return i;
-    }
-  }
-  return -1;
-}
+let seen: StandInGitHub["seen"] = [];
 
 function cookiesFrom(res: Response): string {
   return res.headers
@@ -131,78 +76,10 @@ beforeAll(async () => {
   const body = btoa(String.fromCharCode(...new Uint8Array(pkcs8))).replace(/(.{64})/g, "$1\n");
   appKeyPem = `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
 
-  originDir = mkdtempSync(join(tmpdir(), "perch-origin-"));
-  const work = join(originDir, "work");
-  bare = join(originDir, "origin.git");
-  const run = (cwd: string, ...args: string[]) => {
-    const out = Bun.spawnSync(["git", ...args], { cwd });
-    if (out.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${out.stderr.toString()}`);
-  };
-  Bun.spawnSync(["git", "init", "--bare", "-b", "main", bare]);
-  Bun.spawnSync(["git", "init", "-b", "main", work]);
-  await Bun.write(join(work, "README.md"), "# origin\n");
-  run(work, "config", "user.email", "origin@perch.test");
-  run(work, "config", "user.name", "Origin");
-  run(work, "add", "-A");
-  run(work, "commit", "-m", "first");
-  run(work, "remote", "add", "origin", bare);
-  run(work, "push", "-u", "origin", "main");
-  // Dumb HTTP is enough for a clone, and serving it ourselves lets the test see the credentials
-  // git was given — which is the point: they must be the token Perch minted, not something stored.
-  run(bare, "config", "http.receivepack", "true");
-
-  github = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch(request) {
-      const url = new URL(request.url);
-      const auth = request.headers.get("authorization");
-      seen.push({ path: url.pathname, auth, method: request.method });
-      // The repository itself, over git's smart HTTP protocol, behind the same credentials — so
-      // both the clone and the push really happen, with whatever git was handed.
-      if (url.pathname.startsWith("/git/")) {
-        const basic = auth?.startsWith("Basic ") ? atob(auth.slice(6)) : "";
-        const password = basic.slice(basic.indexOf(":") + 1);
-        if (password !== "ghs_minted_for_this_call" && password !== TOKEN) {
-          return new Response("no", {
-            status: 401,
-            headers: { "www-authenticate": 'Basic realm="git"' },
-          });
-        }
-        return gitHttpBackend(request, url);
-      }
-      // The app lane: a JWT signed by the app's key buys an installation token.
-      if (url.pathname.endsWith("/access_tokens")) {
-        if (!auth?.startsWith("Bearer ey"))
-          return Response.json({ message: "no jwt" }, { status: 401 });
-        return Response.json({
-          token: "ghs_minted_for_this_call",
-          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-          repository_selection: "selected",
-        });
-      }
-      if (url.pathname.endsWith("/pulls") && request.method === "POST") {
-        if (auth !== "Bearer ghs_minted_for_this_call" && auth !== `Bearer ${TOKEN}`) {
-          return Response.json({ message: "Bad credentials" }, { status: 401 });
-        }
-        return Response.json(
-          { number: 7, html_url: "https://github.test/o/r/pull/7" },
-          { status: 201 },
-        );
-      }
-      if (url.pathname === "/user") {
-        if (auth !== `Bearer ${TOKEN}` && auth !== "Bearer ghs_minted_for_this_call") {
-          return Response.json({ message: "Bad credentials" }, { status: 401 });
-        }
-        return new Response(JSON.stringify({ login: "octocat" }), {
-          headers: { "content-type": "application/json", "x-oauth-scopes": "repo, read:org" },
-        });
-      }
-      return Response.json({ message: "Not Found" }, { status: 404 });
-    },
-  });
-  githubUrl = `http://127.0.0.1:${github.port}`;
-  originUrl = `${githubUrl}/git/o/r`;
+  github = await startStandInGitHub({ token: TOKEN });
+  githubUrl = github.url;
+  originUrl = github.repoUrl;
+  seen = github.seen;
 
   booted = await bootTestApp({});
   projectsDir = mkdtempSync(join(tmpdir(), "perch-connections-"));
@@ -213,9 +90,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await running.stop();
-  github?.stop(true);
+  github?.stop();
   rmSync(projectsDir, { recursive: true, force: true });
-  rmSync(originDir, { recursive: true, force: true });
 });
 
 type ConnectionBody = {

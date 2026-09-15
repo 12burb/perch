@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
-import { opencodeBinary } from "../src/opencode.ts";
+import { OpenCodeHost, opencodeBinary, opencodeUrl } from "../src/opencode.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -222,6 +222,27 @@ describe("the OpenCode adapter (task 1.10)", () => {
     expect(text).toBe("Hello from fake OpenCode");
     await manager.close(id);
   }, 30_000);
+
+  test("a server named by the environment is one this runner can use", () => {
+    expect(opencodeUrl({ PERCH_OPENCODE_URL: "http://127.0.0.1:4096/" })).toBe(
+      "http://127.0.0.1:4096",
+    );
+    expect(opencodeUrl({ PERCH_OPENCODE_URL: "  " })).toBeNull();
+    expect(opencodeUrl({ PERCH_OPENCODE_URL: "opencode.example" })).toBeNull();
+    expect(opencodeUrl({})).toBeNull();
+
+    // With no binary anywhere, the named server is still a server to talk to. The variable is put
+    // back straight away: a root `bun test` is one process (ADR-0088).
+    const before = process.env.PERCH_OPENCODE_URL;
+    process.env.PERCH_OPENCODE_URL = fake.url;
+    try {
+      const host = new OpenCodeHost({ binary: "definitely-not-installed-opencode-xyz" });
+      expect(host.available()).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.PERCH_OPENCODE_URL;
+      else process.env.PERCH_OPENCODE_URL = before;
+    }
+  });
 
   test("without a server or a binary the engine is refused with the reason", async () => {
     const bare = new SessionManager({

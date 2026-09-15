@@ -27,6 +27,11 @@ from the name when omitted. Every route needs `projects.read` / `projects.create
   helper that reads it from the environment. It is never stored, never logged, never on a command
   line, and never in the clone's `.git/config`. The username defaults to `x-access-token` (GitHub;
   GitLab and others accept any username with a token).
+- **Connection** (`auth: {kind: "connection", connection_id}`): the service this workspace is already
+  connected to (see [`connections.md`](connections.md)) mints a token for that one clone, which is
+  handed to git the same way a pasted one is and forgotten afterwards. Nothing is stored in the
+  project, and nobody types a token twice. In Code mode this is the "A connected service" choice
+  under Authentication.
 - **Deploy key** (`auth: {kind: "deploy_key"}`, for `ssh://` and `git@host:owner/repo.git` remotes):
   every workspace has one Ed25519 key, minted on first read of `GET /api/workspaces/{ws}/deploy-key`.
   Add the public key to the repository's deploy keys (read access is enough), then clone. The private

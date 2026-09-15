@@ -201,6 +201,9 @@ function Connect(props: {
       start.mutate({ provider: providerId, owner_type: scope });
       return;
     }
+    // Where the service lives, for anyone running it themselves: an empty box is the public one.
+    const apiBase = String(data.get("api_base") ?? "").trim();
+    const base = apiBase ? { api_base: apiBase } : {};
     connect.mutate(
       chosen === "token"
         ? {
@@ -208,6 +211,7 @@ function Connect(props: {
             provider: providerId,
             token: String(data.get("token") ?? "").trim(),
             owner_type: scope,
+            ...base,
           }
         : {
             kind: "github_app",
@@ -216,6 +220,7 @@ function Connect(props: {
             private_key: String(data.get("private_key") ?? ""),
             installation_id: String(data.get("installation_id") ?? "").trim(),
             owner_type: scope,
+            ...base,
           },
     );
     form.reset();
@@ -275,6 +280,18 @@ function Connect(props: {
       {chosen === "github_app" && provider ? (
         <AppWizard formId={formId} provider={provider} />
       ) : null}
+
+      {chosen === "oauth2" ? null : (
+        <Field
+          id={`${formId}-api-base`}
+          label={t("connections.apiBase")}
+          hint={t("connections.apiBaseHint")}
+        >
+          {(control) => (
+            <Input {...control} name="api_base" type="url" autoComplete="off" spellCheck={false} />
+          )}
+        </Field>
+      )}
 
       <Field id={`${formId}-scope`} label={t("connections.scope")} error={error}>
         {(control) => (

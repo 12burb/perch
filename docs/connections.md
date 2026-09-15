@@ -25,6 +25,10 @@ A pasted token is checked against the provider before it is kept, so a wrong pas
 rather than at the first clone. A paste from the wrong field — an OpenAI key into GitHub, say — is
 refused on its shape before Perch asks anyone anything.
 
+**API base** is where the service lives, for anyone running it themselves: a GitHub Enterprise
+Server, a GitLab of your own. An empty box means the public one. It is stored with the connection,
+so every call Perch makes on it — the check above, a clone, a push, a pull request — goes there.
+
 ### Setting up a GitHub App
 
 GitHub's remote MCP has no dynamic client registration, so an app is the way to give Perch a real

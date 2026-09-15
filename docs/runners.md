@@ -212,17 +212,18 @@ only, behind the api's `cli_harness` flag; `model.provider` is `codex` or `claud
 `acp`, `model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
 `qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`; `engine`/`default` → `PERCH_ACP_AGENT`, default
 `gemini`). For `opencode`, the runner starts `opencode serve` per project directory (the pinned
-binary of the runner image, or `opencode` on PATH) and the model is OpenCode's unless the session
-names one. The agent runs in the project directory (or the named worktree) with the shell
+binary of the runner image, or `opencode` on PATH) — or talks to one already running, when
+`PERCH_OPENCODE_URL` names it — and the model is OpenCode's unless the session names one. The agent runs in the project directory (or the named worktree) with the shell
 environment of [`terminal.md`](terminal.md) plus the session's `env`; sessions idle for thirty
 minutes are closed, and so are OpenCode servers with no session left. Runners report
-`engines: ["acp"]` plus `"opencode"` when the binary is there, and the ACP agents on PATH as
-`capabilities.agents`. See [`sessions.md`](sessions.md).
+`engines: ["acp"]` plus `"opencode"` when the binary — or a server named by
+`PERCH_OPENCODE_URL` — is there, and the ACP agents on PATH as `capabilities.agents`. See [`sessions.md`](sessions.md).
 
 | Variable | Does |
 |---|---|
 | `PERCH_ACP_AGENT` | the agent for sessions that name none (default `gemini`) |
 | `PERCH_ACP_AGENTS` | JSON `{ "<id>": { "name", "command"?, "args"?, "npx"?: { "package", "args"? }, "env"? } }` adding or overriding agents |
+| `PERCH_OPENCODE_URL` | an `opencode serve` already running, for every project directory; nothing is spawned then |
 
 ### Policy hooks
 

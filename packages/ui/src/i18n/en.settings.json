@@ -40,6 +40,8 @@
   "connections.lane.oauth2": "Sign in",
   "connections.lane.github_app": "Install an app",
   "connections.token": "Token",
+  "connections.apiBase": "API base (optional)",
+  "connections.apiBaseHint": "For a service you host yourself, such as GitHub Enterprise. Leave empty for the public one.",
   "connections.connect": "Connect",
   "connections.connecting": "Opening…",
   "connections.scope": "Who can use it",

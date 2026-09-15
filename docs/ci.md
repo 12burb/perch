@@ -8,6 +8,15 @@ Spec §8. Everything runs on GitHub Actions; nothing needs a secret except the o
 |---|---|
 | `check` | `bun install --frozen-lockfile`, Biome, typecheck, `bun test` on PGlite **and** a `pgvector/pgvector` service container (`PERCH_TEST_DATABASE_URL`), then the SDK drift check (`bun run sdk:generate && git diff --exit-code`) |
 | `e2e` | web build, `bun run perf` (bundle and WS envelope budgets), `bun run ct` (component tests with axe), `bun run e2e` from the setup wizard with axe on every page; reports uploaded on failure |
+
+`bun run e2e` runs every spec at a desktop and a phone viewport, and then Phase 1's exit criterion
+(`e2e/phase1.e2e.ts`) four more times — `phase1-key`, `phase1-ollama`, `phase1-opencode`,
+`phase1-acp` — which is one loop (clone via GitHub → ask for a change → watch it in Preview from a
+phone → review the diff → commit → pull request) on a key, on Ollama, through OpenCode, and through
+ACP. `scripts/e2e-server.ts` starts what each lane talks to: a stand-in GitHub per lane, an
+OpenAI-shaped provider, a real Vite dev server, and a stand-in `opencode serve`; where each one
+ended up is written to `E2E_MANIFEST` (ADR-0089). Run one with
+`bunx playwright test --project=phase1-opencode`.
 | `laptop-smoke` | Linux, macOS, Windows: `bun test apps/cli apps/runner` — `perch dev` on PGlite with the in-process runner, doctor, backup, restore, and the compiled binary serving the embedded web app; then `bun test apps/desktop` (a real window on laptop mode, under xvfb on Linux, `PERCH_DESKTOP_NATIVE=1`) and the desktop binary's `--check` |
 | `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
 | `dco.yml` | `Signed-off-by` on every commit |

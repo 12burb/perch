@@ -8,10 +8,17 @@
  * spec (task 1.15) can add a key and an endpoint that really answer `GET /v1/models` without
  * reaching the internet, and a real Vite dev server on E2E_VITE_PORT (3997) so the preview spec
  * (task 1.18) proves HMR through the proxy against the thing itself, not a stand-in.
+ *
+ * For the Phase 1 exit criterion (task 1.22) it also starts a stand-in GitHub — the repository the
+ * loop clones, pushes to, and opens a pull request on — and a stand-in `opencode serve`, so the
+ * spec can run through the OpenCode adapter on a machine with no key and no internet. Where each
+ * one is lands in E2E_MANIFEST as JSON, because the specs are other processes.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { startStandInGitHub } from "../apps/api/test/fixtures/github.ts";
+import { startFakeOpenCode } from "../apps/runner/test/fixtures/opencode-server.ts";
 
 const root = resolve(import.meta.dir, "..");
 const port = process.env.E2E_PORT ?? "3999";
@@ -89,6 +96,63 @@ const vite = Bun.spawn(["bun", viteBin], {
   env: { ...process.env, VITE_CONFIG_NATIVE_IGNORE_WARNING: "true" },
 });
 
+/**
+ * A stand-in `opencode serve` (apps/runner/test/fixtures): the endpoints the adapter uses, with the
+ * SSE stream its SDK reads. The real binary needs a provider key and the internet to answer a
+ * prompt; the adapter, the SDK and every event shape between them are the same either way, and the
+ * binary itself is spike 0.4.3's subject (ADR-0031).
+ */
+const opencode = startFakeOpenCode();
+
+/**
+ * The repository the exit-criterion spec clones through a GitHub connection, pushes a commit to,
+ * and opens a pull request on — one per lane, so that four runs of the same loop cannot see each
+ * other's work. Its .perch/project.json is the one a project ships with: the engine the lanes
+ * without an engine picker run on, and the port a preview is served from (spec §5.1).
+ */
+const LANES = ["key", "ollama", "opencode", "acp"];
+const origins = await Promise.all(
+  LANES.map((lane) =>
+    startStandInGitHub({
+      files: {
+        "README.md": `# Nest\n\nThe project the ${lane} loop runs on.\n`,
+        "src/app.ts": "export const answer = 42;\n",
+        ".perch/project.json": `${JSON.stringify(
+          { engine: "acp", preview: { port: vitePort, path: "/" } },
+          null,
+          2,
+        )}\n`,
+      },
+    }),
+  ),
+);
+const github = Object.fromEntries(
+  LANES.map((lane, i) => {
+    const origin = origins[i];
+    if (!origin) throw new Error(`no stand-in for ${lane}`);
+    return [
+      lane,
+      { url: origin.url, repoUrl: origin.repoUrl, token: origin.token, login: origin.login },
+    ];
+  }),
+);
+
+/** Where the specs (other processes) read all of this from. */
+const manifestPath = process.env.E2E_MANIFEST ?? join(tmpdir(), "perch-e2e-manifest.json");
+writeFileSync(
+  manifestPath,
+  `${JSON.stringify(
+    {
+      github,
+      opencode: { url: opencode.url },
+      provider: { url: `http://127.0.0.1:${providerPort}` },
+      vite: { port: vitePort, dir: viteDir },
+    },
+    null,
+    2,
+  )}\n`,
+);
+
 const dataDir = mkdtempSync(join(tmpdir(), "perch-e2e-"));
 const api = Bun.spawn(
   [
@@ -134,6 +198,9 @@ const api = Bun.spawn(
         },
       }),
       PERCH_ACP_AGENT: "fake",
+      // The OpenCode lane runs on the stand-in server rather than a binary this machine may not
+      // have (task 1.10's `baseUrl` seam, named by the environment).
+      PERCH_OPENCODE_URL: opencode.url,
     },
   },
 );
@@ -141,6 +208,8 @@ const api = Bun.spawn(
 const stop = () => {
   provider.stop(true);
   vite.kill();
+  opencode.close();
+  for (const origin of origins) origin.stop();
   api.kill();
 };
 process.on("SIGTERM", stop);

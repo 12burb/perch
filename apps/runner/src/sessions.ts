@@ -203,7 +203,7 @@ export class SessionManager {
     if (!this.opencode.available()) {
       throw new RunnerRpcError(
         JSON_RPC_ERRORS.internal,
-        "OpenCode is not installed on this runner (needs opencode on PATH)",
+        "OpenCode is not installed on this runner (needs opencode on PATH, or PERCH_OPENCODE_URL)",
       );
     }
     const cwd = this.cwdOf(params);

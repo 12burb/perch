@@ -133,6 +133,35 @@ export function startFakeOpenCode(): FakeOpenCode {
       });
       await say(" done.");
     };
+    // Perch's two picker-less prompts (tasks 1.14 and 1.20): a project whose default engine is
+    // OpenCode runs ⌘K and the commit message here, so the stand-in answers them the way the ACP
+    // fixture does — one message, no fences, nothing else.
+    if (text.startsWith("Perch commit message")) {
+      const touched = /^\+\+\+ b\/(.+)$/m.exec(text)?.[1] ?? "the project";
+      const scope =
+        touched
+          .split("/")
+          .pop()
+          ?.replace(/\.[^.]+$/, "") ?? "project";
+      await say(`feat(${scope}): update ${touched}\n\nWritten by fake OpenCode from the diff.`);
+      part(session, messageID, { type: "step-finish", reason: "stop", cost: 0.01, tokens });
+      emit({ type: "session.idle", properties: { sessionID: session.id } });
+      return { info, parts: [] };
+    }
+    if (text.startsWith("Perch inline edit")) {
+      const fenced = /```[^\n]*\n([\s\S]*?)\n?```/.exec(text);
+      const selection = fenced?.[1] ?? "";
+      const rewritten = /uppercase/i.test(text)
+        ? selection.toUpperCase()
+        : selection
+            .split("\n")
+            .map((line) => (line ? `// ${line}` : line))
+            .join("\n");
+      await say(`Here you go:\n\`\`\`\n${rewritten}\n\`\`\`\n`);
+      part(session, messageID, { type: "step-finish", reason: "stop", cost: 0.01, tokens });
+      emit({ type: "session.idle", properties: { sessionID: session.id } });
+      return { info, parts: [] };
+    }
     switch (word) {
       case "edit":
         await say("Editing");

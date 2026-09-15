@@ -9,6 +9,10 @@ import { createWorkspace, isMobile, signUp, uniqueEmail } from "./helpers.ts";
  * with a proposal unanswered puts the original back too, because nothing else can: the buffer is
  * already the agent's text (ADR-0080 §5). ⌘K with a selection belongs to the editor, so the
  * command palette stays shut.
+ *
+ * ⌘K has no engine picker, so the round runs on the project's default engine — `opencode` for a
+ * project that ships no .perch/project.json, which the harness has a stand-in server for
+ * (ADR-0089). What it answers is a stand-in's answer either way; this spec is about the editor.
  */
 
 test("select, instruct, diff in place, accept — and reject puts it back", async ({

@@ -35,6 +35,22 @@ export type OpenCodeOptions = {
   log?: (line: string) => void;
 };
 
+/**
+ * A server already running, named by the environment. `opencode serve` is a long-lived process
+ * anyone can start themselves — on the machine, or beside the runner — and a runner told where it
+ * is talks to that one instead of spawning its own per project.
+ */
+export function opencodeUrl(env: Record<string, string | undefined> = process.env): string | null {
+  const raw = (env.PERCH_OPENCODE_URL ?? "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The binary this runner would launch, or null. */
 export function opencodeBinary(options: Pick<OpenCodeOptions, "binary"> = {}): string | null {
   if (options.binary) {
@@ -168,7 +184,12 @@ async function serve(
 export class OpenCodeHost {
   private readonly servers = new Map<string, Server>();
 
-  constructor(private readonly options: OpenCodeOptions = {}) {}
+  private readonly options: OpenCodeOptions;
+
+  constructor(options: OpenCodeOptions = {}) {
+    const fromEnv = options.baseUrl ? null : opencodeUrl();
+    this.options = fromEnv ? { ...options, baseUrl: fromEnv } : options;
+  }
 
   /** Whether sessions can open here: a server to talk to, or a binary to start one. */
   available(): boolean {
