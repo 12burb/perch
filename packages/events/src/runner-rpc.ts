@@ -257,6 +257,17 @@ export const apiToRunnerParams = {
     upgrade: z.boolean().optional(),
     protocols: z.string().nullable().optional(),
   }),
+  /**
+   * A picture of a page the dev server is serving (spec §5.6 "Screenshot via headless Chromium in
+   * the runner"; task 2.16, ADR-0108). Additive to §7.6: the runner is where the port is.
+   */
+  "preview.screenshot": z.object({
+    ...ctx,
+    port: z.number().int().min(1).max(65535),
+    path: z.string(),
+    width: z.number().int().min(200).max(4000).optional(),
+    height: z.number().int().min(200).max(4000).optional(),
+  }),
   "mcp.spawn": z.object({ ...ctx, command: z.string(), args: z.array(z.string()) }),
   exec: z.object({
     ...ctx,
@@ -287,6 +298,16 @@ export const RUNNER_REGISTER_TIMEOUT_MS = 5_000;
 export type RunnerToApiMethod = keyof typeof runnerToApiParams & string;
 export type ApiToRunnerMethod = keyof typeof apiToRunnerParams & string;
 export type RunnerMethod = RunnerToApiMethod | ApiToRunnerMethod;
+
+/** What preview.screenshot returns (task 2.16): a PNG, base64, and the viewport it was taken at. */
+export const screenshotResultSchema = z
+  .object({
+    png: z.string().min(1),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  })
+  .strict();
+export type ScreenshotResult = z.infer<typeof screenshotResultSchema>;
 
 /** What project.setup returns: the checkout facts and the two files, parsed but not yet validated. */
 export const projectSetupResultSchema = z

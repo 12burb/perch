@@ -14,7 +14,9 @@
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Workspace } from "@perch/db";
+import { inspectorClient } from "@perch/inspector";
 import {
+  INSPECTOR_PATH,
   type PreviewTarget,
   PreviewUnreachable,
   type ProxyTarget,
@@ -27,6 +29,7 @@ import {
   TICKET_QUERY,
   upstreamWebSocketUrl,
   verifyPreviewTicket,
+  withInspector,
 } from "@perch/preview";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
@@ -68,6 +71,11 @@ type Resolved = {
   port: number;
   path: string;
   prefix?: string;
+  /**
+   * Whether the inspector may be injected into this page (spec §5.6): a member looking at their own
+   * workspace's preview, never a share link.
+   */
+  inspectable: boolean;
   /** Set when a share token or a member's ticket arrived on the query and should become a cookie. */
   keepShare?: { name: string; token: string; expiresAt: Date };
 };
@@ -175,6 +183,7 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
             target: { host: reach.host, port: reach.port },
             port: reach.port,
             path: target.path,
+            inspectable: admission.member === true,
           }
         : {
             workspace,
@@ -186,6 +195,7 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
             },
             port: reach.port,
             path: target.path,
+            inspectable: admission.member === true,
           };
     if (target.mode === "path") out.prefix = `/p/${target.workspace}/${target.port}`;
     if (admission.keepShare) out.keepShare = admission.keepShare;
@@ -199,13 +209,22 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
     target: PreviewTarget,
   ): Promise<Response | undefined> {
     const found = await resolve(c, target);
+    // The inspector's own script, on the preview's origin so nothing about it is cross-origin. It
+    // is served from here rather than from the dev server, which has never heard of it.
+    if (found.path.split("?")[0] === INSPECTOR_PATH) {
+      if (!found.inspectable) throw PerchError.forbidden("a shared preview carries no inspector");
+      const nonce = new URL(c.req.url).searchParams.get("nonce") ?? "";
+      return new Response(inspectorClient(nonce, new URL(deps.env.publicUrl).origin), {
+        headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
     if (c.req.header("upgrade")?.toLowerCase() === "websocket") {
       if (!upgrade) throw PerchError.conflict("this instance cannot proxy preview sockets");
       resolved.set(c.req.raw, found);
       return upgrade(c, next) as Promise<Response | undefined>;
     }
     try {
-      const answer = found.tunnel
+      const proxied = found.tunnel
         ? await tunnelRequest(found.tunnel, c.req.raw, found.path)
         : await proxyRequest({
             target: found.target as ProxyTarget,
@@ -213,6 +232,13 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
             request: c.req.raw,
             ...(found.prefix ? { prefix: found.prefix } : {}),
           });
+      // §5.6: injected only for an authenticated preview-pane request, and never into a share.
+      const answer = found.inspectable
+        ? await withInspector(proxied, {
+            nonce: crypto.randomUUID(),
+            scriptUrl: `${found.prefix ?? ""}${INSPECTOR_PATH}`,
+          })
+        : proxied;
       // The share token arrived on the URL; from here on it is a cookie, so the dev server's own
       // links work without it trailing through every address bar. The response is the proxy's own,
       // so the cookie is set on it rather than on the context.
@@ -270,6 +296,8 @@ type Admission = {
   ok: boolean;
   /** Who the request runs as on the runner; absent only when nobody got in. */
   userId?: string;
+  /** True for a member of the workspace; false for the holder of a share link (spec §5.6). */
+  member?: boolean;
   keepShare?: { name: string; token: string; expiresAt: Date };
 };
 
@@ -287,7 +315,7 @@ async function admitted(
   const user = c.get("user");
   if (user) {
     const membership = await findMembership(deps.db.db, workspace.id, user.id);
-    if (membership) return { ok: true, userId: user.id };
+    if (membership) return { ok: true, userId: user.id, member: true };
   }
   const url = new URL(c.req.url);
 
@@ -305,9 +333,10 @@ async function admitted(
           ? {
               ok: true,
               userId: claims.user,
+              member: true,
               keepShare: { name: TICKET_COOKIE, token: ticket, expiresAt: new Date(claims.exp) },
             }
-          : { ok: true, userId: claims.user };
+          : { ok: true, userId: claims.user, member: true };
       }
     }
   }

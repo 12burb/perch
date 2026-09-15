@@ -5402,6 +5402,85 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/screenshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a picture of a preview page, and optionally post it in a channel */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TakeScreenshot"];
+                };
+            };
+            responses: {
+                /** @description The picture */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Screenshot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/projects/{project}/previews": {
         parameters: {
             query?: never;
@@ -9612,6 +9691,26 @@ export type components = {
             allowed_tools?: string[] | null;
             channels?: string[] | null;
             obo?: boolean;
+        };
+        Screenshot: {
+            /** Format: uuid */
+            file_id: string;
+            url: string;
+            width: number;
+            height: number;
+            /** Format: uuid */
+            message_id: string | null;
+        };
+        TakeScreenshot: {
+            port: number;
+            /** @default / */
+            path: string;
+            width?: number;
+            height?: number;
+            /** Format: uuid */
+            channel_id?: string;
+            /** Format: uuid */
+            thread_root_id?: string;
         };
         Previews: {
             ports: components["schemas"]["PreviewPort"][];

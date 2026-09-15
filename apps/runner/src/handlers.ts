@@ -18,6 +18,7 @@ import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
 import { type ProjectsOptions, projectsRoot, removeProject, setupProject } from "./projects.ts";
 import { PtyManager, type PtyOptions } from "./pty.ts";
+import { screenshot } from "./screenshot.ts";
 import { SessionManager, type SessionsOptions } from "./sessions.ts";
 import type { StreamOpener } from "./streams.ts";
 
@@ -92,6 +93,13 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
     "http.open": (params) => tunnel.open(params),
+    "preview.screenshot": (params) =>
+      screenshot({
+        port: params.port,
+        path: params.path,
+        ...(params.width === undefined ? {} : { width: params.width }),
+        ...(params.height === undefined ? {} : { height: params.height }),
+      }),
     "session.create": (params) => sessions.create(params),
     "session.send": (params) => sessions.send(params),
     "session.permission": (params) => sessions.permission(params),

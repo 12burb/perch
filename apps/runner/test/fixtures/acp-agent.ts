@@ -74,6 +74,37 @@ async function runTurn(
     await say(`Here you go:\n\`\`\`\n${rewritten}\n\`\`\`\n`);
     return;
   }
+  /**
+   * Task 2.16: a turn that carries a context chip from the Preview tab names the file the dev
+   * plugin tagged, and the edit has to land there — which is §11's acceptance for the inspector.
+   */
+  const chipped = /^Context from the preview:\n([\s\S]*?)\n\n([\s\S]*)$/.exec(text);
+  if (chipped) {
+    const at = /\bat ([^\s:]+):(\d+):(\d+)/.exec(chipped[1] ?? "");
+    const asked = (chipped[2] ?? "").trim();
+    if (at?.[1]) {
+      const path = `${session.cwd}/${at[1]}`;
+      await say(`Editing ${at[1]}`);
+      notify({
+        sessionUpdate: "tool_call",
+        toolCallId: "call_preview",
+        title: `Edit ${at[1]}`,
+        kind: "edit",
+        status: "in_progress",
+        rawInput: { path },
+      });
+      const content = `// ${asked}\nexport const App = () => null;\n`;
+      await cx.request(acp.methods.client.fs.writeTextFile, { sessionId, path, content });
+      notify({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_preview",
+        status: "completed",
+        content: [{ type: "diff", path, oldText: null, newText: content }],
+      });
+      await say(` — done.`);
+      return;
+    }
+  }
   const [word] = text.split(/\s+/);
   switch (word) {
     case "edit": {

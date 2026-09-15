@@ -39,8 +39,16 @@ const SPEC_API_TO_RUNNER =
     " ",
   );
 
-/** Methods beyond the spec's list, each with an ADR: project.setup / project.remove (ADR-0069), git.apply (ADR-0079). */
-const ADDITIVE_API_TO_RUNNER = ["project.setup", "project.remove", "git.apply"];
+/**
+ * Methods beyond the spec's list, each with an ADR: project.setup / project.remove (ADR-0069),
+ * git.apply (ADR-0079), preview.screenshot (ADR-0108).
+ */
+const ADDITIVE_API_TO_RUNNER = [
+  "project.setup",
+  "project.remove",
+  "git.apply",
+  "preview.screenshot",
+];
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
  * deploy.started (ADR-0106).

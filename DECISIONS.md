@@ -3764,3 +3764,75 @@ Three, all additive.
   refusing.
 
 No table was added, so there is no migration and §6 is untouched.
+
+## ADR-0107: The source tag is scanned, not parsed, and the plugins depend on nothing
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.16
+
+### Context
+Spec §5.6 asks for "@perch/inspector dev plugin (Vite, Next, Nuxt, Astro, Webpack/Rspack, SvelteKit,
+Solid; wraps the code-inspector-plugin approach) tagging `data-perch-src="src/components/Button.tsx:42:7"`".
+
+The obvious way to do that is to parse each file — Babel or SWC — walk the JSX, and add an
+attribute. It is also the way that puts a second JavaScript toolchain into every project that wants
+the inspector, with its own version to keep in step with the project's own.
+
+### Decision
+`tagSource` is a scanner. It walks the file once, tracking strings, template literals and comments,
+and when it finds a `<` that opens a tag it recognises — a component, a dotted name, or a known HTML
+element — it inserts one attribute after the tag name. Anything it is not sure about is left exactly
+as it was.
+
+The plugins are plain objects with the hooks each tool calls. `@perch/inspector` imports nothing but
+`node:path`, so adding it to a project adds a transform and not a toolchain.
+
+### Consequences
+Some elements are missed: a component behind a computed name, JSX inside an unusual macro. A missed
+tag costs the inspector one source link and the agent one search; a tag written into a string would
+cost a build. The failure mode is the right way round, and the unit tests pin it there.
+
+`a < b` is not mistaken for an element because a lowercase name has to be a real HTML tag, and a
+capitalised one has to be followed by something that closes like a tag. Everything the scanner
+refuses to touch is still inspectable — the client falls back to describing the element by its place
+in the DOM, which is what §5.6's "fallbacks" are.
+
+If a project ever needs perfect coverage, a parser-backed plugin can be added beside this one
+without changing anything downstream: the attribute is the contract.
+
+## ADR-0108: A screenshot is the runner's own browser, asked directly
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.16
+
+### Context
+Spec §5.6 asks for "Screenshot via headless Chromium in the runner → attach to prompt or post to
+thread", and §5.6 later attaches `@playwright/mcp` to sessions for the agent's own eyes. §7.6 has no
+method for either.
+
+### Decision
+`preview.screenshot` is added to the §7.6 protocol — additive, like `project.setup` (ADR-0069) and
+`git.apply` (ADR-0079) — and the runner answers it by running the headless browser it already has:
+`--headless --screenshot`, a window size, and a URL. No library, no driver, no second dependency.
+
+What comes back is a PNG in base64, which the api stores as an ordinary file. From there it is
+either a context chip on the next turn or a message in a channel, which is the difference between
+"look at this" and "everyone should see this".
+
+Which browser is an environment question: `PERCH_CHROMIUM`, then the one Playwright installed, then
+the usual system paths. A runner with none says so in a sentence that names the fix.
+
+### Consequences
+A screenshot is a page as a browser renders it with no scripting of its own — no clicking, no
+waiting for a selector. That is all §5.6 asks of this one; the scripted kind arrives with
+`@playwright/mcp` in Phase 3, and it will want the driver, not this.
+
+The runner image installs a browser for that Phase 3 work anyway, so this costs nothing there. A
+local runner on a laptop almost certainly has Chrome or Chromium; when it does not, the button says
+what to install rather than pretending.
+
+### Spec deviations
+`preview.screenshot` (§7.6), and `POST /api/workspaces/{ws}/projects/{p}/screenshot` (§7.1 lists no
+route for a feature §5.6 asks for). Both are the smallest surface that does what §5.6 says.

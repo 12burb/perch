@@ -35,6 +35,7 @@
     "@perch/engines": "workspace:*",
     "@perch/events": "workspace:*",
     "@perch/gateway": "workspace:*",
+    "@perch/inspector": "workspace:*",
     "@perch/jobs": "workspace:*",
     "@perch/policy": "workspace:*",
     "@perch/preview": "workspace:*",

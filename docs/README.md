@@ -18,6 +18,7 @@
 | [`brains.md`](brains.md) | Brains: provider credentials, model profiles, the live catalog, Ollama auto-detect |
 | [`mcp-gateway.md`](mcp-gateway.md) | The MCP gateway: a connection's tools for an agent, without the credential |
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
+| [`inspector.md`](inspector.md) | The inspector: the dev plugins, the injected client, context chips, screenshots |
 | [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
 | [`inbox.md`](inbox.md) | The inbox: what needs you, where it comes from, and approving from a phone |

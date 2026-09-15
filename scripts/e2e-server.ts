@@ -20,6 +20,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { chromium } from "@playwright/test";
 import { startStandInGitHub } from "../apps/api/test/fixtures/github.ts";
 import { startStandInMcp } from "../apps/api/test/fixtures/mcp-server.ts";
 import { startStandInSupabase, startStandInVercel } from "../apps/api/test/fixtures/paas.ts";
@@ -117,7 +118,12 @@ mkdirSync(join(viteDir, "src"), { recursive: true });
 writeFileSync(
   join(viteDir, "index.html"),
   '<!doctype html><html lang="en"><head><title>Preview app</title></head><body>' +
-    '<h1 id="app">booting</h1><script type="module" src="/src/main.js"></script></body></html>\n',
+    '<h1 id="app">booting</h1>' +
+    // Tagged the way the @perch/inspector dev plugin tags JSX (task 2.16). The transform itself is
+    // covered by packages/inspector's unit tests; what the browser spec needs is an element that
+    // says where it came from, so the inspector's chip can name a file the agent then edits.
+    '<button id="cta" data-perch-src="src/App.tsx:12:5">Subscribe</button>' +
+    '<script type="module" src="/src/main.js"></script></body></html>\n',
 );
 writeFileSync(
   join(viteDir, "src", "main.js"),
@@ -220,6 +226,20 @@ writeFileSync(
   )}\n`,
 );
 
+/**
+ * The browser the runner takes screenshots with (task 2.16). Playwright already installed one for
+ * these specs, so the runner is pointed at that one rather than needing a second install.
+ */
+function chromiumPath(): string | undefined {
+  if (process.env.PERCH_CHROMIUM) return process.env.PERCH_CHROMIUM;
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
+  try {
+    return chromium.executablePath();
+  } catch {
+    return undefined;
+  }
+}
+
 const dataDir = mkdtempSync(join(tmpdir(), "perch-e2e-"));
 const api = Bun.spawn(
   [
@@ -268,6 +288,8 @@ const api = Bun.spawn(
       // The OpenCode lane runs on the stand-in server rather than a binary this machine may not
       // have (task 1.10's `baseUrl` seam, named by the environment).
       PERCH_OPENCODE_URL: opencode.url,
+      // Where the runner finds a headless browser for `preview.screenshot` (task 2.16).
+      PERCH_CHROMIUM: chromiumPath(),
     },
   },
 );

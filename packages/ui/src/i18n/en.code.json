@@ -279,5 +279,22 @@
   "db.noConnectionHint": "Connect Supabase under Settings → Connections, then come back.",
   "deploy.noRepo": "A deploy builds this project's repository, and this project has not said where it is.",
   "deploy.repo": "Repository URL",
-  "deploy.repoHint": "Where this project is pushed, for example https://github.com/you/nest.git"
+  "deploy.repoHint": "Where this project is pushed, for example https://github.com/you/nest.git",
+  "inspect.title": "Inspector",
+  "inspect.toggle": "Inspect",
+  "inspect.elements": "Elements",
+  "inspect.strip": "Console and failed requests",
+  "inspect.clear": "Clear",
+  "inspect.use": "Use as context",
+  "inspect.send": "Send to agent",
+  "inspect.noSource": "no source (add the @perch/inspector dev plugin)",
+  "inspect.pickHint": "Pick something in the page to see what it is and where it comes from.",
+  "inspect.chips": "Context from the preview",
+  "inspect.chipRemove": "Take {name} off",
+  "inspect.screenshot": "Screenshot",
+  "inspect.screenshotting": "Taking it…",
+  "inspect.screenshotPost": "Post to",
+  "inspect.screenshotOf": "a screenshot of {path}",
+  "inspect.screenshotDone": "Attached.",
+  "inspect.screenshotPosted": "Posted to #{channel}."
 }

@@ -1,7 +1,15 @@
 /**
- * @perch/preview — port discovery, the preview proxy, and share links (spec §5.6; task 1.18).
- * The inspector's injection lands with task 2.x; a share link never carries it (§5.6).
+ * @perch/preview — port discovery, the preview proxy, the inspector's injection, and share links
+ * (spec §5.6; tasks 1.18 and 2.16). A share link never carries the inspector (§5.6).
  */
+export {
+  allowNonce,
+  INSPECTOR_PATH,
+  type InjectOptions,
+  injectInspector,
+  isHtml,
+  withInspector,
+} from "./inject.ts";
 export {
   downstreamResponse,
   PreviewUnreachable,

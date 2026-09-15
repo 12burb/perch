@@ -22,6 +22,7 @@ import {
   sessionQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { type ContextChip, useContextChips, withChips } from "./context-store.ts";
 import { editorFor, useEditorStore } from "./editor-store.ts";
 import { reduceTranscript, type TranscriptRecord } from "./transcript.ts";
 
@@ -128,6 +129,9 @@ export type SessionPaneProps = {
   onOpenSession: (sessionId: string) => void;
 };
 
+/** One array, so the chip selector does not hand React a new one on every render. */
+const EMPTY_CHIPS: ContextChip[] = [];
+
 export function SessionPane(props: SessionPaneProps) {
   const { sessionId } = props;
   const queryClient = useQueryClient();
@@ -200,17 +204,24 @@ export function SessionPane(props: SessionPaneProps) {
     [refresh],
   );
 
+  // What the Preview tab put on the turn (task 2.16): the element that was clicked, the console
+  // line that was sent over, the screenshot that was taken. They ride once and are then cleared.
+  const projectId = props.projectId;
+  const chips = useContextChips((store) => store.byProject[projectId] ?? EMPTY_CHIPS);
+  const dropChip = useContextChips((store) => store.remove);
+  const clearChips = useContextChips((store) => store.clear);
+
   const send = useCallback(
     (text: string) =>
-      act(async () =>
-        unwrap(
-          await api.POST("/api/sessions/{s}/turns", {
-            params: { path: { s: sessionId } },
-            body: { text, mode },
-          }),
-        ),
-      ),
-    [act, sessionId, mode],
+      act(async () => {
+        const turn = await api.POST("/api/sessions/{s}/turns", {
+          params: { path: { s: sessionId } },
+          body: { text: withChips(text, chips), mode },
+        });
+        clearChips(projectId);
+        return unwrap(turn);
+      }),
+    [act, sessionId, mode, chips, clearChips, projectId],
   );
 
   const cancel = useCallback(
@@ -580,6 +591,29 @@ export function SessionPane(props: SessionPaneProps) {
             </Button>
           ) : null}
         </div>
+        {chips.length > 0 ? (
+          <ul
+            aria-label={t("inspect.chips")}
+            data-testid="context-chips"
+            className="flex flex-wrap gap-1"
+          >
+            {chips.map((chip) => (
+              <li key={chip.id}>
+                <Badge tone="accent">
+                  <span className="max-w-40 truncate">{chip.label}</span>
+                  <button
+                    type="button"
+                    className="ml-1"
+                    aria-label={t("inspect.chipRemove", { name: chip.label })}
+                    onClick={() => dropChip(projectId, chip.id)}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Composer
           draftKey={`session:${sessionId}`}
           placeholder={t("session.composerPlaceholder")}

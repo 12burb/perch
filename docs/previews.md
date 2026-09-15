@@ -73,7 +73,11 @@ is closed, so a runner that hung up on its own answer would deliver a page with 
 nothing to say so. For the same reason a stream that closes mid-answer is a failed request, not a
 short page.
 
+## The inspector
+
+⌘⇧C, click-to-source, the Elements tree, the console and failed-requests strip, and screenshots live
+in [the inspector](./inspector.md). A share link never carries any of it (§5.6).
+
 ## Not here yet
 
-The inspector (⌘⇧C) and click-to-source, the console strip, screenshots, and tap-to-select on a
-phone — Phase 2.
+Direct tweaks from the panel, the agent's own Playwright eyes, and preflight visual smoke — Phase 3.

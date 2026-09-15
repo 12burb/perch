@@ -6,14 +6,17 @@
  * and forward, reload, viewport presets to see the phone layout without a phone, and a way out to
  * a real tab. Sharing mints an expiring link that opens without a Perch account.
  *
- * The inspector (⌘⇧C) arrives with task 2.x; a share link never carries it (§5.6).
+ * The inspector (⌘⇧C) is the proxy's injected client talking back to this pane (task 2.16); a share
+ * link never carries it (§5.6).
  */
 import "@perch/ui/i18n/code";
 import { Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
-import { previewsQuery } from "../lib/queries.ts";
+import { channelsQuery, previewsQuery } from "../lib/queries.ts";
+import { useContextChips } from "./context-store.ts";
+import { InspectorPanel, ScreenshotButton, useInspector } from "./inspector.tsx";
 
 /** The presets §5.6 asks for, in CSS pixels; "fit" fills whatever room the pane has. */
 const VIEWPORTS = {
@@ -80,6 +83,7 @@ export function PreviewPane(props: {
   onPort: (port: number) => void;
 }) {
   const previews = useQuery(previewsQuery(props.workspaceId, props.projectId));
+  const channels = useQuery(channelsQuery(props.workspaceId));
   const ports = useMemo(() => previews.data?.ports ?? [], [previews.data]);
   const chosen = useMemo(
     () => ports.find((p) => p.port === props.port) ?? ports.find((p) => p.runner_id !== "") ?? null,
@@ -98,6 +102,11 @@ export function PreviewPane(props: {
   const [nonce, setNonce] = useState(0);
   const [sharing, setSharing] = useState(false);
   const addressId = useId();
+  const frame = useRef<HTMLIFrameElement | null>(null);
+  // The injected client's end of the conversation (task 2.16). `nonce` changes on every reload and
+  // every address, which is exactly when the page it was talking to stopped existing.
+  const inspector = useInspector(frame, nonce);
+  const addChip = useContextChips((store) => store.add);
   const base = chosen?.url ?? "";
   // The ticket rides on the iframe's URL once and becomes a cookie on the preview's own origin,
   // where Perch's session cookie does not reach (ADR-0084).
@@ -131,6 +140,19 @@ export function PreviewPane(props: {
     },
     [cursor, history],
   );
+
+  // ⌘⇧C from the pane as well as from inside the page, so the shortcut works wherever focus is.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the toggle is stable per frame
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        inspector.toggle();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inspector.toggle]);
 
   if (previews.isLoading) return <p className="p-4 text-sm text-fg-muted">{t("common.loading")}</p>;
   if (ports.length === 0) {
@@ -246,6 +268,23 @@ export function PreviewPane(props: {
         >
           ⟲
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-pressed={inspector.on}
+          disabled={!inspector.ready}
+          onClick={inspector.toggle}
+        >
+          {t("inspect.toggle")}
+        </Button>
+        <ScreenshotButton
+          workspaceId={props.workspaceId}
+          projectId={props.projectId}
+          port={chosen?.port ?? 0}
+          path={path}
+          channels={channels.data ?? []}
+          onChip={(chip) => addChip(props.projectId, chip)}
+        />
         <Button variant="ghost" size="sm" onClick={() => setSharing((value) => !value)}>
           {t("preview.share")}
         </Button>
@@ -272,6 +311,7 @@ export function PreviewPane(props: {
         {src ? (
           <iframe
             key={nonce}
+            ref={frame}
             title={t("preview.frame", { name: props.projectName })}
             src={src}
             className="h-full w-full border-0 bg-white"
@@ -285,6 +325,10 @@ export function PreviewPane(props: {
           <p className="p-4 text-sm text-fg-muted">{t("preview.unreachable")}</p>
         )}
       </div>
+
+      {inspector.on || inspector.lines.length > 0 || inspector.failures.length > 0 ? (
+        <InspectorPanel projectId={props.projectId} state={inspector} />
+      ) : null}
     </section>
   );
 }

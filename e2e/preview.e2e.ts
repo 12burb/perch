@@ -106,10 +106,16 @@ test("a dev server runs in the Preview tab, hot-reloads, and shares by link", as
     const guestPage = await guest.newPage();
     await guestPage.goto(url);
     await expect(guestPage.locator("#app")).toHaveText(/version (one|two)/, { timeout: 30_000 });
-    // §5.6: a share never carries the inspector.
+    // §5.6: a share never carries the inspector — neither the injected script nor its source.
+    // (`data-perch-src` is the app's own markup, put there by the dev plugin, so a guest sees it
+    // exactly as the dev server serves it; what a share must not get is anything Perch added.)
     const html = await guestPage.content();
     expect(html).not.toContain("perch-inspector");
-    expect(html).not.toContain("data-perch-src");
+    const refused = await guestPage.evaluate(async () => {
+      const res = await fetch("/__perch/inspector.js?nonce=x");
+      return res.status;
+    });
+    expect(refused).toBeGreaterThanOrEqual(400);
   } finally {
     await guest.close();
   }
