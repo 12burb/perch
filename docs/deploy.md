@@ -54,6 +54,27 @@ invite link.
 - Local models: `docker compose --profile local up -d` starts Ollama at `http://ollama:11434`.
 - Cloudflare tunnel: set `TUNNEL_TOKEN` and `docker compose --profile tunnel up -d`.
 
+## Laptop mode: the same product, no Docker
+
+`perch dev` runs the api, the built web app, and an in-process runner on PGlite under `~/.perch`.
+That is not a demo mode: everything Phase 1 built works there, which is what task 1.21 pins down.
+Projects, the file tree and editor, search, the terminal, sessions on any engine with permissions
+and per-turn diffs, ⌘K, brains, connections, the MCP gateway, previews with HMR, and the Git panel
+with its written commit messages — all of it, from one process, with `curl | sh` and no daemon.
+
+The differences are the ones the architecture forces, and no others:
+
+- **One runner, this machine.** No supervisor, no containers, no per-workspace isolation: a project
+  runs beside your own files with your own tools. That is the point of laptop mode, and the reason
+  the cli-harness engine is allowed here and refused on a hosted runner.
+- **Previews are path mode** unless you set `PERCH_PREVIEW_DOMAIN` (`perch dev --preview-domain`),
+  and they are reached directly rather than tunnelled, because the runner is this process.
+- **No wildcard certificate, no Caddy, no queue worker in another container.** Jobs run in the same
+  process.
+
+`apps/cli/test/parity.test.ts` drives all of it through a real `perch dev` on every push, on Linux,
+macOS, and Windows.
+
 ## Images
 
 | Image | Built from | Base |

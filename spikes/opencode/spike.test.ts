@@ -18,7 +18,14 @@ import { createOpencodeServer } from "@opencode-ai/sdk/server";
  */
 
 const binDir = join(import.meta.dir, "node_modules", ".bin");
-process.env.PATH = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
+/**
+ * The spike's own `opencode`, ahead of anything installed on the machine. `createOpencodeServer`
+ * spawns it off `process.env.PATH`, so the spike puts it there — but only while the spike is
+ * running (`beforeAll`/`afterAll`): a root `bun test` runs every file in one process, and a PATH
+ * left mutated changes which engines later tests believe a runner has.
+ */
+const spikePath = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
+const originalPath = process.env.PATH;
 
 /**
  * `opencode-ai` ships `bin/opencode.exe` as a placeholder that its postinstall swaps for the platform
@@ -38,7 +45,7 @@ function runnable(path: string | null): boolean {
     return false;
   }
 }
-const hasBinary = runnable(Bun.which("opencode", { PATH: process.env.PATH }));
+const hasBinary = runnable(Bun.which("opencode", { PATH: spikePath }));
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -57,6 +64,7 @@ let client: ReturnType<typeof createOpencodeClient>;
 
 describe.skipIf(!hasBinary)("spike 0.4.3 OpenCode SDK", () => {
   beforeAll(async () => {
+    process.env.PATH = spikePath;
     project = mkdtempSync(join(tmpdir(), "perch-opencode-"));
     writeFileSync(join(project, "README.md"), "# spike\n");
     writeFileSync(join(project, "hello.txt"), "hello\n");
@@ -73,6 +81,8 @@ describe.skipIf(!hasBinary)("spike 0.4.3 OpenCode SDK", () => {
   afterAll(() => {
     server?.close();
     if (project) rmSync(project, { recursive: true, force: true });
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
   });
 
   test("serve starts and answers the SDK: create session, list sessions, diff, delete", async () => {

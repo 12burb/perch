@@ -2683,3 +2683,55 @@ repository on the in-process runner, including a push with no remote failing as 
 than a hang. Push and Open PR against a provider are `apps/api/test/connections.test.ts`, which
 drives them against a stand-in GitHub over authenticated smart HTTP — this environment cannot reach
 the real one.
+
+## ADR-0088: Laptop parity is one process driven over HTTP, on a laptop the test declares
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.21
+
+### Context
+§2 promises the same product with and without Docker, and Phase 1 built twenty tasks' worth of
+features against the server. Nothing so far proved that a person who downloads the binary gets them:
+the laptop smoke from task 0.14 starts `perch dev` and asks whether it is alive, which a broken
+runner, a missing engine, or a preview that never reaches the dev server would all survive.
+
+### Decision
+1. **The parity test spawns the real binary and speaks only HTTP.** `apps/cli/test/parity.test.ts`
+   runs `bun apps/cli/src/index.ts dev` on a real port against a temporary data directory, completes
+   the setup wizard the way the browser does, signs in, and then drives Phase 1 through the api: a
+   project, the file system, git with a drafted message, a session with a permission and its diff,
+   ⌘K, a brain against a stand-in provider, a connection, the gateway's challenge, a preview with a
+   share link, and a terminal. Nothing imports laptop-mode internals, so the test cannot pass on a
+   code path the binary does not take.
+2. **The laptop is declared, not inherited.** The machine a test simulates has exactly one agent on
+   it — the fake ACP one from the runner's fixtures, handed over in `PERCH_ACP_AGENTS` — so the
+   child gets a `PATH` with any `opencode` filtered out. A runner reports the engines whose programs
+   it can find, and a new project's default engine is `opencode` (§6), so an OpenCode that happens
+   to be installed would capture the two lanes with no engine picker (⌘K and the commit message) and
+   send the round off the machine. The test asserts the engine the inline session actually opened
+   on, so a change here fails loudly instead of reaching for the network.
+3. **A spike may not leave the process changed.** `spikes/opencode/spike.test.ts` put its own
+   `node_modules/.bin` on `process.env.PATH` at module scope; a root `bun test` runs every file in
+   one process, so every later test saw an OpenCode that the machine did not have. The mutation now
+   lives between the spike's `beforeAll` and `afterAll`. Spikes stay runnable (§9.3) but are no
+   longer allowed to decide what the rest of the suite believes about its environment.
+4. **Stand-ins, not the internet.** The brains lane talks to a local OpenAI-shaped `/models`, the
+   connections lane to a local GitHub-shaped `/user`, and the preview lane to a local dev server on
+   a real port. The whole test passes with the network unplugged, which is the point: laptop mode is
+   what works when nothing else is reachable.
+
+### Consequences
+Phase 1 now has a floor under it: a feature that only works with Docker fails here. The lanes this
+test drives are the ones task 1.22 will drive through the browser, on four engines.
+
+What it does not cover: OpenCode and the credentialed engines (task 1.22 runs those on a real key,
+on Ollama, through OpenCode, and through ACP), Docker-only paths such as the supervisor, and the
+desktop wrapper, which has its own tests.
+
+### What was actually verified
+`bun test apps/cli/test/parity.test.ts` — five lanes green against a real `perch dev`. Reverting
+both halves of decision 2 and 3 and running `bun test spikes/opencode/spike.test.ts
+apps/cli/test/parity.test.ts` reproduces the failure they fix: the commit-message and ⌘K lanes come
+back `502 upstream_failed` from an OpenCode that leaked onto the path, reaching for a provider
+catalogue this environment cannot fetch.
