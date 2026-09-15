@@ -43,6 +43,8 @@ export type ConnectionMetadata = {
   installationId?: string;
   /** The api base to call, when the manifest's default is not it (an enterprise host). */
   apiBase?: string;
+  /** The MCP server to proxy to, when the manifest's default is not it (task 1.17). */
+  mcpUrl?: string;
   /** The last few characters of a pasted token, so two are tellable apart. Never the whole thing. */
   hint?: string;
 };

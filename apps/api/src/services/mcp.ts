@@ -13,15 +13,17 @@ import {
   argsHash,
   listUpstreamTools,
   McpError,
+  mcpUrlOf,
   openUpstream,
   permits,
   type UpstreamTool,
 } from "@perch/connect";
 import type { Connection, Db } from "@perch/db";
+import type { SessionMcpServer } from "@perch/events";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
-import { listGrants } from "../repos/connections.ts";
+import { listGrants, upsertGrant } from "../repos/connections.ts";
 import type { ConnectionsService } from "./connections.ts";
 
 const encoder = new TextEncoder();
@@ -113,9 +115,6 @@ export type McpDeps = {
   publicUrl: string;
 };
 
-/** A server a session may reach, as the runner needs it: a name, a URL, and Perch's own token. */
-export type SessionMcpServer = { name: string; url: string; token: string };
-
 export class McpGateway {
   constructor(private readonly deps: McpDeps) {}
 
@@ -133,7 +132,7 @@ export class McpGateway {
     const servers: SessionMcpServer[] = [];
     for (const row of rows) {
       const manifest = this.deps.connections.providers().find((m) => m.id === row.provider);
-      if (!manifest?.mcp_url) continue;
+      if (!manifest || !mcpUrlOf(manifest, row.metadata.mcpUrl)) continue;
       const grants = await listGrants(this.deps.db, row.id);
       const granted = grants.find(
         (grant) => grant.subjectType === "session" && grant.subjectId === input.sessionId,
@@ -151,6 +150,40 @@ export class McpGateway {
       });
     }
     return servers;
+  }
+
+  /**
+   * A new session is granted the connections its own owner may already use (task 1.17, ADR-0083):
+   * a personal connection is the person acting through an agent, which is on-behalf-of by
+   * definition. A workspace connection is not auto-granted — spec §3.5 wants those granted
+   * explicitly — so it stays invisible to a session until the grants UI of task 2.14 says
+   * otherwise. Nothing here narrows the tool list; a grant's `allowed_tools` does that, and the
+   * gateway honours it the moment one is written.
+   */
+  async grantSession(input: {
+    workspaceId: string;
+    userId: string;
+    sessionId: string;
+  }): Promise<number> {
+    const rows = await this.deps.connections.connections(input.workspaceId, input.userId);
+    let granted = 0;
+    for (const row of rows) {
+      if (row.ownerType !== "user" || row.ownerId !== input.userId) continue;
+      if (row.status !== "active") continue;
+      const manifest = this.deps.connections.providers().find((m) => m.id === row.provider);
+      if (!manifest || !mcpUrlOf(manifest, row.metadata.mcpUrl)) continue;
+      await upsertGrant(this.deps.db, {
+        connectionId: row.id,
+        subjectType: "session",
+        subjectId: input.sessionId,
+        allowedTools: null,
+        channels: null,
+        obo: true,
+        grantedBy: input.userId,
+      });
+      granted += 1;
+    }
+    return granted;
   }
 
   /** The allow-list this caller is held to, or null when the grant did not narrow anything. */
@@ -220,11 +253,10 @@ export class McpGateway {
   /** The upstream server, with the connection's own token on it and nothing of the caller's. */
   private async upstream(connection: Connection) {
     const manifest = this.deps.connections.manifest(connection.provider);
-    if (!manifest.mcp_url) {
-      throw PerchError.validation(`${manifest.name} publishes no MCP server`);
-    }
+    const url = mcpUrlOf(manifest, connection.metadata.mcpUrl);
+    if (!url) throw PerchError.validation(`${manifest.name} publishes no MCP server`);
     const token = await this.deps.connections.tokenFor(connection);
-    return openUpstream({ url: manifest.mcp_url, token });
+    return openUpstream({ url, token });
   }
 
   private upstreamError(error: unknown): PerchError {

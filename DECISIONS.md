@@ -2413,3 +2413,68 @@ have not been checked against GitHub or its documentation. Worse, the proxy answ
 can observe GitHub refusing a credential — which is why the end-to-end spec depends on no provider
 at all and the provider interaction is covered against a stand-in instead. Whoever has a real
 GitHub App should confirm the installation-token exchange before this is relied on.
+
+## ADR-0083: The MCP gateway is a proxy that reads its own traffic
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.17
+
+### Context
+§7.5 says Perch exposes each connection as a Streamable HTTP MCP server at `/mcp/{connectionId}`,
+that tools are filtered by a grant's `allowed_tools`, that every call is audited, and that the
+upstream carries the delegated token and never the caller's bearer. §3.5 adds the other half: the
+downstream consumers — OpenCode and ACP sessions "via injected MCP config", native bots, the Bot
+API — never see raw tokens. Nothing in the spec says how a session comes to have a grant, what it
+authenticates to the gateway with, or how a self-hosted provider is reached.
+
+### Decision
+1. **The gateway speaks MCP on both sides.** A client upstream carrying the connection's token, a
+   server downstream carrying nothing. A transparent byte proxy would be smaller, but it could not
+   filter a tool list or audit a call — and §7.5 asks for both. So the traffic is parsed, and
+   `tools/list` and `tools/call` are the two methods the gateway actually implements.
+2. **Stateless per request.** Each request builds its own `Server` and transport and closes them.
+   A proxy in front of somebody else's server cannot honestly promise session continuity it does
+   not control, and a skeleton can afford one upstream connection per request.
+3. **A session authenticates with a token of Perch's own.** An HMAC over `{ws, user, session, exp}`
+   with the api's session secret, twelve hours, minted when the session is created and handed to
+   the runner in the ACP `mcpServers` config. It is not a bearer the caller brought: §7.5 forbids
+   forwarding one upstream, and this way there is nothing to forward. A leaked gateway token is
+   good for one session's connections and expires on its own.
+4. **A new session is granted its own owner's personal connections, and nothing else.** A person
+   acting through their own agent is on-behalf-of by definition, so `connection_grants` gets a
+   `session` row per personal connection at session create (and at fork), with `obo` true and no
+   allow-list. A **workspace** connection is not auto-granted — §3.5 wants those granted explicitly
+   — so it stays invisible to a session until the grants UI of task 2.14. Nothing here narrows a
+   tool list; a grant's `allowed_tools` does, and the gateway honours one the moment it is written.
+5. **No grant, no tools — not a broken turn.** A session whose grants or provider are unreachable
+   starts with no MCP servers and a warning in the log. An agent that cannot list a provider's
+   issues is still an agent; failing the turn would make a connection outage look like a model
+   outage.
+6. **`mcp_url` is overridable per connection, like `api_base`.** A self-hosted or enterprise host
+   runs its own MCP server, and the manifest's public URL is wrong for it. The override rides in
+   the connection's metadata, is accepted on the create route, and is the same escape hatch
+   `api_base` already was.
+7. **`session.create` carries `mcp_servers`.** Additive to §7.6: `[{name, url, token}]`, mapped on
+   the runner onto ACP's `McpServerHttp` with an `authorization` header. The token travels in the
+   agent's session configuration, not the runner's environment, so nothing the agent spawns
+   inherits it.
+8. **Denials are audited before the upstream is touched.** `tools.called` carries the caller, the
+   connection, the tool, a SHA-256 of the arguments, and `ok | error | denied`. The hash, never the
+   arguments: a tool call's arguments are exactly the sort of thing that should not be readable in
+   an audit log a whole workspace can list.
+
+### Consequences
+An ACP agent gets a provider's tools without ever holding a provider's credential, and a workspace
+can see what its agents called. What is not here: `requires_permission` tools returning pending with
+an inbox item (there is no inbox until Phase 2), runner-local stdio servers behind the same shape,
+rate limits, Perch's own `/mcp/perch` server, and the grants UI — task 2.14 and later.
+
+### What could not be verified here
+This build environment cannot reach `api.githubcopilot.com`, so the acceptance runs against a
+stand-in MCP server on localhost, reached through the connection's `mcp_url` override — the same
+field a GitHub Enterprise install would use. What is proven is the whole path: an ACP agent lists
+and calls a tool through `/mcp/{connectionId}`, the provider sees only its own PAT, the runner sees
+only Perch's token, the allow-list refuses a tool, and both outcomes are audited. What is *not*
+proven is that GitHub's own MCP server accepts the same traffic. Whoever has a fine-grained PAT
+should point a connection at `https://api.githubcopilot.com/mcp/` and confirm before relying on it.

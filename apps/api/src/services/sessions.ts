@@ -18,6 +18,7 @@ import {
   type RunnerLink,
   RunnerRpcError,
   type SessionEvent,
+  type SessionMcpServer,
   type SessionMode,
   type SessionStatus,
   selectHunks,
@@ -47,6 +48,7 @@ import {
 } from "../repos/sessions.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import type { BrainsService } from "./brains.ts";
+import type { McpGateway } from "./mcp.ts";
 import { getProject, projectRunnerLink } from "./projects.ts";
 import { runnerCall, runnerError } from "./runners.ts";
 
@@ -58,6 +60,8 @@ export type SessionDeps = {
   flags: Flags;
   /** Model profiles and the credentials behind them (task 1.15). */
   brains: BrainsService;
+  /** The MCP gateway (task 1.17): what a session may reach, and the tokens it reaches with. */
+  mcp: McpGateway;
   log: Logger;
 };
 
@@ -249,6 +253,7 @@ export class SessionService {
       title: input.title ?? null,
       ...(input.kind ? { kind: input.kind } : {}),
     });
+    await this.grantConnections(session);
     await this.deps.bus.publish(
       "session.created",
       {
@@ -302,6 +307,7 @@ export class SessionService {
     // inherited turns and its next turn checkpoints as turn N+1 (ADR-0079).
     await copyCheckpoints(this.deps.db, session.id, fork.id);
     const fresh = (await getSession(this.deps.db, fork.id)) ?? fork;
+    await this.grantConnections(fresh);
     await this.deps.bus.publish(
       "session.created",
       {
@@ -657,6 +663,40 @@ export class SessionService {
   }
 
   /** `{env}` for the engine when the session runs on a brain with a credential; `{}` otherwise. */
+  /**
+   * The MCP servers this session may reach (spec §7.5; task 1.17). A failure here costs the session
+   * its tools, not its turn: an agent that cannot list a provider's issues is still an agent.
+   */
+  private async mcpServers(session: CodingSession): Promise<{ mcpServers?: SessionMcpServer[] }> {
+    try {
+      const servers = await this.deps.mcp.serversFor({
+        workspaceId: session.workspaceId,
+        userId: session.userId,
+        sessionId: session.id,
+      });
+      return servers.length > 0 ? { mcpServers: servers } : {};
+    } catch (error) {
+      this.deps.log.warn({ err: error, sessionId: session.id }, "mcp servers unavailable");
+      return {};
+    }
+  }
+
+  /** Grants a fresh session its owner's own connections (ADR-0083); never fatal to the session. */
+  private async grantConnections(session: CodingSession): Promise<void> {
+    try {
+      await this.deps.mcp.grantSession({
+        workspaceId: session.workspaceId,
+        userId: session.userId,
+        sessionId: session.id,
+      });
+    } catch (error) {
+      this.deps.log.warn(
+        { err: error, sessionId: session.id },
+        "session connection grants skipped",
+      );
+    }
+  }
+
   private async engineEnv(
     session: CodingSession,
     userId: string,
@@ -732,6 +772,8 @@ export class SessionService {
           mode: session.mode,
           // The credential goes into the engine's environment and nowhere else (AGENTS.md §1.6).
           ...(await this.engineEnv(session, userId)),
+          // Tools, without tokens: each server is Perch's gateway, each bearer Perch's own.
+          ...(await this.mcpServers(session)),
         });
         if (created.engineSessionId && created.engineSessionId !== session.engineSessionId) {
           await updateSession(this.deps.db, session.id, {

@@ -152,6 +152,7 @@ export class ConnectionsService {
     token: string;
     ownerType: ConnectionOwner;
     apiBase?: string;
+    mcpUrl?: string;
     by: ActorContext;
   }): Promise<Connection> {
     const manifest = this.manifest(input.provider);
@@ -177,6 +178,7 @@ export class ConnectionsService {
         ...(checked.account ? { account: checked.account } : {}),
         ...(tokenHint(token) ? { hint: tokenHint(token) as string } : {}),
         ...(input.apiBase ? { apiBase: input.apiBase } : {}),
+        ...(input.mcpUrl ? { mcpUrl: input.mcpUrl } : {}),
       },
     });
   }
@@ -195,6 +197,7 @@ export class ConnectionsService {
     installationId: string;
     ownerType: ConnectionOwner;
     apiBase?: string;
+    mcpUrl?: string;
     by: ActorContext;
   }): Promise<Connection> {
     const manifest = this.manifest(input.provider);
@@ -230,6 +233,7 @@ export class ConnectionsService {
         installationId: input.installationId,
         ...(checked.account ? { account: checked.account } : {}),
         ...(input.apiBase ? { apiBase: input.apiBase } : {}),
+        ...(input.mcpUrl ? { mcpUrl: input.mcpUrl } : {}),
       },
     });
   }

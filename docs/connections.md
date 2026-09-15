@@ -76,8 +76,11 @@ base, the token prefixes a paste should have, the call that proves a connection 
 OAuth endpoints. Add the directory, add its id to `connectors/src/index.ts`, and the service appears
 in the card. See `connectors/github/manifest.yaml`.
 
+- **Give an agent its tools.** A connection whose provider has an MCP server becomes one itself, at
+  `/mcp/{connectionId}`. Sessions you start reach it with a token of Perch's, never with yours —
+  see [the MCP gateway](./mcp-gateway.md).
+
 ## Not here yet
 
 MCP OAuth with dynamic client registration, refresh jobs for tokens that expire, the grants UI, and
-the connectors beyond GitHub (Vercel, Supabase, Clerk) arrive with task 2.14; the MCP gateway that
-exposes a connection's tools to an agent is task 1.17.
+the connectors beyond GitHub (Vercel, Supabase, Clerk) arrive with task 2.14.

@@ -100,6 +100,8 @@ const createBody = z
       token: z.string().min(1).max(8192),
       owner_type: z.enum(["user", "workspace"]).default("user"),
       api_base: z.url().max(2048).optional(),
+      /** The provider's MCP server, when this host runs its own (task 1.17). */
+      mcp_url: z.url().max(2048).optional(),
     }),
     z.object({
       kind: z.literal("github_app"),
@@ -109,6 +111,8 @@ const createBody = z
       installation_id: z.string().min(1).max(64),
       owner_type: z.enum(["user", "workspace"]).default("user"),
       api_base: z.url().max(2048).optional(),
+      /** The provider's MCP server, when this host runs its own (task 1.17). */
+      mcp_url: z.url().max(2048).optional(),
     }),
   ])
   .openapi("CreateConnection");
@@ -377,6 +381,7 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
       provider: body.provider,
       ownerType: body.owner_type,
       ...(body.api_base ? { apiBase: body.api_base } : {}),
+      ...(body.mcp_url ? { mcpUrl: body.mcp_url } : {}),
       by: actorOf(c),
     };
     const row =

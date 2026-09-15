@@ -80,7 +80,7 @@ only the packages it declares.
 | `@ai-sdk/mistral` | 4.0.43 | packages/gateway | |
 | `@ai-sdk/groq` | 4.0.41 | packages/gateway | |
 | `@ai-sdk/openai-compatible` | 3.0.48 | packages/gateway | Ollama, LM Studio, vLLM, llama.cpp, aggregators |
-| `@modelcontextprotocol/sdk` | 1.30.0 | packages/connect, apps/runner | MCP client and server, client auth (CIMD, DCR, PKCE) |
+| `@modelcontextprotocol/sdk` | 1.30.0 | packages/connect, apps/api, apps/runner | MCP client and server, client auth (CIMD, DCR, PKCE) |
 | `@agentclientprotocol/sdk` | 1.4.0 | packages/engines, apps/runner | the official ACP TypeScript SDK (ADR-0021) |
 | `@opencode-ai/sdk` | 1.18.30 | packages/engines, apps/runner | OpenCode server client; the binary is pinned in the runner image |
 | `opencode-ai` | 1.18.30 | spikes only | the npm-distributed OpenCode binary, used by spike 0.4.3 |

@@ -17,6 +17,7 @@ export {
   lanesOf,
   type Manifest,
   ManifestError,
+  mcpUrlOf,
   parseManifest,
 } from "./manifest.ts";
 export {

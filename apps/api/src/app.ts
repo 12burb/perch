@@ -15,6 +15,7 @@ import { registerBrains } from "./routes/brains.ts";
 import { registerConnections } from "./routes/connections.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
+import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
@@ -104,6 +105,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerSessions(app, deps);
   registerBrains(app, deps);
   registerConnections(app, deps);
+  registerMcp(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

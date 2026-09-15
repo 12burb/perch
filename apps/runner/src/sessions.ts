@@ -13,11 +13,13 @@ import {
   type RunnerRequestParams,
   RunnerRpcError,
   type SessionCreateResult,
+  type SessionMcpServer,
 } from "@perch/events";
 import {
   ACP_AGENTS,
   type AcpAgentSpec,
   AcpSession,
+  type AcpSessionOptions,
   agentTable,
   describeError,
   resolveAgentLaunch,
@@ -28,6 +30,21 @@ import { OpenCodeHost, type OpenCodeOptions } from "./opencode.ts";
 import type { RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 import { shellEnv } from "./pty.ts";
+
+/**
+ * Perch's gateway as ACP describes an MCP server (task 1.17). The bearer is Perch's own, minted for
+ * this session: the provider's credential stays in the api's vault and never reaches this process
+ * (AGENTS.md §1.6). The token lives in the agent's argument list, not in the runner's environment,
+ * so it is never inherited by anything the agent spawns.
+ */
+function acpMcpServers(servers: SessionMcpServer[]): AcpSessionOptions["mcpServers"] {
+  return servers.map((server) => ({
+    type: "http" as const,
+    name: server.name,
+    url: server.url,
+    headers: [{ name: "authorization", value: `Bearer ${server.token}` }],
+  }));
+}
 
 export type SessionsOptions = {
   root: string;
@@ -154,6 +171,7 @@ export class SessionManager {
       env,
       mode: params.mode,
       policy: this.options.policy,
+      ...(params.mcp_servers?.length ? { mcpServers: acpMcpServers(params.mcp_servers) } : {}),
       emit: (event) => this.emitEvent(sessionId, event),
       ...(this.options.notify ? { notify: this.options.notify } : {}),
       onStderr: (line) => this.options.log?.(`[${agentId} ${sessionId.slice(0, 8)}] ${line}`),

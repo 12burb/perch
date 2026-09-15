@@ -89,6 +89,7 @@ export function runnerEngine(options: RunnerEngineOptions): RunnerEngine {
           mode: params.mode,
           ...(params.worktree ? { worktree: params.worktree } : {}),
           ...(params.env ? { env: params.env } : {}),
+          ...(params.mcpServers?.length ? { mcp_servers: params.mcpServers } : {}),
         });
       } catch (error) {
         sessions.delete(params.sessionId);

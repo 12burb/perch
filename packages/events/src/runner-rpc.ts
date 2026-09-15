@@ -48,6 +48,17 @@ export const runnerToApiParams = {
   }),
 } as const;
 
+/**
+ * One MCP server a session may reach (spec §7.5): a name, Perch's gateway URL for it, and the
+ * bearer Perch minted for this session. Never a provider's own token (AGENTS.md §1.6).
+ */
+export const sessionMcpServerSchema = z.object({
+  name: z.string().min(1),
+  url: z.url(),
+  token: z.string().min(1),
+});
+export type SessionMcpServer = z.infer<typeof sessionMcpServerSchema>;
+
 /** Api → runner. */
 export const apiToRunnerParams = {
   "session.create": z.object({
@@ -65,6 +76,12 @@ export const apiToRunnerParams = {
     mode: sessionModeSchema,
     worktree: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
+    /**
+     * The MCP servers to put in front of the agent (spec §7.5; task 1.17). Every one is Perch's
+     * own gateway, and every token is Perch's own minting: a provider's credential never reaches a
+     * runner (AGENTS.md §1.6). Additive to §7.6 (ADR-0083).
+     */
+    mcp_servers: z.array(sessionMcpServerSchema).optional(),
   }),
   "session.send": z.object({
     ...ctx,

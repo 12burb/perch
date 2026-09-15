@@ -5139,6 +5139,8 @@ export type components = {
             owner_type: "user" | "workspace";
             /** Format: uri */
             api_base?: string;
+            /** Format: uri */
+            mcp_url?: string;
         } | {
             /** @enum {string} */
             kind: "github_app";
@@ -5153,6 +5155,8 @@ export type components = {
             owner_type: "user" | "workspace";
             /** Format: uri */
             api_base?: string;
+            /** Format: uri */
+            mcp_url?: string;
         };
         StartConnection: {
             provider: string;

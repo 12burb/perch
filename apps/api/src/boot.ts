@@ -24,6 +24,7 @@ import {
 import { RunnerRegistry } from "./runners/registry.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
+import { McpGateway } from "./services/mcp.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -115,8 +116,16 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
     publicUrl: env.publicUrl,
   });
+  const mcp = new McpGateway({
+    db: db.db,
+    bus,
+    log,
+    connections,
+    secret: env.sessionSecret,
+    publicUrl: env.publicUrl,
+  });
   const sessions = new SessionService(
-    { db: db.db, bus, registry: runners, engines, flags, brains, log },
+    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, log },
     options.sessions ?? {},
   );
   const deps: Deps = {
@@ -131,6 +140,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     brains,
     connections,
+    mcp,
     flags,
     log,
     version: versionInfo(env),

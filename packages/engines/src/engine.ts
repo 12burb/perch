@@ -4,7 +4,14 @@
  * AsyncIterable of EngineEvents; the api persists each one to session_events with a monotonic seq
  * and republishes it on session:<id> (task 1.8, ADR-0074).
  */
-import type { EngineEvent, ModelRef, PermissionAnswer, SessionMode, UserTurn } from "@perch/events";
+import type {
+  EngineEvent,
+  ModelRef,
+  PermissionAnswer,
+  SessionMcpServer,
+  SessionMode,
+  UserTurn,
+} from "@perch/events";
 
 export type EngineCapabilities = {
   code: boolean;
@@ -32,6 +39,12 @@ export type CreateSessionParams = {
    * It goes to the process and nowhere else: never a transcript, an event, or a log line.
    */
   env?: Record<string, string>;
+  /**
+   * MCP servers to put in front of the agent (spec §7.5; task 1.17). Each is Perch's gateway with
+   * a token Perch minted for this session, so the agent gets a provider's tools without ever
+   * holding a provider's credential (AGENTS.md §1.6).
+   */
+  mcpServers?: SessionMcpServer[];
 };
 
 export type EngineSession = {

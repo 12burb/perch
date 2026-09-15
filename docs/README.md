@@ -16,6 +16,7 @@
 | [`sessions.md`](sessions.md) | Agent sessions: the Engine interface, the lifecycle, transcript persistence and replay, live updates |
 | [`connections.md`](connections.md) | Connections: the lanes, the GitHub App wizard, the CIMD document, cloning and opening PRs on one |
 | [`brains.md`](brains.md) | Brains: provider credentials, model profiles, the live catalog, Ollama auto-detect |
+| [`mcp-gateway.md`](mcp-gateway.md) | The MCP gateway: a connection's tools for an agent, without the credential |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |
 | [`policies/providers.md`](policies/providers.md) | The credential matrix and the three lanes |

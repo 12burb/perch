@@ -7,8 +7,17 @@
  */
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-type Session = { cwd: string; mode: string; pending: AbortController | null; turns: number };
+type Session = {
+  cwd: string;
+  mode: string;
+  pending: AbortController | null;
+  turns: number;
+  /** What session/new handed us: Perch's gateway, never a provider (task 1.17). */
+  mcpServers: acp.McpServer[];
+};
 const sessions = new Map<string, Session>();
 const usage = { input: 0, output: 0 };
 
@@ -207,6 +216,39 @@ async function runTurn(
       await say(names.length > 0 ? `env: ${names.join(", ")}` : "env: none");
       return;
     }
+    // Task 1.17: the tools an MCP server gives the agent, used through whatever Perch injected.
+    case "tools?": {
+      const http = session.mcpServers.filter(
+        (server): server is Extract<acp.McpServer, { type: "http" }> =>
+          "type" in server && server.type === "http",
+      );
+      if (http.length === 0) {
+        await say("mcp: none");
+        return;
+      }
+      for (const server of http) {
+        const headers = Object.fromEntries(server.headers.map((h) => [h.name, h.value]));
+        const client = new Client({ name: "fake-agent", version: "1" }, { capabilities: {} });
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers } }),
+        );
+        try {
+          const listed = await client.listTools();
+          await say(`mcp ${server.name} tools: ${listed.tools.map((t) => t.name).join(", ")}\n`);
+          const called = await client.callTool({ name: "list_issues", arguments: { repo: "o/r" } });
+          const content = Array.isArray(called.content) ? called.content : [];
+          const texts = content
+            .map((part) => (part && part.type === "text" ? part.text : ""))
+            .filter(Boolean);
+          await say(`mcp ${server.name} issues: ${texts.join(" ")}\n`);
+          // What the runner actually holds, so a test can prove it is not the provider's.
+          await say(`mcp ${server.name} bearer: ${headers.authorization ?? "none"}\n`);
+        } finally {
+          await client.close().catch(() => undefined);
+        }
+      }
+      return;
+    }
     case "fail":
       throw new Error("the model is unavailable");
     default:
@@ -227,7 +269,13 @@ acp
   .onRequest("authenticate", () => ({}))
   .onRequest("session/new", (ctx) => {
     const sessionId = `fake-${crypto.randomUUID().slice(0, 8)}`;
-    sessions.set(sessionId, { cwd: ctx.params.cwd, mode: "build", pending: null, turns: 0 });
+    sessions.set(sessionId, {
+      cwd: ctx.params.cwd,
+      mode: "build",
+      pending: null,
+      turns: 0,
+      mcpServers: ctx.params.mcpServers ?? [],
+    });
     return {
       sessionId,
       modes: {

@@ -2256,6 +2256,11 @@
                 "type": "string",
                 "maxLength": 2048,
                 "format": "uri"
+              },
+              "mcp_url": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
               }
             },
             "required": [
@@ -2302,6 +2307,11 @@
                 "default": "user"
               },
               "api_base": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri"
+              },
+              "mcp_url": {
                 "type": "string",
                 "maxLength": 2048,
                 "format": "uri"

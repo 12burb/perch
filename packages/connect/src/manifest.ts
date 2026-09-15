@@ -104,3 +104,12 @@ export function lanesOf(manifest: Manifest): AuthKind[] {
 export function apiBaseOf(manifest: Manifest, override?: string | null): string {
   return (override?.trim() || manifest.api_base).replace(/\/+$/, "");
 }
+
+/**
+ * The MCP server this connection is proxied to (task 1.17), or null when there is none. A
+ * self-hosted host runs its own, so a connection may override the manifest's — the same escape
+ * hatch `api_base` is, and needed for the same reason: an enterprise install is not the public one.
+ */
+export function mcpUrlOf(manifest: Manifest, override?: string | null): string | null {
+  return override?.trim() || manifest.mcp_url || null;
+}
