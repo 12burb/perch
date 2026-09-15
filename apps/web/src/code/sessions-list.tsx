@@ -1,12 +1,13 @@
 /**
  * Code mode's Sessions section (task 1.12): the open project's sessions, newest first, and a small
- * form to start one (engine, and the agent or provider when the engine's default is not wanted).
+ * form to start one: the engine, the brain to run on (task 1.15), and which agent or CLI runs it
+ * when the runner's default is not wanted.
  */
 import { Button, Field, Input, SidebarItem, SidebarSection, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import { api, unwrap } from "../lib/api.ts";
-import { sessionsQuery } from "../lib/queries.ts";
+import { modelProfilesQuery, sessionsQuery } from "../lib/queries.ts";
 
 const ENGINES = ["acp", "opencode", "cli-harness"] as const;
 
@@ -17,11 +18,13 @@ export function SessionsSection(props: {
   onOpen: (sessionId: string) => void;
 }) {
   const sessions = useQuery(sessionsQuery(props.workspaceId, props.projectId));
+  const brains = useQuery(modelProfilesQuery(props.workspaceId));
   const queryClient = useQueryClient();
   const ids = useId();
   const [creating, setCreating] = useState(false);
   const [engine, setEngine] = useState<(typeof ENGINES)[number]>("acp");
   const [agent, setAgent] = useState("");
+  const [brain, setBrain] = useState("");
   const create = useMutation({
     mutationFn: async () =>
       unwrap(
@@ -29,7 +32,8 @@ export function SessionsSection(props: {
           params: { path: { ws: props.workspaceId, project: props.projectId } },
           body: {
             engine,
-            ...(agent.trim() ? { model: { provider: agent.trim(), model_id: "default" } } : {}),
+            ...(brain ? { model_profile_id: brain } : {}),
+            ...(agent.trim() ? { agent: agent.trim() } : {}),
           },
         }),
       ),
@@ -39,6 +43,7 @@ export function SessionsSection(props: {
       });
       setCreating(false);
       setAgent("");
+      setBrain("");
       props.onOpen(created.id);
     },
   });
@@ -71,6 +76,25 @@ export function SessionsSection(props: {
                 </select>
               )}
             </Field>
+            {(brains.data ?? []).length > 0 ? (
+              <Field id={`${ids}-brain`} label={t("session.brain")}>
+                {(control) => (
+                  <select
+                    {...control}
+                    className="h-8 w-full rounded border border-border bg-surface px-2 text-sm"
+                    value={brain}
+                    onChange={(event) => setBrain(event.target.value)}
+                  >
+                    <option value="">{t("session.brainDefault")}</option>
+                    {(brains.data ?? []).map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+            ) : null}
             <Field
               id={`${ids}-agent`}
               label={t("session.agentField")}

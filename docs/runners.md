@@ -202,7 +202,7 @@ under way).
 
 | Method | Params (beyond `workspace_id`, `user_id`, `cap`) | Result |
 |---|---|---|
-| `session.create` | `{session_id, project, engine, model, mode, worktree?, env?}` | `{engine_session_id?, agent?: {id, name}, modes?: {current, available}}` |
+| `session.create` | `{session_id, project, engine, agent?, model, mode, worktree?, env?}` | `{engine_session_id?, agent?: {id, name}, modes?: {current, available}}`. `agent` names the program to run — an ACP agent id, a CLI id — and is additive to §7.6 (ADR-0081); without it the runner uses its default agent, and cli-harness asks for the name unless it hosts exactly one CLI. `env` carries the brain's provider key and base URL, which go to the process and nowhere else |
 | `session.send` | `{session_id, turn: {text, attachments?}, mode?}` | `{started}` |
 | `session.permission` | `{session_id, permission_id, answer}` | `{answered}` |
 | `session.cancel` | `{session_id}` | `{cancelled}` |

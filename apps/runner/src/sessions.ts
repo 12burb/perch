@@ -37,7 +37,7 @@ export type SessionsOptions = {
   homes?: string;
   /** The ACP agents this runner may launch (default: the registry table plus PERCH_ACP_AGENTS). */
   agents?: Record<string, AcpAgentSpec>;
-  /** The agent for sessions whose model names none (default: PERCH_ACP_AGENT, else gemini). */
+  /** The agent for a session that names none (default: PERCH_ACP_AGENT, else gemini). */
   defaultAgent?: string;
   /** Sessions with no round for this long are closed (default 30 min). */
   idleMs?: number;
@@ -126,8 +126,9 @@ export class SessionManager {
         `engine ${params.engine} is not available on this runner (${this.engines().join(", ")})`,
       );
     }
-    const provider = params.model.provider;
-    const agentId = provider === "engine" || provider === "default" ? this.defaultAgent : provider;
+    // The program to run is `agent`; a brain's provider ("openai", "ollama") names a model, not an
+    // agent, so it no longer selects one (ADR-0081).
+    const agentId = params.agent ?? this.defaultAgent;
     const spec = this.agents[agentId];
     if (!spec) {
       throw new RunnerRpcError(
@@ -235,11 +236,21 @@ export class SessionManager {
       );
     }
     const tools = this.options.cliHarness.tools ?? CLI_HARNESS;
-    const spec = tools[params.model.provider];
+    const known = Object.keys(tools);
+    // Which CLI is the whole choice here, so it is named rather than guessed — unless this runner
+    // has only one, in which case there is nothing to guess (ADR-0081).
+    const cliId = params.agent ?? (known.length === 1 ? known[0] : null);
+    if (!cliId) {
+      throw new RunnerRpcError(
+        JSON_RPC_ERRORS.invalidParams,
+        `name the CLI to run (${known.join(", ")})`,
+      );
+    }
+    const spec = tools[cliId];
     if (!spec) {
       throw new RunnerRpcError(
         JSON_RPC_ERRORS.invalidParams,
-        `unknown CLI ${params.model.provider} (known: ${Object.keys(tools).join(", ")})`,
+        `unknown CLI ${cliId} (known: ${known.join(", ")})`,
       );
     }
     const binary = isAbsolute(spec.command)
@@ -262,8 +273,7 @@ export class SessionManager {
       mode: params.mode,
       spec: { ...spec, command: binary },
       emit: (event) => this.emitEvent(sessionId, event),
-      log: (line) =>
-        this.options.log?.(`[${params.model.provider} ${sessionId.slice(0, 8)}] ${line}`),
+      log: (line) => this.options.log?.(`[${cliId} ${sessionId.slice(0, 8)}] ${line}`),
     });
     this.sessions.set(sessionId, {
       params,
@@ -282,7 +292,7 @@ export class SessionManager {
       lastUsed: Date.now(),
     });
     return {
-      agent: { id: params.model.provider, name: spec.name },
+      agent: { id: cliId, name: spec.name },
       modes: {
         current: params.mode,
         available: [

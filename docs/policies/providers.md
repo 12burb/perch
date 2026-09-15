@@ -12,6 +12,17 @@ obtained.
 | **B — Subscription OAuth inside an official or endorsed engine** | ChatGPT Plus/Pro, SuperGrok, GitHub Copilot via OpenCode `/connect`; Nous Portal via Hermes | The user only, in their own sessions and private bots | The user's home volume on a hosted or local runner. Never the vault, never proxied |
 | **C — Official CLIs in the terminal** | Claude Code (Claude Pro/Max), Codex CLI, Gemini CLI, Hermes, the OpenCode TUI | The user only, under their own login | The user's home volume. Perch is a terminal here, not a harness |
 
+## How this is enforced (task 1.15)
+
+Lane A lives in **Brains** (workspace settings → Brains, [docs/brains.md](../brains.md)): a credential is an
+API key or an OpenAI-compatible endpoint, encrypted in the vault, scoped to one person or shared by an admin.
+`BrainsService.engineEnv` is the only place a key leaves the vault, and it goes into the engine process's
+environment — never a transcript, a bus event, a response body, or a log line. A personal credential is
+invisible to everyone else, in the listing and to any session but its owner's, which is rule 1 below in code.
+
+Lanes B and C need no credential in Perch at all: a brain with no credential runs on whatever the engine is
+already logged in to, and Perch never sees, stores, or proxies that login.
+
 ## Hard rules
 
 1. **Shared means keys or local.** A bot visible to more than one person, a cron job, a webhook automation,

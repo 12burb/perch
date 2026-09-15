@@ -57,13 +57,15 @@ const argvLines = () =>
     .split("\n")
     .map((l) => JSON.parse(l) as string[]);
 
-function open(id: string, provider: string, mode: "plan" | "build" = "build") {
+/** `agent` names the CLI to run; the model is the brain it runs on (ADR-0081). */
+function open(id: string, agent: string, mode: "plan" | "build" = "build") {
   return manager.create({
     ...ctx,
     session_id: id,
     project: PROJECT,
     engine: "cli-harness",
-    model: { provider, modelId: "default" },
+    agent,
+    model: { provider: "engine", modelId: "default" },
     mode,
   });
 }
@@ -239,7 +241,8 @@ describe("the cli-harness adapter (task 1.11)", () => {
         session_id: "0190f2d0-0000-7000-8000-0000000000a5",
         project: PROJECT,
         engine: "cli-harness",
-        model: { provider: "ghost", modelId: "default" },
+        agent: "ghost",
+        model: { provider: "engine", modelId: "default" },
         mode: "build",
       }),
     ).rejects.toThrow(/not installed/);
@@ -251,7 +254,8 @@ describe("the cli-harness adapter (task 1.11)", () => {
         session_id: "0190f2d0-0000-7000-8000-0000000000a6",
         project: PROJECT,
         engine: "cli-harness",
-        model: { provider: "codex", modelId: "default" },
+        agent: "codex",
+        model: { provider: "engine", modelId: "default" },
         mode: "build",
       }),
     ).rejects.toThrow(/local runner/);

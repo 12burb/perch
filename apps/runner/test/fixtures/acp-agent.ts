@@ -195,6 +195,18 @@ async function runTurn(
     case "mode?":
       await say(session.mode);
       return;
+    // Task 1.15: which provider variables the engine was started with — names only, never values,
+    // because a key must not reach a model context or a transcript (AGENTS.md §1.6).
+    case "env?": {
+      const names = [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OLLAMA_HOST",
+        "OPENAI_BASE_URL",
+      ].filter((name) => (process.env[name] ?? "") !== "");
+      await say(names.length > 0 ? `env: ${names.join(", ")}` : "env: none");
+      return;
+    }
     case "fail":
       throw new Error("the model is unavailable");
     default:

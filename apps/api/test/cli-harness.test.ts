@@ -161,7 +161,7 @@ describe("the cli-harness engine through the api (task 1.11)", () => {
     // An unknown CLI is refused by the runner with the reason.
     const ghost = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, owner.cookie, {
       method: "POST",
-      json: { engine: "cli-harness", model: { provider: "ghost", model_id: "x" }, prompt: "hi" },
+      json: { engine: "cli-harness", agent: "ghost", prompt: "hi" },
     })) as { body: SessionBody };
     const failed = await untilStatus(owner.cookie, ghost.body.id, "error");
     expect(failed.status_message).toMatch(/unknown CLI ghost/);

@@ -27,6 +27,8 @@ export async function insertSession(
     runnerId: string | null;
     userId: string;
     engine: string;
+    /** Which program the engine runs (an ACP agent, a CLI); null means the runner's default. */
+    agent?: string | null;
     model: ModelRef;
     mode: SessionModeValue;
     title: string | null;
@@ -44,6 +46,7 @@ export async function insertSession(
       runnerId: values.runnerId,
       userId: values.userId,
       engine: values.engine,
+      agent: values.agent ?? null,
       modelProvider: values.model.provider,
       modelId: values.model.modelId,
       modelProfileId: values.model.profileId ?? null,

@@ -3,6 +3,10 @@
  * Playwright's web server: builds apps/web (skip with E2E_SKIP_BUILD=1) and runs `perch dev` (laptop
  * mode: api, the built client, and the in-process runner on PGlite) on port 3999 with a throwaway
  * data dir, so specs exercise exactly what a laptop user runs.
+ *
+ * It also stands up a fake OpenAI-compatible provider on E2E_PROVIDER_PORT (3998) so the brains
+ * spec (task 1.15) can add a key and an endpoint that really answer `GET /v1/models` without
+ * reaching the internet.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +23,31 @@ if (!process.env.E2E_SKIP_BUILD) {
   });
   if (build.exitCode !== 0) process.exit(build.exitCode);
 }
+
+/**
+ * A stand-in provider: it answers the OpenAI-compatible model list, and only with a key on the
+ * paths that ask for one, so a spec can prove a credential was accepted or rejected.
+ */
+const providerPort = Number(process.env.E2E_PROVIDER_PORT ?? "3998");
+const provider = Bun.serve({
+  port: providerPort,
+  hostname: "127.0.0.1",
+  fetch(request) {
+    const url = new URL(request.url);
+    if (!url.pathname.endsWith("/models")) return new Response("not found", { status: 404 });
+    const needsKey = url.pathname.startsWith("/key/");
+    if (needsKey && !request.headers.get("authorization")?.startsWith("Bearer ")) {
+      return Response.json({ error: "no key" }, { status: 401 });
+    }
+    return Response.json({
+      object: "list",
+      data: [
+        { id: "gpt-test-mini", object: "model", owned_by: "e2e" },
+        { id: "llama-test", object: "model", owned_by: "e2e" },
+      ],
+    });
+  },
+});
 
 const dataDir = mkdtempSync(join(tmpdir(), "perch-e2e-"));
 const api = Bun.spawn(
@@ -43,6 +72,17 @@ const api = Bun.spawn(
     stderr: "inherit",
     env: {
       ...process.env,
+      // A brain's variables must come from the credential the spec added and nowhere else, so the
+      // machine's own provider keys stay out of the session (task 1.15).
+      OPENAI_API_KEY: undefined,
+      ANTHROPIC_API_KEY: undefined,
+      GEMINI_API_KEY: undefined,
+      GROQ_API_KEY: undefined,
+      MISTRAL_API_KEY: undefined,
+      XAI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      OLLAMA_HOST: undefined,
+      OPENAI_BASE_URL: undefined,
       // Sessions run on the fake ACP agent of the runner's tests (task 1.12's spec needs no key).
       PERCH_ACP_AGENTS: JSON.stringify({
         fake: {
@@ -56,7 +96,10 @@ const api = Bun.spawn(
   },
 );
 
-const stop = () => api.kill();
+const stop = () => {
+  provider.stop(true);
+  api.kill();
+};
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
 
@@ -89,7 +132,7 @@ if (process.env.E2E_SETUP !== "wizard") {
   });
   if (res.status !== 201 && res.status !== 409) {
     console.error(`e2e setup failed: ${res.status} ${await res.text()}`);
-    api.kill();
+    stop();
     process.exit(1);
   }
 }

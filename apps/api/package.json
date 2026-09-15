@@ -30,6 +30,7 @@
     "@perch/db": "workspace:*",
     "@perch/engines": "workspace:*",
     "@perch/events": "workspace:*",
+    "@perch/gateway": "workspace:*",
     "@perch/jobs": "workspace:*",
     "@perch/policy": "workspace:*",
     "@perch/vault": "workspace:*",

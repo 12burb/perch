@@ -20,11 +20,17 @@ export type CreateSessionParams = {
   projectId?: string;
   userId: string;
   model: ModelRef;
+  /** Which program runs the engine (an ACP agent, a CLI); absent means the runner's default. */
+  agent?: string;
   systemPrompt?: string;
   mode: SessionMode;
   /** The worktree the session runs in, when it has one of its own (spec §5.7). */
   worktree?: string;
-  /** Project environment for the engine's process (never a Perch credential). */
+  /**
+   * Environment for the engine's process: the project's own, plus the brain's provider key and
+   * base URL when the session runs on one (spec §3.4 — engines get native provider credentials).
+   * It goes to the process and nowhere else: never a transcript, an event, or a log line.
+   */
   env?: Record<string, string>;
 };
 

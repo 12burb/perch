@@ -31,6 +31,9 @@ export const ACTIONS = [
   "sessions.read",
   "sessions.create",
   "sessions.update",
+  "brains.read",
+  "brains.write",
+  "brains.admin",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -83,6 +86,11 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "sessions.read": ["owner", "admin", "member"],
   "sessions.create": ["owner", "admin", "member"],
   "sessions.update": ["owner", "admin", "member"],
+  // Brains (task 1.15): everyone sees which brains exist and may add their own key; the workspace's
+  // shared credentials and its model profiles belong to the admins.
+  "brains.read": ["owner", "admin", "member"],
+  "brains.write": ["owner", "admin", "member"],
+  "brains.admin": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -107,6 +115,9 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "sessions.read": "read",
   "sessions.create": "write",
   "sessions.update": "write",
+  "brains.read": "read",
+  "brains.write": "write",
+  "brains.admin": "admin",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

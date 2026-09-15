@@ -84,6 +84,7 @@ export function runnerEngine(options: RunnerEngineOptions): RunnerEngine {
           session_id: params.sessionId,
           project: params.projectId,
           engine: id,
+          ...(params.agent ? { agent: params.agent } : {}),
           model: params.model,
           mode: params.mode,
           ...(params.worktree ? { worktree: params.worktree } : {}),

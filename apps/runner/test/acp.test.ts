@@ -234,14 +234,10 @@ describe("the ACP adapter (task 1.9)", () => {
       code: -32602,
     });
     await expect(
-      newSession("0190f2d0-0000-7000-8000-0000000000e5", {
-        model: { provider: "nope", modelId: "x" },
-      }),
+      newSession("0190f2d0-0000-7000-8000-0000000000e5", { agent: "nope" }),
     ).rejects.toThrow(/unknown ACP agent nope/);
     await expect(
-      newSession("0190f2d0-0000-7000-8000-0000000000e6", {
-        model: { provider: "ghost", modelId: "x" },
-      }),
+      newSession("0190f2d0-0000-7000-8000-0000000000e6", { agent: "ghost" }),
     ).rejects.toThrow(/not installed/);
     await expect(
       newSession("0190f2d0-0000-7000-8000-0000000000e7", {
@@ -249,9 +245,9 @@ describe("the ACP adapter (task 1.9)", () => {
       }),
     ).rejects.toThrow(/not on this runner/);
     expect(manager.availableAgents()).toEqual(["fake"]);
-    // "engine"/"default" as the provider means the runner's default agent.
+    // No agent named means the runner's default, whatever brain the model names (ADR-0081).
     const id = "0190f2d0-0000-7000-8000-0000000000e8";
-    const created = await newSession(id, { model: { provider: "engine", modelId: "default" } });
+    const created = await newSession(id, { model: { provider: "openai", modelId: "gpt-5" } });
     expect(created.agent?.id).toBe("fake");
     await manager.close(id);
   }, 30_000);
@@ -315,7 +311,8 @@ describe.skipIf(!realAgent)("the ACP adapter with a real registry agent", () => 
         session_id: id,
         project: PROJECT,
         engine: "acp",
-        model: { provider: realAgent ?? "gemini", modelId: "default" },
+        agent: realAgent ?? "gemini",
+        model: { provider: "engine", modelId: "default" },
         mode: "build",
       });
       for (const prompt of [

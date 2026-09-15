@@ -187,7 +187,7 @@ describe("sessions on the acp engine (task 1.9)", () => {
     // An agent nobody installed is a 502 at creation, with the runner's reason.
     const ghost = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, owner.cookie, {
       method: "POST",
-      json: { engine: "acp", model: { provider: "ghost", model_id: "x" }, prompt: "hi" },
+      json: { engine: "acp", agent: "ghost", prompt: "hi" },
     })) as { status: number; body: SessionBody };
     expect(ghost.status).toBe(201);
     const failed = await untilStatus(owner.cookie, ghost.body.id, "error");

@@ -2295,3 +2295,65 @@ the person has an unsaved buffer open, and the point of ⌘K is to see the chang
 honest record of what was asked. The file only changes when the person saves, so a bad proposal
 costs nothing. What is not here: streaming the proposal as it arrives, edits that span files, and a
 model picker for the lane — all of which want the brains of task 1.15 first.
+
+## ADR-0081: Brains: a live catalog from each provider, a vault-backed credential, and env into the engine
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.15
+
+### Context
+§11 task 1.15 asks for a model catalog "seeded from models.dev". models.dev is not reachable from
+the build environment here (the egress proxy refuses the CONNECT), so seeding from it would mean
+guessing the shape of a file I cannot read, committing that guess, and shipping a table that is
+stale the day a provider adds a model. §3.4 also says Perch runs engines on *native* provider
+credentials rather than proxying them, so a brain has to end up as environment on the engine's
+process, not as a gateway route.
+
+### Decision
+1. **The catalog is the provider's own listing.** Every provider Perch lists models for answers the
+   OpenAI-compatible `GET {base}/models`, so `packages/gateway/catalog.ts` asks the credential's own
+   endpoint and shows what comes back. One code path covers OpenAI, an aggregator, and a laptop
+   running Ollama, and the list can never go stale. Providers whose list is not that shape
+   (Anthropic, Google) are marked `lists: false` and the model id is typed instead of picked.
+   A deviation from §11's "seeded from models.dev", recorded here.
+2. **Listing is the test button.** A provider that answers with its catalog is a provider that took
+   the credential, so "Test" is the same call. 401 or 403 marks the credential `invalid`; anything
+   else leaves the row alone, because a network that is down is not a key that is wrong.
+3. **`custom` is a provider.** An OpenAI-compatible base URL the person types covers LM Studio,
+   vLLM, llama.cpp, a proxy, and whatever ships next, so a new provider does not need a release.
+   Every credential may override its provider's base URL, which is what makes that work.
+4. **Scope is user or workspace.** Your own key is yours to add (`brains.write`); one the whole
+   workspace runs on is an admin's (`brains.admin`), and so is removing one. A user-scoped
+   credential is invisible to everyone else, in the list and in `engineEnv`, which keeps AGENTS.md
+   §1.6's "personal credentials are user-scoped and never proxied".
+5. **A brain is a name over (provider, model, credential).** `model_profiles` carries the name
+   people pick from, and one profile per workspace may be the default for `chat` or for `code`
+   (a partial unique index enforces it). A profile with no credential runs on whatever the engine
+   is already logged in as — §3.6 lanes B and C — which is how a Claude Code or Codex subscription
+   keeps working without a key.
+6. **The secret goes to the engine as environment, and nowhere else.** `BrainsService.engineEnv`
+   is the single place a plaintext key leaves the vault: it becomes `OPENAI_API_KEY` (or the
+   provider's own variable) plus a base URL on `session.create {env}`. No route, transcript, event,
+   or log line carries a key; the API answers with a hint like `sk…4f2a`, which is enough to tell
+   two keys apart and useless to anyone who reads it.
+7. **Ollama is detected, not configured.** On the providers call Perch asks `PERCH_OLLAMA_URL` and
+   then `http://127.0.0.1:11434/v1` with a 1.5 s timeout; if one answers, the settings page offers
+   to add it in a click. A laptop with Ollama running is one button away from a working brain.
+8. **The program the engine runs gets its own field.** Until now `model.provider` doubled as the
+   ACP agent id and the cli-harness CLI id, because nothing else named them ("gemini", "codex").
+   A brain's provider names a *model* provider ("openai", "ollama"), so the two meanings had to
+   part: `session.create` gains `agent` (additive to §7.6), `POST .../sessions` gains `agent`
+   (additive to §7.1), and `coding_sessions.agent` remembers it across a reopen and a fork. A
+   session that names no agent runs the runner's default agent; cli-harness, where the CLI *is*
+   the choice, asks for the name unless the runner has exactly one. A wrong agent is an error
+   again rather than a silent fall back to the default, which is what `model.provider` would now
+   cause. ⌘K inherits the workspace's default brain for free, which ADR-0080 left for this task.
+
+### Consequences
+A workspace can run on a cloud key, on a laptop's Ollama, and on an engine's own subscription at
+once, and switching is a dropdown in the new-session form. The cost of the live catalog is a
+round-trip per credential (cached by TanStack Query) and a model picker that is empty until the
+credential is tested — acceptable, because the alternative was a wrong list. What is not here:
+per-brain parameters and tool policy (the columns exist, nothing reads them yet), cost caps, and
+the `chat` default, which waits for chat sessions in Phase 2.

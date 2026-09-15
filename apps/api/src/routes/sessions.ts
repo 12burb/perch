@@ -39,6 +39,8 @@ export const sessionSchema = z
     runner_id: z.uuid().nullable(),
     user_id: z.uuid(),
     engine: z.string(),
+    /** Which program the engine runs: an ACP agent id, a CLI id; null means the runner's default. */
+    agent: z.string().nullable(),
     engine_session_id: z.string().nullable(),
     model: modelBody,
     mode: sessionModeSchema,
@@ -62,6 +64,7 @@ export function sessionBody(row: CodingSession): z.infer<typeof sessionSchema> {
     runner_id: row.runnerId,
     user_id: row.userId,
     engine: row.engine,
+    agent: row.agent,
     engine_session_id: row.engineSessionId,
     model: {
       provider: row.modelProvider,
@@ -84,7 +87,11 @@ export function sessionBody(row: CodingSession): z.infer<typeof sessionSchema> {
 const createBody = z
   .object({
     engine: z.string().min(1).max(64).optional(),
+    /** Which ACP agent or CLI runs it; the runner's default otherwise (ADR-0081). */
+    agent: z.string().min(1).max(64).optional(),
     model: modelBody.optional(),
+    /** The brain to run on (task 1.15); without one, the workspace's default for code. */
+    model_profile_id: z.uuid().optional(),
     mode: sessionModeSchema.optional(),
     title: z.string().min(1).max(200).optional(),
     /** Sends the first turn right away. */
@@ -463,6 +470,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       project,
       userId: user.id,
       ...(body.engine ? { engine: body.engine } : {}),
+      ...(body.agent ? { agent: body.agent } : {}),
       ...(body.model
         ? {
             model: {
@@ -472,6 +480,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
             },
           }
         : {}),
+      ...(body.model_profile_id ? { modelProfileId: body.model_profile_id } : {}),
       ...(body.mode ? { mode: body.mode } : {}),
       title: body.title ?? null,
       by,

@@ -16,6 +16,10 @@ export type ProjectRow = components["schemas"]["Project"];
 export type DeployKeyRow = components["schemas"]["DeployKey"];
 export type SessionRow = components["schemas"]["Session"];
 export type SessionEventRecord = components["schemas"]["SessionEventRecord"];
+export type CredentialRow = components["schemas"]["Credential"];
+export type ModelProfileRow = components["schemas"]["ModelProfile"];
+export type CatalogModel = components["schemas"]["CatalogModel"];
+export type ProviderRow = components["schemas"]["Provider"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -186,5 +190,58 @@ export function checkpointsQuery(sessionId: string) {
       unwrap(await api.GET("/api/sessions/{s}/checkpoints", { params: { path: { s: sessionId } } }))
         .checkpoints,
     enabled: sessionId !== "",
+  });
+}
+
+/** The providers a brain can run on, and a local Ollama when one is answering (task 1.15). */
+export function providersQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "providers"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/providers", { params: { path: { ws: workspaceId } } }),
+      ),
+    enabled: workspaceId !== "",
+  });
+}
+
+export function credentialsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "credentials"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/credentials", {
+          params: { path: { ws: workspaceId } },
+        }),
+      ).credentials,
+    enabled: workspaceId !== "",
+  });
+}
+
+export function modelProfilesQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "model-profiles"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/model-profiles", {
+          params: { path: { ws: workspaceId } },
+        }),
+      ).profiles,
+    enabled: workspaceId !== "",
+  });
+}
+
+/** What a credential can reach; the same call is the test button (task 1.15). */
+export function catalogQuery(workspaceId: string, credentialId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "models", credentialId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/models", {
+          params: { path: { ws: workspaceId }, query: { credential: credentialId } },
+        }),
+      ).models,
+    enabled: workspaceId !== "" && credentialId !== "",
+    retry: false,
   });
 }

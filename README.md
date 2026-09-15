@@ -101,7 +101,9 @@ API keys and OpenAI-compatible endpoints (OpenAI, Anthropic, xAI, Google, Mistra
 LM Studio, vLLM, llama.cpp …) go in the encrypted vault and power shared bots, sessions, and the `/v1`
 gateway. Subscriptions (ChatGPT Plus/Pro, SuperGrok, GitHub Copilot, Nous Portal, Claude Pro/Max) work only
 where the vendor permits, in personal scope, through official or endorsed engines or the hosted terminal.
-The rules are in [`docs/policies/providers.md`](docs/policies/providers.md).
+The rules are in [`docs/policies/providers.md`](docs/policies/providers.md), and the how-to is in
+[`docs/brains.md`](docs/brains.md): add a key or an endpoint in workspace settings, name a model as a
+**brain**, and pick it when you start a session. A local Ollama is detected and added in one click.
 
 ## Contributing
 

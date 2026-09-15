@@ -55,6 +55,12 @@ export const apiToRunnerParams = {
     session_id: z.uuid(),
     project: z.uuid(),
     engine: z.string(),
+    /**
+     * Which program the engine runs: an ACP agent id (gemini, codex, …) or a CLI id. Absent means
+     * the runner's default. Additive to §7.6 (ADR-0081): the model's provider names a model
+     * provider now that brains exist, so it can no longer double as the program's name.
+     */
+    agent: z.string().optional(),
     model: modelRefSchema,
     mode: sessionModeSchema,
     worktree: z.string().optional(),

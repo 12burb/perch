@@ -18,6 +18,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { id, timestamps, timestamptz } from "../columns.ts";
+import { modelProfiles } from "./brains.ts";
 import { users } from "./identity.ts";
 import { projects, runners } from "./projects.ts";
 import { workspaces } from "./tenancy.ts";
@@ -50,11 +51,18 @@ export const codingSessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     engine: text("engine").notNull(),
+    /**
+     * Which program the engine runs: an ACP agent id, a CLI id. Null means the runner's default.
+     * Separate from the model's provider since brains landed (ADR-0081).
+     */
+    agent: text("agent"),
     engineSessionId: text("engine_session_id"),
     modelProvider: text("model_provider").notNull(),
     modelId: text("model_id").notNull(),
-    // References model_profiles once the brains group lands (task 1.15); until then a bare uuid.
-    modelProfileId: uuid("model_profile_id"),
+    /** The brain this session runs on; the columns above keep the transcript readable if it changes. */
+    modelProfileId: uuid("model_profile_id").references(() => modelProfiles.id, {
+      onDelete: "set null",
+    }),
     mode: text("mode").$type<SessionModeValue>().notNull().default("build"),
     /** agent: a session in the pane; inline: the editor's ⌘K lane, kept out of the session list. */
     kind: text("kind").$type<CodingSessionKind>().notNull().default("agent"),

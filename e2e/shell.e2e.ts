@@ -126,9 +126,11 @@ test("the six modes, the settings pages, and their empty states", async ({ page 
   // Workspace settings: rename and invite; the audit log shows the rename.
   await page.goto(`/${slug}/settings`);
   await expect(page.getByRole("heading", { level: 1, name: "Workspace settings" })).toBeVisible();
+  // Scoped to General: the page also has the Brains section's Save credential and empty states.
+  const general = page.getByRole("region", { name: "General" });
   await page.getByLabel("Workspace name").fill("The Nest (renamed)");
-  await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await general.getByRole("button", { name: "Save" }).click();
+  await expect(general.getByRole("status")).toHaveText("Saved");
   await page.getByLabel("Email").fill(uniqueEmail("kimi"));
   await page.getByRole("button", { name: "Create invite" }).click();
   await expect(page.getByTestId("invite-link")).toContainText("/invite/inv_");

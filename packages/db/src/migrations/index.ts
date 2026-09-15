@@ -9,6 +9,7 @@ import m5 from "../../drizzle/0005_projects_setup.sql" with { type: "text" };
 import m6 from "../../drizzle/0006_sessions.sql" with { type: "text" };
 import m7 from "../../drizzle/0007_sessions_fork.sql" with { type: "text" };
 import m8 from "../../drizzle/0008_sessions_inline.sql" with { type: "text" };
+import m9 from "../../drizzle/0009_brains.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -28,4 +29,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 6, tag: "0006_sessions", when: 1789397220860, breakpoints: true, sql: m6 },
   { idx: 7, tag: "0007_sessions_fork", when: 1789413619016, breakpoints: true, sql: m7 },
   { idx: 8, tag: "0008_sessions_inline", when: 1789429531454, breakpoints: true, sql: m8 },
+  { idx: 9, tag: "0009_brains", when: 1789432725675, breakpoints: true, sql: m9 },
 ];

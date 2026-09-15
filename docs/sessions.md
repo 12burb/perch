@@ -27,6 +27,24 @@ Live updates come from the `session:<id>` topic: text deltas are applied as they
 other event triggers a replay of what is new after the last seq (the bus payloads carry ids, not
 the full records).
 
+## Which model a session runs on (task 1.15)
+
+The **Brain** picker in the new-session form names the model: a brain is a provider, a model id,
+and the credential to reach it, set up in workspace settings (see [Brains](./brains.md)). Leave it
+on *The workspace default* and the session takes the brain marked **Default for code**, and failing
+that the instance's `ENGINE_DEFAULT_MODEL`.
+
+The **Agent** field is a different question: which program runs the engine — an ACP agent
+(`gemini`, `codex`, `claude`, `goose`, `opencode`, `qwen`, `cline`) or, on the cli-harness lane,
+which CLI. Leave it empty for the runner's default. Until brains landed the model's provider
+doubled as that name; it does not any more (ADR-0081).
+
+The brain's credential becomes environment on the engine's process and nowhere else —
+`OPENAI_API_KEY` plus a base URL for a key, `OLLAMA_HOST` for an Ollama endpoint. A brain with no
+credential runs on whatever the engine is already logged in to, which is how a Claude Code or Codex
+subscription keeps working (spec §3.6 lanes B and C). A brain whose credential is personal can only
+be used by the person who added it.
+
 ## Changes, checkpoints, and restore (task 1.13)
 
 Before every turn the runner snapshots the project's working tree — tracked and untracked files,

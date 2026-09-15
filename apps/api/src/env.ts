@@ -48,6 +48,8 @@ const rawEnvSchema = z.object({
   PERCH_DEMO_WORKSPACE: onOff.optional(),
   /** Feature flags to turn on, comma-separated (spec §9.1; the instance setting `flags` wins). */
   PERCH_FLAGS: z.string().optional(),
+  /** Where a local Ollama is, when it is not on the default port (task 1.15). */
+  PERCH_OLLAMA_URL: z.string().optional(),
   PERCH_DATA_DIR: z.string().min(1).optional(),
   PERCH_COMMIT: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -80,6 +82,8 @@ export type Env = {
   s3: { endpoint: string; bucket: string; key: string; secret: string; region: string } | undefined;
   smtpUrl: string | undefined;
   telemetry: boolean;
+  /** Where to look for a local Ollama, beyond the default port. */
+  ollamaUrls: readonly string[];
   /** Flags PERCH_FLAGS turned on. */
   flags: string[];
   otlpEndpoint: string | undefined;
@@ -184,6 +188,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     s3,
     smtpUrl: raw.PERCH_SMTP_URL,
     telemetry: raw.PERCH_TELEMETRY,
+    ollamaUrls: (raw.PERCH_OLLAMA_URL ?? "")
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
     flags: (raw.PERCH_FLAGS ?? "")
       .split(",")
       .map((name) => name.trim())

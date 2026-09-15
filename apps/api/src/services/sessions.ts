@@ -46,6 +46,7 @@ import {
   upsertCheckpoint,
 } from "../repos/sessions.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
+import type { BrainsService } from "./brains.ts";
 import { getProject, projectRunnerLink } from "./projects.ts";
 import { runnerCall, runnerError } from "./runners.ts";
 
@@ -55,6 +56,8 @@ export type SessionDeps = {
   registry: RunnerRegistry;
   engines: EngineRegistry;
   flags: Flags;
+  /** Model profiles and the credentials behind them (task 1.15). */
+  brains: BrainsService;
   log: Logger;
 };
 
@@ -91,11 +94,15 @@ export type CreateSessionInput = {
   project: Project;
   userId: string;
   engine?: string;
+  /** Which program the engine runs: an ACP agent id, a CLI id (ADR-0081). The runner's default otherwise. */
+  agent?: string;
   model?: ModelRef;
   mode?: SessionMode;
   title?: string | null;
   /** agent (the default) or the editor's inline lane. */
   kind?: CodingSessionKind;
+  /** The brain to run on (task 1.15); without one, the workspace's default for code, then the engine's own. */
+  modelProfileId?: string;
   by: ActorContext;
 };
 
@@ -229,13 +236,15 @@ export class SessionService {
       });
     }
     const link = await projectRunnerLink(this.deps, input.project, input.userId);
+    const model = input.model ?? (await this.brainFor(input));
     const session = await insertSession(this.deps.db, {
       workspaceId: input.project.workspaceId,
       projectId: input.project.id,
       runnerId: UUID.test(link.id) ? link.id : null,
       userId: input.userId,
       engine: engineId,
-      model: input.model ?? ENGINE_DEFAULT_MODEL,
+      ...(input.agent ? { agent: input.agent } : {}),
+      model,
       mode: input.mode ?? "build",
       title: input.title ?? null,
       ...(input.kind ? { kind: input.kind } : {}),
@@ -277,6 +286,7 @@ export class SessionService {
       runnerId: UUID.test(link.id) ? link.id : null,
       userId,
       engine: session.engine,
+      agent: session.agent,
       model: {
         provider: session.modelProvider,
         modelId: session.modelId,
@@ -626,6 +636,33 @@ export class SessionService {
       : [`session:${session.id}`, `ws:${session.workspaceId}`];
   }
 
+  /**
+   * Which brain a new session runs on (task 1.15): the profile the caller named, else the
+   * workspace's default for code, else whatever the engine is configured with.
+   */
+  private async brainFor(input: CreateSessionInput): Promise<ModelRef> {
+    const workspaceId = input.project.workspaceId;
+    const named = input.modelProfileId
+      ? await this.deps.brains.profileFor(workspaceId, input.modelProfileId)
+      : null;
+    if (input.modelProfileId && !named) throw PerchError.notFound("model profile");
+    const profile = named ?? (await this.deps.brains.defaultFor(workspaceId, "code"));
+    if (!profile) return ENGINE_DEFAULT_MODEL;
+    return { provider: profile.provider, modelId: profile.modelId, profileId: profile.id };
+  }
+
+  /** `{env}` for the engine when the session runs on a brain with a credential; `{}` otherwise. */
+  private async engineEnv(
+    session: CodingSession,
+    userId: string,
+  ): Promise<{ env?: Record<string, string> }> {
+    if (!session.modelProfileId) return {};
+    const profile = await this.deps.brains.profileFor(session.workspaceId, session.modelProfileId);
+    if (!profile) return {};
+    const env = await this.deps.brains.engineEnv(profile, userId);
+    return Object.keys(env).length > 0 ? { env } : {};
+  }
+
   private async linkFor(
     session: CodingSession,
     userId: string,
@@ -681,12 +718,15 @@ export class SessionService {
           workspaceId: session.workspaceId,
           projectId: session.projectId,
           userId: session.userId,
+          ...(session.agent ? { agent: session.agent } : {}),
           model: {
             provider: session.modelProvider,
             modelId: session.modelId,
             ...(session.modelProfileId ? { profileId: session.modelProfileId } : {}),
           },
           mode: session.mode,
+          // The credential goes into the engine's environment and nowhere else (AGENTS.md §1.6).
+          ...(await this.engineEnv(session, userId)),
         });
         if (created.engineSessionId && created.engineSessionId !== session.engineSessionId) {
           await updateSession(this.deps.db, session.id, {

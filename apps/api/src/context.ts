@@ -8,6 +8,7 @@ import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { BrainsService } from "./services/brains.ts";
 import type { SessionService } from "./services/sessions.ts";
 
 /** What every handler can reach through the Hono context. */
@@ -37,6 +38,8 @@ export type Deps = {
   /** The engines sessions can open on (task 1.8). */
   engines: EngineRegistry;
   sessions: SessionService;
+  /** Credentials, model profiles, and the catalog behind them (task 1.15). */
+  brains: BrainsService;
   /** Feature flags (spec §9.1), default off. */
   flags: Flags;
   log: Logger;
