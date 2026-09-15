@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { Bot, Code, Inbox, MessageSquare, Search, SquareKanban } from "lucide-react";
 import type { ComponentType } from "react";
+import { ChannelsMain } from "../../../chat/channels.tsx";
 import { ProjectsMain } from "../../../code/projects.tsx";
 import { membersQuery } from "../../../lib/queries.ts";
 import { usePresence } from "../../../lib/ws.ts";
@@ -36,7 +37,12 @@ function ModeRoute() {
   const Icon = ICONS[mode];
   return (
     <ModePage title={t(`ui.mode.${mode}`)} subtitle={workspace.name} shell={shell}>
-      {mode === "home" ? <HomeMain workspaceId={workspace.id} /> : null}
+      {mode === "home" ? (
+        <>
+          <ChannelsMain workspaceId={workspace.id} workspaceSlug={workspace.slug} />
+          <HomeMain workspaceId={workspace.id} />
+        </>
+      ) : null}
       {mode === "code" ? (
         <ProjectsMain
           workspaceId={workspace.id}
@@ -57,7 +63,7 @@ function ModeRoute() {
           />
         </div>
       ) : null}
-      {mode === "code" ? null : (
+      {mode === "code" || mode === "home" ? null : (
         <EmptyState
           icon={<Icon className="size-8" aria-hidden="true" />}
           title={t(`shell.${mode}.emptyTitle`)}
@@ -68,7 +74,7 @@ function ModeRoute() {
   );
 }
 
-/** Home shows the people in the workspace with live presence until channels arrive (Phase 2). */
+/** Home also shows the people in the workspace, with live presence (task 0.10). */
 function HomeMain(props: { workspaceId: string }) {
   const members = useQuery(membersQuery(props.workspaceId)).data ?? [];
   const presence = usePresence(props.workspaceId);

@@ -63,7 +63,7 @@ the phase, ADR-0018); each line names the commit that carries its evidence.
 
 ## Phase 2 — Chat, bots, the loop's front half
 
-- [ ] **2.1** Channels: public, private, DMs, groups, item threads; membership; header; archive; sidebar sections with unread weight (Playwright: create, join, leave, archive)
+- [x] **2.1** Channels: public, private, DMs, groups, item threads; membership; header; archive; sidebar sections with unread weight (Playwright: create, join, leave, archive) — commit `feat(chat): channels — public, private, who is in them, and putting one away` (ADR-0090; channels routes and service over the 0.5 schema, Home's sidebar sections weighted by unread, the browser and the create form in main, a channel's header with topic, join, leave and archive; e2e/channels.e2e.ts drives create/join/leave/archive at both viewports with a second browser)
 - [ ] **2.2** Messages: blocks, edit history, delete, threads with reply counts, hover toolbar, pins, bookmarks, read state, mentions with autocomplete for people, bots, groups, channels, work items, files (Playwright covers each)
 - [ ] **2.3** Reactions, files with previews, unfurls for Perch identifiers, web push (push arrives on a phone for a mention)
 - [ ] **2.4** Search: full-text over messages and files with filters; results page with peek (under 150 ms on 100k messages)

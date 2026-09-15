@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./i18n": "./src/i18n/index.ts",
+    "./i18n/chat": "./src/i18n/chat.ts",
     "./i18n/code": "./src/i18n/code.ts",
     "./i18n/settings": "./src/i18n/settings.ts",
     "./session": "./src/components/session-transcript.tsx",

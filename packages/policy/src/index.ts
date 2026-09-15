@@ -39,6 +39,10 @@ export const ACTIONS = [
   "connections.admin",
   "previews.read",
   "previews.share",
+  "channels.read",
+  "channels.create",
+  "channels.update",
+  "channels.archive",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -105,6 +109,13 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   // changing the project, because a share link leaves the workspace.
   "previews.read": ["owner", "admin", "member"],
   "previews.share": ["owner", "admin", "member"],
+  // Chat (task 2.1): a workspace is a place to talk, so every member starts channels, joins the
+  // public ones, and sets a topic. Archiving takes a channel away from everybody who is in it, so
+  // it stays with the people who answer for the workspace (ADR-0090).
+  "channels.read": ["owner", "admin", "member"],
+  "channels.create": ["owner", "admin", "member"],
+  "channels.update": ["owner", "admin", "member"],
+  "channels.archive": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -137,6 +148,10 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "connections.admin": "admin",
   "previews.read": "read",
   "previews.share": "write",
+  "channels.read": "read",
+  "channels.create": "write",
+  "channels.update": "write",
+  "channels.archive": "write",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

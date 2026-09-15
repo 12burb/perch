@@ -22,6 +22,8 @@ export type CatalogModel = components["schemas"]["CatalogModel"];
 export type ProviderRow = components["schemas"]["Provider"];
 export type ConnectionRow = components["schemas"]["Connection"];
 export type ConnectionProviderRow = components["schemas"]["ConnectionProvider"];
+export type ChannelRow = components["schemas"]["Channel"];
+export type ChannelMemberRow = components["schemas"]["ChannelMember"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -245,6 +247,32 @@ export function catalogQuery(workspaceId: string, credentialId: string) {
       ).models,
     enabled: workspaceId !== "" && credentialId !== "",
     retry: false,
+  });
+}
+
+/** The channels this member can see, with what is unread in each (task 2.1). */
+export function channelsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "channels"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/channels", { params: { path: { ws: workspaceId } } }),
+      ).channels,
+    enabled: workspaceId !== "",
+  });
+}
+
+/** Who is in one channel (task 2.1). */
+export function channelMembersQuery(workspaceId: string, channelId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "channels", channelId, "members"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/channels/{channel}/members", {
+          params: { path: { ws: workspaceId, channel: channelId } },
+        }),
+      ).members,
+    enabled: workspaceId !== "" && channelId !== "",
   });
 }
 

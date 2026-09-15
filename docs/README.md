@@ -18,6 +18,7 @@
 | [`brains.md`](brains.md) | Brains: provider credentials, model profiles, the live catalog, Ollama auto-detect |
 | [`mcp-gateway.md`](mcp-gateway.md) | The MCP gateway: a connection's tools for an agent, without the credential |
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
+| [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |

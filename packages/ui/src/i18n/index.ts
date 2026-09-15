@@ -4,8 +4,8 @@
  *
  * The catalog is split so the first paint does not carry the whole app's vocabulary (ADR-0085).
  * `en.json` holds what the shell itself says — the rail, the sidebars, sign-in, the command
- * palette. Everything a route owns lives in a fragment beside it (`en.code.json`,
- * `en.settings.json`) which registers itself when that route's chunk loads:
+ * palette. Everything a route owns lives in a fragment beside it (`en.chat.json`,
+ * `en.code.json`, `en.settings.json`) which registers itself when that route's chunk loads:
  * `import "@perch/ui/i18n/code"` at the top of a module in the chunk, and the strings are there
  * before anything in it renders, because ES modules run their imports first.
  *
@@ -19,12 +19,17 @@
  *    and the route's own `t()` calls live in the component half that loads with them.
  */
 
+import type chat from "./en.chat.json";
 import type code from "./en.code.json";
 import en from "./en.json" with { type: "json" };
 import type settings from "./en.settings.json";
 
 /** Every key that exists, whichever fragment ships it: `t()` is typed across all of them. */
-export type MessageKey = keyof typeof en | keyof typeof code | keyof typeof settings;
+export type MessageKey =
+  | keyof typeof en
+  | keyof typeof chat
+  | keyof typeof code
+  | keyof typeof settings;
 export type Locale = "en";
 export type MessageParams = Record<string, string | number>;
 

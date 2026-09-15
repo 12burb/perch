@@ -49,6 +49,10 @@ describe("authorize (task 0.9)", () => {
       "connections.admin": { owner: true, admin: true, member: false },
       "previews.read": { owner: true, admin: true, member: true },
       "previews.share": { owner: true, admin: true, member: true },
+      "channels.read": { owner: true, admin: true, member: true },
+      "channels.create": { owner: true, admin: true, member: true },
+      "channels.update": { owner: true, admin: true, member: true },
+      "channels.archive": { owner: true, admin: true, member: false },
     };
     for (const action of ACTIONS) {
       for (const role of ["owner", "admin", "member"] as const) {

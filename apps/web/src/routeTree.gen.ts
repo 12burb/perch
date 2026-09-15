@@ -23,6 +23,7 @@ import { Route as AppWorkspaceSettingsRouteImport } from './routes/_app/$workspa
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings/profile'
 import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
 import { Route as AppWorkspaceCodeProjectRouteImport } from './routes/_app/$workspace/code.$project'
+import { Route as AppWorkspaceHomeChannelRouteImport } from './routes/_app/$workspace/home.$channel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -94,6 +95,11 @@ const AppWorkspaceCodeProjectRoute = AppWorkspaceCodeProjectRouteImport.update({
   path: '/code/$project',
   getParentRoute: () => AppWorkspaceRoute,
 } as any)
+const AppWorkspaceHomeChannelRoute = AppWorkspaceHomeChannelRouteImport.update({
+  id: '/home/$channel',
+  path: '/home/$channel',
+  getParentRoute: () => AppWorkspaceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
   '/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
+  '/$workspace/home/$channel': typeof AppWorkspaceHomeChannelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
   '/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
+  '/$workspace/home/$channel': typeof AppWorkspaceHomeChannelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/_app/settings/security': typeof AppSettingsSecurityRoute
   '/_app/$workspace/code/$project': typeof AppWorkspaceCodeProjectRoute
+  '/_app/$workspace/home/$channel': typeof AppWorkspaceHomeChannelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/settings/profile'
     | '/settings/security'
     | '/$workspace/code/$project'
+    | '/$workspace/home/$channel'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -173,6 +183,7 @@ export interface FileRouteTypes {
     | '/settings/profile'
     | '/settings/security'
     | '/$workspace/code/$project'
+    | '/$workspace/home/$channel'
   id:
     | '__root__'
     | '/'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/_app/settings/profile'
     | '/_app/settings/security'
     | '/_app/$workspace/code/$project'
+    | '/_app/$workspace/home/$channel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -300,6 +312,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceCodeProjectRouteImport
       parentRoute: typeof AppWorkspaceRoute
     }
+    '/_app/$workspace/home/$channel': {
+      id: '/_app/$workspace/home/$channel'
+      path: '/home/$channel'
+      fullPath: '/$workspace/home/$channel'
+      preLoaderRoute: typeof AppWorkspaceHomeChannelRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
   }
 }
 
@@ -308,6 +327,7 @@ interface AppWorkspaceRouteChildren {
   AppWorkspaceEnvironmentsRoute: typeof AppWorkspaceEnvironmentsRoute
   AppWorkspaceSettingsRoute: typeof AppWorkspaceSettingsRoute
   AppWorkspaceCodeProjectRoute: typeof AppWorkspaceCodeProjectRoute
+  AppWorkspaceHomeChannelRoute: typeof AppWorkspaceHomeChannelRoute
 }
 
 const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
@@ -315,6 +335,7 @@ const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
   AppWorkspaceEnvironmentsRoute: AppWorkspaceEnvironmentsRoute,
   AppWorkspaceSettingsRoute: AppWorkspaceSettingsRoute,
   AppWorkspaceCodeProjectRoute: AppWorkspaceCodeProjectRoute,
+  AppWorkspaceHomeChannelRoute: AppWorkspaceHomeChannelRoute,
 }
 
 const AppWorkspaceRouteWithChildren = AppWorkspaceRoute._addFileChildren(

@@ -2800,3 +2800,58 @@ stand-in now answers those two prompts and why the exit-criterion repository dec
 `bunx playwright test --project=phase1-key --project=phase1-ollama --project=phase1-opencode
 --project=phase1-acp` — four passed. The whole suite (38 specs across six projects) is green, and
 `bun run check` covers the fixture the api's connections test now shares with the harness.
+
+## ADR-0090: A channel is a room with one lock: archiving
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.1
+
+### Context
+§5.2 asks for channels — public, private, DMs, groups and item threads — with membership, a header,
+archiving, and sidebar sections weighted by unread. The schema for all of it landed in task 0.5, so
+what this task decides is who may do what, and what the client is told.
+
+### Decision
+1. **One lock, and it is archiving.** Starting a channel, renaming it, setting its topic and adding
+   people are every member's to do (`channels.create`, `channels.update`); archiving is owners' and
+   admins' (`channels.archive`). A workspace where a member cannot start a conversation is not a
+   workspace; archiving, though, takes a room away from everybody in it, so it sits with the people
+   who answer for the place. Deleting a channel is not offered at all: an archive keeps what was
+   said, and a delete is the one action nobody can undo.
+2. **A private channel is private down to its name.** A channel the caller may not see answers 404,
+   never 403 — the same rule the workspace itself follows. The listing is filtered the same way:
+   every public channel, plus the private ones, DMs, groups and item threads the caller is in.
+3. **Joining is a membership, not a request.** A public channel is open to every member of the
+   workspace; anything else has to be opened from the inside by somebody already in it. Joining
+   twice is the membership you already had, not a second row and not an error.
+4. **Unread is counted by id, not by time.** The read mark is a message id and ids are UUIDv7
+   (ADR-0025), so "newer than the mark" is `id > mark.id`. A timestamp comparison ties when two
+   messages are written in the same instant — which a batch insert does every time — and a tie in
+   this query silently loses an unread message. The count leaves out the caller's own messages and
+   anything deleted.
+5. **A join or a leave is a `channel.updated`, not an event of its own.** §7.2's event names are the
+   contract the client subscribes to; membership changes travel as `channel.updated` with
+   `changes: ["members"]`, which is enough for the sidebar to refetch and keeps the event list as
+   the spec has it. Archiving keeps its own `channel.archived`, because it means something different
+   to everybody in the room.
+6. **The room, not the conversation.** A channel with no messages says so, because messages are task
+   2.2 and a screen that pretends otherwise would be a lie. The header, the topic, the member list
+   and the sidebar weight are all real; the body arrives next task.
+
+### Consequences
+Phase 2 has somewhere to put a message. The sidebar's weight is already computed from `read_state`,
+so 2.2 turns it on rather than adding it.
+
+What is not here: DMs and groups have routes and a section but no way to start one from the UI (they
+need the people picker that comes with mentions in 2.2), muting, and the channel header's pins and
+bots, which are 2.2 and 2.6.
+
+### What was actually verified
+`e2e/channels.e2e.ts` at both viewports: a channel is created and named `#release-notes`, its topic
+is set, it appears in the sidebar, a second person in a second browser joins it from Home and leaves
+it from inside it — with the member count changing under the first person's eyes both times — and an
+owner archives it, which marks it and drops it out of the sidebar while a member has no such button.
+`apps/api/test/channels.test.ts` covers the rules directly: name normalization and the conflict, who
+sees what, joining twice, adding from the inside, the unread count with messages seeded in the
+table, and a member refused the archive that an owner is allowed.
