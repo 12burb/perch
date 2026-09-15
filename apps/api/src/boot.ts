@@ -209,6 +209,14 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     app,
     ws,
     runnerChannel,
+    /**
+     * Teardown, in the one order that makes sense: stop taking new work, let what is running
+     * finish, then close what it was running against.
+     *
+     * Nothing here depends on how many times it yields. That was not true until ADR-0109: one extra
+     * `await` anywhere in this function used to leave a runner's "mark offline" write in flight
+     * while PGlite closed under it, and PGlite's own close spins forever when that happens.
+     */
     close: async () => {
       stopBots();
       stopAudit();
@@ -217,6 +225,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();
+      // What a bot was in the middle of saying finishes, so its `bot_runs` row is not left
+      // `running` for ever (task 2.6's note in ADR-0096, possible again since ADR-0109).
+      await bots.settled();
       await db.close();
     },
   };

@@ -3253,12 +3253,13 @@ bot's runs and installs but none for the bot itself.
 
 ### A note on shutdown
 `BotsService.settled()` waits for whatever a bot is in the middle of saying, and the obvious place
-to call it is `boot`'s `close()`. It is not called there. Adding **any** extra `await` to `close()`
-— `await Promise.resolve()` is enough, at any position — makes `apps/api/test/preview-tunnel.test.ts`
-spin at 100% CPU during teardown, and that reproduces on `main` without a line of task 2.6 in the
-tree. So the spin is a latent bug in the shutdown path, not something bots introduced, and 2.6 does
-not poke it: `stopBots()` unsubscribes so no new run starts, and a run already in flight is
-abandoned (its row stays `running`) rather than waited for. The teardown race is worth its own fix.
+to call it is `boot`'s `close()`. It was not called there: adding **any** extra `await` to `close()`
+— `await Promise.resolve()` was enough, at any position — made `apps/api/test/preview-tunnel.test.ts`
+spin at 100% CPU during teardown, and that reproduced on `main` without a line of task 2.6 in the
+tree. So the spin was a latent bug in the shutdown path rather than something bots introduced.
+
+**Fixed in ADR-0109**, and the drain is now in `close()`: a run in flight finishes instead of being
+abandoned with its `bot_runs` row left `running`.
 
 ### Consequences
 A workspace can have bots that answer, on any provider somebody has a key for or on a local model,
@@ -3836,3 +3837,60 @@ what to install rather than pretending.
 ### Spec deviations
 `preview.screenshot` (§7.6), and `POST /api/workspaces/{ws}/projects/{p}/screenshot` (§7.1 lists no
 route for a feature §5.6 asks for). Both are the smallest surface that does what §5.6 says.
+
+## ADR-0109: A closing database drains what it started and refuses what comes after
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: the shutdown race (the follow-up ADR-0096's "note on shutdown" left open)
+
+### Context
+`Booted.close()` could not be given one more `await`. Adding `await Promise.resolve()` anywhere in
+it — before the first line, before the last — made `apps/api/test/preview-tunnel.test.ts` pin a core
+and grow to about 4 GB instead of finishing. Nothing in the function looked like a loop.
+
+What the extra tick changed is what had *started* by the time `db.close()` ran. Perch's real
+shutdowns already yield: `apps/api/src/index.ts` and `apps/cli/src/laptop.ts` both await the queue
+worker before closing, and `RunningServer.stop()` force-closes every socket first. A socket closing
+is not quiet — the runner channel's `onClose` marks that runner offline, and it does so
+fire-and-forget, because a WebSocket callback cannot be awaited by whoever closed the socket. One
+extra tick was enough for that write to be in flight when PGlite was told to close.
+
+And PGlite closing with a query in flight does not fail — it spins. Inside its own
+`execProtocolRawSync` is a `for (;;)` that runs `_PostgresMainLoopOnce()` until the input buffer is
+consumed, with the error from each iteration swallowed. When the connection is already tearing down
+that condition is never met, so the loop runs for ever, allocating as it goes. That is the core at
+100% and the 4 GB.
+
+### Decision
+Two changes, at two levels, because the cause has two halves.
+
+**The database handle is made ordering-insensitive.** `createDb`'s PGlite handle counts the queries
+it has started. `close()` waits for those to finish (up to `PGLITE_DRAIN_MS`, five seconds), then
+refuses anything that arrives afterwards with "the database is closing; this query was not run",
+then closes. A stray write during teardown is now a rejected promise with a sentence in it, rather
+than a wedged process. This is the half that matters, because Perch cannot promise that nothing
+anywhere ever starts a write while shutting down: a socket closing, a subscriber finishing, a
+`.catch()` on a background job are all ordinary.
+
+**The runner channel stops losing the write.** `close()` now tears each session down itself, awaited,
+rather than closing the socket and hoping its `onClose` runs in time; and it drains any teardown a
+socket already started on its own. So a shutdown leaves runners `offline` in the database, which is
+what somebody sees after a restart.
+
+With those, `close()` gained the `await bots.settled()` that task 2.6 wanted and could not have: a
+bot's in-flight run finishes instead of being abandoned with its `bot_runs` row stuck on `running`.
+
+### Consequences
+`apps/api/test/shutdown.test.ts` holds the property rather than the ordering: an app closes after
+its sockets were killed and a tick passed; it closes with a query in flight and that query still
+gets its answer; a query issued after closing is refused; and a shutdown really does mark its
+runners offline. The extra tick is in those tests on purpose — it is the thing that used to break.
+
+A close now takes as long as the work it is waiting for, which for Perch is milliseconds. The
+five-second cap means a genuinely wedged query delays a shutdown by five seconds and no more; after
+that the close proceeds, which can still meet PGlite's spin — a cap is a bound on waiting, not a fix
+for a query that never ends.
+
+Postgres is untouched: `postgres.js` closes its pool with its own timeout and has never had this
+problem. The guard is PGlite's because the bug is.

@@ -64,6 +64,61 @@ export type PgliteRuntime = {
   loadDataDir?: Blob | File;
 };
 
+/**
+ * How long a closing PGlite waits for the queries it already started (ADR-0109). Long enough for
+ * any statement Perch issues, short enough that a wedged one does not hold a shutdown open.
+ */
+export const PGLITE_DRAIN_MS = 5_000;
+
+/**
+ * PGlite's `close()` spins forever — a `for(;;)` in its own `execProtocolRawSync` — when a query is
+ * still in flight, so the process pins a core and grows without bound instead of shutting down
+ * (ADR-0109). Perch cannot fix that from here, and it cannot promise that nothing anywhere ever
+ * starts a write during teardown: a socket closing, a subscriber finishing, a fire-and-forget
+ * `.catch()` are all ordinary.
+ *
+ * So the handle itself is made ordering-insensitive. It counts what it has started, `close()` waits
+ * for that to finish before it closes anything, and anything that arrives after closing has begun is
+ * refused with a sentence rather than admitted into a database that is going away.
+ */
+function guardClosing(pglite: PGlite): { closing: () => Promise<void>; refuseFrom: () => void } {
+  const inFlight = new Set<Promise<unknown>>();
+  let refusing = false;
+  for (const name of ["query", "exec", "transaction"] as const) {
+    const original = pglite[name];
+    if (typeof original !== "function") continue;
+    const wrapped = (...args: unknown[]): unknown => {
+      if (refusing) {
+        return Promise.reject(new Error("the database is closing; this query was not run"));
+      }
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite's overloads differ per method
+      const out = (original as any).apply(pglite, args) as unknown;
+      if (!out || typeof (out as Promise<unknown>).finally !== "function") return out;
+      const tracked = out as Promise<unknown>;
+      inFlight.add(tracked);
+      // The caller keeps the original promise, rejection and all; this copy is only for counting.
+      void tracked.then(
+        () => inFlight.delete(tracked),
+        () => inFlight.delete(tracked),
+      );
+      return tracked;
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: replacing a method on a third-party instance
+    (pglite as any)[name] = wrapped;
+  }
+  return {
+    refuseFrom: () => {
+      refusing = true;
+    },
+    closing: async () => {
+      const until = Date.now() + PGLITE_DRAIN_MS;
+      while (inFlight.size > 0 && Date.now() < until) {
+        await Promise.allSettled([...inFlight]);
+      }
+    },
+  };
+}
+
 /** Opens a PGlite database with the extensions the schema needs (pgvector, citext). */
 export function openPglite(dataDir?: string, runtime: PgliteRuntime = {}): PGlite {
   const { extensions, loadDataDir, ...modules } = runtime;
@@ -80,6 +135,7 @@ export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
     const dataDir = pgliteDataDir(options.url);
     const pglite = openPglite(dataDir, options.pglite);
     await pglite.waitReady;
+    const guard = guardClosing(pglite);
     const db = drizzlePglite(pglite, { schema });
     return {
       db,
@@ -87,7 +143,12 @@ export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
       location: dataDir ?? "memory",
       // PGlite is a single connection, so the pool handle is the migration connection.
       migrate: () => migrateOnOneConnection(db),
-      close: () => pglite.close(),
+      close: async () => {
+        // Whatever was already running finishes; whatever comes after is refused (ADR-0109).
+        await guard.closing();
+        guard.refuseFrom();
+        await pglite.close();
+      },
     };
   }
   const client = postgres(options.url, {

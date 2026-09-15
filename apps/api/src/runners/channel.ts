@@ -299,6 +299,19 @@ export function createRunnerChannel(
     session.link?.settle(message);
   }
 
+  /**
+   * Teardowns that have started but not finished. A socket closing marks its runner offline, and
+   * that write outlives the callback that began it — so shutdown waits for these rather than
+   * racing the database's own close (ADR-0109).
+   */
+  const teardowns = new Set<Promise<void>>();
+
+  function track(work: Promise<void>): Promise<void> {
+    teardowns.add(work);
+    void work.finally(() => teardowns.delete(work));
+    return work;
+  }
+
   async function teardown(session: Session, reason: string): Promise<void> {
     sessions.delete(session);
     if (session.registerTimer) clearTimeout(session.registerTimer);
@@ -345,8 +358,10 @@ export function createRunnerChannel(
         if (!session) return;
         const closing = session;
         session = undefined;
-        teardown(closing, evt.reason || `closed (${evt.code})`).catch((error: unknown) =>
-          closing.log.error({ err: error }, "runner teardown failed"),
+        track(
+          teardown(closing, evt.reason || `closed (${evt.code})`).catch((error: unknown) =>
+            closing.log.error({ err: error }, "runner teardown failed"),
+          ),
         );
       },
     };
@@ -409,7 +424,17 @@ export function createRunnerChannel(
     /** Closes every control socket; the registry entries go with them. */
     async close(): Promise<void> {
       streams.closeAll();
-      for (const session of [...sessions]) session.ws.close(1001, "api shutting down");
+      // Mark each runner offline here rather than waiting for its socket's own onClose: that
+      // callback runs whenever the socket gets round to it, which may be after the database has
+      // gone (ADR-0109). A later onClose for the same session finds no link and does nothing.
+      for (const session of [...sessions]) {
+        session.ws.close(1001, "api shutting down");
+        await teardown(session, "api shutting down").catch((error: unknown) =>
+          session.log.error({ err: error }, "runner teardown failed"),
+        );
+      }
+      // And whatever a socket that closed on its own already started, before this was called.
+      while (teardowns.size > 0) await Promise.allSettled([...teardowns]);
     },
   };
 }
