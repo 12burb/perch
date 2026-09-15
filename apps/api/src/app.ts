@@ -11,6 +11,7 @@ import { authenticate, requireUser } from "./auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
+import { registerBots } from "./routes/bots.ts";
 import { registerBrains } from "./routes/brains.ts";
 import { registerChannels } from "./routes/channels.ts";
 import { registerConnections } from "./routes/connections.ts";
@@ -129,6 +130,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerPreviews(app, deps);
   registerChannels(app, deps);
   registerMessages(app, deps);
+  registerBots(app, deps);
   registerFiles(app, deps);
   registerUnfurl(app, deps);
   registerPush(app, deps);

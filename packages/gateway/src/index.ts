@@ -9,6 +9,7 @@ export {
   type FetchLike,
   listModels,
 } from "./catalog.ts";
+export type { LanguageModel, ModelMessage } from "./models.ts";
 export {
   costOf,
   type ModelPrice,

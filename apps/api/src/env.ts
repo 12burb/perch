@@ -50,6 +50,9 @@ const rawEnvSchema = z.object({
   PERCH_FLAGS: z.string().optional(),
   /** Where a local Ollama is, when it is not on the default port (task 1.15). */
   PERCH_OLLAMA_URL: z.string().optional(),
+  /** Where a bot's web_search goes (task 2.6): a Brave-shaped endpoint, and the key it takes. */
+  PERCH_SEARCH_URL: z.string().optional(),
+  PERCH_SEARCH_KEY: z.string().optional(),
   PERCH_DATA_DIR: z.string().min(1).optional(),
   PERCH_COMMIT: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -84,6 +87,8 @@ export type Env = {
   telemetry: boolean;
   /** Where to look for a local Ollama, beyond the default port. */
   ollamaUrls: readonly string[];
+  /** The search endpoint a bot's web_search uses; without one the tool says it is not configured. */
+  search: { url: string; key: string | undefined } | undefined;
   /** Flags PERCH_FLAGS turned on. */
   flags: string[];
   otlpEndpoint: string | undefined;
@@ -192,6 +197,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
       .split(",")
       .map((url) => url.trim())
       .filter(Boolean),
+    search: raw.PERCH_SEARCH_URL
+      ? { url: raw.PERCH_SEARCH_URL, key: raw.PERCH_SEARCH_KEY }
+      : undefined,
     flags: (raw.PERCH_FLAGS ?? "")
       .split(",")
       .map((name) => name.trim())

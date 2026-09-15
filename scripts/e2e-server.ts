@@ -6,7 +6,8 @@
  *
  * It also stands up a fake OpenAI-compatible provider on E2E_PROVIDER_PORT (3998) so the brains
  * spec (task 1.15) can add a key and an endpoint that really answer `GET /v1/models` without
- * reaching the internet, and a real Vite dev server on E2E_VITE_PORT (3997) so the preview spec
+ * reaching the internet — and, for task 2.6, a streaming `POST /v1/chat/completions` so a bot in a
+ * channel really answers, and a real Vite dev server on E2E_VITE_PORT (3997) so the preview spec
  * (task 1.18) proves HMR through the proxy against the thing itself, not a stand-in.
  *
  * For the Phase 1 exit criterion (task 1.22) it also starts a stand-in GitHub — the repository the
@@ -40,8 +41,43 @@ const providerPort = Number(process.env.E2E_PROVIDER_PORT ?? "3998");
 const provider = Bun.serve({
   port: providerPort,
   hostname: "127.0.0.1",
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url);
+    // A bot's brain (task 2.6): the OpenAI-compatible streaming shape, answering whoever asked.
+    if (url.pathname.endsWith("/chat/completions")) {
+      const body = (await request.json()) as { messages?: { role: string; content?: unknown }[] };
+      const last = [...(body.messages ?? [])].reverse().find((one) => one.role === "user");
+      const asked = typeof last?.content === "string" ? last.content : "";
+      const reply = `Reading you. You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const send = (payload: unknown) =>
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`));
+          for (const piece of reply.match(/.{1,12}/g) ?? []) {
+            send({
+              id: "1",
+              object: "chat.completion.chunk",
+              created: 1,
+              model: "gpt-test-mini",
+              choices: [{ index: 0, delta: { content: piece }, finish_reason: null }],
+            });
+          }
+          send({
+            id: "1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "gpt-test-mini",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+          });
+          controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+      });
+    }
     if (!url.pathname.endsWith("/models")) return new Response("not found", { status: 404 });
     const needsKey = url.pathname.startsWith("/key/");
     if (needsKey && !request.headers.get("authorization")?.startsWith("Bearer ")) {

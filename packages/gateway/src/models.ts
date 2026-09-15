@@ -14,7 +14,10 @@ import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createXai } from "@ai-sdk/xai";
-import type { LanguageModel } from "ai";
+import type { LanguageModel, ModelMessage } from "ai";
+
+export type { LanguageModel, ModelMessage };
+
 import { baseUrlFor } from "./providers.ts";
 
 export type ModelRequest = {

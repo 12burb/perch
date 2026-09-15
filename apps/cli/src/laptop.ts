@@ -88,7 +88,10 @@ export async function startLaptop(options: LaptopOptions = {}): Promise<Laptop> 
       "random port: PERCH_PUBLIC_URL does not match; use --port for real work",
     );
   }
-  const worker = booted.queue.worker({ queues: ["system"], handlers: {} });
+  const worker = booted.queue.worker({
+    queues: ["system", "bots"],
+    handlers: booted.bots.jobHandlers(),
+  });
   worker.start();
   let stopping: Promise<void> | null = null;
   return {

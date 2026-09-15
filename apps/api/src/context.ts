@@ -9,6 +9,7 @@ import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
 import type { McpGateway } from "./services/mcp.ts";
@@ -46,6 +47,8 @@ export type Deps = {
   sessions: SessionService;
   /** Credentials, model profiles, and the catalog behind them (task 1.15). */
   brains: BrainsService;
+  /** The native bot runtime: triggers, tools, runs and their ledger (task 2.6). */
+  bots: BotsService;
   connections: ConnectionsService;
   mcp: McpGateway;
   previews: PreviewService;

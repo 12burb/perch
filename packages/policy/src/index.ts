@@ -48,6 +48,9 @@ export const ACTIONS = [
   "messages.moderate",
   "files.read",
   "files.write",
+  "bots.read",
+  "bots.write",
+  "bots.admin",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -130,6 +133,12 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   // guest reads what they are shown and uploads nothing.
   "files.read": ["owner", "admin", "member"],
   "files.write": ["owner", "admin", "member"],
+  // Bots (task 2.6): everybody sees the bots of the workspace and may make one of their own, the
+  // way they may add their own brain. A bot everybody in the workspace can talk to spends the
+  // workspace's money, so making one visible to everybody is an admin's (ADR-0096).
+  "bots.read": ["owner", "admin", "member"],
+  "bots.write": ["owner", "admin", "member"],
+  "bots.admin": ["owner", "admin"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -171,6 +180,9 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "messages.moderate": "write",
   "files.read": "read",
   "files.write": "write",
+  "bots.read": "read",
+  "bots.write": "write",
+  "bots.admin": "admin",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

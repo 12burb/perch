@@ -6545,6 +6545,560 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/bots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The bots you can see here */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Bots */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bots"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Make a bot */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["NewBot"];
+                };
+            };
+            responses: {
+                /** @description The bot */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One bot */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The bot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Take a bot away */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Gone */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change a bot */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PatchBot"];
+                };
+            };
+            responses: {
+                /** @description The bot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a bot in a channel */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["InstallBot"];
+                };
+            };
+            responses: {
+                /** @description The bot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}/install/{channel}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a bot out of a channel */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                    channel: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The bot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bot"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a bot something without saying it in the channel */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TestBot"];
+                };
+            };
+            responses: {
+                /** @description The reply */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BotTestReply"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this bot has done, and what it cost */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Runs */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            runs: components["schemas"]["BotRun"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/files": {
         parameters: {
             query?: never;
@@ -7898,6 +8452,166 @@ export type components = {
         MarkRead: {
             /** Format: uuid */
             message_id: string;
+        };
+        Bots: {
+            bots: components["schemas"]["Bot"][];
+        };
+        Bot: {
+            /** Format: uuid */
+            id: string;
+            handle: string;
+            name: string;
+            /** @enum {string} */
+            level: "ui" | "spec" | "code" | "external";
+            spec: {
+                persona?: string;
+                brain?: {
+                    profile?: string;
+                    temperature?: number;
+                    maxOutputTokens?: number;
+                };
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                triggers?: {
+                    /** @enum {string} */
+                    on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
+                    match?: string;
+                    regex?: boolean;
+                    cron?: string;
+                    prompt?: string;
+                    channel?: string;
+                }[];
+                scope?: {
+                    channels?: string[];
+                };
+                memory?: {
+                    window?: number;
+                    longTerm?: boolean;
+                    embedModel?: string;
+                };
+                maxSteps?: number;
+            };
+            /** Format: uuid */
+            owner_id: string;
+            /** @enum {string} */
+            visibility: "private" | "workspace";
+            orchestrator: boolean;
+            budget: {
+                dailyUsd?: number;
+                perRunUsd?: number;
+                perHourRuns?: number;
+            };
+            /** @enum {string} */
+            status: "active" | "paused" | "disabled";
+            /** @description Where it has been installed */
+            channels: string[];
+            created_at: string;
+        };
+        NewBot: {
+            handle: string;
+            name: string;
+            spec?: {
+                persona?: string;
+                brain?: {
+                    profile?: string;
+                    temperature?: number;
+                    maxOutputTokens?: number;
+                };
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                triggers?: {
+                    /** @enum {string} */
+                    on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
+                    match?: string;
+                    regex?: boolean;
+                    cron?: string;
+                    prompt?: string;
+                    channel?: string;
+                }[];
+                scope?: {
+                    channels?: string[];
+                };
+                memory?: {
+                    window?: number;
+                    longTerm?: boolean;
+                    embedModel?: string;
+                };
+                maxSteps?: number;
+            };
+            /** @enum {string} */
+            visibility?: "private" | "workspace";
+            budget?: {
+                dailyUsd?: number;
+                perRunUsd?: number;
+                perHourRuns?: number;
+            };
+            orchestrator?: boolean;
+        };
+        PatchBot: {
+            name?: string;
+            spec?: {
+                persona?: string;
+                brain?: {
+                    profile?: string;
+                    temperature?: number;
+                    maxOutputTokens?: number;
+                };
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                triggers?: {
+                    /** @enum {string} */
+                    on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
+                    match?: string;
+                    regex?: boolean;
+                    cron?: string;
+                    prompt?: string;
+                    channel?: string;
+                }[];
+                scope?: {
+                    channels?: string[];
+                };
+                memory?: {
+                    window?: number;
+                    longTerm?: boolean;
+                    embedModel?: string;
+                };
+                maxSteps?: number;
+            };
+            /** @enum {string} */
+            visibility?: "private" | "workspace";
+            budget?: {
+                dailyUsd?: number;
+                perRunUsd?: number;
+                perHourRuns?: number;
+            };
+            /** @enum {string} */
+            status?: "active" | "paused" | "disabled";
+            orchestrator?: boolean;
+        };
+        InstallBot: {
+            /** Format: uuid */
+            channel_id: string;
+        };
+        BotTestReply: {
+            reply: string;
+            run: components["schemas"]["BotRun"];
+        };
+        BotRun: {
+            /** Format: uuid */
+            id: string;
+            trigger: string;
+            trigger_ref: string | null;
+            /** @enum {string} */
+            status: "running" | "done" | "error" | "refused";
+            model_id: string | null;
+            input_tokens: number;
+            output_tokens: number;
+            cost_usd: number;
+            started_at: string;
+            ended_at: string | null;
+            error: string | null;
+        };
+        TestBot: {
+            text: string;
+            /** Format: uuid */
+            channel_id: string;
         };
         UnfurlCard: {
             identifier: string;

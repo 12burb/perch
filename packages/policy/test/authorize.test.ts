@@ -58,6 +58,9 @@ describe("authorize (task 0.9)", () => {
       "messages.moderate": { owner: true, admin: true, member: false },
       "files.read": { owner: true, admin: true, member: true },
       "files.write": { owner: true, admin: true, member: true },
+      "bots.read": { owner: true, admin: true, member: true },
+      "bots.write": { owner: true, admin: true, member: true },
+      "bots.admin": { owner: true, admin: true, member: false },
     };
     for (const action of ACTIONS) {
       for (const role of ["owner", "admin", "member"] as const) {

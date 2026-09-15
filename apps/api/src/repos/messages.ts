@@ -7,13 +7,14 @@ import type { Db, Message, MessageBlock, MessageEdit } from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 
-const { messages, messageEdits, messageReactions, pins, bookmarks, readState, users } = schema;
+const { messages, messageEdits, messageReactions, pins, bookmarks, readState, users, bots } =
+  schema;
 
 /** One emoji on one message: how many put it there, and whether the caller is one of them. */
 export type ReactionSummary = { emoji: string; count: number; mine: boolean };
 
 export type MessageRow = Message & {
-  /** The author's name and handle when they are a person; null for a bot until task 2.6. */
+  /** Who said it: a person's name and handle, or a bot's (task 2.6). Null for the system. */
   authorName: string | null;
   authorHandle: string | null;
   pinned: boolean;
@@ -31,15 +32,21 @@ type ListOptions = {
 };
 
 function decorate(
-  rows: { message: Message; name: string | null; handle: string | null }[],
+  rows: {
+    message: Message;
+    name: string | null;
+    handle: string | null;
+    botName: string | null;
+    botHandle: string | null;
+  }[],
   pinnedIds: Set<string>,
   bookmarkedIds: Set<string>,
   reactions: Map<string, ReactionSummary[]>,
 ): MessageRow[] {
   return rows.map((row) => ({
     ...row.message,
-    authorName: row.name,
-    authorHandle: row.handle,
+    authorName: row.name ?? row.botName,
+    authorHandle: row.handle ?? row.botHandle,
     pinned: pinnedIds.has(row.message.id),
     bookmarked: bookmarkedIds.has(row.message.id),
     reactions: reactions.get(row.message.id) ?? [],
@@ -67,9 +74,16 @@ export async function listMessages(
   // turned around again so a caller always gets oldest first.
   const backwards = Boolean(options.before) || !options.after;
   const rows = await db
-    .select({ message: messages, name: users.name, handle: users.handle })
+    .select({
+      message: messages,
+      name: users.name,
+      handle: users.handle,
+      botName: bots.name,
+      botHandle: bots.handle,
+    })
     .from(messages)
     .leftJoin(users, and(eq(messages.authorType, "user"), eq(messages.authorId, users.id)))
+    .leftJoin(bots, and(eq(messages.authorType, "bot"), eq(messages.authorId, bots.id)))
     .where(and(...where))
     .orderBy(backwards ? desc(messages.id) : asc(messages.id))
     .limit(limit);
@@ -179,9 +193,16 @@ export async function getMessageRow(
   userId: string,
 ): Promise<MessageRow | null> {
   const [row] = await db
-    .select({ message: messages, name: users.name, handle: users.handle })
+    .select({
+      message: messages,
+      name: users.name,
+      handle: users.handle,
+      botName: bots.name,
+      botHandle: bots.handle,
+    })
     .from(messages)
     .leftJoin(users, and(eq(messages.authorType, "user"), eq(messages.authorId, users.id)))
+    .leftJoin(bots, and(eq(messages.authorType, "bot"), eq(messages.authorId, bots.id)))
     .where(eq(messages.id, id))
     .limit(1);
   if (!row) return null;
@@ -293,10 +314,17 @@ export async function unpinMessage(db: Db, channelId: string, messageId: string)
 /** The pinned messages of a channel, newest pin first (spec §5.2 channel header). */
 export async function listPinned(db: Db, channelId: string, userId: string): Promise<MessageRow[]> {
   const rows = await db
-    .select({ message: messages, name: users.name, handle: users.handle })
+    .select({
+      message: messages,
+      name: users.name,
+      handle: users.handle,
+      botName: bots.name,
+      botHandle: bots.handle,
+    })
     .from(pins)
     .innerJoin(messages, eq(pins.messageId, messages.id))
     .leftJoin(users, and(eq(messages.authorType, "user"), eq(messages.authorId, users.id)))
+    .leftJoin(bots, and(eq(messages.authorType, "bot"), eq(messages.authorId, bots.id)))
     .where(and(eq(pins.channelId, channelId), isNull(messages.deletedAt)))
     .orderBy(desc(pins.createdAt));
   const ids = rows.map((row) => row.message.id);
@@ -330,10 +358,17 @@ export async function unbookmarkMessage(
 /** Everything one person saved for later (spec §4 "Later"), newest first. */
 export async function listBookmarks(db: Db, userId: string): Promise<MessageRow[]> {
   const rows = await db
-    .select({ message: messages, name: users.name, handle: users.handle })
+    .select({
+      message: messages,
+      name: users.name,
+      handle: users.handle,
+      botName: bots.name,
+      botHandle: bots.handle,
+    })
     .from(bookmarks)
     .innerJoin(messages, eq(bookmarks.messageId, messages.id))
     .leftJoin(users, and(eq(messages.authorType, "user"), eq(messages.authorId, users.id)))
+    .leftJoin(bots, and(eq(messages.authorType, "bot"), eq(messages.authorId, bots.id)))
     .where(and(eq(bookmarks.userId, userId), isNull(messages.deletedAt)))
     .orderBy(desc(bookmarks.createdAt));
   const ids = rows.map((row) => row.message.id);

@@ -24,6 +24,7 @@ import {
   type RunnerChannelOptions,
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
+import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
 import { McpGateway } from "./services/mcp.ts";
@@ -141,6 +142,15 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     previewDomain: env.previewDomain,
     secret: env.sessionSecret,
   });
+  const bots = new BotsService({
+    db: db.db,
+    bus,
+    botEvents,
+    brains,
+    queue,
+    log,
+    ...(env.search ? { search: env.search } : {}),
+  });
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, flags, brains, mcp, log },
     options.sessions ?? {},
@@ -157,6 +167,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     engines,
     sessions,
     brains,
+    bots,
     connections,
     mcp,
     previews,
@@ -165,6 +176,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     version: versionInfo(env),
   };
   const stopAudit = startAuditSubscriber({ bus, db, log });
+  // A bot hears what is said through the bus like everything else (task 2.6). Shutting down
+  // unsubscribes so no new run starts; a run already in flight is abandoned rather than waited for,
+  // because one extra tick inside `close` wakes a spin in the teardown that predates bots (ADR-0096).
+  const stopBots = bots.start();
   // A mention reaches a phone through the same bus everything else travels on (task 2.3).
   const stopPush = startPushSubscriber({ bus, db, vault, env, log });
   const ws = createWsServer({ bus, db: db.db, log });
@@ -180,6 +195,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     ws,
     runnerChannel,
     close: async () => {
+      stopBots();
       stopAudit();
       stopPush();
       sessions.close();

@@ -19,7 +19,9 @@ import {
   CatalogError,
   type CatalogModel,
   detectOllama,
+  type LanguageModel,
   listModels,
+  modelFor,
   PROVIDERS,
   providerInfo,
 } from "@perch/gateway";
@@ -296,6 +298,33 @@ export class BrainsService {
       else env.OPENAI_BASE_URL = base;
     }
     return env;
+  }
+
+  /**
+   * The brain as something that can be called (task 2.6). The key is decrypted here, handed to the
+   * gateway, and held by the model object for the length of the call — it never reaches a bot, a
+   * prompt, a log line or a client (AGENTS §1.6).
+   *
+   * `userId` is who the call is on behalf of: a bot's owner, or the person asking. A user-scoped
+   * credential is theirs alone, which is what stops a shared bot spending somebody's personal key.
+   */
+  async languageModel(profile: ModelProfile, userId: string): Promise<LanguageModel> {
+    if (!profile.credentialId) {
+      // No credential: an endpoint that needs none (a local Ollama on its default port).
+      return modelFor({ provider: profile.provider, modelId: profile.modelId });
+    }
+    const credential = await this.credentialFor(profile.workspaceId, userId, profile.credentialId);
+    if (!credential) {
+      throw PerchError.validation("this brain's credential is not yours to use", {
+        profile: profile.name,
+      });
+    }
+    return modelFor({
+      provider: credential.provider,
+      modelId: profile.modelId,
+      baseUrl: credential.baseUrl,
+      apiKey: await this.secret(credential),
+    });
   }
 
   private async secret(row: ProviderCredential): Promise<string> {

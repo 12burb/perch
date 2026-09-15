@@ -8,7 +8,15 @@
  * session sends (diff, session, tool) arrive with the bot runtime in 2.6.
  */
 import "@perch/ui/i18n/chat";
-import { Badge, Button, Composer, type MentionQuery, type Suggestion, t } from "@perch/ui";
+import {
+  Badge,
+  BotBadge,
+  Button,
+  Composer,
+  type MentionQuery,
+  type Suggestion,
+  t,
+} from "@perch/ui";
 import { type BlockAct, BlockRenderer, type ChatBlock } from "@perch/ui/blocks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -267,6 +275,7 @@ function MessageItem(props: {
     >
       <div className="flex items-baseline gap-2">
         <span className="font-semibold">{row.author_name ?? t("chat.someone")}</span>
+        {row.author_type === "bot" ? <BotBadge /> : null}
         <span className="text-sm text-fg-subtle">{when(row.created_at)}</span>
         {row.pinned ? <Badge tone="accent">{t("chat.pinned")}</Badge> : null}
         {row.bookmarked ? <Badge>{t("chat.saved")}</Badge> : null}

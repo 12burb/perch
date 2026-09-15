@@ -3192,3 +3192,102 @@ viewports, a reader offered nothing to press, and no horizontal overflow at 390 
 `e2e/interactive-blocks.e2e.ts` at both viewports: a message of blocks posted over the contract a
 bot will use, arriving without a reload, approved and answered in place with no "(edited)" mark, a
 select showing the option's label afterwards, and the same thing after a reload.
+
+## ADR-0096: A bot is a member with a ledger, and everything it is told is somebody's words
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.6
+
+### Context
+§5.3 describes a bot as identity, persona, brain, tools, triggers, scope, memory, budget, rate limit,
+owner and visibility, with four ways to make one; task 2.6 is the first of them — the native runtime
+— and its acceptance is "a template bot answers a mention within budget". The schema for it (§6
+`bots`, `bot_installs`, `bot_runs`, `bot_memories`) did not exist yet, nothing in Perch had ever
+called a model directly (sessions call engines on runners), and §7.7's bus catalog has events for a
+bot's runs and installs but none for the bot itself.
+
+### Decision
+1. **A bot is a member of the channels it is installed in.** `bot_installs` carries the scopes, and
+   the install also writes the `channel_members` row that the rest of chat already understands — so
+   a bot reads and writes with the same checks as anybody else, and its name and `BOT` badge come
+   from the same join as a person's.
+2. **The brain is a model profile, called through the AI SDK.** `@perch/gateway` turns a profile
+   into a language model: first-party adapters for the providers Perch knows, OpenAI-compatible for
+   everything else. The credential is decrypted in `BrainsService`, handed to the gateway, and held
+   by the model object for the length of one call — never in a prompt, a log line, a bot's context
+   or a response (AGENTS §1.6).
+3. **A bot runs on its owner's credential**, and a workspace-visible bot therefore needs an admin to
+   create it (`bots.admin`): spec §3.6's "a bot visible to more than one person runs on Lane A or a
+   local model" is about whose money and whose account a shared bot spends.
+4. **Budgets are checked against the ledger.** Every turn writes a `bot_runs` row with tokens and
+   cost, so `dailyUsd`, `perRunUsd` and `perHourRuns` are arithmetic over rows rather than a
+   guess. A bot over its budget answers with the reason instead of going quiet — silence looks like
+   a broken bot — and the refusal is recorded. A run that overruns what was left finishes and says
+   so: the money is already spent, and the honest thing is to show it.
+5. **The reply is a placeholder that fills in** (§5.4), and rewriting it is not an edit: no
+   `message_edits` row, no "(edited)" — the same `history: false` path interactive blocks use
+   (ADR-0095). A channel's answer goes in the thread of the message that asked; a DM has no thread
+   to open, so it goes in the conversation.
+6. **Tool outputs are wrapped as untrusted, without exception**, and the system prompt says what the
+   wrapper means. The wrapper is applied by the registry rather than by each tool, and content that
+   tries to close it early has its tags stripped first.
+7. **`http_fetch` refuses the network Perch runs on**: no loopback, link-local, private range or
+   `.internal`/`.local` name. A bot is not a way to reach the metadata service or a neighbour's
+   port. `web_search` is a pluggable endpoint (`PERCH_SEARCH_URL`, Brave-shaped) and says it is not
+   configured rather than inventing results.
+8. **Triggers are a pure function** of the spec and what happened (`packages/bots/src/triggers.ts`),
+   so the rule a bot answers by can be read and tested without a database or a model. `channel_join`
+   is the bot's own arrival rather than everybody else's, which is the reading that does not turn a
+   greeting into a doorbell. Schedules are the queue's: `bot:<id>:<n>` keyed cron rows on the `bots`
+   queue, rescheduled whenever the spec changes.
+9. **The runtime never touches Perch.** `packages/bots` is triggers, tools, budget arithmetic and
+   one turn over a `BotHost` interface the api implements — no database, no network of its own, no
+   credential, and no import of anything but `@perch/db`'s types and the AI SDK.
+10. **A bot's turn never happens inside the request that caused it.** The bus subscriber starts the
+    run and returns; whoever posted the message gets their 201 immediately.
+11. **Recall without an embedding model falls back to the words.** `bot_memories.embedding` is
+    nullable and the HNSW index is partial: a Perch with no embedding model configured still keeps
+    and finds what a bot remembered, by `ilike` over the content, rather than pretending to a vector
+    it never computed.
+
+### A note on shutdown
+`BotsService.settled()` waits for whatever a bot is in the middle of saying, and the obvious place
+to call it is `boot`'s `close()`. It is not called there. Adding **any** extra `await` to `close()`
+— `await Promise.resolve()` is enough, at any position — makes `apps/api/test/preview-tunnel.test.ts`
+spin at 100% CPU during teardown, and that reproduces on `main` without a line of task 2.6 in the
+tree. So the spin is a latent bug in the shutdown path, not something bots introduced, and 2.6 does
+not poke it: `stopBots()` unsubscribes so no new run starts, and a run already in flight is
+abandoned (its row stays `running`) rather than waited for. The teardown race is worth its own fix.
+
+### Consequences
+A workspace can have bots that answer, on any provider somebody has a key for or on a local model,
+with what each one costs visible per turn. The Bot API seam from 2.5 now has a runtime beside it for
+2.7's transports to attach to.
+
+What is not here: the Forge UI (2.8), spec and code bots and the QuickJS sandbox, the Bot API's own
+routes and tokens (`chat.postMessage` and friends), bot-to-bot mentions and chains (2.7), DM-a-bot
+(2.9), `sandbox_exec`, `repo_read`/`repo_search`, `open_session`, `image_generate` and MCP attach,
+per-install tool narrowing beyond the spec's own list, and typing indicators while a bot thinks.
+
+**Spec deviation.** §7.7's catalog has `bot.installed|uninstalled|run_*` but no event for a bot
+being created, changed or deleted, and the catalog is closed (a test asserts it is exactly the
+spec's list). So bot CRUD publishes nothing and is therefore not in the audit log; when the spec
+grows `bot.created`/`bot.updated`, the publish plugs into the same places.
+
+### What was actually verified
+`apps/api/test/bots.test.ts` against a stub OpenAI-compatible endpoint (the whole lane: credential in
+the vault → gateway → streamed answer): a bot made, refused a taken handle, installed and a member of
+the channel; **the acceptance** — a mention answered in the thread, by name, badged, with no
+"(edited)", and a `bot_runs` row carrying the model, 120 input and 30 output tokens; the channel's
+flow left alone; the model shown the conversation with people's names; silence when nobody named it;
+the test chat answering without posting; a rate limit refusing the next run and saying so where it
+was asked; a scheduled trigger keyed in the queue and firing into the channel it names; a private
+bot invisible to the workspace's owner; and a member refused a workspace-visible bot. Plus the
+guards: `fetchable` refusing loopback, private, link-local, `::1`, `file:` and nonsense, and
+`readable` stripping scripts.
+`packages/bots/test/runtime.test.ts` and `triggers.test.ts` (ADR-0095's commit and this one): the
+placeholder, the cost, the budget, the wrapper, and every trigger.
+`e2e/bots.e2e.ts` at both viewports: a brain and a bot made over the routes the Forge will use, a
+mention in the composer, the answer arriving in the thread with the BOT badge, axe clean, and the
+run on the ledger.

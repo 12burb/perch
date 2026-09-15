@@ -42,7 +42,10 @@ if (entrypoint === "supervisor") {
 }
 
 if (entrypoint === "worker" || entrypoint === "api") {
-  const worker = booted.queue.worker({ queues: ["system"], handlers: {} });
+  const worker = booted.queue.worker({
+    queues: ["system", "bots"],
+    handlers: booted.bots.jobHandlers(),
+  });
   worker.start();
   const shutdown = async () => {
     await worker.stop();
