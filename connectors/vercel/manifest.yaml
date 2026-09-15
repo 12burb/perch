@@ -1,0 +1,17 @@
+# Vercel (spec §3.5, §5.5; task 2.14).
+#
+# Vercel's MCP server speaks OAuth; a team or personal access token is the fallback, and is what a
+# workspace connection usually runs on so a deploy is not tied to one person's login.
+id: vercel
+name: Vercel
+summary: Deploy from the IDE, read a project's environments, and watch a build.
+docs_url: https://vercel.com/docs/mcp/vercel-mcp
+auth:
+  - mcp_oauth
+  - token
+api_base: https://api.vercel.com
+token_prefix: []
+test_path: /v2/user
+account_field: user
+mcp_url: https://mcp.vercel.com
+webhook_signature: hmac_sha256

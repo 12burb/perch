@@ -4820,6 +4820,7 @@ export type paths = {
                         "application/json": {
                             url: string;
                             state: string;
+                            lane?: string;
                         };
                     };
                 };
@@ -5051,6 +5052,173 @@ export type paths = {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/connections/{id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who may use this connection, and for what */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Grants */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConnectionGrants"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Let a bot, an automation or a session use this connection */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["GrantConnection"];
+                };
+            };
+            responses: {
+                /** @description The grant */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConnectionGrant"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/connections/{id}/grants/{grant}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a grant away */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    id: string;
+                    grant: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Gone */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -8948,7 +9116,7 @@ export type components = {
             name: string;
             summary?: string;
             docs_url?: string;
-            lanes: ("github_app" | "oauth2" | "token")[];
+            lanes: ("token" | "oauth2" | "github_app" | "mcp_oauth")[];
             api_base: string;
             token_prefix: string[];
             callback_url: string;
@@ -9011,6 +9179,10 @@ export type components = {
              */
             owner_type: "user" | "workspace";
             scopes?: string[];
+            /** @enum {string} */
+            lane?: "mcp" | "oauth2";
+            /** Format: uri */
+            mcp_url?: string;
         };
         OauthClient: {
             provider: string;
@@ -9034,6 +9206,30 @@ export type components = {
             body?: string;
             head?: string;
             base?: string;
+        };
+        ConnectionGrants: {
+            grants: components["schemas"]["ConnectionGrant"][];
+        };
+        ConnectionGrant: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            subject_type: "bot" | "automation" | "session";
+            /** Format: uuid */
+            subject_id: string;
+            allowed_tools: string[] | null;
+            channels: string[] | null;
+            obo: boolean;
+            created_at: string;
+        };
+        GrantConnection: {
+            /** @enum {string} */
+            subject_type: "bot" | "automation" | "session";
+            /** Format: uuid */
+            subject_id: string;
+            allowed_tools?: string[] | null;
+            channels?: string[] | null;
+            obo?: boolean;
         };
         Previews: {
             ports: components["schemas"]["PreviewPort"][];

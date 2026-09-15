@@ -8,16 +8,20 @@
 import "@perch/ui/i18n/settings";
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
+import type { ConnectOutcome } from "../lib/connect-outcome.ts";
 import {
+  botsQuery,
   type ConnectionProviderRow,
   type ConnectionRow,
+  connectionGrantsQuery,
   connectionProvidersQuery,
   connectionsQuery,
 } from "../lib/queries.ts";
 
-type Lane = "github_app" | "oauth2" | "token";
+type Lane = "github_app" | "mcp_oauth" | "oauth2" | "token";
 
 function message(err: unknown): string {
   return err instanceof RequestFailed ? err.message : t("common.error");
@@ -26,6 +30,10 @@ function message(err: unknown): string {
 export function ConnectionsSection(props: { workspaceId: string; canAdmin: boolean }) {
   const providers = useQuery(connectionProvidersQuery(props.workspaceId));
   const connections = useQuery(connectionsQuery(props.workspaceId));
+  // How a provider's callback went, carried here by /connections (task 2.14).
+  const outcome = useSearch({ strict: false }) as ConnectOutcome;
+  const connectedName =
+    providers.data?.find((row) => row.id === outcome.connected)?.name ?? outcome.connected;
   return (
     <section aria-labelledby="connections-heading" className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
@@ -34,6 +42,16 @@ export function ConnectionsSection(props: { workspaceId: string; canAdmin: boole
         </h2>
         <p className="max-w-prose text-sm text-fg-muted">{t("connections.hint")}</p>
       </div>
+      {connectedName ? (
+        <p role="status" className="text-sm text-success">
+          {t("connections.connected", { name: connectedName })}
+        </p>
+      ) : null}
+      {outcome.error ? (
+        <p role="alert" className="text-sm text-danger">
+          {outcome.error}
+        </p>
+      ) : null}
       <ConnectionList workspaceId={props.workspaceId} rows={connections.data ?? []} />
       <Connect
         workspaceId={props.workspaceId}
@@ -47,6 +65,7 @@ export function ConnectionsSection(props: { workspaceId: string; canAdmin: boole
 function ConnectionList(props: { workspaceId: string; rows: ConnectionRow[] }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [tested, setTested] = useState<Record<string, string>>({});
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "connections"] });
@@ -102,7 +121,10 @@ function ConnectionList(props: { workspaceId: string; rows: ConnectionRow[] }) {
               className="flex flex-wrap items-center gap-2 rounded border border-border p-2"
             >
               <span className="font-medium">{row.provider_name}</span>
-              <span className="text-sm text-fg-muted">{row.account ?? row.hint ?? row.kind}</span>
+              {/* What it speaks as, else the hint of the token, else how it was connected. */}
+              <span className="text-sm text-fg-muted">
+                {row.account ?? row.hint ?? t(`connections.lane.${row.kind}`)}
+              </span>
               <Badge tone={row.owner_type === "workspace" ? "accent" : "neutral"}>
                 {t(
                   row.owner_type === "workspace"
@@ -121,6 +143,14 @@ function ConnectionList(props: { workspaceId: string; rows: ConnectionRow[] }) {
               <span className="ml-auto flex gap-2">
                 <Button
                   size="sm"
+                  variant="ghost"
+                  aria-expanded={open === row.id}
+                  onClick={() => setOpen(open === row.id ? null : row.id)}
+                >
+                  {t("connections.grants")}
+                </Button>
+                <Button
+                  size="sm"
                   onClick={() => test.mutate(row)}
                   disabled={test.isPending}
                   aria-label={t("connections.test", { name })}
@@ -137,11 +167,130 @@ function ConnectionList(props: { workspaceId: string; rows: ConnectionRow[] }) {
                   {t("settings.removeShort")}
                 </Button>
               </span>
+              {open === row.id ? <Grants workspaceId={props.workspaceId} row={row} /> : null}
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Who may use a connection (spec §3.5 "grants UI … on-behalf-of rule"; task 2.14). A connection that
+ * belongs to one person can be given to a bot the whole workspace talks to only on that person's
+ * behalf, and the api refuses anything else — so the box here is a statement of that, not a choice
+ * that could quietly widen it.
+ */
+function Grants(props: { workspaceId: string; row: ConnectionRow }) {
+  const queryClient = useQueryClient();
+  const id = useId();
+  const grants = useQuery(connectionGrantsQuery(props.workspaceId, props.row.id)).data ?? [];
+  const bots = useQuery(botsQuery(props.workspaceId)).data ?? [];
+  const [botId, setBotId] = useState("");
+  const [obo, setObo] = useState(props.row.owner_type === "user");
+  const [error, setError] = useState<string | null>(null);
+  const chosen = botId || (bots[0]?.id ?? "");
+  const invalidate = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["workspace", props.workspaceId, "connections", props.row.id, "grants"],
+    });
+
+  const grant = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/connections/{id}/grants", {
+          params: { path: { ws: props.workspaceId, id: props.row.id } },
+          body: { subject_type: "bot", subject_id: chosen, obo },
+        }),
+      ),
+    onSuccess: () => {
+      setError(null);
+      void invalidate();
+    },
+    onError: (err) => setError(message(err)),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (grantId: string) => {
+      const result = await api.DELETE("/api/workspaces/{ws}/connections/{id}/grants/{grant}", {
+        params: { path: { ws: props.workspaceId, id: props.row.id, grant: grantId } },
+      });
+      if (result.error) throw new RequestFailed(result.response.status, result.error);
+    },
+    onSuccess: () => {
+      setError(null);
+      void invalidate();
+    },
+    onError: (err) => setError(message(err)),
+  });
+
+  const nameOf = (subjectId: string) => bots.find((one) => one.id === subjectId)?.name ?? subjectId;
+
+  return (
+    <section
+      aria-label={t("connections.grants")}
+      data-testid="connection-grants"
+      className="flex w-full flex-col gap-2 border-t border-border pt-2"
+    >
+      <p className="text-sm text-fg-muted">{t("connections.grantsHint")}</p>
+      {grants.length === 0 ? (
+        <p className="text-sm text-fg-subtle">{t("connections.grantsEmpty")}</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {grants.map((one) => (
+            <li key={one.id} data-testid="grant" className="flex items-center gap-2 text-sm">
+              <span>{nameOf(one.subject_id)}</span>
+              {one.obo ? <Badge>{t("connections.grantObo")}</Badge> : null}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                aria-label={t("connections.grantRemove", { name: nameOf(one.subject_id) })}
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate(one.id)}
+              >
+                {t("settings.removeShort")}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {bots.length === 0 ? (
+        <p className="text-sm text-fg-subtle">{t("connections.grantNoBots")}</p>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2">
+          <Field id={`${id}-bot`} label={t("connections.grantSubject")}>
+            {(control) => (
+              <select
+                {...control}
+                className="h-9 rounded border border-border bg-surface px-2"
+                value={chosen}
+                onChange={(event) => setBotId(event.target.value)}
+              >
+                {bots.map((one) => (
+                  <option key={one.id} value={one.id}>
+                    {one.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <label className="flex items-center gap-1 text-sm">
+            <input type="checkbox" checked={obo} onChange={(e) => setObo(e.target.checked)} />
+            {t("connections.grantObo")}
+          </label>
+          <Button size="sm" disabled={grant.isPending || !chosen} onClick={() => grant.mutate()}>
+            {t("connections.grantAdd")}
+          </Button>
+        </div>
+      )}
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -178,7 +327,12 @@ function Connect(props: {
   });
 
   const start = useMutation({
-    mutationFn: async (body: { provider: string; owner_type: "user" | "workspace" }) =>
+    mutationFn: async (body: {
+      provider: string;
+      owner_type: "user" | "workspace";
+      lane?: "mcp" | "oauth2";
+      mcp_url?: string;
+    }) =>
       unwrap(
         await api.POST("/api/workspaces/{ws}/connections/start", {
           params: { path: { ws: props.workspaceId } },
@@ -199,6 +353,17 @@ function Connect(props: {
     const scope = data.get("owner_type") === "workspace" ? "workspace" : "user";
     if (chosen === "oauth2") {
       start.mutate({ provider: providerId, owner_type: scope });
+      return;
+    }
+    // The MCP lane: Perch asks the provider's own MCP server how to authorize (task 2.14).
+    if (chosen === "mcp_oauth") {
+      const mcpUrl = String(data.get("mcp_url") ?? "").trim();
+      start.mutate({
+        provider: providerId,
+        owner_type: scope,
+        lane: "mcp",
+        ...(mcpUrl ? { mcp_url: mcpUrl } : {}),
+      });
       return;
     }
     // Where the service lives, for anyone running it themselves: an empty box is the public one.
@@ -281,7 +446,23 @@ function Connect(props: {
         <AppWizard formId={formId} provider={provider} />
       ) : null}
 
-      {chosen === "oauth2" ? null : (
+      {(chosen === "mcp_oauth" || chosen === "oauth2") && provider ? (
+        <ByoApp workspaceId={props.workspaceId} provider={provider} />
+      ) : null}
+
+      {chosen === "mcp_oauth" ? (
+        <Field
+          id={`${formId}-mcp-url`}
+          label={t("connections.mcpUrl")}
+          hint={t("connections.mcpUrlHint")}
+        >
+          {(control) => (
+            <Input {...control} name="mcp_url" type="url" autoComplete="off" spellCheck={false} />
+          )}
+        </Field>
+      ) : null}
+
+      {chosen === "oauth2" || chosen === "mcp_oauth" ? null : (
         <Field
           id={`${formId}-api-base`}
           label={t("connections.apiBase")}
@@ -314,6 +495,78 @@ function Connect(props: {
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Registering your own app with a provider (spec §3.5's pre-registered lane; task 2.14). Perch
+ * prefers an app somebody registered here over registering one itself, so this is the first lane
+ * tried once it is filled in.
+ */
+function ByoApp(props: { workspaceId: string; provider: ConnectionProviderRow }) {
+  const id = useId();
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: async (body: { client_id: string; client_secret?: string }) =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/oauth-clients", {
+          params: { path: { ws: props.workspaceId } },
+          body: { provider: props.provider.id, ...body },
+        }),
+      ),
+    onSuccess: () => {
+      setError(null);
+      setSaved(true);
+    },
+    onError: (err) => setError(message(err)),
+  });
+  return (
+    <section
+      aria-label={t("connections.byoApp")}
+      className="flex flex-col gap-2 rounded border border-border bg-raised p-2"
+    >
+      <h4 className="text-sm font-semibold">{t("connections.byoApp")}</h4>
+      <p className="text-sm text-fg-muted">{t("connections.byoAppHint")}</p>
+      <p className="text-sm text-fg-muted">
+        {t("connections.callbackUrl")}: <code>{props.provider.callback_url}</code>
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field id={`${id}-client`} label={t("connections.clientId")}>
+          {(control) => <Input {...control} name="client_id" autoComplete="off" />}
+        </Field>
+        <Field id={`${id}-secret`} label={t("connections.clientSecret")}>
+          {(control) => (
+            <Input {...control} name="client_secret" type="password" autoComplete="off" />
+          )}
+        </Field>
+        <Button
+          size="sm"
+          disabled={save.isPending}
+          onClick={(event) => {
+            const form = (event.currentTarget as HTMLElement).closest("section");
+            const clientId =
+              form?.querySelector<HTMLInputElement>('input[name="client_id"]')?.value.trim() ?? "";
+            const secret =
+              form?.querySelector<HTMLInputElement>('input[name="client_secret"]')?.value ?? "";
+            if (!clientId) return;
+            save.mutate({ client_id: clientId, ...(secret ? { client_secret: secret } : {}) });
+          }}
+        >
+          {t("connections.saveApp")}
+        </Button>
+        {saved ? (
+          <Badge tone="accent" data-testid="app-saved">
+            {t("connections.appSaved")}
+          </Badge>
+        ) : null}
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

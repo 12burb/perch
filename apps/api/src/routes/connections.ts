@@ -6,11 +6,13 @@
  * it speaks as, and a hint — never the secret. The test call doubles as proof it still works.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { CIMD_PATH, clientMetadata, lanesOf, webhookUrl } from "@perch/connect";
+import { AUTH_KINDS, CIMD_PATH, clientMetadata, lanesOf, webhookUrl } from "@perch/connect";
+import { type ConnectionGrant, GRANT_SUBJECTS } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { botFor } from "../services/bots.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
 import { openPullRequest } from "../services/pull-requests.ts";
 import { projectDeps } from "./projects.ts";
@@ -26,7 +28,7 @@ const providerSchema = z
     summary: z.string().optional(),
     docs_url: z.string().optional(),
     /** The lanes this provider offers, strongest identity first (spec §3.5). */
-    lanes: z.array(z.enum(["github_app", "oauth2", "token"])),
+    lanes: z.array(z.enum(AUTH_KINDS)),
     api_base: z.string(),
     token_prefix: z.array(z.string()),
     /** Prefilled for the wizard, so nobody has to work out their own public URL. */
@@ -134,6 +136,74 @@ const createRouteDef = createRoute({
   },
 });
 
+const grantSchema = z
+  .object({
+    id: z.uuid(),
+    subject_type: z.enum(GRANT_SUBJECTS),
+    subject_id: z.uuid(),
+    /** Null means every tool the connection exposes. */
+    allowed_tools: z.array(z.string()).nullable(),
+    channels: z.array(z.string()).nullable(),
+    /** Whether it may use this connection only for the person it belongs to (spec §3.5). */
+    obo: z.boolean(),
+    created_at: z.string(),
+  })
+  .openapi("ConnectionGrant");
+
+const grantsSchema = z.object({ grants: z.array(grantSchema) }).openapi("ConnectionGrants");
+
+const grantBody = z
+  .object({
+    subject_type: z.enum(GRANT_SUBJECTS),
+    subject_id: z.uuid(),
+    allowed_tools: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
+    channels: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
+    obo: z.boolean().optional(),
+  })
+  .openapi("GrantConnection");
+
+const listGrantsRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/connections/{id}/grants",
+  tags: ["connections"],
+  summary: "Who may use this connection, and for what",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: wsIdParam },
+  responses: {
+    200: { description: "Grants", content: { "application/json": { schema: grantsSchema } } },
+    ...errorResponses(403, 404),
+  },
+});
+
+const grantRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/connections/{id}/grants",
+  tags: ["connections"],
+  summary: "Let a bot, an automation or a session use this connection",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: wsIdParam,
+    body: { content: { "application/json": { schema: grantBody } } },
+  },
+  responses: {
+    201: { description: "The grant", content: { "application/json": { schema: grantSchema } } },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const revokeGrantRoute = createRoute({
+  method: "delete",
+  path: "/api/workspaces/{ws}/connections/{id}/grants/{grant}",
+  tags: ["connections"],
+  summary: "Take a grant away",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: wsIdParam.extend({ grant: z.uuid() }) },
+  responses: { 204: { description: "Gone" }, ...errorResponses(403, 404) },
+});
+
 const testRoute = createRoute({
   method: "post",
   path: "/api/workspaces/{ws}/connections/{id}/test",
@@ -212,6 +282,14 @@ const startRoute = createRoute({
               provider: z.string().min(1).max(64),
               owner_type: z.enum(["user", "workspace"]).default("user"),
               scopes: z.array(z.string().min(1).max(200)).max(50).optional(),
+              /**
+               * Which lane to take (task 2.14). `mcp` discovers the provider's authorization server
+               * from its MCP server; `oauth2` uses the endpoints the manifest names. Absent means
+               * the best one this provider offers.
+               */
+              lane: z.enum(["mcp", "oauth2"]).optional(),
+              /** A self-hosted instance of this provider's MCP server, when it is not the default. */
+              mcp_url: z.url().max(2000).optional(),
             })
             .openapi("StartConnection"),
         },
@@ -222,7 +300,14 @@ const startRoute = createRoute({
     200: {
       description: "Where to send the person, and the state the callback is checked against",
       content: {
-        "application/json": { schema: z.object({ url: z.string(), state: z.string() }) },
+        "application/json": {
+          schema: z.object({
+            url: z.string(),
+            state: z.string(),
+            /** How Perch came by the client id it used: pre_registered, cimd, or dcr. */
+            lane: z.string().optional(),
+          }),
+        },
       },
     },
     ...errorResponses(403, 404, 422),
@@ -405,14 +490,22 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
       body.owner_type === "workspace" ? "connections.admin" : "connections.write",
       { type: "workspace", id: ws },
     );
+    const input = {
+      workspaceId: ws,
+      userId: currentUser(c).id,
+      provider: body.provider,
+      ownerType: body.owner_type,
+      ...(body.scopes ? { scopes: body.scopes } : {}),
+      ...(body.mcp_url ? { mcpUrl: body.mcp_url } : {}),
+    };
+    // The MCP lane when it was asked for, or when it is the only one this provider offers.
+    const lanes = lanesOf(connections.manifest(body.provider));
+    const mcp =
+      body.lane === "mcp" ||
+      Boolean(body.mcp_url) ||
+      (body.lane === undefined && !lanes.includes("oauth2"));
     return c.json(
-      await connections.startOAuth({
-        workspaceId: ws,
-        userId: currentUser(c).id,
-        provider: body.provider,
-        ownerType: body.owner_type,
-        ...(body.scopes ? { scopes: body.scopes } : {}),
-      }),
+      mcp ? await connections.startMcpOAuth(input) : await connections.startOAuth(input),
       200,
     );
   });
@@ -488,6 +581,50 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
     );
   });
 
+  app.openapi(listGrantsRoute, async (c) => {
+    const { ws, id } = c.req.valid("param");
+    await authorize(c, deps, "connections.read", { type: "workspace", id: ws });
+    const row = await connections.connectionFor(ws, currentUser(c).id, id);
+    if (!row) throw PerchError.notFound("connection");
+    return c.json({ grants: (await connections.grants(row.id)).map(grantBodyOf) }, 200);
+  });
+
+  app.openapi(grantRoute, async (c) => {
+    const { ws, id } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "connections.write", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const row = await connections.connectionFor(ws, user.id, id);
+    if (!row) throw PerchError.notFound("connection");
+    // A bot the whole workspace can talk to is what the on-behalf-of rule is about (spec §3.5).
+    const shared =
+      body.subject_type === "bot"
+        ? (await botFor(deps.db.db, ws, body.subject_id)).visibility === "workspace"
+        : body.subject_type === "automation";
+    const grant = await connections.grant({
+      connection: row,
+      subjectType: body.subject_type,
+      subjectId: body.subject_id,
+      ...(body.allowed_tools === undefined ? {} : { allowedTools: body.allowed_tools }),
+      ...(body.channels === undefined ? {} : { channels: body.channels }),
+      ...(body.obo === undefined ? {} : { obo: body.obo }),
+      grantedBy: user.id,
+      shared,
+      by: actorOf(c),
+    });
+    return c.json(grantBodyOf(grant), 201);
+  });
+
+  app.openapi(revokeGrantRoute, async (c) => {
+    const { ws, id, grant } = c.req.valid("param");
+    await authorize(c, deps, "connections.write", { type: "workspace", id: ws });
+    const row = await connections.connectionFor(ws, currentUser(c).id, id);
+    if (!row) throw PerchError.notFound("connection");
+    const gone = await connections.revoke(row, grant, actorOf(c));
+    if (!gone) throw PerchError.notFound("grant");
+    return c.body(null, 204);
+  });
+
   app.openapi(testRoute, async (c) => {
     const { ws, id } = c.req.valid("param");
     await authorize(c, deps, "connections.read", { type: "workspace", id: ws });
@@ -524,5 +661,18 @@ function toConnection(view: ReturnType<Deps["connections"]["view"]>) {
     hint: view.hint,
     expires_at: view.expiresAt,
     created_at: view.createdAt,
+  };
+}
+
+/** A grant as a caller sees it. */
+function grantBodyOf(row: ConnectionGrant) {
+  return {
+    id: row.id,
+    subject_type: row.subjectType,
+    subject_id: row.subjectId,
+    allowed_tools: row.allowedTools ?? null,
+    channels: row.channels ?? null,
+    obo: row.obo,
+    created_at: row.createdAt.toISOString(),
   };
 }

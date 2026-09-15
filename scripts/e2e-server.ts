@@ -12,13 +12,16 @@
  *
  * For the Phase 1 exit criterion (task 1.22) it also starts a stand-in GitHub — the repository the
  * loop clones, pushes to, and opens a pull request on — and a stand-in `opencode serve`, so the
- * spec can run through the OpenCode adapter on a machine with no key and no internet. Where each
- * one is lands in E2E_MANIFEST as JSON, because the specs are other processes.
+ * spec can run through the OpenCode adapter on a machine with no key and no internet. For task 2.14
+ * there is a stand-in MCP server with its own authorization server, so the connections spec can run
+ * the discovery → registration → PKCE round-trip in a browser. Where each one is lands in
+ * E2E_MANIFEST as JSON, because the specs are other processes.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { startStandInGitHub } from "../apps/api/test/fixtures/github.ts";
+import { startStandInMcp } from "../apps/api/test/fixtures/mcp-server.ts";
 import { startFakeOpenCode } from "../apps/runner/test/fixtures/opencode-server.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -181,6 +184,14 @@ const github = Object.fromEntries(
   }),
 );
 
+/**
+ * A stand-in MCP server with its own authorization server (task 2.14), so the connections spec can
+ * run the whole discovery → registration → PKCE round-trip in a browser: RFC 9728 metadata, RFC
+ * 8414 endpoints, RFC 7591 registration, and an authorize endpoint that redirects straight back.
+ * Supabase's real one is the thing being stood in for; every byte of the protocol is the same.
+ */
+const mcp = startStandInMcp();
+
 /** Where the specs (other processes) read all of this from. */
 const manifestPath = process.env.E2E_MANIFEST ?? join(tmpdir(), "perch-e2e-manifest.json");
 writeFileSync(
@@ -190,6 +201,7 @@ writeFileSync(
       github,
       opencode: { url: opencode.url },
       provider: { url: `http://127.0.0.1:${providerPort}` },
+      mcp: { url: mcp.mcpUrl, issuer: mcp.issuer },
       vite: { port: vitePort, dir: viteDir },
     },
     null,
@@ -251,6 +263,7 @@ const api = Bun.spawn(
 
 const stop = () => {
   provider.stop(true);
+  mcp.stop();
   vite.kill();
   opencode.close();
   for (const origin of origins) origin.stop();

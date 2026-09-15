@@ -3,6 +3,23 @@ export const packageName = "@perch/connect";
 
 export { CIMD_PATH, type ClientMetadata, callbackUrl, clientMetadata, webhookUrl } from "./cimd.ts";
 export {
+  type AuthorizationServer,
+  authorizationServer,
+  type ChooseClientOptions,
+  type ClientChoice,
+  chooseClient,
+  DiscoveryError,
+  type ProtectedResource,
+  protectedResource,
+  REGISTRATION_LANES,
+  type RegisteredClient,
+  type RegistrationLane,
+  registerClient,
+  resourceMetadataFromChallenge,
+  resourceMetadataUrls,
+  serverMetadataUrls,
+} from "./discovery.ts";
+export {
   appJwt,
   type FetchLike,
   GitHubAppError,
@@ -32,8 +49,10 @@ export {
 } from "./mcp.ts";
 export {
   exchangeCode,
+  exchangeCodeAt,
   OAuthError,
   type OAuthStart,
   type OAuthTokens,
   startAuthorization,
+  startAuthorizationAt,
 } from "./oauth.ts";

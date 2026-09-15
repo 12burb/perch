@@ -12,7 +12,7 @@ import { z } from "zod";
  * always available whatever else a manifest says; `oauth2` drives an authorization-code flow;
  * `github_app` mints an installation token per use.
  */
-export const AUTH_KINDS = ["token", "oauth2", "github_app"] as const;
+export const AUTH_KINDS = ["token", "oauth2", "github_app", "mcp_oauth"] as const;
 export type AuthKind = (typeof AUTH_KINDS)[number];
 
 const oauthSchema = z
@@ -96,7 +96,9 @@ export function parseManifest(source: string): Manifest {
 
 /** The lanes to try, in the order §3.5 gives them: the strongest identity first, paste last. */
 export function lanesOf(manifest: Manifest): AuthKind[] {
-  const order: AuthKind[] = ["github_app", "oauth2", "token"];
+  // The order the Connections card offers them in: the most specific lane a provider has first,
+  // and the paste lane last, because it always works and is never the best answer (spec §3.5).
+  const order: AuthKind[] = ["github_app", "mcp_oauth", "oauth2", "token"];
   return order.filter((lane) => manifest.auth.includes(lane));
 }
 

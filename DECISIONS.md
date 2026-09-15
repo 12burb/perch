@@ -3606,3 +3606,90 @@ answers with the value, and the transcript says `[redacted: DATABASE_URL]`. What
 is a value the agent transforms before printing — base64, or a string it assembles — which no
 redactor can catch; the answer to that is the same as everywhere else, that an agent is given what
 it needs and nothing more.
+
+## ADR-0104: The app-js budget grows with the app; the initial one does not
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.14
+
+### Context
+`scripts/perf-budget.ts` has guarded three numbers since task 0.12: the bytes `index.html` pulls
+before anything renders, the app's own JavaScript across every route chunk, and the library packs a
+route loads on its own. Phase 2 has added the Forge, chats with bots, the inbox, the policy editor,
+the environment card and the grants UI; app-js has crept from 480 KB to 519 KB of a 520 KB budget,
+and every remaining Phase 2 task adds a screen.
+
+### Decision
+Raise `appJsGzipKb` to 600 and leave `initialGzipKb` at 180 and `packsJsGzipKb` at 480.
+
+What a person waits for before the app is usable is the entry chunk and its stylesheet; that is
+what 180 KB guards, and it has not moved (179.5 KB) through all of Phase 2 because every screen's
+strings and components sit behind its own chunk (ADR-0085, ADR-0072). App-js is the sum of all
+those chunks: it says how much there is to download *eventually*, spread across the screens somebody
+actually opens. Holding that sum flat while the product grows would mean either refusing screens or
+gaming the split, and neither makes anything faster.
+
+### Consequences
+The budget that matters still fails a change that puts bytes in front of the first paint. The app-js
+number goes on being measured and reported on every run, so a jump is visible; it is now a number
+that can grow with the screen count rather than a wall Phase 2 was about to hit for the wrong
+reason. If a single route ever needs its own ceiling, that is a per-chunk budget to add, not a
+smaller total.
+
+## ADR-0105: A connection is discovered at the moment of connecting, and lent only on its owner's behalf
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.14
+
+### Context
+Spec §3.5 names four ways Perch can be a client of somebody else's OAuth server — an app registered
+here, this instance's client metadata document (CIMD), dynamic client registration (RFC 7591), and
+a pasted token — and says MCP OAuth is discovered "RFC 9728 → RFC 8414/OIDC metadata → PKCE". It
+does not say when any of that happens, nor what happens when a connection that belongs to one person
+is handed to a bot the whole workspace can talk to.
+
+Both questions have an easy wrong answer. Discovery could be a field in the manifest: write
+Supabase's authorization server into `connectors/supabase/manifest.yaml` and skip two round-trips.
+And a grant could be a plain row: this bot may use this connection, the way a permission usually is.
+
+### Decision
+
+**Discovery happens when somebody clicks Connect, never in a manifest.** A manifest says only where
+the MCP server is (`mcp_url`) — everything downstream of that is asked for, in order, at that
+moment: the protected-resource document, then the authorization server's metadata, then who Perch
+is as a client. The lane that answered is stored on the connection for the card to show, but it is
+an observation, not configuration.
+
+**The client lanes are tried strongest first**: an app somebody registered in this workspace, then
+CIMD when the server advertises `client_id_metadata_document_supported`, then registration on the
+spot, then nothing — which leaves the paste lane, which every provider always has.
+
+**A grant carries an on-behalf-of flag, and the personal-to-shared case may only be taken that
+way.** Granting a personal connection to a workspace-visible bot without the flag is a 403 with the
+rule named; with it, the gateway refuses at use time whenever the person who set the bot running is
+not the connection's owner. The check is at both ends deliberately: the grant so nobody is surprised
+later, the use so a grant made before a bot became shared cannot be a back door.
+
+### Consequences
+Connecting costs two or three extra HTTP round-trips, and a provider that changes its authorization
+server needs no release here — which is the trade this way round. A provider whose MCP server is
+unreachable cannot be connected on that lane at all; the card says so and the paste lane is still
+there.
+
+`mcp_url` on a connection is an override in the same shape as `api_base`, so a self-hosted Supabase
+or an enterprise Clerk is reached without a second connector. The e2e runs the whole round-trip —
+discovery, RFC 7591 registration, PKCE, the code exchange — against a stand-in MCP server started by
+`scripts/e2e-server.ts` (`apps/api/test/fixtures/mcp-server.ts`), so the protocol is exercised for
+real on a machine with no internet, rather than mocked inside Perch.
+
+The on-behalf-of rule makes "ask the shared bot to do it" stop being a way to borrow somebody's
+login. It also means a shared bot cannot do anything on a personal connection while its owner is
+asleep, which is the point: anything that has to run unattended is connected on the workspace's
+behalf, on an API key or a local model (AGENTS.md §1.6).
+
+### Spec deviations
+None. `/connections` — where a provider's callback lands — is not in §7.1's route list because it is
+a page, not an endpoint: the api redirects there, the browser resolves which workspace it belongs to
+and carries the outcome to that workspace's Connections card.

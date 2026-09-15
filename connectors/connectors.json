@@ -1,6 +1,29 @@
 {
-  "$comment": "The connectors that ship with Perch (spec §5.5). Each id is a directory with a manifest.yaml.",
+  "$comment": "The connectors that ship with Perch (spec \u00a75.5). Each id is a directory with a manifest.yaml.",
   "connectors": [
-    { "id": "github", "name": "GitHub", "manifest": "github/manifest.yaml", "since": "1.16" }
+    {
+      "id": "github",
+      "name": "GitHub",
+      "manifest": "github/manifest.yaml",
+      "since": "1.16"
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "manifest": "vercel/manifest.yaml",
+      "since": "2.14"
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "manifest": "supabase/manifest.yaml",
+      "since": "2.14"
+    },
+    {
+      "id": "clerk",
+      "name": "Clerk",
+      "manifest": "clerk/manifest.yaml",
+      "since": "2.14"
+    }
   ]
 }

@@ -113,3 +113,87 @@ function safely<T>(read: () => T): T | undefined {
     return undefined;
   }
 }
+
+/**
+ * The same authorization-code flow, against endpoints discovered rather than written down (spec
+ * §3.5 "MCP OAuth discovery … → PKCE"; task 2.14). `resource` is RFC 8707: it says which MCP server
+ * the token is for, so a token minted for one resource is not usable at another.
+ */
+export function startAuthorizationAt(options: {
+  authorizeUrl: string;
+  clientId: string;
+  redirectUri: string;
+  scopes?: readonly string[] | undefined;
+  resource?: string | undefined;
+}): OAuthStart {
+  const state = generateState();
+  const codeVerifier = generateCodeVerifier();
+  const client = new OAuth2Client(options.clientId, null, options.redirectUri);
+  const url = client.createAuthorizationURLWithPKCE(
+    options.authorizeUrl,
+    state,
+    CodeChallengeMethod.S256,
+    codeVerifier,
+    [...(options.scopes ?? [])],
+  );
+  if (options.resource) url.searchParams.set("resource", options.resource);
+  return { url: url.toString(), state, codeVerifier };
+}
+
+/**
+ * The token request, written out rather than driven by a client library: the MCP lane needs
+ * `resource` on it, and a server that registered us on the spot may or may not have given us a
+ * secret. Nothing here is logged — the request and the answer are both secrets.
+ */
+export async function exchangeCodeAt(options: {
+  tokenUrl: string;
+  clientId: string;
+  clientSecret?: string | null | undefined;
+  redirectUri: string;
+  code: string;
+  codeVerifier: string;
+  resource?: string | undefined;
+  fetcher?: ((input: string, init?: RequestInit) => Promise<Response>) | undefined;
+}): Promise<OAuthTokens> {
+  const form = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: options.code,
+    redirect_uri: options.redirectUri,
+    client_id: options.clientId,
+    code_verifier: options.codeVerifier,
+  });
+  if (options.resource) form.set("resource", options.resource);
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  if (options.clientSecret) {
+    headers.authorization = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+  }
+  let response: Response;
+  try {
+    response = await (options.fetcher ?? fetch)(options.tokenUrl, {
+      method: "POST",
+      headers,
+      body: form.toString(),
+    });
+  } catch (error) {
+    throw new OAuthError(
+      `could not reach ${options.tokenUrl}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!response.ok) {
+    throw new OAuthError(`the token endpoint answered ${response.status}`, response.status);
+  }
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const access = typeof body?.access_token === "string" ? body.access_token : "";
+  if (!access) throw new OAuthError("the token endpoint answered without an access token");
+  const expiresIn = typeof body?.expires_in === "number" ? body.expires_in : undefined;
+  const scope = typeof body?.scope === "string" ? body.scope : "";
+  return {
+    accessToken: access,
+    ...(typeof body?.refresh_token === "string" ? { refreshToken: body.refresh_token } : {}),
+    ...(expiresIn ? { expiresAt: new Date(Date.now() + expiresIn * 1000) } : {}),
+    scopes: scope.split(/[\s,]+/).filter(Boolean),
+  };
+}

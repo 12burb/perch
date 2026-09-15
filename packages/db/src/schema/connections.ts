@@ -47,6 +47,13 @@ export type ConnectionMetadata = {
   mcpUrl?: string;
   /** The last few characters of a pasted token, so two are tellable apart. Never the whole thing. */
   hint?: string;
+  /** Which lane the client id came by (task 2.14): pre_registered, cimd, or dcr. */
+  lane?: string;
+  /** The authorization server this connection's token came from, so a refresh knows where to ask. */
+  issuer?: string;
+  tokenEndpoint?: string;
+  /** The client id used, which is public in every lane; a secret, when there is one, is vaulted. */
+  clientId?: string;
 };
 
 export const connections = pgTable(

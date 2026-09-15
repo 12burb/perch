@@ -361,6 +361,20 @@ export function projectEnvQuery(workspaceId: string, projectId: string) {
   });
 }
 
+/** Who may use one connection, and for what (spec §3.5 grants; task 2.14). */
+export function connectionGrantsQuery(workspaceId: string, connectionId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "connections", connectionId, "grants"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/connections/{id}/grants", {
+          params: { path: { ws: workspaceId, id: connectionId } },
+        }),
+      ).grants,
+    enabled: workspaceId !== "" && connectionId !== "",
+  });
+}
+
 export function channelsQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "channels"],

@@ -9,22 +9,33 @@
 import type { Bus } from "@perch/bus";
 import {
   apiBaseOf,
+  authorizationServer,
+  CIMD_PATH,
   callbackUrl,
+  chooseClient,
+  clientMetadata,
   exchangeCode,
+  exchangeCodeAt,
   type FetchLike,
   GitHubAppError,
   installationToken,
   type Manifest,
+  mcpUrlOf,
   parseManifest,
+  protectedResource,
+  type RegistrationLane,
   startAuthorization,
+  startAuthorizationAt,
 } from "@perch/connect";
 import { MANIFESTS } from "@perch/connectors";
 import type {
   Connection,
+  ConnectionGrant,
   ConnectionKind,
   ConnectionMetadata,
   ConnectionOwner,
   Db,
+  GrantSubject,
   OauthClient,
 } from "@perch/db";
 import type { Vault } from "@perch/vault";
@@ -33,11 +44,14 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import {
   deleteConnection,
+  deleteGrant,
   findOauthClient,
   getConnection,
   insertConnection,
   listConnections,
+  listGrants,
   setConnectionStatus,
+  upsertGrant,
   upsertOauthClient,
 } from "../repos/connections.ts";
 
@@ -289,6 +303,8 @@ export class ConnectionsService {
       throw PerchError.validation("this authorization is not one Perch is waiting for");
     }
     const manifest = this.manifest(pending.provider);
+    // The MCP lane traded at endpoints discovery found, not at the manifest's (task 2.14).
+    if (pending.mcp) return this.finishMcpOAuth(manifest, pending, input);
     const client = await findOauthClient(this.deps.db, pending.workspaceId, pending.provider);
     if (!client) throw PerchError.validation("the app this started with is gone");
     const secret = client.ciphertextSecret
@@ -324,6 +340,135 @@ export class ConnectionsService {
       metadata: checked.account ? { account: checked.account } : {},
       by: input.by,
     });
+  }
+
+  /**
+   * The MCP lane's other half: the code is traded at the token endpoint discovery found, with the
+   * resource indicator that says which MCP server the token is for (RFC 8707).
+   */
+  private async finishMcpOAuth(
+    manifest: Manifest,
+    pending: Pending,
+    input: { code: string; by: ActorContext },
+  ): Promise<Connection> {
+    const mcp = pending.mcp;
+    if (!mcp) throw PerchError.validation("this authorization is not one Perch is waiting for");
+    const tokens = await exchangeCodeAt({
+      tokenUrl: mcp.tokenEndpoint,
+      clientId: mcp.clientId,
+      clientSecret: mcp.clientSecret ?? null,
+      redirectUri: this.callback(pending.provider),
+      code: input.code,
+      codeVerifier: pending.codeVerifier,
+      resource: mcp.resource,
+      ...(this.deps.fetch ? { fetcher: this.deps.fetch } : {}),
+    }).catch((error: unknown) => {
+      throw PerchError.validation(
+        `${manifest.name} refused the code: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return this.store({
+      workspaceId: pending.workspaceId,
+      userId: pending.userId,
+      provider: pending.provider,
+      kind: "mcp_oauth",
+      ownerType: pending.ownerType,
+      secret: JSON.stringify({
+        access: tokens.accessToken,
+        ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
+      }),
+      scopes: tokens.scopes,
+      expiresAt: tokens.expiresAt ?? null,
+      // Everything here is public: which lane, which server, which client. The secret is vaulted.
+      metadata: {
+        lane: mcp.lane,
+        issuer: mcp.issuer,
+        tokenEndpoint: mcp.tokenEndpoint,
+        clientId: mcp.clientId,
+        mcpUrl: mcp.resource,
+      },
+      by: input.by,
+    });
+  }
+
+  /**
+   * The MCP lane (spec §3.5 "MCP OAuth discovery via RFC 9728 → RFC 8414/OIDC metadata → PKCE";
+   * task 2.14). Ask the provider's MCP server which authorization server guards it, ask that server
+   * where its endpoints are, and be somebody it will talk to — an app registered here, this
+   * instance's own metadata document, or a client registered on the spot.
+   */
+  async startMcpOAuth(input: {
+    workspaceId: string;
+    userId: string;
+    provider: string;
+    ownerType: ConnectionOwner;
+    scopes?: string[];
+    /** A self-hosted instance of this provider, the way `api_base` overrides its REST host. */
+    mcpUrl?: string | undefined;
+  }): Promise<{ url: string; state: string; lane: RegistrationLane }> {
+    const manifest = this.manifest(input.provider);
+    const mcpUrl = input.mcpUrl?.trim() || mcpUrlOf(manifest);
+    if (!mcpUrl) {
+      throw PerchError.validation(`${manifest.name} has no MCP server; paste a token instead`);
+    }
+    const fetcher: FetchLike = this.deps.fetch ?? fetch;
+    const resource = await protectedResource(mcpUrl, fetcher);
+    const issuer = resource?.authorization_servers[0];
+    if (!issuer) {
+      throw PerchError.validation(
+        `${manifest.name}'s MCP server does not say how to authorize; paste a token instead`,
+      );
+    }
+    const server = await authorizationServer(issuer, fetcher);
+    if (!server) {
+      throw PerchError.validation(`${issuer} does not publish its endpoints`);
+    }
+    const registered = await findOauthClient(this.deps.db, input.workspaceId, input.provider);
+    const secret = registered?.ciphertextSecret
+      ? await this.deps.vault
+          .decryptString(registered.ciphertextSecret, AAD(input.workspaceId))
+          .catch(() => null)
+      : null;
+    const choice = await chooseClient({
+      server,
+      ...(registered
+        ? { preRegistered: { clientId: registered.clientId, clientSecret: secret } }
+        : {}),
+      cimdUrl: `${this.deps.publicUrl.replace(/\/+$/, "")}${CIMD_PATH}`,
+      registration: registrationFor(
+        clientMetadata({
+          publicUrl: this.deps.publicUrl,
+          version: "1",
+          providers: [input.provider],
+        }),
+      ),
+      fetcher,
+    });
+    const started = startAuthorizationAt({
+      authorizeUrl: server.authorization_endpoint,
+      clientId: choice.clientId,
+      redirectUri: this.callback(input.provider),
+      scopes: input.scopes ?? resource?.scopes_supported ?? server.scopes_supported ?? [],
+      resource: resource?.resource ?? mcpUrl,
+    });
+    this.pending.set(started.state, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      provider: input.provider,
+      codeVerifier: started.codeVerifier,
+      ownerType: input.ownerType,
+      expiresAt: Date.now() + PENDING_MS,
+      mcp: {
+        lane: choice.lane,
+        clientId: choice.clientId,
+        ...(choice.clientSecret ? { clientSecret: choice.clientSecret } : {}),
+        issuer,
+        tokenEndpoint: server.token_endpoint,
+        resource: resource?.resource ?? mcpUrl,
+      },
+    });
+    this.sweep();
+    return { url: started.url, state: started.state, lane: choice.lane };
   }
 
   /** The pre-registered lane (spec §3.5): an app this workspace registered with a provider. */
@@ -421,6 +566,110 @@ export class ConnectionsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Who may use a connection, and for what (spec §3.5 "grants UI … on-behalf-of rule"; task 2.14).
+   *
+   * The rule this method exists for: a connection that belongs to a person is that person's. A bot
+   * the whole workspace can talk to may not simply be handed it — whoever asked the bot would be
+   * spending somebody else's access without either of them saying so. Such a bot may use it only
+   * on that person's behalf (`obo`), and only when they are the one who invoked it; anything shared
+   * that wants more runs on a workspace connection, which is what admins grant explicitly.
+   */
+  async grant(input: {
+    connection: Connection;
+    subjectType: GrantSubject;
+    subjectId: string;
+    allowedTools?: string[] | null;
+    channels?: string[] | null;
+    obo?: boolean;
+    grantedBy: string;
+    /** Whether the subject is something more than one person can reach (a workspace-visible bot). */
+    shared: boolean;
+    by: ActorContext;
+  }): Promise<ConnectionGrant> {
+    const personal = input.connection.ownerType === "user";
+    const obo = input.obo ?? personal;
+    if (personal && input.shared && !obo) {
+      throw PerchError.forbidden(
+        "this connection is one person's; a shared bot may use it only on their behalf",
+        { rule: "obo" },
+      );
+    }
+    if (!personal && obo && input.subjectType === "bot") {
+      // A workspace connection has no one person to act for; obo would be a promise nobody keeps.
+      throw PerchError.validation(
+        "a workspace connection is used as itself, not on somebody's behalf",
+      );
+    }
+    const row = await upsertGrant(this.deps.db, {
+      connectionId: input.connection.id,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      allowedTools: input.allowedTools ?? null,
+      channels: input.channels ?? null,
+      obo,
+      grantedBy: input.grantedBy,
+    });
+    await this.deps.bus.publish(
+      "connection.grant_added",
+      {
+        workspaceId: input.connection.workspaceId,
+        connectionId: input.connection.id,
+        grantId: row.id,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      input.by,
+    );
+    return row;
+  }
+
+  grants(connectionId: string): Promise<ConnectionGrant[]> {
+    return listGrants(this.deps.db, connectionId);
+  }
+
+  async revoke(connection: Connection, grantId: string, by: ActorContext): Promise<boolean> {
+    const gone = await deleteGrant(this.deps.db, grantId);
+    if (gone) {
+      await this.deps.bus.publish(
+        "connection.grant_removed",
+        {
+          workspaceId: connection.workspaceId,
+          connectionId: connection.id,
+          grantId,
+        },
+        by,
+      );
+    }
+    return gone;
+  }
+
+  /**
+   * Whether this subject may use this connection right now (task 2.14). An `obo` grant is only good
+   * for the person the connection belongs to: a shared bot invoked by somebody else is refused,
+   * which is the rule §3.5 asks for, checked where it is used rather than only where it is given.
+   */
+  async mayUse(input: {
+    connection: Connection;
+    subjectType: GrantSubject;
+    subjectId: string;
+    /** Who set this off: the person whose turn it is. */
+    invokedBy: string;
+  }): Promise<{ ok: true; allowedTools: string[] | null } | { ok: false; reason: string }> {
+    const grants = await listGrants(this.deps.db, input.connection.id);
+    const granted = grants.find(
+      (one) => one.subjectType === input.subjectType && one.subjectId === input.subjectId,
+    );
+    if (!granted) return { ok: false, reason: "this connection has not been granted to it" };
+    if (granted.obo && input.connection.ownerId !== input.invokedBy) {
+      return {
+        ok: false,
+        reason: "this connection is one person's, and they are not the one asking",
+      };
+    }
+    return { ok: true, allowedTools: granted.allowedTools ?? null };
   }
 
   async remove(row: Connection, by: ActorContext): Promise<void> {
@@ -546,7 +795,25 @@ export type Pending = {
   codeVerifier: string;
   ownerType: ConnectionOwner;
   expiresAt: number;
+  /** The MCP lane (task 2.14): the endpoints discovery found, and the client it came by. */
+  mcp?: {
+    lane: RegistrationLane;
+    clientId: string;
+    clientSecret?: string | undefined;
+    issuer: string;
+    tokenEndpoint: string;
+    resource: string;
+  };
 };
+
+/**
+ * What RFC 7591 is sent: the same description the metadata document publishes, without the
+ * `client_id` it declares — that one is ours to claim only in the CIMD lane.
+ */
+function registrationFor(metadata: Record<string, unknown>): Record<string, unknown> {
+  const { client_id: _declared, ...rest } = metadata;
+  return rest;
+}
 
 /** How long someone has to finish at the provider before the state is forgotten. */
 export const PENDING_MS = 10 * 60_000;

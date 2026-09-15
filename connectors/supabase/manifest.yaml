@@ -1,0 +1,18 @@
+# Supabase (spec §3.5, §5.5; task 2.14).
+#
+# Supabase's MCP server registers clients on the spot (RFC 7591), which is the lane this connector
+# exists to exercise: nothing is registered with Supabase beforehand. A personal access token is the
+# fallback. A shared bot gets a project-scoped read-only connection, never somebody's own (§3.5).
+id: supabase
+name: Supabase
+summary: Browse a project's schema, run read-only queries, and read its logs.
+docs_url: https://supabase.com/docs/guides/getting-started/mcp
+auth:
+  - mcp_oauth
+  - token
+api_base: https://api.supabase.com
+token_prefix:
+  - sbp_
+test_path: /v1/projects
+mcp_url: https://mcp.supabase.com/mcp
+webhook_signature: none

@@ -7,11 +7,16 @@ import { BrainsSection } from "../../../components/brains-section.tsx";
 import { ConnectionsSection } from "../../../components/connections-section.tsx";
 import { PolicySection } from "../../../components/policy-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
+import { connectOutcome } from "../../../lib/connect-outcome.ts";
 import { auditQuery, type Member, membersQuery } from "../../../lib/queries.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
 
-export const Route = createFileRoute("/_app/$workspace/settings")({ component: WorkspaceSettings });
+export const Route = createFileRoute("/_app/$workspace/settings")({
+  // A provider's callback lands on /connections and is sent here with how it went (task 2.14).
+  validateSearch: connectOutcome,
+  component: WorkspaceSettings,
+});
 
 const ROLES = ["owner", "admin", "member"] as const;
 type Role = (typeof ROLES)[number];
