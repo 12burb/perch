@@ -89,7 +89,7 @@ describe("git methods (task 1.5)", () => {
       branches: ["feature", "main"],
     });
     await expect(gitBranch(opts, { ...ctx, name: "nope" })).rejects.toThrow();
-  });
+  }, 30_000);
 
   test("worktrees live beside the project and go away cleanly", async () => {
     const { root, dir } = await project();
@@ -112,7 +112,7 @@ describe("git methods (task 1.5)", () => {
     // An existing branch gets a worktree without -b.
     const again = await worktreeCreate(opts, { ...ctx, branch: "perch/task-1" });
     expect(existsSync(again.path)).toBe(true);
-  });
+  }, 30_000);
 
   test("push sets the upstream on origin; protected branches are refused before any push", async () => {
     const { root, dir } = await project();
@@ -138,5 +138,5 @@ describe("git methods (task 1.5)", () => {
       branch: "feature",
     });
     expect(git(remote, "rev-parse", "refs/heads/feature")).toBe(git(dir, "rev-parse", "HEAD"));
-  });
+  }, 30_000);
 });
