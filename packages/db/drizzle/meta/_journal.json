@@ -99,6 +99,13 @@
       "when": 1789450387581,
       "tag": "0013_message_edits",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789454375029,
+      "tag": "0014_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

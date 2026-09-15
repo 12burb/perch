@@ -57,5 +57,10 @@
   "chat.composer": "Message #{name}",
   "chat.composerPlaceholder": "Say something in #{name}",
   "chat.flowOf": "Messages in #{name}",
-  "chat.notHere": "not in this channel"
+  "chat.notHere": "not in this channel",
+  "chat.react": "React",
+  "chat.reactWith": "React with",
+  "chat.reactWithEmoji": "React with {emoji}",
+  "chat.reactionCount": "{emoji}, {count} — click to add yours or take yours off",
+  "chat.attach": "Attach a file"
 }

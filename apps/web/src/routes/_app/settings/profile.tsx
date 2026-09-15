@@ -1,8 +1,9 @@
 import { Button, Field, Input, t, useTheme } from "@perch/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
+import { type PushState, state as pushState, turnOff, turnOn } from "../../../lib/push.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
 
@@ -104,6 +105,7 @@ function ProfileSettings() {
             </div>
           </form>
         </section>
+        <NotificationSettings />
         <section aria-labelledby="appearance-heading" className="flex max-w-lg flex-col gap-3">
           <h2 id="appearance-heading" className="text-md font-semibold">
             {t("settings.appearance")}
@@ -141,5 +143,62 @@ function ProfileSettings() {
         </section>
       </div>
     </ModePage>
+  );
+}
+
+/**
+ * Notifications for this device (task 2.3). One switch, and the truth about where the browser
+ * stands: a person who has told it no cannot be asked again from here, and is told why.
+ */
+function NotificationSettings() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void pushState().then((current) => {
+      if (live) setState(current);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const flip = async () => {
+    setBusy(true);
+    try {
+      setState(state === "on" ? await turnOff() : await turnOn());
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby="notifications-heading" className="flex max-w-lg flex-col gap-3">
+      <h2 id="notifications-heading" className="text-md font-semibold">
+        {t("settings.notifications")}
+      </h2>
+      <p className="text-sm text-fg-muted">{t("settings.notificationsHint")}</p>
+      {state === "unsupported" ? (
+        <p className="text-sm text-fg-subtle">{t("settings.notificationsUnsupported")}</p>
+      ) : state === "denied" ? (
+        <p className="text-sm text-warning">{t("settings.notificationsDenied")}</p>
+      ) : (
+        <div className="flex items-center gap-3">
+          <Button
+            variant={state === "on" ? "ghost" : "primary"}
+            disabled={busy || state === null}
+            onClick={() => void flip()}
+          >
+            {state === "on" ? t("settings.notificationsOff") : t("settings.notificationsOn")}
+          </Button>
+          {state === "on" ? (
+            <span role="status" className="text-sm text-success">
+              {t("settings.notificationsIsOn")}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }

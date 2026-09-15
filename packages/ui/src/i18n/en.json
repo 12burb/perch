@@ -261,5 +261,15 @@
   "security.scope.write": "Write",
   "security.scope.admin": "Admin",
   "security.scopes": "Scopes",
-  "security.defaultPasskeyName": "This device"
+  "security.defaultPasskeyName": "This device",
+  "push.arrived": "Notifications",
+  "push.open": "Open",
+  "common.dismiss": "Dismiss",
+  "settings.notifications": "Notifications",
+  "settings.notificationsHint": "Perch can notify this device when somebody mentions you, even when this tab is closed.",
+  "settings.notificationsOn": "Notify this device",
+  "settings.notificationsOff": "Stop notifying this device",
+  "settings.notificationsDenied": "This browser is set to block notifications. Allow them in its site settings, then come back.",
+  "settings.notificationsUnsupported": "This browser cannot do web push.",
+  "settings.notificationsIsOn": "This device is being notified."
 }

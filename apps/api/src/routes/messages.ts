@@ -7,7 +7,7 @@
  * this" and `after` is "newer than this" without a cursor of its own.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Channel, MessageEdit } from "@perch/db";
+import type { Channel, FileRow, MessageEdit } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
@@ -15,6 +15,7 @@ import { PerchError } from "../errors.ts";
 import type { MessageRow } from "../repos/messages.ts";
 import { getMessage, getMessageRow, listBookmarks, listPinned } from "../repos/messages.ts";
 import { channelFor } from "../services/channels.ts";
+import { fileIdsIn, filesByIds } from "../services/files.ts";
 import {
   bookmark,
   edit,
@@ -23,11 +24,13 @@ import {
   parseBlocks,
   pin,
   post,
+  react,
   read,
   remove,
   textBlocks,
   thread,
 } from "../services/messages.ts";
+import { fileBody, fileSchema } from "./files.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const channelParam = z.object({ ws: z.uuid(), channel: z.uuid() });
@@ -49,6 +52,12 @@ const messageSchema = z
     author_handle: z.string().nullable(),
     blocks: z.array(blockSchema),
     reply_count: z.number().int(),
+    reactions: z
+      .array(z.object({ emoji: z.string(), count: z.number().int(), mine: z.boolean() }))
+      .openapi({ description: "One pill per emoji, in the order they were first put there" }),
+    files: z
+      .array(fileSchema)
+      .openapi({ description: "The files this message's blocks point at, in block order" }),
     pinned: z.boolean(),
     bookmarked: z.boolean(),
     edited_at: z.string().nullable(),
@@ -88,6 +97,10 @@ const patchBody = z
   .openapi("PatchMessage");
 
 const readBody = z.object({ message_id: z.uuid() }).openapi("MarkRead");
+
+const reactionBody = z.object({ emoji: z.string().min(1).max(64) }).openapi("Reaction");
+
+const reactionParam = z.object({ ws: z.uuid(), message: z.uuid(), emoji: z.string().min(1) });
 
 const listRoute = createRoute({
   method: "get",
@@ -214,6 +227,37 @@ const bookmarksRoute = createRoute({
   },
 });
 
+const reactRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/messages/{message}/reactions",
+  tags: ["messages"],
+  summary: "Put an emoji on it",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: messageParam,
+    body: { content: { "application/json": { schema: reactionBody } } },
+  },
+  responses: {
+    200: { description: "The message", content: { "application/json": { schema: messageSchema } } },
+    ...errorResponses(403, 404, 409, 422),
+  },
+});
+
+const unreactRoute = createRoute({
+  method: "delete",
+  path: "/api/workspaces/{ws}/messages/{message}/reactions/{emoji}",
+  tags: ["messages"],
+  summary: "Take yours off",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: reactionParam },
+  responses: {
+    200: { description: "The message", content: { "application/json": { schema: messageSchema } } },
+    ...errorResponses(403, 404, 409, 422),
+  },
+});
+
 const readRoute = createRoute({
   method: "post",
   path: "/api/workspaces/{ws}/channels/{channel}/read",
@@ -228,7 +272,7 @@ const readRoute = createRoute({
   responses: { 204: { description: "Marked" }, ...errorResponses(403, 404) },
 });
 
-function messageBody(row: MessageRow) {
+function messageBody(row: MessageRow, files: Map<string, FileRow>) {
   return {
     id: row.id,
     channel_id: row.channelId,
@@ -239,6 +283,11 @@ function messageBody(row: MessageRow) {
     author_handle: row.authorHandle,
     blocks: row.blocks as Block[],
     reply_count: row.replyCount,
+    reactions: row.reactions,
+    files: fileIdsIn([row])
+      .map((id) => files.get(id))
+      .filter((file): file is FileRow => Boolean(file))
+      .map(fileBody),
     pinned: row.pinned,
     bookmarked: row.bookmarked,
     edited_at: row.editedAt ? row.editedAt.toISOString() : null,
@@ -265,10 +314,18 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     return { message, channel };
   };
 
+  /** A page, with the files its blocks point at fetched once for the whole page. */
+  const bodies = async (rows: MessageRow[]) => {
+    const files = await filesByIds(deps.db.db, fileIdsIn(rows));
+    return rows.map((row) => messageBody(row, files));
+  };
+
   const rowOf = async (id: string, userId: string) => {
     const row = await getMessageRow(deps.db.db, id, userId);
     if (!row) throw PerchError.notFound("message");
-    return messageBody(row);
+    const [body] = await bodies([row]);
+    if (!body) throw PerchError.notFound("message");
+    return body;
   };
 
   app.openapi(listRoute, async (c) => {
@@ -282,7 +339,7 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       ...(query.after ? { after: query.after } : {}),
       ...(query.limit ? { limit: query.limit } : {}),
     });
-    return c.json({ messages: rows.map(messageBody) }, 200);
+    return c.json({ messages: await bodies(rows) }, 200);
   });
 
   app.openapi(postRoute, async (c) => {
@@ -310,10 +367,7 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const rootId = message.threadRootId ?? message.id;
     const root = await getMessageRow(deps.db.db, rootId, user.id);
     const replies = await thread(deps, channel, rootId, user.id);
-    return c.json(
-      { messages: [...(root ? [messageBody(root)] : []), ...replies.map(messageBody)] },
-      200,
-    );
+    return c.json({ messages: await bodies([...(root ? [root] : []), ...replies]) }, 200);
   });
 
   app.openapi(patchRoute, async (c) => {
@@ -363,14 +417,48 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const user = currentUser(c);
     const channel = await channelFor(deps, ws, channelId, user.id);
     const rows = await listPinned(deps.db.db, channel.id, user.id);
-    return c.json({ messages: rows.map(messageBody) }, 200);
+    return c.json({ messages: await bodies(rows) }, 200);
   });
 
   app.openapi(bookmarksRoute, async (c) => {
     const { ws } = c.req.valid("param");
     await authorize(c, deps, "messages.read", { type: "workspace", id: ws });
     const rows = await listBookmarks(deps.db.db, currentUser(c).id);
-    return c.json({ messages: rows.map(messageBody) }, 200);
+    return c.json({ messages: await bodies(rows) }, 200);
+  });
+
+  app.openapi(reactRoute, async (c) => {
+    const { ws, message: messageId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "messages.write", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const { message, channel } = await channelOfMessage(ws, messageId, user.id);
+    await react(deps, {
+      channel,
+      message,
+      userId: user.id,
+      emoji: body.emoji,
+      on: true,
+      by: actorOf(c),
+    });
+    return c.json(await rowOf(messageId, user.id), 200);
+  });
+
+  app.openapi(unreactRoute, async (c) => {
+    const { ws, message: messageId, emoji } = c.req.valid("param");
+    await authorize(c, deps, "messages.write", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const { message, channel } = await channelOfMessage(ws, messageId, user.id);
+    await react(deps, {
+      channel,
+      message,
+      userId: user.id,
+      // The emoji is a path segment, so it arrives percent-encoded from every client there is.
+      emoji: decodeURIComponent(emoji),
+      on: false,
+      by: actorOf(c),
+    });
+    return c.json(await rowOf(messageId, user.id), 200);
   });
 
   app.openapi(readRoute, async (c) => {

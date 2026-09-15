@@ -44,11 +44,98 @@ export function splitMentions(
   return out;
 }
 
-function Blocks(props: { blocks: MessageRow["blocks"] }): ReactNode {
+/**
+ * Perch identifiers in a line — `session:8f2c`, `project:NEST`, `channel:general`, `message:<id>`
+ * and their `perch://` longhand. Kept in step with `identifiersIn` in the api's unfurl service,
+ * which is the side that decides what any of them resolve to.
+ */
+export function identifiersIn(text: string): string[] {
+  const found: string[] = [];
+  const patterns = [
+    /(?:^|[\s(<])(session|project|channel|message):([a-zA-Z0-9][a-zA-Z0-9._-]{0,63})/g,
+    /perch:\/\/(session|project|channel|message)\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,63})/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const identifier = `${(match[1] ?? "").toLowerCase()}:${match[2] ?? ""}`;
+      if (!found.includes(identifier)) found.push(identifier);
+    }
+  }
+  return found;
+}
+
+export type UnfurlCard = {
+  identifier: string;
+  kind: string;
+  title: string;
+  subtitle: string | null;
+  url: string;
+};
+
+/** What an identifier turned out to be, as a card under the message that said it. */
+function Unfurls(props: { row: MessageRow; cards: Map<string, UnfurlCard> }) {
+  const found = props.row.blocks
+    .flatMap((block) => identifiersIn(String(block.text ?? "")))
+    .map((identifier) => props.cards.get(identifier))
+    .filter((card): card is UnfurlCard => Boolean(card));
+  if (found.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-col gap-1">
+      {found.map((card) => (
+        <a
+          key={card.identifier}
+          href={card.url}
+          data-testid="unfurl"
+          className="block rounded border border-border border-l-2 border-l-accent bg-raised px-2 py-1 text-sm hover:bg-surface-2"
+        >
+          <span className="font-medium">{card.title}</span>
+          {card.subtitle ? <span className="text-fg-subtle"> · {card.subtitle}</span> : null}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/** Bytes, the way a chat says them. */
+export function sizeOf(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** An image is shown; anything else is named, and both are a link to the download. */
+function FileBlock(props: { file: MessageRow["files"][number] }) {
+  const { file } = props;
+  return (
+    <a
+      href={`/api/files/${file.id}`}
+      data-testid="file"
+      download={file.name}
+      className="mt-1 inline-flex max-w-full flex-col gap-1 rounded border border-border bg-raised p-2 text-sm hover:bg-surface-2"
+    >
+      {file.preview ? (
+        <img
+          src={`/api/files/${file.id}/preview`}
+          alt={file.name}
+          className="max-h-64 max-w-full rounded object-contain"
+        />
+      ) : null}
+      <span className="truncate">
+        {file.name} · {sizeOf(file.size)}
+      </span>
+    </a>
+  );
+}
+
+function Blocks(props: { blocks: MessageRow["blocks"]; files?: MessageRow["files"] }): ReactNode {
   return (
     <>
       {props.blocks.map((block, index) => {
         const key = `${block.type}-${index}`;
+        if (block.type === "file") {
+          const file = (props.files ?? []).find((row) => row.id === block.fileId);
+          return file ? <FileBlock key={key} file={file} /> : null;
+        }
         if (block.type === "code") {
           return (
             <pre
@@ -90,8 +177,38 @@ function when(iso: string): string {
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+/** The emoji the picker offers first. Everything else arrives with the full picker in Phase 3. */
+const QUICK = ["\u{1F44D}", "\u{1F389}", "\u{1F440}", "\u2764\uFE0F", "\u{1F604}", "\u{1F680}"];
+
+/** The pills under a message: one per emoji, each a toggle of your own reaction (task 2.3). */
+function Reactions(props: { row: MessageRow; onReact: RowActions["onReact"] }) {
+  if (props.row.reactions.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {props.row.reactions.map((pill) => (
+        <button
+          key={pill.emoji}
+          type="button"
+          data-testid="reaction"
+          aria-pressed={pill.mine}
+          aria-label={t("chat.reactionCount", { emoji: pill.emoji, count: pill.count })}
+          onClick={() => props.onReact(props.row, pill.emoji, !pill.mine)}
+          className={`rounded-full border px-2 text-sm ${
+            pill.mine ? "border-accent bg-accent-soft text-accent" : "border-border bg-surface-2"
+          }`}
+        >
+          <span aria-hidden="true">
+            {pill.emoji} {pill.count}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type RowActions = {
   onReply: (message: MessageRow) => void;
+  onReact: (message: MessageRow, emoji: string, on: boolean) => void;
   onEdit: (message: MessageRow) => void;
   onDelete: (message: MessageRow) => void;
   onPin: (message: MessageRow) => void;
@@ -101,8 +218,14 @@ type RowActions = {
   mine: (message: MessageRow) => boolean;
 };
 
-function MessageItem(props: { row: MessageRow; actions: RowActions; inThread: boolean }) {
+function MessageItem(props: {
+  row: MessageRow;
+  actions: RowActions;
+  inThread: boolean;
+  cards: Map<string, UnfurlCard>;
+}) {
   const { row, actions } = props;
+  const [picking, setPicking] = useState(false);
   if (row.deleted_at) {
     return (
       <article className="px-2 py-1 text-sm text-fg-subtle" data-testid="message">
@@ -122,7 +245,9 @@ function MessageItem(props: { row: MessageRow; actions: RowActions; inThread: bo
         {row.pinned ? <Badge tone="accent">{t("chat.pinned")}</Badge> : null}
         {row.bookmarked ? <Badge>{t("chat.saved")}</Badge> : null}
       </div>
-      <Blocks blocks={row.blocks} />
+      <Blocks blocks={row.blocks} files={row.files} />
+      <Unfurls row={row} cards={props.cards} />
+      <Reactions row={row} onReact={actions.onReact} />
       {row.edited_at ? (
         <button
           type="button"
@@ -154,6 +279,14 @@ function MessageItem(props: { row: MessageRow; actions: RowActions; inThread: bo
             {t("chat.reply")}
           </Button>
         )}
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={picking}
+          onClick={() => setPicking((open) => !open)}
+        >
+          {t("chat.react")}
+        </Button>
         <Button size="sm" variant="ghost" onClick={() => actions.onPin(row)}>
           {row.pinned ? t("chat.unpin") : t("chat.pin")}
         </Button>
@@ -171,12 +304,48 @@ function MessageItem(props: { row: MessageRow; actions: RowActions; inThread: bo
           </Button>
         ) : null}
       </div>
+
+      {/* The quick picker, opened from the toolbar and closed by choosing or by Escape. */}
+      {picking ? (
+        <div
+          role="toolbar"
+          aria-label={t("chat.reactWith")}
+          className="absolute top-8 right-1 z-10 flex gap-1 rounded border border-border bg-surface p-1 shadow-sm"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setPicking(false);
+          }}
+        >
+          {QUICK.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="rounded px-1 text-md hover:bg-surface-2"
+              aria-label={t("chat.reactWithEmoji", { emoji })}
+              onClick={() => {
+                setPicking(false);
+                actions.onReact(
+                  row,
+                  emoji,
+                  !row.reactions.some((p) => p.emoji === emoji && p.mine),
+                );
+              }}
+            >
+              <span aria-hidden="true">{emoji}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }
 
 /** The channel's own flow, virtualized, following the end while the reader is at the end. */
-function Flow(props: { rows: MessageRow[]; actions: RowActions; label: string }) {
+function Flow(props: {
+  rows: MessageRow[];
+  actions: RowActions;
+  label: string;
+  cards: Map<string, UnfurlCard>;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
   const virtualizer = useVirtualizer({
@@ -229,7 +398,12 @@ function Flow(props: { rows: MessageRow[]; actions: RowActions; label: string })
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <MessageItem row={row} actions={props.actions} inThread={false} />
+                <MessageItem
+                  row={row}
+                  actions={props.actions}
+                  inThread={false}
+                  cards={props.cards}
+                />
               </div>
             );
           })}
@@ -282,15 +456,17 @@ export function ChannelTranscript(props: {
   };
 
   /**
-   * Every message.* on this workspace's topic is a reason to look again, and so is a channel.*:
-   * somebody who just joined has to be in the mention list before anybody tries to name them.
+   * Every message.* and reaction.* on this workspace's topic is a reason to look again, and so is
+   * a channel.*: somebody who just joined has to be in the mention list before anybody names them.
    */
   useEffect(() => {
     const socket = getSocket();
     socket.subscribe(`ws:${props.workspaceId}`);
     return socket.onEvent((envelope) => {
       if (envelope.topic !== `ws:${props.workspaceId}`) return;
-      if (envelope.type.startsWith("message.")) void invalidate();
+      if (envelope.type.startsWith("message.") || envelope.type.startsWith("reaction.")) {
+        void invalidate();
+      }
       if (envelope.type.startsWith("channel.")) {
         void queryClient.invalidateQueries({
           queryKey: ["workspace", props.workspaceId, "members"],
@@ -354,6 +530,57 @@ export function ChannelTranscript(props: {
     onError: (err: unknown) => setError(message(err)),
   });
 
+  const attach = useMutation({
+    mutationFn: async (file: File) => {
+      // Multipart, so this one goes out as a plain fetch rather than through the typed client.
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetch(`/api/workspaces/${props.workspaceId}/files`, {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new RequestFailed(res.status, (await res.json().catch(() => undefined)) as never);
+      }
+      const uploaded = (await res.json()) as { id: string };
+      return unwrap(
+        await api.POST("/api/workspaces/{ws}/channels/{channel}/messages", {
+          params: { path: { ws: props.workspaceId, channel: props.channelId } },
+          body: { blocks: [{ type: "file", fileId: uploaded.id }] },
+        }),
+      );
+    },
+    onSuccess: async () => {
+      setError(null);
+      await invalidate();
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+
+  const reaction = useMutation({
+    mutationFn: async (input: { id: string; emoji: string; on: boolean }) => {
+      if (input.on) {
+        return unwrap(
+          await api.POST("/api/workspaces/{ws}/messages/{message}/reactions", {
+            params: { path: { ws: props.workspaceId, message: input.id } },
+            body: { emoji: input.emoji },
+          }),
+        );
+      }
+      return unwrap(
+        await api.DELETE("/api/workspaces/{ws}/messages/{message}/reactions/{emoji}", {
+          params: { path: { ws: props.workspaceId, message: input.id, emoji: input.emoji } },
+        }),
+      );
+    },
+    onSuccess: async () => {
+      setError(null);
+      await invalidate();
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+
   const markRead = useMutation({
     mutationFn: async (messageId: string) => {
       const result = await api.POST("/api/workspaces/{ws}/channels/{channel}/read", {
@@ -382,6 +609,7 @@ export function ChannelTranscript(props: {
   const myId = me.data?.id ?? "";
   const actions: RowActions = {
     onReply: (row) => setThreadRoot(row.thread_root_id ?? row.id),
+    onReact: (row, emoji, on) => reaction.mutate({ id: row.id, emoji, on }),
     onEdit: (row) => setEditing(row),
     onDelete: (row) => remove.mutate(row.id),
     onPin: (row) => patch.mutate({ id: row.id, body: { pinned: !row.pinned } }),
@@ -390,6 +618,39 @@ export function ChannelTranscript(props: {
     canDelete: (row) => props.canModerate || (row.author_type === "user" && row.author_id === myId),
     mine: (row) => row.author_type === "user" && row.author_id === myId,
   };
+
+  /**
+   * One ask for every identifier on screen, rather than one per message: a page of chat is a page
+   * of reads, and the api answers only with what this reader could have opened anyway.
+   */
+  const identifiers = useMemo(() => {
+    const found: string[] = [];
+    for (const row of [...rows, ...replies]) {
+      for (const block of row.blocks) {
+        for (const identifier of identifiersIn(String(block.text ?? ""))) {
+          if (!found.includes(identifier)) found.push(identifier);
+        }
+      }
+    }
+    return found.slice(0, 20);
+  }, [rows, replies]);
+
+  const unfurls = useQuery({
+    queryKey: ["workspace", props.workspaceId, "unfurl", identifiers.join(" ")],
+    enabled: identifiers.length > 0,
+    queryFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/unfurl", {
+          params: { path: { ws: props.workspaceId } },
+          body: { identifiers },
+        }),
+      ),
+  });
+
+  const cards = useMemo(
+    () => new Map((unfurls.data?.cards ?? []).map((card) => [card.identifier, card])),
+    [unfurls.data],
+  );
 
   /** Who and what the composer offers: the people in this workspace, and the channels you are in. */
   const suggest = useMemo(
@@ -427,7 +688,12 @@ export function ChannelTranscript(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Flow rows={rows} actions={actions} label={t("chat.flowOf", { name: props.channelName })} />
+      <Flow
+        rows={rows}
+        actions={actions}
+        cards={cards}
+        label={t("chat.flowOf", { name: props.channelName })}
+      />
 
       {historyOf ? (
         <section
@@ -477,6 +743,20 @@ export function ChannelTranscript(props: {
 
       {props.member ? (
         <div className="border-t border-border p-2">
+          <label className="mb-1 flex items-center gap-2 text-sm text-fg-muted">
+            {t("chat.attach")}
+            <input
+              type="file"
+              data-testid="attach"
+              aria-label={t("chat.attach")}
+              className="min-w-0 flex-1 text-sm"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) attach.mutate(file);
+              }}
+            />
+          </label>
           <Composer
             draftKey={`channel-${props.channelId}`}
             label={t("chat.composer", { name: props.channelName })}
@@ -506,7 +786,7 @@ export function ChannelTranscript(props: {
           </header>
           <div className="min-h-0 flex-1 overflow-auto p-1">
             {replies.map((row) => (
-              <MessageItem key={row.id} row={row} actions={actions} inThread />
+              <MessageItem key={row.id} row={row} actions={actions} inThread cards={cards} />
             ))}
           </div>
           {props.member ? (

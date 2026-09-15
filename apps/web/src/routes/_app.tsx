@@ -4,6 +4,7 @@ import { createFileRoute, Outlet, redirect, useParams } from "@tanstack/react-ro
 import { authClient } from "../lib/auth-client.ts";
 import { instanceQuery, meQuery, workspacesQuery } from "../lib/queries.ts";
 import { AppShell } from "../shell/app-shell.tsx";
+import { PushToasts } from "../shell/push-toasts.tsx";
 
 /** Everything behind sign-in renders inside the shell; the workspace comes from the URL when present. */
 export const Route = createFileRoute("/_app")({
@@ -33,6 +34,7 @@ function AppLayout() {
   return (
     <AppShell me={me} workspace={workspace}>
       <Outlet />
+      <PushToasts />
     </AppShell>
   );
 }

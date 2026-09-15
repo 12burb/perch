@@ -16,6 +16,7 @@ import { API_VERSION, type Deps, type VersionInfo } from "./context.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { createFlags } from "./flags.ts";
 import { createLogger, type Logger } from "./logging.ts";
+import { startPushSubscriber } from "./push/subscriber.ts";
 import {
   createRunnerChannel,
   type RunnerChannel,
@@ -156,6 +157,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     version: versionInfo(env),
   };
   const stopAudit = startAuditSubscriber({ bus, db, log });
+  // A mention reaches a phone through the same bus everything else travels on (task 2.3).
+  const stopPush = startPushSubscriber({ bus, db, vault, env, log });
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -170,6 +173,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     runnerChannel,
     close: async () => {
       stopAudit();
+      stopPush();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

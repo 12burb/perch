@@ -1,13 +1,16 @@
 /**
- * messages, message_edits, pins, bookmarks and read_state (spec §6; task 2.2). Paging is by id:
- * ids are UUIDv7 (ADR-0025), so `before` and `after` are id comparisons and a page cannot slip when
- * two messages land in the same instant.
+ * messages, message_edits, message_reactions, pins, bookmarks and read_state (spec §6; tasks 2.2
+ * and 2.3). Paging is by id: ids are UUIDv7 (ADR-0025), so `before` and `after` are id comparisons
+ * and a page cannot slip when two messages land in the same instant.
  */
 import type { Db, Message, MessageBlock, MessageEdit } from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 
-const { messages, messageEdits, pins, bookmarks, readState, users } = schema;
+const { messages, messageEdits, messageReactions, pins, bookmarks, readState, users } = schema;
+
+/** One emoji on one message: how many put it there, and whether the caller is one of them. */
+export type ReactionSummary = { emoji: string; count: number; mine: boolean };
 
 export type MessageRow = Message & {
   /** The author's name and handle when they are a person; null for a bot until task 2.6. */
@@ -15,6 +18,7 @@ export type MessageRow = Message & {
   authorHandle: string | null;
   pinned: boolean;
   bookmarked: boolean;
+  reactions: ReactionSummary[];
 };
 
 type ListOptions = {
@@ -30,6 +34,7 @@ function decorate(
   rows: { message: Message; name: string | null; handle: string | null }[],
   pinnedIds: Set<string>,
   bookmarkedIds: Set<string>,
+  reactions: Map<string, ReactionSummary[]>,
 ): MessageRow[] {
   return rows.map((row) => ({
     ...row.message,
@@ -37,6 +42,7 @@ function decorate(
     authorHandle: row.handle,
     pinned: pinnedIds.has(row.message.id),
     bookmarked: bookmarkedIds.has(row.message.id),
+    reactions: reactions.get(row.message.id) ?? [],
   }));
 }
 
@@ -69,7 +75,12 @@ export async function listMessages(
     .limit(limit);
   const page = backwards ? rows.reverse() : rows;
   const ids = page.map((row) => row.message.id);
-  return decorate(page, await pinnedIn(db, ids), await bookmarkedBy(db, userId, ids));
+  return decorate(
+    page,
+    await pinnedIn(db, ids),
+    await bookmarkedBy(db, userId, ids),
+    await reactionsOn(db, ids, userId),
+  );
 }
 
 async function pinnedIn(db: Db, messageIds: string[]): Promise<Set<string>> {
@@ -88,6 +99,72 @@ async function bookmarkedBy(db: Db, userId: string, messageIds: string[]): Promi
     .from(bookmarks)
     .where(and(eq(bookmarks.userId, userId), inArray(bookmarks.messageId, messageIds)));
   return new Set(rows.map((row) => row.messageId));
+}
+
+/**
+ * The reactions on a page of messages (task 2.3), grouped the way they are shown: one pill per
+ * emoji with its count, in the order they were first put there. `mine` is what makes the pill a
+ * toggle rather than a tally.
+ */
+export async function reactionsOn(
+  db: Db,
+  messageIds: string[],
+  userId: string,
+): Promise<Map<string, ReactionSummary[]>> {
+  const out = new Map<string, ReactionSummary[]>();
+  if (messageIds.length === 0) return out;
+  const rows = await db
+    .select({
+      messageId: messageReactions.messageId,
+      emoji: messageReactions.emoji,
+      count: sql<number>`count(*)::int`,
+      mine: sql<boolean>`bool_or(${messageReactions.memberType} = 'user' and ${
+        messageReactions.memberId
+      } = ${sql.param(userId, messageReactions.memberId)})`,
+    })
+    .from(messageReactions)
+    .where(inArray(messageReactions.messageId, messageIds))
+    .groupBy(messageReactions.messageId, messageReactions.emoji)
+    // uuid has no min() in Postgres, so "first put there" is the earliest of the group.
+    .orderBy(sql`min(${messageReactions.createdAt}) asc`, asc(messageReactions.emoji));
+  for (const row of rows) {
+    const pills = out.get(row.messageId) ?? [];
+    pills.push({ emoji: row.emoji, count: Number(row.count), mine: Boolean(row.mine) });
+    out.set(row.messageId, pills);
+  }
+  return out;
+}
+
+/** True when this put a reaction there; false when it was already theirs. */
+export async function addReaction(
+  db: Db,
+  values: { messageId: string; memberType: "user" | "bot"; memberId: string; emoji: string },
+): Promise<boolean> {
+  const rows = await db
+    .insert(messageReactions)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ id: messageReactions.id });
+  return rows.length > 0;
+}
+
+/** True when this took one away; false when there was nothing of theirs to take. */
+export async function removeReaction(
+  db: Db,
+  values: { messageId: string; memberType: "user" | "bot"; memberId: string; emoji: string },
+): Promise<boolean> {
+  const rows = await db
+    .delete(messageReactions)
+    .where(
+      and(
+        eq(messageReactions.messageId, values.messageId),
+        eq(messageReactions.memberType, values.memberType),
+        eq(messageReactions.memberId, values.memberId),
+        eq(messageReactions.emoji, values.emoji),
+      ),
+    )
+    .returning({ id: messageReactions.id });
+  return rows.length > 0;
 }
 
 export async function getMessage(db: Db, id: string): Promise<Message | null> {
@@ -112,6 +189,7 @@ export async function getMessageRow(
     [row],
     await pinnedIn(db, [id]),
     await bookmarkedBy(db, userId, [id]),
+    await reactionsOn(db, [id], userId),
   );
   return decorated ?? null;
 }
@@ -213,7 +291,12 @@ export async function listPinned(db: Db, channelId: string, userId: string): Pro
     .where(and(eq(pins.channelId, channelId), isNull(messages.deletedAt)))
     .orderBy(desc(pins.createdAt));
   const ids = rows.map((row) => row.message.id);
-  return decorate(rows, new Set(ids), await bookmarkedBy(db, userId, ids));
+  return decorate(
+    rows,
+    new Set(ids),
+    await bookmarkedBy(db, userId, ids),
+    await reactionsOn(db, ids, userId),
+  );
 }
 
 export async function bookmarkMessage(
@@ -245,7 +328,7 @@ export async function listBookmarks(db: Db, userId: string): Promise<MessageRow[
     .where(and(eq(bookmarks.userId, userId), isNull(messages.deletedAt)))
     .orderBy(desc(bookmarks.createdAt));
   const ids = rows.map((row) => row.message.id);
-  return decorate(rows, await pinnedIn(db, ids), new Set(ids));
+  return decorate(rows, await pinnedIn(db, ids), new Set(ids), await reactionsOn(db, ids, userId));
 }
 
 /** Where somebody has read up to, and how many of the unread ones named them. */

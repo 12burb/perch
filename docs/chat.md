@@ -114,3 +114,76 @@ writes the token when somebody picks from its list, and the client renders it ba
 api resolves the handles, and every mentioned member of that channel gets one more on their mention
 count. Typing `@` or `#` at a word boundary opens the list, the arrows move through it, Enter or Tab
 takes the highlighted one, and Esc closes it — the caret never leaves the composer.
+
+
+### Reactions
+
+An emoji on a message is the channel's, like a pin: everybody in the room sees it, and anybody in
+the room may add one. Your own is a toggle — the pill under the message says how many put it there
+and whether one of them is you, and clicking it adds or takes away yours alone. Reacting twice with
+the same emoji is the reaction you already had: no second row, and nobody is told again. The
+`reaction.added` and `reaction.removed` events travel on the workspace topic, so a pill appears
+under everybody's copy of the message at once. Emoji only: a handful of code points, no whitespace
+and nothing invisible.
+
+`POST /api/workspaces/{ws}/messages/{m}/reactions {emoji}` and
+`DELETE …/reactions/{emoji}` both answer with the message, pills and all.
+
+## Files
+
+An upload goes to `POST /api/workspaces/{ws}/files` as a plain multipart form and lands on the
+instance's own volume (`PERCH_FILES_DIR`) — there is no object store to run (spec §3.1). The answer
+is metadata; the bytes are a second request, so a transcript decides for itself what it draws and
+what it only names. A message points at a file with a `file` block, and the api hands the file's
+name, type and size back beside the message so the client can draw it without asking again. A file
+block may only name a file of its own workspace.
+
+What comes back is deliberately dull (ADR-0093):
+
+- `GET /api/files/{id}` is **always a download**: `application/octet-stream`, an attachment
+  disposition, `nosniff`, and a sandbox CSP. Nothing an upload says about itself makes a browser run
+  it on Perch's origin.
+- `GET /api/files/{id}/preview` serves the file as itself for the image types a browser can draw
+  without running anything — PNG, JPEG, GIF, WebP, AVIF. SVG is not one of them: it carries script,
+  so it has no preview and downloads like everything else.
+
+Uploads are capped at 25 MB, and previews are the original bytes rather than a thumbnail: nothing is
+re-encoded yet, and the transcript constrains what it draws.
+
+One limit to know about: a file is read as the **workspace's**, not as the channel's. Any member
+holding a file's id may fetch it, even if it was attached in a private channel they are not in. Ids
+are UUIDv7 and are only ever handed out beside a message the reader can already see, but that is a
+weaker promise than the one a private channel makes about its messages (ADR-0093). Per-channel file
+visibility arrives with search in task 2.4, which needs the same index.
+
+## Unfurls
+
+Every Perch object has an identifier (spec §1), and pasting one in a message turns it into a card:
+`session:8f2c`, `project:NEST`, `channel:general`, `message:<id>`, or the same thing longhand as a
+`perch://` link. The client collects the identifiers on screen and asks
+`POST /api/workspaces/{ws}/unfurl` once for the page; the api answers with a card for each — a
+title, a line under it, and where it lives — and with nothing at all for anything the caller could
+not have opened anyway. A private channel unfurls for the people in it and for nobody else, and an
+identifier from another workspace is not a card.
+
+Work items (`NEST-123`) and pull requests (`pr:42`) unfurl when they exist: Phase 3 and task 2.14.
+
+## Web push
+
+A mention reaches a phone (task 2.3). The browser registers Perch's service worker, Settings →
+Profile → Notifications asks for permission once, and the subscription — an endpoint at whatever
+push service that browser uses, plus the two keys — is stored against the person, one row per
+device.
+
+When somebody is named in a channel they are in, the push subscriber hears `message.created` on the
+bus and sends each of their devices one notification: who said it, the first line of what they said,
+and where to land. It is encrypted to that device's keys (RFC 8291, `aes128gcm`) and identified with
+a VAPID assertion (RFC 8292), so the push service carries ciphertext and learns nothing — not who it
+is for, not what it says. A push service that answers 404 or 410 has retired that device, and Perch
+stops using it.
+
+The instance's VAPID key pair is made on first use and kept in `instance_settings`, the private half
+sealed by the vault: a laptop-mode Perch notifies people with no configuration at all.
+
+While the tab is open the worker passes the message to the page instead, and it shows as a live
+region at the bottom of the shell with a link to follow.

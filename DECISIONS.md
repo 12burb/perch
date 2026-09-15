@@ -2972,3 +2972,94 @@ both ways, the edit history, a thread that stays one deep, pins against bookmark
 weighs on the channel, a thread reply that does not, and the delete a member may not do to somebody
 else's message. The mention list's keyboard and its axe pass are
 `packages/ui/src/shell/composer.ct.tsx`.
+
+## ADR-0093: Uploads are inert, identifiers unfurl as reads, and a phone is told by the bus
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.3
+
+### Context
+§5.2 asks for reactions, file uploads with previews, unfurls for Perch identifiers, and web push,
+with the acceptance that a push arrives on a phone for a mention. Three of those are ordinary
+features over the 0.5 schema. The fourth is the first time Perch talks to a service outside the
+instance on somebody's behalf, and files are the first time Perch serves bytes a stranger chose.
+
+### Decision
+1. **A reaction is the channel's, and yours is a toggle.** Everybody in the room sees every pill;
+   the pill says how many and whether one of them is you. Adding the one you already have changes
+   nothing and publishes nothing. An emoji is a handful of code points with no whitespace and no
+   control characters — a reaction is not a second way to write a message.
+2. **Every upload downloads; only drawable images preview.** `GET /api/files/{id}` always answers
+   `application/octet-stream` as an attachment, with `nosniff` and a sandbox CSP, whatever the file
+   says it is. `…/preview` serves the bytes as themselves only for PNG, JPEG, GIF, WebP and AVIF.
+   SVG carries script, so it has no preview at all. Perch serves uploads from its own origin, where
+   a rendered SVG or HTML file would be a session's worth of XSS; the allow-list is the whole
+   defence and it is a short one.
+3. **One path per upload, dedup later.** `storage_key` is a fresh uuid under the workspace, so two
+   people who send the same bytes each keep the name they sent. `sha256` is recorded for the dedup
+   that can come later without a migration. The preview of an image is the image: nothing is
+   re-encoded yet, and the cap is 25 MB.
+4. **A file block may only name a file of its own workspace.** Ids are guessable in the sense that
+   any uuid is; posting or editing a message checks every `file` block against the channel's
+   workspace, which is what stops one workspace pointing at another's upload.
+   The other half of that rule is weaker and worth saying out loud: reading a file is authorized
+   against its **workspace**, not against the channel it was posted in. A member of the workspace
+   who has a file's id may read it even if it was attached in a private channel they are not in.
+   Ids are UUIDv7, never listed, and only ever handed out beside a message the reader could already
+   see — but this is not the same guarantee a private channel gives its messages. Making it the
+   same means checking that some message naming the file is in a channel the caller can see, which
+   needs a containment query over `messages.blocks` and a GIN index to go with it; that lands with
+   search (2.4), which needs the same index. Until then a private channel's attachments are as
+   private as their ids.
+5. **An unfurl is a read, asked once per page.** `POST /api/workspaces/{ws}/unfurl` takes the
+   identifiers the client found on screen and answers with a card for each one the caller could have
+   opened — nothing else, not even a "you cannot see this". A private channel unfurls for its
+   members only; an identifier from another workspace is not a card. The client asks once for
+   everything visible rather than once per message.
+6. **Push subscribes to the bus like everything else.** The push subscriber watches
+   `message.created`, works out who was named, and notifies their devices. Nothing in the message
+   path knows about phones. §7.7's event list is unchanged: no `mention.created` was invented for
+   this.
+7. **Perch ships the web push cryptography itself.** RFC 8291 encryption and RFC 8292 VAPID are a
+   hundred lines of WebCrypto with no network of their own, and this is the one place a self-hosted
+   Perch talks to a third party for a user — the less of that is somebody else's code, the better.
+   The test is the other half of the protocol: it plays the browser, decrypting what Perch would
+   POST from the specification rather than from the implementation.
+8. **The instance's VAPID keys are made on first use**, kept in `instance_settings` with the private
+   half sealed by the vault (`push:vapid`). Laptop mode notifies people with no configuration; a
+   team instance needs no new env either.
+9. **`push_subscriptions` is a new table** (migration 0014), which §6 does not list. A subscription
+   is an endpoint and two keys per device and has nowhere else to live; `notifications` is the inbox
+   of §6 and a different thing. The routes sit under `/api/me/push-subscriptions` and
+   `/api/me/push-key`, which §7.1 also does not list — a device belongs to a person, not to a
+   workspace.
+10. **A device that is gone is retired, not retried.** A push service answering 404 or 410 marks the
+    subscription expired; it is never offered again and nothing more is sent to it.
+
+### Consequences
+A channel can carry more than words, and somebody who is not looking gets told. The tests cover the
+halves separately for a reason: no test machine has a real push service, so `apps/api/test/push.
+test.ts` proves Perch encrypts and POSTs the right thing to the right devices, and `e2e/push.e2e.ts`
+proves the worker turns a delivered message into a notification and an in-app line. Between them the
+whole path is covered; neither half stands in for the other.
+
+What is not here: a full emoji picker (six quick ones and no more), thumbnails, virus scanning,
+S3-backed storage (`PERCH_S3_*` is still unread), unfurls for work items and pull requests, and mute
+preferences — a person who wants quiet turns notifications off for the device.
+
+The initial bundle is at 178.7 KB of its 180 KB budget. The toasts and the push helper are in the
+entry because the shell renders them; the next feature that touches the entry will have to lazy-load
+something or the budget moves, with its own ADR.
+
+### What was actually verified
+`apps/api/test/reactions.test.ts` (3), `files.test.ts` (5), `unfurls.test.ts` (4), `push-crypto.
+test.ts` (5) and `push.test.ts` (4): pills and their counts with two people, the `reaction.*` events,
+an upload said in a channel and served back with its headers, an SVG that never previews, a file
+another workspace may not name, the unfurl rules including the private channel, the RFC 8291 round
+trip against an independently written receiver, the VAPID signature verified against its own public
+key, and a mention that arrives at a stand-in push service as ciphertext the test decrypts.
+`e2e/reactions-files-unfurls.e2e.ts` and `e2e/push.e2e.ts` at both viewports: a reaction from the
+toolbar and off again from the pill, a PNG attached and drawn (`naturalWidth > 0`), an identifier
+that becomes a card, the worker registering, and a push delivered through the DevTools protocol
+showing up as a live region with a link that lands in the right place.

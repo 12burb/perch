@@ -46,6 +46,8 @@ export const ACTIONS = [
   "messages.read",
   "messages.write",
   "messages.moderate",
+  "files.read",
+  "files.write",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -124,6 +126,10 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "messages.read": ["owner", "admin", "member"],
   "messages.write": ["owner", "admin", "member"],
   "messages.moderate": ["owner", "admin"],
+  // Files (task 2.3): an upload is something said in the workspace, so it follows messages. A
+  // guest reads what they are shown and uploads nothing.
+  "files.read": ["owner", "admin", "member"],
+  "files.write": ["owner", "admin", "member"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -163,6 +169,8 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "messages.read": "read",
   "messages.write": "write",
   "messages.moderate": "write",
+  "files.read": "read",
+  "files.write": "write",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

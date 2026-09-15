@@ -14,6 +14,7 @@ import { requestLogger } from "./logging.ts";
 import { registerBrains } from "./routes/brains.ts";
 import { registerChannels } from "./routes/channels.ts";
 import { registerConnections } from "./routes/connections.ts";
+import { registerFiles } from "./routes/files.ts";
 import { registerGit } from "./routes/git.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
@@ -24,10 +25,12 @@ import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
+import { registerPush } from "./routes/push.ts";
 import { registerRunners } from "./routes/runners.ts";
 import { registerSessions } from "./routes/sessions.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerTerminal } from "./routes/terminal.ts";
+import { registerUnfurl } from "./routes/unfurl.ts";
 import { registerVersion } from "./routes/version.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
 import type { RunnerChannel } from "./runners/channel.ts";
@@ -125,6 +128,9 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerPreviews(app, deps);
   registerChannels(app, deps);
   registerMessages(app, deps);
+  registerFiles(app, deps);
+  registerUnfurl(app, deps);
+  registerPush(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",
