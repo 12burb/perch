@@ -122,7 +122,9 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
   }, [notice]);
 
   // A file change or a tab switch drops a proposal nobody answered: its range no longer means
-  // anything in the new document.
+  // anything in the new document. This is the backstop for paths that change on their own (a
+  // reload, a close); the handlers below reject first, while the proposal's own view is still
+  // mounted and can put the original text back.
   const activePath = active?.path ?? null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the proposal belongs to the file it was made in
   useEffect(() => {
@@ -156,7 +158,11 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
           setNotice(t("editor.inline.empty"));
           return;
         }
-        // The person may have typed while the agent was thinking: only replace the text we sent.
+        // The person may have moved on while the agent was thinking. The file is checked first
+        // because `active` here is the one the round started in, not the one on screen now.
+        const now = editorFor(useEditorStore.getState(), props.projectId).active;
+        if (now !== active.path) return;
+        // And they may have typed: only replace the text we sent.
         const placed = editorRef.current?.propose(
           { from: inline.from, to: inline.to },
           result.replacement,
@@ -200,8 +206,22 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
     dirty: file.content !== file.original,
   }));
 
+  /**
+   * Puts an unanswered proposal back before the editor showing it goes away. React runs the
+   * child's teardown first, so an effect is too late: by then the view (and the original text it
+   * held) is gone and the agent's rewrite would stay in the buffer (ADR-0080 §5).
+   */
+  const dropProposal = useCallback(() => {
+    if (inline?.phase === "proposed") resolveInline("reject");
+  }, [inline?.phase, resolveInline]);
+
   function onClose(path: string) {
-    const file = editor.files.find((f) => f.path === path);
+    // Reject first, then ask: putting the original back may be exactly what makes the file clean,
+    // and there is nothing to warn about losing then.
+    if (path === editor.active) dropProposal();
+    const file = editorFor(useEditorStore.getState(), props.projectId).files.find(
+      (f) => f.path === path,
+    );
     if (file && file.content !== file.original && !window.confirm(t("editor.discardConfirm")))
       return;
     close(props.projectId, path);
@@ -215,7 +235,10 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
     <EditorGroup
       tabs={tabs}
       activeId={editor.active}
-      onSelect={(id) => select(props.projectId, id)}
+      onSelect={(id) => {
+        if (id !== editor.active) dropProposal();
+        select(props.projectId, id);
+      }}
       onClose={onClose}
       breadcrumbs={active?.path.split("/")}
       actions={
@@ -236,7 +259,11 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
                 size="sm"
                 variant="ghost"
                 aria-pressed={active.preview}
-                onClick={() => setPreview(props.projectId, active.path, !active.preview)}
+                onClick={() => {
+                  // Preview unmounts the editor, so a standing proposal goes back first.
+                  dropProposal();
+                  setPreview(props.projectId, active.path, !active.preview);
+                }}
               >
                 {active.preview ? t("editor.source") : t("editor.preview")}
               </Button>
@@ -345,6 +372,9 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
                 onRevealed={() => revealed(props.projectId, active.path)}
                 label={active.path}
                 onInlineEdit={(selection) => {
+                  // One proposal at a time: asking again puts the unanswered one back first,
+                  // otherwise its original text is lost and Cancel would revert the wrong range.
+                  dropProposal();
                   setInstruction("");
                   setError(null);
                   setInline({ phase: "asking", ...selection, selection: selection.text });

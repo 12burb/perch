@@ -151,9 +151,18 @@ describe("inline edits (task 1.14)", () => {
     expect(asked.status).toBe(200);
     expect(asked.body.replacement).toBe("FOUR");
     const replay = (await call(`/api/sessions/${first.body.session_id}/events`, owner.cookie)) as {
-      body: { events: { event: { type: string } }[] };
+      body: { events: { event: { type: string; delta?: string } }[] };
     };
     expect(replay.body.events.some((e) => e.event.type === "permission")).toBe(true);
+    // The agent says which answer it got, so this tells a denial from an approval: the api must
+    // refuse, because nobody is watching an inline round (ADR-0080 §4).
+    const said = replay.body.events
+      .map((e) => e.event)
+      .filter((event): event is { type: "text"; delta: string } => event.type === "text")
+      .map((event) => event.delta)
+      .join("");
+    expect(said).toContain("Denied, answering anyway.");
+    expect(said).not.toContain("Allowed.");
     expect(replay.body.events.at(-1)?.event.type).toBe("done");
 
     // The inline lane is not a session anyone browses.

@@ -58,7 +58,11 @@ The agent answers with the replacement, which lands in the buffer with the repla
 through above it and the new lines highlighted — the diff in place of spec §4.
 
 - **Accept** keeps the proposal in the buffer. Nothing is written until ⌘S, like any other edit.
-- **Reject** (or Esc, or switching tabs) puts the original text back.
+- **Reject** puts the original text back, and so does anything that takes the proposal off the
+  screen without an answer: Esc, switching tabs, closing the tab, toggling the markdown preview, or
+  pressing ⌘K again on another selection. Only one proposal stands at a time, and it never outlives
+  the view it was made in — the buffer already holds the agent's text, so leaving it there with no
+  way to review it would be the one thing worse than dropping it.
 - The agent is asked for the replacement and nothing else, and is told not to edit files; a
   permission it asks for mid-round is refused, since nobody is watching (ADR-0080).
 - ⌘K with no selection is still the command palette. The editor claims the keydown only when it

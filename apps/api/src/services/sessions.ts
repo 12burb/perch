@@ -568,6 +568,11 @@ export class SessionService {
         throw new PerchError("upstream_failed", "the agent did not answer in time");
       }
     } catch (error) {
+      // The runner reconnected and forgot the session. The inline lane is long-lived, so without
+      // this it would stay broken forever; the next ⌘K re-opens it, as a pane round does.
+      if (error instanceof EngineError && error.code === "unknown_session") {
+        this.known.delete(session.id);
+      }
       const failure = error instanceof PerchError ? error : engineFailure(error);
       await this.record(running, { type: "error", message: failure.message }, input.by);
       await this.setStatus(running, "error", failure.message, input.by);

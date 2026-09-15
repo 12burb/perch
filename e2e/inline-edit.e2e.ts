@@ -5,8 +5,10 @@ import { createWorkspace, isMobile, signUp, uniqueEmail } from "./helpers.ts";
 /**
  * Task 1.14 (spec §4 "⌘K inline edit on a selection with the diff in place"): a selection in the
  * editor, an instruction, the agent's rewrite in the buffer with the replaced lines struck through
- * above it, Accept keeps it and Save writes it; Reject puts the original back. ⌘K with a selection
- * belongs to the editor, so the command palette stays shut.
+ * above it, Accept keeps it and Save writes it; Reject puts the original back. Leaving the file
+ * with a proposal unanswered puts the original back too, because nothing else can: the buffer is
+ * already the agent's text (ADR-0080 §5). ⌘K with a selection belongs to the editor, so the
+ * command palette stays shut.
  */
 
 test("select, instruct, diff in place, accept — and reject puts it back", async ({
@@ -26,9 +28,10 @@ test("select, instruct, diff in place, accept — and reject puts it back", asyn
       mimeType: "text/typescript",
       buffer: Buffer.from("const one = 1;\nconst two = 2;\nconst three = 3;\n"),
     },
+    { name: "other.ts", mimeType: "text/typescript", buffer: Buffer.from("const far = 9;\n") },
   ]);
   await page.getByRole("button", { name: "Create project" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Uploaded 1 file" })).toBeVisible({
+  await expect(page.getByRole("status").filter({ hasText: "Uploaded 2 files" })).toBeVisible({
     timeout: 60_000,
   });
   const row = page.getByTestId("project-row").filter({ hasText: "Sketch" });
@@ -37,8 +40,13 @@ test("select, instruct, diff in place, accept — and reject puts it back", asyn
 
   if (mobile) await page.getByRole("button", { name: "Toggle sidebar" }).click();
   const tree = page.getByRole("tree", { name: "Files" });
-  await tree.getByRole("treeitem", { name: "app.ts" }).click();
   const editor = page.getByTestId("code-editor");
+  // Both files open, so the tab strip can switch between them later without the tree, which is a
+  // sheet on a phone.
+  await tree.getByRole("treeitem", { name: "other.ts" }).click();
+  await expect(editor.locator(".cm-content")).toContainText("const far = 9;");
+  if (mobile) await page.getByRole("button", { name: "Toggle sidebar" }).click();
+  await tree.getByRole("treeitem", { name: "app.ts" }).click();
   await expect(editor.locator(".cm-content")).toContainText("const one = 1;");
 
   // Select the first line and ask for the edit: ⌘K here is the editor's, not the palette's.
@@ -93,6 +101,52 @@ test("select, instruct, diff in place, accept — and reject puts it back", asyn
   await expect(editor.locator(".cm-content")).toContainText("const two = 2;");
   await expect(editor.locator(".cm-content")).not.toContainText("// const two = 2;");
   await expect(page.getByTestId("inline-removed")).toHaveCount(0);
+
+  // Leaving the file with a proposal standing puts the original back: the agent's text is already
+  // in the buffer, so dropping only the bar would strand it there unreviewable (ADR-0080 §5).
+  await editor.locator(".cm-content").click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Control+k");
+  await bar.getByRole("textbox", { name: "Instruction" }).fill("uppercase it");
+  await bar.getByRole("textbox", { name: "Instruction" }).press("Enter");
+  await expect(editor.locator(".cm-content")).toContainText("CONST THREE = 3;", {
+    timeout: 60_000,
+  });
+  await page.getByRole("tab", { name: "other.ts" }).click();
+  await expect(editor.locator(".cm-content")).toContainText("const far = 9;");
+  await expect(bar).toBeHidden();
+  await page.getByRole("tab", { name: "app.ts" }).click();
+  await expect(editor.locator(".cm-content")).toContainText("const three = 3;");
+  await expect(editor.locator(".cm-content")).not.toContainText("CONST THREE = 3;");
+  await expect(page.getByTestId("inline-removed")).toHaveCount(0);
+  // Nothing unsaved is left behind either: the original is back, so Save has nothing to write.
+  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+
+  // Asking again while a proposal stands puts that one back first: one proposal at a time, or its
+  // original would be lost and Cancel would revert the wrong range.
+  await editor.locator(".cm-content").click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Control+k");
+  await bar.getByRole("textbox", { name: "Instruction" }).fill("uppercase it");
+  await bar.getByRole("textbox", { name: "Instruction" }).press("Enter");
+  await expect(editor.locator(".cm-content")).toContainText("CONST TWO = 2;", { timeout: 60_000 });
+  await editor.locator(".cm-content").click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Control+k");
+  await expect(bar.getByRole("textbox", { name: "Instruction" })).toBeVisible();
+  await expect(editor.locator(".cm-content")).toContainText("const two = 2;");
+  await expect(editor.locator(".cm-content")).not.toContainText("CONST TWO = 2;");
+  await expect(page.getByTestId("inline-removed")).toHaveCount(0);
+  await bar.getByRole("textbox", { name: "Instruction" }).press("Escape");
+  await expect(bar).toBeHidden();
 
   // Without a selection, ⌘K is still the command palette.
   await page.keyboard.press("Control+Home");
