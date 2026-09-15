@@ -217,23 +217,32 @@ export async function insertMessage(
   return row;
 }
 
-/** Editing keeps what was there: the old blocks become a row in the history. */
+/**
+ * Editing keeps what was there: the old blocks become a row in the history.
+ *
+ * `history: false` is for a change that is not an edit — an interactive block recording the answer
+ * it was given (task 2.5). Nobody rewrote the message, so it keeps no history and gains no
+ * "(edited)" mark; what changed is visible in the block itself.
+ */
 export async function updateMessageBlocks(
   db: Db,
   message: Message,
   blocks: MessageBlock[],
-  editedBy: { type: "user" | "bot" | "system"; id: string },
+  editedBy: { type: "user" | "bot" | "system"; id: string; history?: boolean },
 ): Promise<Message> {
-  await db.insert(messageEdits).values({
-    messageId: message.id,
-    blocks: message.blocks,
-    editedByType: editedBy.type,
-    editedById: editedBy.id,
-  });
+  const keepHistory = editedBy.history !== false;
+  if (keepHistory) {
+    await db.insert(messageEdits).values({
+      messageId: message.id,
+      blocks: message.blocks,
+      editedByType: editedBy.type,
+      editedById: editedBy.id,
+    });
+  }
   const now = new Date();
   const [row] = await db
     .update(messages)
-    .set({ blocks, editedAt: now, updatedAt: now })
+    .set({ blocks, ...(keepHistory ? { editedAt: now } : {}), updatedAt: now })
     .where(eq(messages.id, message.id))
     .returning();
   if (!row) throw new Error("message update returned no row");

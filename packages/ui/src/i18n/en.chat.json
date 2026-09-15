@@ -75,5 +75,17 @@
   "search.noneHint": "Try fewer words, or look in every channel.",
   "search.messages": "{count} messages",
   "search.files": "{count} files",
-  "search.peekTitle": "{name} in #{channel}"
+  "search.peekTitle": "{name} in #{channel}",
+  "block.send": "Send",
+  "block.submit": "Submit",
+  "block.choose": "Choose one",
+  "block.form": "Fill this in",
+  "block.required": "required",
+  "block.approve": "Approve",
+  "block.deny": "Deny",
+  "block.approved": "Approved",
+  "block.denied": "Denied",
+  "block.progress": "{percent}% done",
+  "block.answeredBy": "{name} at {at}",
+  "chat.blockFailed": "That did not go through."
 }

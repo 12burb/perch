@@ -106,8 +106,28 @@ export type RunnerCapabilities = z.infer<typeof runnerCapabilitiesSchema>;
 export const policyRulesSchema = z.record(z.string(), z.unknown());
 export type PolicyRules = z.infer<typeof policyRulesSchema>;
 
-// messages.blocks (spec §5.2). Interactive blocks get their full schemas in task 2.5.
+// messages.blocks (spec §5.2).
 const blockBase = { id: z.string().min(1).optional() };
+
+/**
+ * What happened to an interactive block (task 2.5). The api writes it when somebody acts, so the
+ * message carries its own answer: everybody sees the same decision, and a client that arrives
+ * afterwards sees it too without asking anything else.
+ */
+const blockState = z
+  .object({
+    byType: z.enum(["user", "bot"]),
+    byId: z.uuid(),
+    /** Who it was, for a message that says so without a second lookup. */
+    byName: z.string().optional(),
+    at: z.string(),
+    values: z.record(z.string(), z.string()),
+  })
+  .strict();
+export type BlockState = z.infer<typeof blockState>;
+
+/** The interactive blocks carry what was done to them; `progress` is the bot's to move. */
+const interactive = { ...blockBase, state: blockState.optional() };
 export const messageBlockSchema = z.discriminatedUnion("type", [
   z.object({ ...blockBase, type: z.literal("text"), text: z.string() }).strict(),
   z
@@ -157,7 +177,7 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      ...blockBase,
+      ...interactive,
       type: z.literal("button"),
       text: z.string(),
       action: z.string().min(1),
@@ -167,7 +187,7 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      ...blockBase,
+      ...interactive,
       type: z.literal("select"),
       text: z.string().optional(),
       action: z.string().min(1),
@@ -176,7 +196,7 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      ...blockBase,
+      ...interactive,
       type: z.literal("form"),
       text: z.string().optional(),
       action: z.string().min(1),
@@ -197,7 +217,7 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      ...blockBase,
+      ...interactive,
       type: z.literal("approve_deny"),
       text: z.string(),
       action: z.string().min(1),

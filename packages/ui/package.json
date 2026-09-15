@@ -11,6 +11,7 @@
     "./i18n/chat": "./src/i18n/chat.ts",
     "./i18n/code": "./src/i18n/code.ts",
     "./i18n/settings": "./src/i18n/settings.ts",
+    "./blocks": "./src/components/blocks.tsx",
     "./session": "./src/components/session-transcript.tsx",
     "./diff": "./src/components/diff-view.tsx",
     "./tokens.css": "./src/tokens/tokens.css",

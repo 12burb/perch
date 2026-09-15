@@ -3,11 +3,13 @@
  * the one under the pointer or the keyboard; the thread that hangs off a message; and the composer
  * that writes the next one, with the mention list §4 promised.
  *
- * A message is blocks, so this renders blocks — text with its mentions picked out, and code. The
- * cards a bot sends (diff, session, tool) and the interactive ones arrive in tasks 2.5 and 2.6.
+ * A message is blocks, so this renders blocks — text with its mentions picked out, code, and the
+ * files it points at. The interactive ones are the shared BlockRenderer's (task 2.5); the cards a
+ * session sends (diff, session, tool) arrive with the bot runtime in 2.6.
  */
 import "@perch/ui/i18n/chat";
 import { Badge, Button, Composer, type MentionQuery, type Suggestion, t } from "@perch/ui";
+import { type BlockAct, BlockRenderer, type ChatBlock } from "@perch/ui/blocks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -127,11 +129,31 @@ function FileBlock(props: { file: MessageRow["files"][number] }) {
   );
 }
 
-function Blocks(props: { blocks: MessageRow["blocks"]; files?: MessageRow["files"] }): ReactNode {
+/** The blocks the shared renderer owns; everything else this file draws itself. */
+const INTERACTIVE = new Set(["button", "select", "form", "approve_deny"]);
+
+function Blocks(props: {
+  blocks: MessageRow["blocks"];
+  files?: MessageRow["files"];
+  /** Left out for a reader: the blocks still show, they just take no answer (task 2.5). */
+  onAct?: ((input: BlockAct) => void) | undefined;
+  acting?: string | null;
+}): ReactNode {
   return (
     <>
       {props.blocks.map((block, index) => {
         const key = `${block.type}-${index}`;
+        const blockId = typeof block.id === "string" ? block.id : "";
+        if (INTERACTIVE.has(block.type) || block.type === "progress") {
+          return (
+            <BlockRenderer
+              key={key}
+              block={block as ChatBlock}
+              {...(props.onAct ? { onAct: props.onAct } : {})}
+              pending={props.acting !== null && props.acting === blockId}
+            />
+          );
+        }
         if (block.type === "file") {
           const file = (props.files ?? []).find((row) => row.id === block.fileId);
           return file ? <FileBlock key={key} file={file} /> : null;
@@ -208,6 +230,10 @@ function Reactions(props: { row: MessageRow; onReact: RowActions["onReact"] }) {
 
 type RowActions = {
   onReply: (message: MessageRow) => void;
+  /** Answering an interactive block (task 2.5); left out when this reader may not. */
+  onAct?: ((message: MessageRow, input: BlockAct) => void) | undefined;
+  /** The block whose answer is on its way, so it holds still until it lands. */
+  acting?: string | null;
   onReact: (message: MessageRow, emoji: string, on: boolean) => void;
   onEdit: (message: MessageRow) => void;
   onDelete: (message: MessageRow) => void;
@@ -245,7 +271,12 @@ function MessageItem(props: {
         {row.pinned ? <Badge tone="accent">{t("chat.pinned")}</Badge> : null}
         {row.bookmarked ? <Badge>{t("chat.saved")}</Badge> : null}
       </div>
-      <Blocks blocks={row.blocks} files={row.files} />
+      <Blocks
+        blocks={row.blocks}
+        files={row.files}
+        {...(actions.onAct ? { onAct: (input: BlockAct) => actions.onAct?.(row, input) } : {})}
+        acting={actions.acting ?? null}
+      />
       <Unfurls row={row} cards={props.cards} />
       <Reactions row={row} onReact={actions.onReact} />
       {row.edited_at ? (
@@ -581,6 +612,30 @@ export function ChannelTranscript(props: {
     onError: (err: unknown) => setError(message(err)),
   });
 
+  // Answering an interactive block (task 2.5): the api writes the answer into the block and tells
+  // whoever owns it, so the refetch brings back the message with its own outcome in it.
+  const [acting, setActing] = useState<string | null>(null);
+  const interact = useMutation({
+    mutationFn: async (input: { id: string; act: BlockAct }) => {
+      setActing(input.act.blockId);
+      return unwrap(
+        await api.POST("/api/workspaces/{ws}/messages/{message}/interactions", {
+          params: { path: { ws: props.workspaceId, message: input.id } },
+          body: { block_id: input.act.blockId, values: input.act.values },
+        }),
+      );
+    },
+    onSuccess: async () => {
+      setError(null);
+      setActing(null);
+      await invalidate();
+    },
+    onError: (err: unknown) => {
+      setActing(null);
+      setError(message(err));
+    },
+  });
+
   const markRead = useMutation({
     mutationFn: async (messageId: string) => {
       const result = await api.POST("/api/workspaces/{ws}/channels/{channel}/read", {
@@ -615,6 +670,11 @@ export function ChannelTranscript(props: {
     onPin: (row) => patch.mutate({ id: row.id, body: { pinned: !row.pinned } }),
     onBookmark: (row) => patch.mutate({ id: row.id, body: { bookmarked: !row.bookmarked } }),
     onHistory: (row) => setHistoryOf((current) => (current === row.id ? null : row.id)),
+    // A reader watches the block; only somebody in the channel may answer it.
+    ...(props.member
+      ? { onAct: (row: MessageRow, act: BlockAct) => interact.mutate({ id: row.id, act }) }
+      : {}),
+    acting,
     canDelete: (row) => props.canModerate || (row.author_type === "user" && row.author_id === myId),
     mine: (row) => row.author_type === "user" && row.author_id === myId,
   };

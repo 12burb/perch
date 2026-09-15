@@ -4,6 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createBotEvents } from "@perch/bots";
 import { createBus } from "@perch/bus";
 import { createDb, type PgliteRuntime } from "@perch/db";
 import { type Engine, EngineError, EngineRegistry, runnerEngine } from "@perch/engines";
@@ -89,6 +90,12 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const bus = createBus({
     onError: (error, event) => log.error({ err: error, type: event.type }, "bus subscriber failed"),
   });
+  // Bot API events travel their own seam (spec §7.3): the socket and the signed webhook subscribe
+  // here in tasks 2.6 and 2.7, and a subscriber that throws never fails whoever caused the event.
+  const botEvents = createBotEvents({
+    onError: (error, event) =>
+      log.error({ err: error, type: event.type, botId: event.botId }, "bot event handler failed"),
+  });
   const vault = createVault({ masterKey: env.masterKey });
   const queue = createQueue({ db: db.db });
   const auth = createAuth({ env, db, log });
@@ -142,6 +149,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     env,
     db,
     bus,
+    botEvents,
     vault,
     queue,
     auth,

@@ -1,3 +1,4 @@
+import type { BotEvents } from "@perch/bots";
 import type { Bus } from "@perch/bus";
 import type { ApiTokenScopes, DbHandle, Runner, User } from "@perch/db";
 import type { EngineRegistry } from "@perch/engines";
@@ -34,6 +35,8 @@ export type Deps = {
   env: Env;
   db: DbHandle;
   bus: Bus;
+  /** Where Bot API events are handed over (spec §7.3; task 2.5): not the bus, which is §7.7's own catalog. */
+  botEvents: BotEvents;
   vault: Vault;
   queue: Queue;
   auth: Auth;

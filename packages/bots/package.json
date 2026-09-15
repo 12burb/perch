@@ -2,14 +2,15 @@
   "name": "@perch/bots",
   "version": "0.0.1",
   "private": true,
-  "description": "Bot runtime: triggers, tools, chains, QuickJS sandbox, Bot API handlers (spec §5.3, §5.4).",
+  "description": "Bot runtime: triggers, tools, chains, QuickJS sandbox, Bot API handlers (spec \u00a75.3, \u00a75.4).",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "quickjs-emscripten": "0.32.0",

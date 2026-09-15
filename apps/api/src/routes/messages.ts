@@ -16,6 +16,7 @@ import type { MessageRow } from "../repos/messages.ts";
 import { getMessage, getMessageRow, listBookmarks, listPinned } from "../repos/messages.ts";
 import { channelFor } from "../services/channels.ts";
 import { fileIdsIn, filesByIds } from "../services/files.ts";
+import { act } from "../services/interactions.ts";
 import {
   bookmark,
   edit,
@@ -101,6 +102,15 @@ const readBody = z.object({ message_id: z.uuid() }).openapi("MarkRead");
 const reactionBody = z.object({ emoji: z.string().min(1).max(64) }).openapi("Reaction");
 
 const reactionParam = z.object({ ws: z.uuid(), message: z.uuid(), emoji: z.string().min(1) });
+
+const interactionBody = z
+  .object({
+    /** Which block was acted on. A block without an id cannot be one (task 2.5). */
+    block_id: z.string().min(1).max(200),
+    /** What was chosen or typed: `value` for a button or select, `decision` for approve_deny, one entry per field for a form. */
+    values: z.record(z.string(), z.string().max(10_000)).optional(),
+  })
+  .openapi("Interaction");
 
 const listRoute = createRoute({
   method: "get",
@@ -254,6 +264,28 @@ const unreactRoute = createRoute({
   request: { params: reactionParam },
   responses: {
     200: { description: "The message", content: { "application/json": { schema: messageSchema } } },
+    ...errorResponses(403, 404, 409, 422),
+  },
+});
+
+const interactRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/messages/{message}/interactions",
+  tags: ["messages"],
+  summary: "Act on an interactive block",
+  description:
+    "Records the answer in the block itself and posts interaction.received to the bot that owns it (spec §5.2, §7.3).",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: messageParam,
+    body: { content: { "application/json": { schema: interactionBody } } },
+  },
+  responses: {
+    200: {
+      description: "The message, with the block answered",
+      content: { "application/json": { schema: messageSchema } },
+    },
     ...errorResponses(403, 404, 409, 422),
   },
 });
@@ -456,6 +488,25 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       // The emoji is a path segment, so it arrives percent-encoded from every client there is.
       emoji: decodeURIComponent(emoji),
       on: false,
+      by: actorOf(c),
+    });
+    return c.json(await rowOf(messageId, user.id), 200);
+  });
+
+  app.openapi(interactRoute, async (c) => {
+    const { ws, message: messageId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    // Acting on a block is saying something in the channel: the same permission, the same refusal.
+    await authorize(c, deps, "messages.write", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const { message, channel } = await channelOfMessage(ws, messageId, user.id);
+    await act(deps, {
+      channel,
+      message,
+      userId: user.id,
+      ...(user.name ? { userName: user.name } : {}),
+      blockId: body.block_id,
+      values: body.values ?? {},
       by: actorOf(c),
     });
     return c.json(await rowOf(messageId, user.id), 200);

@@ -1,7 +1,7 @@
 # Chat: channels
 
-Spec §5.2, §7.1. A workspace is a place to talk: the rooms, and what is said in them. Reactions,
-files and unfurls arrive with task 2.3.
+Spec §5.2, §7.1. A workspace is a place to talk: the rooms, and what is said in them — reactions,
+files, unfurls, search, and the blocks a bot asks a question with.
 
 ## The five kinds of room
 
@@ -128,6 +128,54 @@ and nothing invisible.
 
 `POST /api/workspaces/{ws}/messages/{m}/reactions {emoji}` and
 `DELETE …/reactions/{emoji}` both answer with the message, pills and all.
+
+### Interactive blocks
+
+Five of the block kinds are a question rather than a statement: `button`, `select`, `form`,
+`approve_deny`, and `progress`, which is the one nobody answers — the bot moves it, everybody else
+reads it. The other four carry an `id`, which is how an answer says which of them it is answering,
+and an `action`, which is the name the bot gave what pressing it means.
+
+```
+POST /api/workspaces/{ws}/messages/{m}/interactions  {block_id, values?}
+```
+
+`values` is what was chosen or typed: `{value}` for a button or a select, `{decision}` —
+`approved` or `denied` — for approve_deny, and one entry per filled-in field for a form. The api
+checks the answer against the block that asked: a select takes one of its own options, a form takes
+its required fields, and a decision is one of the two words. Answering is writing in the channel, so
+it needs the same membership saying something does.
+
+Two things then happen, and both matter.
+
+**The block is answered in place.** The answer is written into the block itself (`state`: who, when,
+and the values), so the message carries its own outcome: the person who opens the channel tomorrow
+reads the same thing as the person who pressed the button, with no second request and nothing to
+replay. The message gains no "(edited)" mark and files nothing in `message_edits` — recording an
+answer is not a rewrite (ADR-0095). `message.updated` goes out on the bus, so every open tab redraws
+it at once.
+
+**The payload goes to the bot that owns the block**, in the shape §7.3 names:
+
+```json
+{ "type": "interaction.received",
+  "payload": { "workspace_id": "…", "channel_id": "…", "message_id": "…",
+               "block_id": "deploy", "action": "deploy", "block_type": "approve_deny",
+               "values": { "decision": "approved" },
+               "user": { "type": "user", "id": "…", "name": "Wren" },
+               "at": "2026-09-15T10:31:00.000Z" } }
+```
+
+This is a **Bot API** event, not a bus event: the bus catalog is exactly §7.7's list, and the shape
+above is the outward-facing one, Slack-shaped on purpose. It is handed over by `@perch/bots`, which
+is where the socket (task 2.6) and the signed webhook (2.7) subscribe. A bot is told what happened
+and by whom — never a token, a key, or anything it could reach something else with.
+
+A question is answered once. Whoever gets there first is who it says; a second press is refused
+(409) and the block still reads as the first answer. The client draws all five kinds through
+`BlockRenderer` (`@perch/ui/blocks`), which also draws them answered — the chosen option by its
+label, the decision as a badge, a form's fields as what they were filled in with — and offers no
+controls at all to somebody who is only reading the channel.
 
 ## Files
 

@@ -3121,3 +3121,74 @@ database, three searches, the slowest under 150 ms (about 50 ms in practice, pri
 `e2e/search.e2e.ts` at both viewports: two channels, a word in each, the marked results, the channel
 filter narrowing them to one, the peek and its "Open full" landing in the right channel, and a
 search that finds nothing saying so.
+
+## ADR-0095: An answer lives in the block, and reaches a bot off the bus
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.5
+
+### Context
+§5.2 asks for interactive blocks — `button`, `select`, `form`, `approve_deny`, `progress` — where
+"interactions post `interaction.received` {block id, values, user, message} to the owning bot over
+the Bot API and update the block in place". Two questions are left open by that sentence: where the
+answer is kept, and which seam the payload travels on. The bus catalog is exactly §7.7's list and
+`packages/events/test/events.test.ts` asserts that nothing else is on it, while `interaction.received`
+is a §7.3 Bot API event — so it cannot simply be published. A bot cannot author a message until the
+runtime lands in 2.6, and the transports for the Bot API (the socket, the signed webhook) arrive
+with 2.6 and 2.7.
+
+### Decision
+1. **The answer is written into the block** as `state` on `messages.blocks`: who answered (`byType`,
+   `byId`, `byName`), when, and the values. The message carries its own outcome, so the person who
+   opens the channel tomorrow reads the same thing as the person who pressed the button — no second
+   request, nothing to replay, and one row to keep. `approve_deny` also keeps its `decision` field,
+   because the spec gives it one.
+2. **Answering is not editing.** `updateMessageBlocks` takes `history: false`: no `message_edits`
+   row, no `editedAt`, no "(edited)" mark. Nobody rewrote the message; a question it asked was
+   answered, and what changed is visible in the block itself. Filing it as an edit would make the
+   history a log of everyone's clicks and put "(edited)" on a message nobody edited.
+3. **A block is answered once.** The first answer wins and a second is refused (409). A block with
+   no `id` cannot be answered at all: there would be no way to say which of two buttons was pressed.
+4. **Answering is writing in the channel** — the same membership check as saying something there,
+   not a weaker one. A reader sees the question and is offered no controls.
+5. **`interaction.received` goes on its own seam**, `createBotEvents()` in `packages/bots`, not on
+   the bus. The bus catalog stays exactly §7.7; the Bot API keeps its own Slack-shaped envelope
+   (`{type, botId, workspaceId, payload, ts}`), and the transports in 2.6 and 2.7 subscribe there
+   rather than being wired into the features that emit. It is in-process like the bus: a subscriber
+   that throws never fails the person who clicked, and an event with nobody listening is not an
+   error. `botId` is null until a bot can own a message.
+6. **The in-place update travels as `message.updated`**, which is already on the bus and already
+   fans out over the WebSocket, so every open tab redraws the block at once with nothing new added
+   to the catalog.
+7. **`BlockRenderer` is one component behind a subpath** (`@perch/ui/blocks`), not the package
+   barrel, because it carries the chat i18n fragment and the barrel is reached from the entry chunk
+   (ADR-0085). It renders the five kinds and their answered states; the app keeps the blocks that
+   need its own data — text with its mentions, files — and passes them in as `fallback`.
+8. **A select sends on a button, not on change.** A native `select` fires `change` per arrow key
+   while it is closed, and an answer is one-shot and final: the keyboard would spend it on the first
+   option passed over.
+
+### Consequences
+A bot can ask a question in a channel and be told the answer, and the message is the record of it.
+The Bot API seam exists before anything can transport it, which is what lets 2.6 and 2.7 subscribe
+rather than reach into chat.
+
+What is not here: a `form` that opens as a modal (§5.2 says "(modal)"; it renders inline, which is
+what works at 390 px and keeps the answer beside the question — a modal can wrap it later without
+changing the contract), editing an answered block back to unanswered, per-person answers (one block,
+one answer), and the rate limit §7.3 gives bots, which belongs with the Bot API's own routes in 2.6.
+
+### What was actually verified
+`apps/api/test/interactions.test.ts`: an approve button answered, its `state` and the §7.3 payload
+checked field by field, `message.updated` published, no `message_edits` row and no `edited_at`, a
+second press refused; a select and a form checked against the block that asked (a value that is not
+an option, a missing required field); a block that is not there (404), a text block and a `progress`
+block refused as not questions (409); somebody outside the channel refused, and a deleted message
+refused. `packages/bots/test/events.test.ts`: the §7.3 catalog, the payload schema rejecting an
+extra field and a bad block type, and a throwing subscriber that never fails the caller.
+`packages/ui/src/components/blocks.ct.tsx`: all five kinds, answered in place, axe clean at both
+viewports, a reader offered nothing to press, and no horizontal overflow at 390 px.
+`e2e/interactive-blocks.e2e.ts` at both viewports: a message of blocks posted over the contract a
+bot will use, arriving without a reload, approved and answered in place with no "(edited)" mark, a
+select showing the option's label afterwards, and the same thing after a reload.
