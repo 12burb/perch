@@ -140,6 +140,27 @@ describe("the bot runtime (task 2.6)", () => {
     expect(budgetLeft({}, { spentTodayUsd: 0, runsThisHour: 0 })).toBeNull();
   });
 
+  test("a bot's skills are in its prompt, named and with their instructions", () => {
+    const prompt = systemPrompt({
+      ...bot,
+      spec: {
+        persona: "You edit.",
+        skills: [
+          {
+            name: "house-style",
+            description: "Plain words, short sentences.",
+            instructions: "Prefer the shorter word.",
+          },
+          { name: "empty", description: "Nothing here", instructions: "  " },
+        ],
+      },
+    });
+    expect(prompt).toContain("house-style: Plain words, short sentences.");
+    expect(prompt).toContain("Prefer the shorter word.");
+    // A skill with no instructions is not a skill.
+    expect(prompt).not.toContain("empty");
+  });
+
   test("the system prompt says the one rule a message cannot talk it out of", () => {
     const prompt = systemPrompt(bot);
     expect(prompt).toContain("@wren");

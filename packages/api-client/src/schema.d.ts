@@ -8546,6 +8546,11 @@ export type components = {
                     embedModel?: string;
                 };
                 maxSteps?: number;
+                skills?: {
+                    name: string;
+                    description: string;
+                    instructions: string;
+                }[];
             };
             /** Format: uuid */
             owner_id: string;
@@ -8594,6 +8599,11 @@ export type components = {
                     embedModel?: string;
                 };
                 maxSteps?: number;
+                skills?: {
+                    name: string;
+                    description: string;
+                    instructions: string;
+                }[];
             };
             /** @enum {string} */
             visibility?: "private" | "workspace";
@@ -8634,6 +8644,11 @@ export type components = {
                     embedModel?: string;
                 };
                 maxSteps?: number;
+                skills?: {
+                    name: string;
+                    description: string;
+                    instructions: string;
+                }[];
             };
             /** @enum {string} */
             visibility?: "private" | "workspace";

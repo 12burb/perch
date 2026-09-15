@@ -2,6 +2,7 @@ import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { BotsSection } from "../../../components/bots-section.tsx";
 import { BrainsSection } from "../../../components/brains-section.tsx";
 import { ConnectionsSection } from "../../../components/connections-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
@@ -33,6 +34,7 @@ function WorkspaceSettings() {
         />
         <MembersSection workspaceId={workspace.id} myId={me.id} myRole={workspace.role} />
         <BrainsSection workspaceId={workspace.id} canAdmin={canAdmin} />
+        <BotsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <ConnectionsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         {canAdmin ? <InviteSection workspaceId={workspace.id} myRole={workspace.role} /> : null}
         {canAdmin ? <AuditSection workspaceId={workspace.id} /> : null}

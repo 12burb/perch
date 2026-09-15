@@ -33,6 +33,22 @@ and a bot cannot take a person's.
 Installing a bot makes it a **member of the channel**: it reads what is said there and writes as
 itself, with its own name and a `BOT` badge beside it. Taking it out takes the membership with it.
 
+## The Forge
+
+Settings → **Bots** is where a bot is made (spec §5.3). Six templates fill the form in — Grok
+Newsroom, GPT Helpdesk, Claude Reviewer, Local Llama, 12birb Editor, GAM3 TALK Show Notes — and a
+template is a starting point, not something that exists: picking one writes the name, the handle,
+the persona, the tools and the triggers into the form, and nothing is created until you say so.
+
+The form is the spec below in plain words: what it is called, what people type after an `@`, what
+it is told, which brain it runs on, what it may spend in a day, which tools it has, and what sets
+it off. A bot everybody can talk to is a checkbox an admin sees.
+
+Each bot on the page carries the rest: the channels it is in (tick one to put it there), what it
+has spent, a pause switch, and a **test chat** — ask it something and read the answer without
+saying anything in a channel. That is `POST …/bots/{bot}/test`, the same turn a channel would get
+with nowhere to post it.
+
 ## The spec
 
 ```jsonc
@@ -61,6 +77,11 @@ answers its own message, and a trigger only fires where the bot is installed and
 **Tools.** The native set (spec §5.3), each one the bot's own: `web_search`, `http_fetch`,
 `chat_post`, `chat_read`, `remember`, `recall`, `thread_facts`. A bot gets exactly what its spec
 lists and nothing else.
+
+**Skills.** `skills` is what a bot knows how to do, in the Agent Skills shape: a name, the line
+that says when it applies, and the instructions themselves. They are put in front of the model with
+the persona, so a bot can carry a house style or a way of writing show notes without that filling
+its persona.
 
 **Memory.** `window` is how much of the thread it is shown. `remember` and `recall` keep short facts
 between turns; with an embedding model configured they are matched by meaning, and without one by

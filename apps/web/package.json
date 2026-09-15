@@ -27,6 +27,7 @@
     "@lezer/common": "1.5.2",
     "@lezer/markdown": "1.7.2",
     "@perch/api-client": "workspace:*",
+    "@perch/bots": "workspace:*",
     "@perch/events": "workspace:*",
     "@perch/ui": "workspace:*",
     "@tanstack/react-query": "5.102.8",

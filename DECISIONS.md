@@ -3358,3 +3358,49 @@ thread outright and `/resume` letting it carry on.
 header's hops, bots, money and paused state, axe clean, and nothing at all when nothing has happened.
 `e2e/chains.e2e.ts` at both viewports: a person asks the lead, the lead tags the desk, the desk
 answers, and the thread's header counts two hops with both bots named.
+
+## ADR-0098: A template is a filled-in form, not a bot
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.8
+
+### Context
+§5.3 gives the Forge "form + live test chat + templates" and names six of them. The obvious way to
+ship templates is to have the api create a bot from a template id — one click, a bot exists. The
+other way is to have the template fill the form in and let the person press Create.
+
+### Decision
+1. **A template fills the form in.** `BOT_TEMPLATES` is data; picking one writes a draft into the
+   form, and the ordinary `POST …/bots` creates whatever the person ends up with. Nobody gets a bot
+   they have not read, the handle can be changed before it is taken, and there is no second creation
+   path in the api to keep in step with the first.
+2. **The templates live in `@perch/bots/templates`, a module with no imports.** The Forge runs in a
+   browser and the bot runtime must not: a subpath of plain data keeps the AI SDK, the tools and the
+   host out of the web bundle while the list stays in the package it belongs to.
+3. **The Forge is a section of workspace settings**, beside Brains and Connections, rather than a
+   seventh rail mode. A bot is configuration of the workspace in the same sense a brain is, and §4's
+   rail has its six modes.
+4. **The test chat is the ordinary run with nowhere to post it** (`quiet`), so what a person tries in
+   the Forge is exactly what a channel would get, ledger row and all.
+5. **Skills are part of the spec, not files yet.** §5.3's `skills/` in the Agent Skills format
+   arrives here as `spec.skills` — name, description, instructions — put in front of the model with
+   the persona. The directory form belongs with spec bots (`bot.yaml` + `skills/`), which is a later
+   task; the shape is the same one, so those files will parse into this field.
+
+### Consequences
+Six good starting points, and a bot that is always something the person chose. The templates are
+a list anybody can extend without touching the api.
+
+What is not here: editing a bot's spec after it exists (the form creates; the card pauses, installs
+and tries), the live test chat as a conversation rather than one question, spec bots and code bots,
+and per-install tool narrowing in the UI.
+
+### What was actually verified
+`packages/bots/test/templates.test.ts`: the six the spec names, unique handles, every template
+parsing as a bot spec the api would take, only tools that exist, and the newsroom's schedule saying
+when and where. `packages/bots/test/runtime.test.ts`: a bot's skills in its prompt, and a skill with
+no instructions left out. `e2e/forge.e2e.ts` at both viewports — **the acceptance**: Grok Newsroom
+picked from a template, the form filled in from it, created against the workspace's brain, put in
+#general, tried in the Forge's test chat, and then answering `@grok` in the channel with its BOT
+badge; axe clean on the Forge.

@@ -3525,6 +3525,34 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 12
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "instructions": {
+                      "type": "string",
+                      "maxLength": 20000
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "description",
+                    "instructions"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 20
               }
             },
             "additionalProperties": false
@@ -3743,6 +3771,34 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 12
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "instructions": {
+                      "type": "string",
+                      "maxLength": 20000
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "description",
+                    "instructions"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 20
               }
             },
             "additionalProperties": false
@@ -3923,6 +3979,34 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 12
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "instructions": {
+                      "type": "string",
+                      "maxLength": 20000
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "description",
+                    "instructions"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 20
               }
             },
             "additionalProperties": false

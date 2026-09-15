@@ -335,6 +335,22 @@ export const botSpecSchema = z
     memory: botMemorySchema.optional(),
     /** How many tool rounds one answer may take before it has to speak. */
     maxSteps: z.number().int().min(1).max(12).optional(),
+    /**
+     * What this bot knows how to do, in the Agent Skills shape (spec §5.3 `skills/`): a name, the
+     * line that says when to use it, and the instructions themselves. Task 2.8.
+     */
+    skills: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(64),
+            description: z.string().max(500),
+            instructions: z.string().max(20_000),
+          })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
   })
   .strict();
 export type BotSpec = z.infer<typeof botSpecSchema>;

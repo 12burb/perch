@@ -252,6 +252,43 @@ export function catalogQuery(workspaceId: string, credentialId: string) {
 }
 
 /** The channels this member can see, with what is unread in each (task 2.1). */
+/** The bots of a workspace (task 2.8). */
+export type BotRow = {
+  id: string;
+  handle: string;
+  name: string;
+  spec: Record<string, unknown>;
+  owner_id: string;
+  visibility: "private" | "workspace";
+  status: "active" | "paused" | "disabled";
+  budget: Record<string, unknown>;
+  channels: string[];
+};
+
+export function botsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "bots"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/workspaces/{ws}/bots", { params: { path: { ws: workspaceId } } }))
+        .bots,
+    enabled: workspaceId !== "",
+  });
+}
+
+/** What one bot has done, and what it cost (task 2.6). */
+export function botRunsQuery(workspaceId: string, botId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "bots", botId, "runs"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/bots/{bot}/runs", {
+          params: { path: { ws: workspaceId, bot: botId }, query: { limit: 10 } },
+        }),
+      ).runs,
+    enabled: workspaceId !== "" && botId !== "",
+  });
+}
+
 export function channelsQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "channels"],
