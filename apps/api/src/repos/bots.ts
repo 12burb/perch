@@ -2,11 +2,21 @@
  * bots, bot_installs, bot_runs and bot_memories (spec §6; task 2.6). The ledger is the point of
  * `bot_runs`: a budget is only real if what has been spent can be counted.
  */
-import type { Bot, BotInstall, BotMemory, BotRun, Db, NewBot, NewBotRun } from "@perch/db";
+import type {
+  Bot,
+  BotChain,
+  BotInstall,
+  BotMemory,
+  BotRun,
+  Db,
+  NewBot,
+  NewBotChain,
+  NewBotRun,
+} from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 
-const { bots, botInstalls, botRuns, botMemories, channels, channelMembers } = schema;
+const { bots, botInstalls, botRuns, botMemories, botChains, channels, channelMembers } = schema;
 
 /** The bots this person can see: the workspace's own, plus their own private ones. */
 export async function listBots(db: Db, workspaceId: string, userId: string): Promise<Bot[]> {
@@ -273,4 +283,55 @@ export async function recallMemories(
     .where(and(...where, or(...matches)))
     .orderBy(desc(botMemories.createdAt))
     .limit(limit);
+}
+
+/** Every hop of one thread, oldest first: the chain as it happened (spec §5.4). */
+export async function chainOf(db: Db, threadRootId: string): Promise<BotChain[]> {
+  return db
+    .select()
+    .from(botChains)
+    .where(eq(botChains.threadRootId, threadRootId))
+    .orderBy(asc(botChains.createdAt), asc(botChains.id));
+}
+
+export async function startHop(db: Db, values: NewBotChain): Promise<BotChain> {
+  const [row] = await db.insert(botChains).values(values).returning();
+  if (!row) throw new Error("bot chain insert returned no row");
+  return row;
+}
+
+export async function finishHop(
+  db: Db,
+  id: string,
+  values: {
+    status: BotChain["status"];
+    tokens?: number;
+    costUsd?: number;
+    breakerReason?: string | null;
+  },
+): Promise<BotChain | null> {
+  const [row] = await db
+    .update(botChains)
+    .set({
+      status: values.status,
+      ...(values.tokens === undefined ? {} : { tokens: values.tokens }),
+      ...(values.costUsd === undefined ? {} : { costUsd: values.costUsd.toFixed(6) }),
+      ...(values.breakerReason === undefined ? {} : { breakerReason: values.breakerReason }),
+    })
+    .where(eq(botChains.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/** The bots of a workspace by handle, for a mention that names one. */
+export async function botsByHandles(
+  db: Db,
+  workspaceId: string,
+  handles: string[],
+): Promise<Bot[]> {
+  if (handles.length === 0) return [];
+  return db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.workspaceId, workspaceId), inArray(bots.handle, handles)));
 }

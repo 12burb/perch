@@ -12,6 +12,8 @@ import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 
 export type SearchHit = { title: string; url: string; snippet: string };
+/** What another bot said back, when one was tagged (spec §5.4). */
+export type BotReply = { handle: string; text: string; at: string };
 export type ChatLine = { author: string; text: string; at: string };
 export type MemoryHit = { content: string; at: string };
 
@@ -31,6 +33,19 @@ export type BotHost = {
   fetchUrl(input: { url: string }): Promise<{ status: number; text: string }>;
   /** The web, through whatever search provider this Perch is configured with. */
   webSearch(input: { query: string; limit: number }): Promise<SearchHit[]>;
+  /** Tag another bot in this thread (spec §5.4). The rails decide whether it happens. */
+  mention(input: {
+    handle: string;
+    text: string;
+    mode: "consult" | "handoff" | "fanout";
+  }): Promise<{ ok: boolean; hop?: number; reason?: string }>;
+  /** Wait for the bots that were tagged to answer in this thread. */
+  waitForReplies(input: {
+    handles: string[];
+    wait: "all" | "first" | "quorum";
+    quorum?: number;
+    timeoutMs?: number;
+  }): Promise<BotReply[]>;
 };
 
 /**
@@ -149,6 +164,63 @@ export function toolsFor(allowed: readonly BotTool[], host: BotHost): ToolSet {
         const hits = await host.recall({ query, limit: limit ?? 5 });
         if (hits.length === 0) return untrusted("recall", "nothing kept about that");
         return untrusted("recall", clip(hits.map((hit) => hit.content).join("\n")));
+      },
+    });
+  }
+
+  if (has("mention")) {
+    set.mention = tool({
+      description:
+        "Tag another bot in this thread so it answers too. Use consult to ask, fanout to ask several at once.",
+      inputSchema: z.object({
+        handle: z.string().min(1).max(64),
+        text: z.string().min(1).max(2_000),
+        mode: z.enum(["consult", "fanout"]).optional(),
+      }),
+      execute: async ({ handle, text, mode }) => {
+        const result = await host.mention({ handle, text, mode: mode ?? "consult" });
+        if (!result.ok) return `not tagged: ${result.reason ?? "the chain cannot go further"}`;
+        return `tagged @${handle} (hop ${result.hop ?? 1})`;
+      },
+    });
+  }
+
+  if (has("hand_off")) {
+    set.hand_off = tool({
+      description:
+        "Give this task to another bot and stop working on it yourself. Say what you have done so far.",
+      inputSchema: z.object({
+        handle: z.string().min(1).max(64),
+        text: z.string().min(1).max(2_000),
+      }),
+      execute: async ({ handle, text }) => {
+        const result = await host.mention({ handle, text, mode: "handoff" });
+        if (!result.ok) return `not handed off: ${result.reason ?? "the chain cannot go further"}`;
+        return `handed to @${handle}; stop here and say so`;
+      },
+    });
+  }
+
+  if (has("wait_for_replies")) {
+    set.wait_for_replies = tool({
+      description:
+        "Wait for the bots you tagged to answer in this thread, then read what they said.",
+      inputSchema: z.object({
+        handles: z.array(z.string().min(1).max(64)).min(1).max(10),
+        wait: z.enum(["all", "first", "quorum"]).optional(),
+        quorum: z.number().int().min(1).max(10).optional(),
+      }),
+      execute: async ({ handles, wait, quorum }) => {
+        const replies = await host.waitForReplies({
+          handles,
+          wait: wait ?? "all",
+          ...(quorum === undefined ? {} : { quorum }),
+        });
+        if (replies.length === 0) return untrusted("wait_for_replies", "nobody answered in time");
+        return untrusted(
+          "wait_for_replies",
+          clip(replies.map((reply) => `@${reply.handle}: ${reply.text}`).join("\n\n")),
+        );
       },
     });
   }

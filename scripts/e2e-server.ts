@@ -48,7 +48,13 @@ const provider = Bun.serve({
       const body = (await request.json()) as { messages?: { role: string; content?: unknown }[] };
       const last = [...(body.messages ?? [])].reverse().find((one) => one.role === "user");
       const asked = typeof last?.content === "string" ? last.content : "";
-      const reply = `Reading you. You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
+      const system = body.messages?.find((one) => one.role === "system");
+      const handle = /writing @([a-z0-9_-]+)/.exec(String(system?.content ?? ""))?.[1] ?? "";
+      // A lead tags the desk, which is what makes a chain in the browser (task 2.7).
+      const reply =
+        handle === "lead"
+          ? "<@gamma> what do you have?"
+          : `Reading you. You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const send = (payload: unknown) =>

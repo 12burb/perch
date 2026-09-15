@@ -106,9 +106,51 @@ no tokens, and `http_fetch` refuses anything that resolves inside the network Pe
 `web_search` goes to whatever endpoint `PERCH_SEARCH_URL` names (Brave-shaped) with
 `PERCH_SEARCH_KEY`; without one the tool says it is not configured rather than inventing an answer.
 
+## Bots tagging bots
+
+A mention is how bots work together (spec §5.4), and it is the same mention a person writes: a bot
+that says `<@gamma>` in a thread sets @gamma off exactly as a person naming them would. What makes
+it safe is that every tag is a **hop**, and hops are counted.
+
+Three tools do the tagging, and a bot only has the ones its spec lists:
+
+| Tool | Does |
+|---|---|
+| `mention` | tag another bot in this thread — `consult` to ask, `fanout` to ask several |
+| `wait_for_replies` | wait for the ones you tagged (`all`, `first`, or a `quorum`) and read what they said |
+| `hand_off` | give the task to another bot and stop working on it yourself |
+
+### The rails
+
+- **A bot never answers itself**, and a person's word always gets through.
+- **Six hops** per conversation by default (`budget.maxHops` on the bot that started it).
+- **A pair that bounces stops.** A → B → A → B is a loop, and the third leg of it is refused.
+- **The thread has a budget**: `budget.perThreadUsd` on the bot that started it, spent across every
+  hop that follows. When it is gone, the chain stops.
+- **The breaker pauses the thread** and posts an intervene card — what happened, how many hops, what
+  it cost — with Continue and Stop. Continue lets them carry on; Stop leaves it paused. It is the
+  ordinary interactive block, so it works everywhere a message does.
+- **A person can stop it themselves**: `/stop` in a thread halts every bot in it, `/resume` lets them
+  go on. Both are ordinary messages, so who called it is on the record.
+- **Another bot's message is data**, not an instruction: what `wait_for_replies` brings back is
+  wrapped as untrusted, like everything else a tool returns.
+
+Every hop is a row in `bot_chains` — who tagged whom, how far from the message that started it, in
+what mode, what it cost, and why the rails stopped it if they did. `bot.chain_hop` and
+`bot.chain_breaker` go out on the bus as they happen.
+
+```
+GET /api/workspaces/{ws}/messages/{m}/chain
+→ { hops: [{hop, from_name, to_name, mode, status, cost_usd, at}], cost_usd, stopped, breaker }
+```
+
+The thread's header (`ChainHeader`) is that answer in one line: who is in it, how far it went, what
+it cost, and whether it is paused.
+
 ## Events
 
 A bot's turn publishes `bot.run_started`, then `bot.run_finished` or `bot.run_failed`; installing
 and uninstalling publish `bot.installed` and `bot.uninstalled`; a budget refusal publishes
-`budget.exceeded` (spec §7.7). The Bot API's own events — `interaction.received` today, the rest
+`budget.exceeded`; a tag publishes `bot.chain_hop`, and the rails stopping one publishes
+`bot.chain_breaker` (spec §7.7). The Bot API's own events — `interaction.received` today, the rest
 with the transports in 2.7 — travel the seam in `packages/bots`, not the bus.

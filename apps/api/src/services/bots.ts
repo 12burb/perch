@@ -13,14 +13,19 @@
 import {
   type BotEvents,
   type BotHost,
+  type BotReply,
   budgetLeft,
+  type ChainState,
   type ChatLine,
+  DEFAULT_MAX_HOPS,
   firesOn,
   inScope,
   type MemoryHit,
+  mayHop,
   runBot,
   type SearchHit,
   schedules,
+  summarize,
   type TriggerEvent,
   toolsFor,
   withinBudget,
@@ -28,14 +33,17 @@ import {
 import type { Bus } from "@perch/bus";
 import type {
   Bot,
+  BotChain,
   BotInstall,
   BotRun,
   BotSpec,
   BotTool,
+  ChainMode,
   Channel,
   Db,
   Message,
   MessageBlock,
+  ThreadFactValue,
 } from "@perch/db";
 import type { ModelMessage } from "@perch/gateway";
 import type { Queue } from "@perch/jobs";
@@ -44,9 +52,13 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import {
   botByHandle,
+  botsByHandles,
+  botsByIds,
   botsInChannel,
+  chainOf,
   channelForBot,
   deleteBot,
+  finishHop,
   finishRun,
   getBot,
   insertBot,
@@ -55,6 +67,7 @@ import {
   keepMemory,
   recallMemories,
   spending,
+  startHop,
   startRun,
   uninstallBot,
   updateBot,
@@ -94,6 +107,8 @@ export type RunInput = {
   message?: Message | undefined;
   /** Where it was installed, when the run comes from a channel: its scopes narrow the tools. */
   install?: BotInstall | undefined;
+  /** The hop this run is (spec §5.4), when somebody tagged the bot rather than asking it directly. */
+  chain?: BotChain | undefined;
   /** A run with no message of its own: a schedule, or the Forge's test chat. */
   prompt?: string | undefined;
   by: ActorContext;
@@ -107,6 +122,19 @@ const DEFAULT_WINDOW = 20;
 const PLACEHOLDER = "…";
 /** The queue a bot's scheduled triggers run on. */
 export const BOT_QUEUE = "bots";
+/**
+ * The thread's own switch (spec §5.4 "/stop halts all bots in the thread; /resume continues"), kept
+ * where the rest of a thread's shared state is rather than in a table of its own.
+ */
+/** How long a bot waits for the bots it tagged, and how often it looks (spec §5.4 fan-out). */
+const WAIT_MS = 60_000;
+const WAIT_POLL_MS = 250;
+const STOPPED = "chain.stopped";
+const BREAKER = "chain.breaker";
+/** What a person allowed this thread to spend when they let it carry on (spec §5.4 Continue). */
+const ALLOWANCE = "chain.allowance";
+/** What the intervene card asks (spec §5.4 "Continue/Stop"). */
+const INTERVENE_ACTION = "chain.intervene";
 /** A spec may carry at most this many triggers (the shape caps it at 20). */
 const MAX_SCHEDULES = 20;
 
@@ -164,6 +192,11 @@ export function fetchable(raw: string): URL {
 
 export class BotsService {
   private readonly inflight = new Set<Promise<unknown>>();
+  /**
+   * How a tag was meant (spec §5.4 consult, handoff, fan-out). The mention travels as an ordinary
+   * message, so the mode is remembered beside it until the hop it causes is recorded.
+   */
+  private readonly modes = new Map<string, ChainMode>();
 
   constructor(
     private readonly deps: BotsDeps,
@@ -232,6 +265,37 @@ export class BotsService {
     });
   }
 
+  /** The chain of a thread, with the names a header needs (task 2.7). */
+  async chain(threadRootId: string): Promise<ChainView> {
+    const hops = await chainOf(this.deps.db, threadRootId);
+    const ids = new Set<string>();
+    for (const hop of hops) {
+      ids.add(hop.toBotId);
+      if (hop.fromType === "bot") ids.add(hop.fromId);
+    }
+    const named = await botsByIds(this.deps.db, [...ids]);
+    const facts = await threadFactsOf(this.deps.db, threadRootId);
+    const breaker = facts[BREAKER];
+    return {
+      hops: hops.map((hop) => ({
+        id: hop.id,
+        hop: hop.hop,
+        fromType: hop.fromType,
+        fromId: hop.fromId,
+        fromName: hop.fromType === "bot" ? (named.get(hop.fromId)?.name ?? null) : null,
+        toBotId: hop.toBotId,
+        toName: named.get(hop.toBotId)?.name ?? null,
+        mode: hop.mode,
+        status: hop.status,
+        costUsd: Number(hop.costUsd),
+        at: hop.createdAt.toISOString(),
+      })),
+      costUsd: Math.round(hops.reduce((total, hop) => total + Number(hop.costUsd), 0) * 1e6) / 1e6,
+      stopped: facts[STOPPED] === true,
+      breaker: typeof breaker === "string" && breaker !== "" ? breaker : null,
+    };
+  }
+
   /** Where a bot has been put. */
   installsOf(botId: string): Promise<BotInstall[]> {
     return installsOf(this.deps.db, botId);
@@ -256,6 +320,12 @@ export class BotsService {
       }),
       this.deps.bus.subscribe("reaction.added", (event) => {
         this.track(this.onReaction(event.payload));
+      }),
+      // The intervene card's answer comes back on the Bot API seam (task 2.5), like any other.
+      this.deps.botEvents.subscribe((event) => {
+        if (event.type !== "interaction.received") return;
+        if (event.payload.action !== INTERVENE_ACTION) return;
+        this.track(this.intervened(event.payload.block_id, event.payload.values.decision ?? ""));
       }),
     ];
     return () => {
@@ -324,14 +394,60 @@ export class BotsService {
     );
   }
 
-  /** Every bot in the channel is offered what happened; the ones whose triggers fire answer. */
+  /**
+   * Every bot in the channel is offered what happened; the ones whose triggers fire answer — unless
+   * the thread's rails say otherwise (spec §5.4). A person's word always gets through; a bot's is a
+   * hop, and hops are counted, paired and paid for.
+   */
   private async offer(channel: Channel, event: TriggerEvent, message: Message): Promise<void> {
+    const threadRootId = message.threadRootId ?? message.id;
+    if (await this.command(message, threadRootId)) return;
+    if (await this.stopped(threadRootId)) return;
     const installed = await botsInChannel(this.deps.db, channel.id);
     for (const { bot, install } of installed) {
       if (bot.status !== "active") continue;
       if (!inScope(bot.spec, { id: channel.id, name: channel.name })) continue;
       const fired = firesOn({ id: bot.id, handle: bot.handle, spec: bot.spec }, event);
       if (!fired) continue;
+
+      const from = {
+        fromType: message.authorType,
+        fromId: message.authorId,
+        toBotId: bot.id,
+      } as const;
+      const state = await this.chainState(threadRootId, bot);
+      const verdict = mayHop(state, from);
+      if (!verdict.ok) {
+        // A chain that has gone as far as it may stops for everybody, and says so once.
+        if (verdict.kind !== "self") await this.trip(channel, message, verdict.reason, bot);
+        continue;
+      }
+      const chain = await startHop(this.deps.db, {
+        workspaceId: channel.workspaceId,
+        rootMessageId: threadRootId,
+        threadRootId,
+        hop: verdict.hop,
+        fromType: message.authorType,
+        fromId: message.authorId,
+        toBotId: bot.id,
+        mode: this.modes.get(message.id) ?? "consult",
+        status: "running",
+      });
+      this.modes.delete(message.id);
+      await this.deps.bus.publish(
+        "bot.chain_hop",
+        {
+          workspaceId: channel.workspaceId,
+          chainId: chain.id,
+          threadRootId,
+          hop: verdict.hop,
+          fromType: message.authorType === "system" ? "user" : message.authorType,
+          fromId: message.authorId,
+          toBotId: bot.id,
+          mode: "consult",
+        },
+        botActor(bot.id),
+      );
       await this.run({
         bot,
         channel,
@@ -339,9 +455,170 @@ export class BotsService {
         triggerRef: message.id,
         message,
         install,
+        chain,
         by: botActor(bot.id),
       });
     }
+  }
+
+  /**
+   * Somebody pressed Continue or Stop on the intervene card (spec §5.4). Continue lets the thread
+   * carry on from where it stopped; Stop leaves it as it is, which is what it already was.
+   */
+  private async intervened(blockId: string, decision: string): Promise<void> {
+    const threadRootId = blockId.startsWith(`${INTERVENE_ACTION}:`)
+      ? blockId.slice(INTERVENE_ACTION.length + 1)
+      : "";
+    if (!threadRootId || decision !== "approved") return;
+    const facts = await threadFactsOf(this.deps.db, threadRootId);
+    const was = typeof facts[BREAKER] === "string" ? facts[BREAKER] : "";
+    const values: Record<string, ThreadFactValue> = { [STOPPED]: false, [BREAKER]: "" };
+    // Carrying on after the money ran out means another go at it, not the same refusal again.
+    if (was.includes("budget")) {
+      const hops = await chainOf(this.deps.db, threadRootId);
+      const starter = hops[0] ? await getBot(this.deps.db, hops[0].toBotId) : null;
+      const spentSoFar = hops.reduce((total, hop) => total + Number(hop.costUsd), 0);
+      values[ALLOWANCE] =
+        Math.round((spentSoFar + (starter?.budget.perThreadUsd ?? 0)) * 1e6) / 1e6;
+    }
+    await upsertThreadFacts(this.deps.db, threadRootId, values, {
+      type: "user",
+      id: (await getMessage(this.deps.db, threadRootId))?.authorId ?? threadRootId,
+    });
+  }
+
+  /**
+   * `/stop` halts every bot in a thread and `/resume` lets them go on (spec §5.4). A person says it
+   * like anything else: the message stands as the record of who called it.
+   */
+  private async command(message: Message, threadRootId: string): Promise<boolean> {
+    if (message.authorType !== "user") return false;
+    const said = textOf(message.blocks).trim().toLowerCase();
+    if (said !== "/stop" && said !== "/resume") return false;
+    await upsertThreadFacts(
+      this.deps.db,
+      threadRootId,
+      { [STOPPED]: said === "/stop", [BREAKER]: "" },
+      { type: "user", id: message.authorId },
+    );
+    return true;
+  }
+
+  /** What a bot said, offered to the other bots in the room: the tag that makes a chain. */
+  private async offerReply(
+    channel: Channel,
+    message: Message,
+    bot: Bot,
+    text: string,
+  ): Promise<void> {
+    const mentions = mentionsIn(text);
+    if (mentions.length === 0) return;
+    await this.offer(
+      channel,
+      {
+        kind: "message",
+        channelId: channel.id,
+        channelType: channel.type,
+        text,
+        mentions,
+        authorType: "bot",
+        authorId: bot.id,
+      },
+      message,
+    );
+  }
+
+  /** The thread as the rails see it: its hops, and what the bot that started it allowed. */
+  private async chainState(threadRootId: string, bot: Bot): Promise<ChainState> {
+    const hops = await chainOf(this.deps.db, threadRootId);
+    const first = hops[0];
+    const starter = first ? await getBot(this.deps.db, first.toBotId) : bot;
+    const budget = (starter ?? bot).budget;
+    // A person who pressed Continue after the money ran out has said what the thread may spend.
+    const facts = await threadFactsOf(this.deps.db, threadRootId);
+    const allowed = typeof facts[ALLOWANCE] === "number" ? facts[ALLOWANCE] : null;
+    return {
+      hops: hops.map((hop) => ({
+        fromType: hop.fromType,
+        fromId: hop.fromId,
+        toBotId: hop.toBotId,
+        mode: hop.mode,
+        costUsd: Number(hop.costUsd),
+      })),
+      budgetUsd: allowed ?? budget.perThreadUsd ?? null,
+      maxHops: budget.maxHops ?? DEFAULT_MAX_HOPS,
+    };
+  }
+
+  /** Whether this thread has been halted, by a person or by the breaker. */
+  private async stopped(threadRootId: string): Promise<boolean> {
+    const facts = await threadFactsOf(this.deps.db, threadRootId);
+    return facts[STOPPED] === true;
+  }
+
+  /**
+   * The breaker (spec §5.4): the thread pauses, and a card asks somebody to decide. Continue clears
+   * it; Stop leaves it stopped. It is said once — a second trip in a stopped thread is silent.
+   */
+  private async trip(channel: Channel, message: Message, reason: string, bot: Bot): Promise<void> {
+    const threadRootId = message.threadRootId ?? message.id;
+    if (await this.stopped(threadRootId)) return;
+    await upsertThreadFacts(
+      this.deps.db,
+      threadRootId,
+      { [STOPPED]: true, [BREAKER]: reason },
+      { type: "bot", id: bot.id },
+    );
+    const hops = await chainOf(this.deps.db, threadRootId);
+    const summary = summarize(
+      {
+        hops: hops.map((hop) => ({
+          fromType: hop.fromType,
+          fromId: hop.fromId,
+          toBotId: hop.toBotId,
+          mode: hop.mode,
+          costUsd: Number(hop.costUsd),
+        })),
+        budgetUsd: null,
+      },
+      reason,
+    );
+    await this.deps.bus.publish(
+      "bot.chain_breaker",
+      {
+        workspaceId: channel.workspaceId,
+        chainId: hops.at(-1)?.id ?? threadRootId,
+        threadRootId,
+        reason,
+      },
+      botActor(bot.id),
+    );
+    // The card is the ordinary interactive block (task 2.5), so it works everywhere already.
+    await this.card(channel, message, bot, reason, summary.hops, summary.costUsd);
+  }
+
+  private async card(
+    channel: Channel,
+    message: Message,
+    bot: Bot,
+    reason: string,
+    hops: number,
+    costUsd: number,
+  ): Promise<void> {
+    const threadRootId = message.threadRootId ?? message.id;
+    const spentSoFar = costUsd.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+    await this.post(channel, threadRootId, bot, [
+      {
+        type: "text",
+        text: `The bots here have been paused: ${reason}. ${hops} hops so far, about $${spentSoFar}.`,
+      },
+      {
+        type: "approve_deny",
+        id: `${INTERVENE_ACTION}:${threadRootId}`,
+        text: "Let them carry on?",
+        action: INTERVENE_ACTION,
+      },
+    ]);
   }
 
   /**
@@ -553,6 +830,13 @@ export class BotsService {
         costUsd: result.costUsd,
         modelId: profile.modelId,
       });
+      if (input.chain) {
+        await finishHop(this.deps.db, input.chain.id, {
+          status: "done",
+          tokens: result.inputTokens + result.outputTokens,
+          costUsd: result.costUsd,
+        });
+      }
       await this.deps.bus.publish(
         "bot.run_finished",
         {
@@ -563,6 +847,9 @@ export class BotsService {
         },
         input.by,
       );
+      // A reply arrives by editing the placeholder, so the bus never carries its words. What one
+      // bot says to another is offered here instead — once, when it is finished (spec §5.4).
+      if (placeholder) await this.offerReply(channel, placeholder, bot, said);
       return { run: ended ?? run, text: said };
     } catch (error) {
       const why = error instanceof PerchError ? error.message : "this bot could not answer";
@@ -570,6 +857,9 @@ export class BotsService {
       if (placeholder) await this.rewrite(bot, channel, placeholder, why);
       else if (!input.quiet) await this.say(bot, channel, input.message, why);
       const ended = await finishRun(this.deps.db, run.id, { status: "error", error: why });
+      if (input.chain) {
+        await finishHop(this.deps.db, input.chain.id, { status: "error", breakerReason: why });
+      }
       await this.deps.bus.publish(
         "bot.run_failed",
         { workspaceId: channel.workspaceId, botId: bot.id, runId: run.id, error: why },
@@ -639,13 +929,23 @@ export class BotsService {
     // A room keeps the answer in a thread; a conversation with the bot is already one.
     const inThread = asked && channel.type !== "dm" && channel.type !== "group";
     const threadRootId = inThread ? (asked.threadRootId ?? asked.id) : null;
+    return this.post(channel, threadRootId, bot, [{ type: "text", text }]);
+  }
+
+  /** Whatever the bot has to say, as blocks, where it was asked. */
+  private async post(
+    channel: Channel,
+    threadRootId: string | null,
+    bot: Bot,
+    blocks: MessageBlock[],
+  ): Promise<Message> {
     const message = await insertMessage(this.deps.db, {
       workspaceId: channel.workspaceId,
       channelId: channel.id,
       threadRootId,
       authorType: "bot",
       authorId: bot.id,
-      blocks: [{ type: "text", text }],
+      blocks,
     });
     await this.deps.bus.publish(
       "message.created",
@@ -765,6 +1065,57 @@ export class BotsService {
         const body = await response.text();
         return { status: response.status, text: readable(body) };
       },
+      mention: async ({ handle, text, mode }) => {
+        if (!threadRootId) return { ok: false, reason: "there is no thread to tag anybody in" };
+        const [tagged] = await botsByHandles(this.deps.db, channel.workspaceId, [
+          handle.replace(/^@/, "").toLowerCase(),
+        ]);
+        if (!tagged) return { ok: false, reason: `there is no @${handle} here` };
+        const state = await this.chainState(threadRootId, bot);
+        const verdict = mayHop(state, {
+          fromType: "bot",
+          fromId: bot.id,
+          toBotId: tagged.id,
+        });
+        if (!verdict.ok) return { ok: false, reason: verdict.reason };
+        // Tagging is saying their name: the same path a person's mention takes.
+        const posted = await this.post(channel, threadRootId, bot, [
+          { type: "text", text: `<@${tagged.handle}> ${text}` },
+        ]);
+        this.modes.set(posted.id, mode);
+        return { ok: true, hop: verdict.hop };
+      },
+      waitForReplies: async ({ handles, wait, quorum, timeoutMs }) => {
+        if (!threadRootId) return [];
+        const wanted = handles.map((one) => one.replace(/^@/, "").toLowerCase());
+        const who = await botsByHandles(this.deps.db, channel.workspaceId, wanted);
+        if (who.length === 0) return [];
+        const need =
+          wait === "first" ? 1 : wait === "quorum" ? Math.min(quorum ?? 1, who.length) : who.length;
+        const deadline = Date.now() + Math.min(timeoutMs ?? WAIT_MS, WAIT_MS);
+        const since = new Date();
+        const seen = new Map<string, BotReply>();
+        while (Date.now() < deadline && seen.size < need) {
+          const rows = await listMessages(this.deps.db, channel.id, bot.ownerId, {
+            threadRootId,
+            limit: 100,
+          });
+          for (const row of rows) {
+            if (row.authorType !== "bot" || row.createdAt < since) continue;
+            const author = who.find((one) => one.id === row.authorId);
+            const text = textOf(row.blocks).trim();
+            if (!author || text === "" || text === PLACEHOLDER) continue;
+            seen.set(author.handle, {
+              handle: author.handle,
+              text,
+              at: row.createdAt.toISOString(),
+            });
+          }
+          if (seen.size >= need) break;
+          await Bun.sleep(WAIT_POLL_MS);
+        }
+        return [...seen.values()];
+      },
       webSearch: async ({ query, limit }) => {
         const search = this.deps.search;
         if (!search) {
@@ -854,6 +1205,26 @@ function hitsOf(body: unknown): SearchHit[] {
     ];
   });
 }
+
+/** What a thread's chain looks like from outside: the hops, and what they cost (spec §5.4). */
+export type ChainView = {
+  hops: {
+    id: string;
+    hop: number;
+    fromType: "user" | "bot" | "system";
+    fromId: string;
+    fromName: string | null;
+    toBotId: string;
+    toName: string | null;
+    mode: ChainMode;
+    status: BotChain["status"];
+    costUsd: number;
+    at: string;
+  }[];
+  costUsd: number;
+  stopped: boolean;
+  breaker: string | null;
+};
 
 /** The bot behind an id, when it is one of this workspace's. */
 export async function botFor(db: Db, workspaceId: string, id: string): Promise<Bot> {

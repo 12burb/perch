@@ -7038,6 +7038,63 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/messages/{message}/chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which bots have answered in this thread, and what it has cost */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    message: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The chain */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BotChain"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/bots/{bot}/runs": {
         parameters: {
             query?: never;
@@ -8470,7 +8527,7 @@ export type components = {
                     temperature?: number;
                     maxOutputTokens?: number;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
@@ -8499,6 +8556,8 @@ export type components = {
                 dailyUsd?: number;
                 perRunUsd?: number;
                 perHourRuns?: number;
+                perThreadUsd?: number;
+                maxHops?: number;
             };
             /** @enum {string} */
             status: "active" | "paused" | "disabled";
@@ -8516,7 +8575,7 @@ export type components = {
                     temperature?: number;
                     maxOutputTokens?: number;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
@@ -8542,6 +8601,8 @@ export type components = {
                 dailyUsd?: number;
                 perRunUsd?: number;
                 perHourRuns?: number;
+                perThreadUsd?: number;
+                maxHops?: number;
             };
             orchestrator?: boolean;
         };
@@ -8554,7 +8615,7 @@ export type components = {
                     temperature?: number;
                     maxOutputTokens?: number;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
@@ -8580,6 +8641,8 @@ export type components = {
                 dailyUsd?: number;
                 perRunUsd?: number;
                 perHourRuns?: number;
+                perThreadUsd?: number;
+                maxHops?: number;
             };
             /** @enum {string} */
             status?: "active" | "paused" | "disabled";
@@ -8612,6 +8675,30 @@ export type components = {
             text: string;
             /** Format: uuid */
             channel_id: string;
+        };
+        BotChain: {
+            hops: {
+                /** Format: uuid */
+                id: string;
+                hop: number;
+                /** @enum {string} */
+                from_type: "user" | "bot" | "system";
+                /** Format: uuid */
+                from_id: string;
+                from_name: string | null;
+                /** Format: uuid */
+                to_bot_id: string;
+                to_name: string | null;
+                /** @enum {string} */
+                mode: "consult" | "handoff" | "fanout";
+                /** @enum {string} */
+                status: "running" | "done" | "error" | "refused";
+                cost_usd: number;
+                at: string;
+            }[];
+            cost_usd: number;
+            stopped: boolean;
+            breaker: string | null;
         };
         UnfurlCard: {
             identifier: string;

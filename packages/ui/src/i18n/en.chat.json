@@ -87,5 +87,10 @@
   "block.denied": "Denied",
   "block.progress": "{percent}% done",
   "block.answeredBy": "{name} at {at}",
-  "chat.blockFailed": "That did not go through."
+  "chat.blockFailed": "That did not go through.",
+  "chain.heading": "Bots in this thread",
+  "chain.hops": "{count} hops",
+  "chain.tiny": "under a cent",
+  "chain.stopped": "Paused",
+  "chain.stoppedBecause": "Paused — {why}"
 }

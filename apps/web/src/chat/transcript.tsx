@@ -18,6 +18,7 @@ import {
   t,
 } from "@perch/ui";
 import { type BlockAct, BlockRenderer, type ChatBlock } from "@perch/ui/blocks";
+import { ChainHeader, type ChainHop } from "@perch/ui/chain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -507,6 +508,12 @@ export function ChannelTranscript(props: {
       if (envelope.type.startsWith("message.") || envelope.type.startsWith("reaction.")) {
         void invalidate();
       }
+      // A hop, or the breaker: the thread's header says what the bots have been doing (task 2.7).
+      if (envelope.type.startsWith("bot.") || envelope.type.startsWith("thread.")) {
+        void queryClient.invalidateQueries({
+          queryKey: ["workspace", props.workspaceId, "chain"],
+        });
+      }
       if (envelope.type.startsWith("channel.")) {
         void queryClient.invalidateQueries({
           queryKey: ["workspace", props.workspaceId, "members"],
@@ -643,6 +650,18 @@ export function ChannelTranscript(props: {
       setActing(null);
       setError(message(err));
     },
+  });
+
+  // Which bots have answered in this thread, how far it went, and what it cost (task 2.7).
+  const chain = useQuery({
+    queryKey: ["workspace", props.workspaceId, "chain", threadRoot],
+    enabled: Boolean(threadRoot),
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/messages/{message}/chain", {
+          params: { path: { ws: props.workspaceId, message: threadRoot ?? "" } },
+        }),
+      ),
   });
 
   const markRead = useMutation({
@@ -854,6 +873,23 @@ export function ChannelTranscript(props: {
             </Button>
           </header>
           <div className="min-h-0 flex-1 overflow-auto p-1">
+            {chain.data && chain.data.hops.length > 0 ? (
+              <div className="mb-1">
+                <ChainHeader
+                  hops={chain.data.hops.map(
+                    (hop): ChainHop => ({
+                      hop: hop.hop,
+                      fromName: hop.from_name,
+                      toName: hop.to_name,
+                      mode: hop.mode,
+                    }),
+                  )}
+                  costUsd={chain.data.cost_usd}
+                  stopped={chain.data.stopped}
+                  breaker={chain.data.breaker}
+                />
+              </div>
+            ) : null}
             {replies.map((row) => (
               <MessageItem key={row.id} row={row} actions={actions} inThread cards={cards} />
             ))}

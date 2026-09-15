@@ -2,6 +2,18 @@
 export const packageName = "@perch/bots";
 
 export {
+  type BreakerKind,
+  botHops,
+  type ChainState,
+  type ChainSummary,
+  type ChainVerdict,
+  DEFAULT_MAX_HOPS,
+  type Hop,
+  mayHop,
+  spent,
+  summarize,
+} from "./chains.ts";
+export {
   BOT_EVENTS,
   type BotActor,
   type BotEvent,
@@ -29,6 +41,7 @@ export {
 } from "./runtime.ts";
 export {
   type BotHost,
+  type BotReply,
   type ChatLine,
   type MemoryHit,
   type SearchHit,

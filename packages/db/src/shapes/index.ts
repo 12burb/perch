@@ -247,6 +247,9 @@ export const BOT_TOOLS = [
   "remember",
   "recall",
   "thread_facts",
+  "mention",
+  "wait_for_replies",
+  "hand_off",
 ] as const;
 export type BotTool = (typeof BOT_TOOLS)[number];
 
@@ -298,6 +301,13 @@ export const botBudgetSchema = z
     perRunUsd: z.number().min(0).optional(),
     /** How many runs it may start in an hour. */
     perHourRuns: z.number().int().min(1).optional(),
+    /**
+     * What a whole conversation may spend when this bot starts one (spec §5.4: the thread's budget
+     * is the root's, split across the hops that follow). Task 2.7.
+     */
+    perThreadUsd: z.number().min(0).optional(),
+    /** How many hops a chain this bot starts may take, if not the default six. */
+    maxHops: z.number().int().min(1).max(20).optional(),
   })
   .strict();
 export type BotBudget = z.infer<typeof botBudgetSchema>;

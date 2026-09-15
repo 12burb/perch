@@ -3291,3 +3291,70 @@ placeholder, the cost, the budget, the wrapper, and every trigger.
 `e2e/bots.e2e.ts` at both viewports: a brain and a bot made over the routes the Forge will use, a
 mention in the composer, the answer arriving in the thread with the BOT badge, axe clean, and the
 run on the ledger.
+
+## ADR-0097: A tag is a hop, and hops are counted
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.7
+
+### Context
+§5.4 makes a mention the way bots work together and then spends most of its length on what stops that
+going wrong: a hop limit, no self-mention, repeat-pair detection, a per-thread budget, a breaker that
+pauses the thread and asks a person, and `/stop`. Task 2.6 already made a bot answer a mention, and
+nothing in it distinguished a person's mention from another bot's — which is exactly the loop §5.4 is
+about.
+
+### Decision
+1. **One enforcement point.** A tag arrives as an ordinary message either way — a bot calling the
+   `mention` tool posts one, and a bot that simply writes `<@gamma>` in its reply has tagged them
+   too. So the rails live where a trigger is matched (`offer`), not in the tool: whatever route a
+   mention took, it is counted, paired and paid for the same way.
+2. **A bot's reply is offered when it is finished.** A reply reaches people by editing the
+   placeholder, so its words never travel on `message.created`. The finished text is handed to the
+   other bots explicitly, once — which also means a streaming edit can never set anything off.
+3. **The rails are arithmetic over the hops so far** (`packages/bots/src/chains.ts`), so the rule can
+   be read and tested without a database: bot-to-bot hops are what the limit counts, a person's
+   mention is not one, and A → B → A → B trips on the third leg while A → B → C does not.
+4. **The thread's budget is the starting bot's** `budget.perThreadUsd`, spent across every hop —
+   which is §5.4's "inherited from the root and split across hops" without inventing a second ledger:
+   each hop's cost is on its own `bot_chains` row.
+5. **The breaker pauses the thread in the thread's own state.** `chain.stopped` and `chain.breaker`
+   are thread facts (§5.4's "shared state: the thread + thread_facts"), so pausing needs no new table
+   and a client can see why. A fact is never written as null — the column is json and not-null — so
+   clearing one writes an empty string.
+6. **The intervene card is an interactive block** (task 2.5): an `approve_deny` whose id carries the
+   thread, answered through the route that already exists, and heard on the Bot API seam that already
+   exists. Continue clears the pause; Stop leaves it. The inbox copy of that card is task 2.10.
+7. **`/stop` and `/resume` are ordinary messages** a person writes, not a control channel: the
+   message stands as the record of who called it, and the bots read the fact it sets.
+8. **A tag's mode is remembered beside the message it travels on** (consult, handoff, fanout), in
+   process, until the hop it causes is recorded. A mention is a message, and a message has nowhere
+   to carry a mode; the alternative — a marker in the text — would be visible to everybody reading
+   the channel.
+
+### Consequences
+Bots can work together in a thread and a person can see what that cost, stop it, or let it go on.
+The rails are the same whether a bot was tagged by a person, by another bot's tool call, or by
+another bot's prose.
+
+What is not here: an orchestrator flag that lets some bots skip the untrusted wrapper ("unless from a
+trusted orchestrator"), group handles (`@newsroom-crew`), task cards for a hand-off (work items are
+Phase 3), `policy.yaml` deciding who may tag whom and whether bot-to-bot DMs are allowed (the policy
+engine is 2.11 — until then the defaults are the code's), the inbox's copy of the intervene card
+(2.10), and typing indicators.
+
+### What was actually verified
+`packages/bots/test/chains.test.ts`: a person's tag is not a hop and the first bot-to-bot one is; a
+bot never answers itself; six hops by default and two when the spec says two; A → B → A → B tripping
+while A → B → C and A → B → A → B → C do not; the budget spent across hops with what is left
+reported; and the summary a header shows.
+`apps/api/test/chains.test.ts` against the stub provider — **the acceptance**: three bots complete a
+fan-out (the lead tags two, both answer, and all three hops are on the chain with their costs), and a
+ping-pong pair trips the breaker (the thread pauses, the intervene card is posted, nothing more
+happens while it is paused, Continue lets them go on again, and they answer). Plus `/stop` halting a
+thread outright and `/resume` letting it carry on.
+`packages/ui/src/components/chain-header.ct.tsx` and `packages/ui/test/chain-header.test.ts`: the
+header's hops, bots, money and paused state, axe clean, and nothing at all when nothing has happened.
+`e2e/chains.e2e.ts` at both viewports: a person asks the lead, the lead tags the desk, the desk
+answers, and the thread's header counts two hops with both bots named.

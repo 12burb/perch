@@ -152,6 +152,52 @@ export const botMemories = pgTable(
   ],
 );
 
+/** How one bot tags another (spec §5.4). */
+export const CHAIN_MODES = ["consult", "handoff", "fanout"] as const;
+export type ChainMode = (typeof CHAIN_MODES)[number];
+
+export const CHAIN_STATUSES = ["running", "done", "error", "refused"] as const;
+export type ChainStatus = (typeof CHAIN_STATUSES)[number];
+
+/**
+ * One hop of one chain (spec §5.4 "every hop audited (bot_chains)"; task 2.7): who tagged whom,
+ * how far from the request that started it, what it cost, and — when the rails stopped it — why.
+ */
+export const botChains = pgTable(
+  "bot_chains",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The message that started the whole thing: a person's, a schedule's, a webhook's. */
+    rootMessageId: uuid("root_message_id").references(() => messages.id, { onDelete: "set null" }),
+    threadRootId: uuid("thread_root_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    hop: integer("hop").notNull().default(1),
+    fromType: text("from_type").$type<"user" | "bot" | "system">().notNull(),
+    fromId: uuid("from_id").notNull(),
+    toBotId: uuid("to_bot_id")
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    mode: text("mode").$type<ChainMode>().notNull().default("consult"),
+    status: text("status").$type<ChainStatus>().notNull().default("running"),
+    tokens: integer("tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    /** Why the rails stopped here: the hop limit, a repeat pair, the thread's budget. */
+    breakerReason: text("breaker_reason"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("bot_chains_thread_idx").on(t.threadRootId, t.createdAt),
+    index("bot_chains_workspace_idx").on(t.workspaceId, t.createdAt.desc()),
+    check("bot_chains_mode_check", sql`${t.mode} in ('consult', 'handoff', 'fanout')`),
+    check("bot_chains_status_check", sql`${t.status} in ('running', 'done', 'error', 'refused')`),
+    check("bot_chains_from_type_check", sql`${t.fromType} in ('user', 'bot', 'system')`),
+  ],
+);
+
 export type Bot = typeof bots.$inferSelect;
 export type NewBot = typeof bots.$inferInsert;
 export type BotInstall = typeof botInstalls.$inferSelect;
@@ -159,3 +205,5 @@ export type BotRun = typeof botRuns.$inferSelect;
 export type NewBotRun = typeof botRuns.$inferInsert;
 export type BotMemory = typeof botMemories.$inferSelect;
 export type NewBotMemory = typeof botMemories.$inferInsert;
+export type BotChain = typeof botChains.$inferSelect;
+export type NewBotChain = typeof botChains.$inferInsert;

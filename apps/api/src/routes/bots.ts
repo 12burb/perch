@@ -14,6 +14,7 @@ import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { listBots, listRuns } from "../repos/bots.ts";
+import { getMessage } from "../repos/messages.ts";
 import { botFor } from "../services/bots.ts";
 import { channelFor } from "../services/channels.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
@@ -213,6 +214,43 @@ const testRoute = createRoute({
   },
 });
 
+const chainSchema = z
+  .object({
+    hops: z.array(
+      z.object({
+        id: z.uuid(),
+        hop: z.number().int(),
+        from_type: z.enum(["user", "bot", "system"]),
+        from_id: z.uuid(),
+        from_name: z.string().nullable(),
+        to_bot_id: z.uuid(),
+        to_name: z.string().nullable(),
+        mode: z.enum(["consult", "handoff", "fanout"]),
+        status: z.enum(["running", "done", "error", "refused"]),
+        cost_usd: z.number(),
+        at: z.string(),
+      }),
+    ),
+    cost_usd: z.number(),
+    stopped: z.boolean(),
+    breaker: z.string().nullable(),
+  })
+  .openapi("BotChain");
+
+const chainRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/messages/{message}/chain",
+  tags: ["bots"],
+  summary: "Which bots have answered in this thread, and what it has cost",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: z.object({ ws: z.uuid(), message: z.uuid() }) },
+  responses: {
+    200: { description: "The chain", content: { "application/json": { schema: chainSchema } } },
+    ...errorResponses(403, 404),
+  },
+});
+
 const runsRoute = createRoute({
   method: "get",
   path: "/api/workspaces/{ws}/bots/{bot}/runs",
@@ -372,6 +410,38 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const channel = await channelFor(deps, ws, input.channel_id, currentUser(c).id);
     const outcome = await deps.bots.test(bot, channel, input.text, actorOf(c));
     return c.json({ reply: outcome.text, run: runBody(outcome.run) }, 200);
+  });
+
+  app.openapi(chainRoute, async (c) => {
+    const { ws, message: messageId } = c.req.valid("param");
+    // Reading a thread's chain is reading the thread: the channel's own rule decides.
+    await authorize(c, deps, "messages.read", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const message = await getMessage(deps.db.db, messageId);
+    if (!message || message.workspaceId !== ws) throw PerchError.notFound("message");
+    await channelFor(deps, ws, message.channelId, user.id);
+    const view = await deps.bots.chain(message.threadRootId ?? message.id);
+    return c.json(
+      {
+        hops: view.hops.map((hop) => ({
+          id: hop.id,
+          hop: hop.hop,
+          from_type: hop.fromType,
+          from_id: hop.fromId,
+          from_name: hop.fromName,
+          to_bot_id: hop.toBotId,
+          to_name: hop.toName,
+          mode: hop.mode,
+          status: hop.status,
+          cost_usd: hop.costUsd,
+          at: hop.at,
+        })),
+        cost_usd: view.costUsd,
+        stopped: view.stopped,
+        breaker: view.breaker,
+      },
+      200,
+    );
   });
 
   app.openapi(runsRoute, async (c) => {

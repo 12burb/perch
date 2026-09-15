@@ -3438,7 +3438,10 @@
                     "chat_read",
                     "remember",
                     "recall",
-                    "thread_facts"
+                    "thread_facts",
+                    "mention",
+                    "wait_for_replies",
+                    "hand_off"
                   ]
                 }
               },
@@ -3554,6 +3557,15 @@
               "perHourRuns": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "perThreadUsd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "maxHops": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
               }
             },
             "additionalProperties": false
@@ -3644,7 +3656,10 @@
                     "chat_read",
                     "remember",
                     "recall",
-                    "thread_facts"
+                    "thread_facts",
+                    "mention",
+                    "wait_for_replies",
+                    "hand_off"
                   ]
                 }
               },
@@ -3753,6 +3768,15 @@
               "perHourRuns": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "perThreadUsd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "maxHops": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
               }
             },
             "additionalProperties": false
@@ -3812,7 +3836,10 @@
                     "chat_read",
                     "remember",
                     "recall",
-                    "thread_facts"
+                    "thread_facts",
+                    "mention",
+                    "wait_for_replies",
+                    "hand_off"
                   ]
                 }
               },
@@ -3921,6 +3948,15 @@
               "perHourRuns": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "perThreadUsd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "maxHops": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
               }
             },
             "additionalProperties": false
@@ -4051,6 +4087,108 @@
         "required": [
           "text",
           "channel_id"
+        ]
+      },
+      "BotChain": {
+        "type": "object",
+        "properties": {
+          "hops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "hop": {
+                  "type": "integer"
+                },
+                "from_type": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "bot",
+                    "system"
+                  ]
+                },
+                "from_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "from_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to_bot_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "to_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "consult",
+                    "handoff",
+                    "fanout"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "done",
+                    "error",
+                    "refused"
+                  ]
+                },
+                "cost_usd": {
+                  "type": "number"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "hop",
+                "from_type",
+                "from_id",
+                "from_name",
+                "to_bot_id",
+                "to_name",
+                "mode",
+                "status",
+                "cost_usd",
+                "at"
+              ]
+            }
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "stopped": {
+            "type": "boolean"
+          },
+          "breaker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "hops",
+          "cost_usd",
+          "stopped",
+          "breaker"
         ]
       },
       "UnfurlCard": {
@@ -13277,6 +13415,74 @@
           },
           "422": {
             "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/messages/{message}/chain": {
+      "get": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "Which bots have answered in this thread, and what it has cost",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "message",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The chain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotChain"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
