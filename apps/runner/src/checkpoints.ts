@@ -46,8 +46,26 @@ export function repoDir(root: string, params: { workspace_id: string; project: s
   return dir;
 }
 
+/**
+ * The settings every snapshot command runs under. Line-ending conversion is off: a checkpoint is
+ * the bytes that were in the working tree and a restore puts those bytes back. Git for Windows
+ * turns `core.autocrlf` on by default, which would rewrite every LF file as CRLF on the way back
+ * out — a whole-file change nobody asked for. A project's own `.gitattributes` still applies, as
+ * it would to any other git command.
+ */
+const PLUMBING = [
+  "-c",
+  "core.quotePath=false",
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.safecrlf=false",
+];
+
 function git(dir: string, args: string[], env: Record<string, string> = {}): Promise<string> {
-  return runGit(["-c", "core.quotePath=false", ...args], {
+  return runGit([...PLUMBING, ...args], {
     cwd: dir,
     env: cloneEnv(process.env, env),
     timeoutMs: 120_000,

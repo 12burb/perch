@@ -2206,6 +2206,9 @@ uses.
    file), writes that tree, and commits it parentless under
    `refs/perch/checkpoints/<session>/<turn>`. HEAD, the branch, the person's index and their
    staged work are never touched, and untracked files are captured while ignored files are not.
+   Every command in this lane runs with line-ending conversion off (`core.autocrlf=false`,
+   `core.eol=lf`): a checkpoint is the bytes that were there and a restore puts those bytes back,
+   where the Git for Windows defaults would have rewritten every LF file as CRLF on the way out.
    Taking one is best effort: a project that is not a git repository still takes turns.
 2. **A diff is a range.** `git.diff` keeps its old meaning with no `ref` (the working tree against
    HEAD, tracked files only) and gains two: with `ref`, that ref against the tree as it is now

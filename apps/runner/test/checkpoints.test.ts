@@ -164,6 +164,26 @@ describe("checkpoints, diffs, and restores (task 1.13)", () => {
     expect(readFileSync(join(dir, spacey), "utf8")).toBe("one\ntwo\nthree\n");
   }, 30_000);
 
+  test("a repository that converts line endings does not get its files rewritten", async () => {
+    const { root, dir } = await project();
+    const opts = { root, policy: runnerPolicy() };
+    // What Git for Windows does by default, and what broke the round trip there.
+    git(dir, "config", "core.autocrlf", "true");
+    writeFileSync(join(dir, "unix.txt"), "one\ntwo\nthree\n");
+    const first = await checkpoint(opts, { ...ctx, session_id: SESSION, turn: 1 });
+
+    writeFileSync(join(dir, "unix.txt"), "one\nTWO\nthree\n");
+    const diff = await gitDiff(opts, { ...ctx, ref: first.git_ref });
+    const patch = diff.patches[0];
+    if (!patch) throw new Error("no patch");
+    await gitApply(opts, { ...ctx, patch: selectHunks(patch.patch, [0]), reverse: true });
+    expect(readFileSync(join(dir, "unix.txt"), "utf8")).toBe("one\ntwo\nthree\n");
+
+    writeFileSync(join(dir, "unix.txt"), "one\ntwo\nthree\nfour\n");
+    await restore(opts, { ...ctx, session_id: SESSION, turn: 1 });
+    expect(readFileSync(join(dir, "unix.txt"), "utf8")).toBe("one\ntwo\nthree\n");
+  }, 30_000);
+
   test("a restore takes the commit the api names, whoever's ref holds it", async () => {
     const { root, dir } = await project();
     const opts = { root, policy: runnerPolicy() };
