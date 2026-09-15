@@ -7,12 +7,23 @@
  * channel's body is an empty state that says so in the plainest way there is.
  */
 import "@perch/ui/i18n/chat";
-import { Badge, Button, EmptyState, Field, Input, SidebarItem, SidebarSection, t } from "@perch/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  type MessageKey,
+  SidebarItem,
+  SidebarSection,
+  t,
+} from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import {
+  botsQuery,
   type ChannelRow,
   channelMembersQuery,
   channelsQuery,
@@ -20,6 +31,7 @@ import {
   meQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { botChats } from "./chats.ts";
 import { ChannelTranscript } from "./transcript.tsx";
 
 function message(error: unknown): string {
@@ -89,8 +101,14 @@ export function ChannelsSection(props: { workspace: MyWorkspace }) {
 export function DirectMessagesSection(props: { workspace: MyWorkspace }) {
   const params = useParams({ strict: false }) as { channel?: string };
   const channels = useQuery(channelsQuery(props.workspace.id)).data ?? [];
+  const bots = useQuery(botsQuery(props.workspace.id)).data ?? [];
+  // A chat with a bot is in the Bots section instead, where it is named by the bot.
+  const withBots = new Set([...botChats(bots, channels).values()].map((room) => room.id));
   const mine = channels
-    .filter((c) => c.member && !c.archived && (c.type === "dm" || c.type === "group"))
+    .filter(
+      (c) =>
+        c.member && !c.archived && (c.type === "dm" || c.type === "group") && !withBots.has(c.id),
+    )
     .sort(byWeight);
   return (
     <SidebarSection title={t("shell.home.dms")}>
@@ -105,6 +123,59 @@ export function DirectMessagesSection(props: { workspace: MyWorkspace }) {
             active={params.channel === channel.id}
           />
         ))
+      )}
+    </SidebarSection>
+  );
+}
+
+/**
+ * Home's Bots section (spec §4 "sidebar Channels/DMs/Bots/Later"): the bots this workspace can talk
+ * to, each one a chat of your own. Opening it makes the room the first time and finds it after
+ * (task 2.9).
+ */
+export function BotsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { channel?: string };
+  const bots = useQuery(botsQuery(props.workspace.id)).data ?? [];
+  const channels = useQuery(channelsQuery(props.workspace.id)).data ?? [];
+  const talkable = bots.filter((bot) => bot.status !== "disabled");
+  const chats = botChats(talkable, channels);
+  const open = useMutation({
+    mutationFn: async (botId: string) =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/bots/{bot}/dm", {
+          params: { path: { ws: props.workspace.id, bot: botId } },
+        }),
+      ),
+    onSuccess: async (chat) => {
+      await navigate({
+        to: "/$workspace/home/$channel",
+        params: { workspace: props.workspace.slug, channel: chat.channel_id },
+      });
+    },
+  });
+  return (
+    <SidebarSection title={t("shell.home.bots")}>
+      {talkable.length === 0 ? (
+        <li className="px-2 py-1 text-sm text-fg-subtle">{t(props.empty)}</li>
+      ) : (
+        talkable.map((bot) => {
+          // Once the chat exists it is a room like any other, with what is waiting for you in it.
+          const chat = chats.get(bot.id);
+          return (
+            <SidebarItem
+              key={bot.id}
+              label={`@${bot.handle}`}
+              active={chat !== undefined && params.channel === chat.id}
+              {...(chat
+                ? {
+                    href: `/${props.workspace.slug}/home/${chat.id}`,
+                    ...(chat.unread ? { unread: chat.unread } : {}),
+                  }
+                : { onSelect: () => open.mutate(bot.id) })}
+            />
+          );
+        })
       )}
     </SidebarSection>
   );

@@ -257,7 +257,8 @@ export type BotRow = {
   id: string;
   handle: string;
   name: string;
-  spec: Record<string, unknown>;
+  /** The parts of the spec the client reads by name; the rest is the api's business. */
+  spec: { brain?: { profile?: string; pick?: boolean } } & Record<string, unknown>;
   owner_id: string;
   visibility: "private" | "workspace";
   status: "active" | "paused" | "disabled";
@@ -272,6 +273,24 @@ export function botsQuery(workspaceId: string) {
       unwrap(await api.GET("/api/workspaces/{ws}/bots", { params: { path: { ws: workspaceId } } }))
         .bots,
     enabled: workspaceId !== "",
+  });
+}
+
+/**
+ * The chat this person has with this bot (task 2.9). Opening it is what makes it, so the ask is a
+ * POST — it finds the room the second time rather than starting another — and the answer says where
+ * the room is and which brain it is running on.
+ */
+export function botDmQuery(workspaceId: string, botId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "bots", botId, "dm"],
+    queryFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/bots/{bot}/dm", {
+          params: { path: { ws: workspaceId, bot: botId } },
+        }),
+      ),
+    enabled: workspaceId !== "" && botId !== "",
   });
 }
 

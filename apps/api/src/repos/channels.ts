@@ -232,3 +232,42 @@ export async function removeMember(
     .returning({ id: channelMembers.id });
   return removed.length > 0;
 }
+
+/**
+ * The room one person shares with one bot (spec §5.2 "DM-a-bot"; task 2.9): a DM whose two members
+ * are exactly this person and this bot. There is one per pair, so opening the chat a second time
+ * finds it rather than starting another.
+ */
+export async function findBotDm(
+  db: Db,
+  workspaceId: string,
+  userId: string,
+  botId: string,
+): Promise<Channel | null> {
+  const asBot = alias(channelMembers, "bot_member");
+  const [row] = await db
+    .select({ channel: channels })
+    .from(channels)
+    .innerJoin(
+      channelMembers,
+      and(
+        eq(channelMembers.channelId, channels.id),
+        eq(channelMembers.memberType, "user"),
+        eq(channelMembers.memberId, userId),
+      ),
+    )
+    .innerJoin(
+      asBot,
+      and(eq(asBot.channelId, channels.id), eq(asBot.memberType, "bot"), eq(asBot.memberId, botId)),
+    )
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.type, "dm"),
+        isNull(channels.archivedAt),
+      ),
+    )
+    .orderBy(asc(channels.createdAt))
+    .limit(1);
+  return row?.channel ?? null;
+}

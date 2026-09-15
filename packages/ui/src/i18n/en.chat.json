@@ -92,5 +92,15 @@
   "chain.hops": "{count} hops",
   "chain.tiny": "under a cent",
   "chain.stopped": "Paused",
-  "chain.stoppedBecause": "Paused — {why}"
+  "chain.stoppedBecause": "Paused — {why}",
+  "chat.withBot": "Chat with {name}",
+  "chat.newChat": "New chat",
+  "chat.newChatHint": "A fresh chat: {name} cannot see what was said in the others.",
+  "chat.chats": "Chat",
+  "chat.chatUntitled": "Untitled chat",
+  "chat.brain": "Brain",
+  "chat.brainDefault": "Its own brain",
+  "chat.flowWith": "Messages with {name}",
+  "chat.composerTo": "Message {name}",
+  "chat.composerToPlaceholder": "Say something to {name}"
 }

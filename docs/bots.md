@@ -168,6 +168,32 @@ GET /api/workspaces/{ws}/messages/{m}/chain
 The thread's header (`ChainHeader`) is that answer in one line: who is in it, how far it went, what
 it cost, and whether it is paused.
 
+## Chatting with one
+
+A bot is somebody you can talk to on your own. Home's sidebar lists every bot the workspace can talk
+to; picking one opens the room you share with it — a DM with the bot in it, made the first time you
+open it and found every time after.
+
+**Every chat in that room is a thread.** What you say starts one, the bot answers in it, and "New
+chat" leaves the last one behind: the bot is shown the chat it is in and nothing else, so a new chat
+starts it on a clean context. The old ones stay where they are, in the picker beside the button.
+
+**The brain can be yours to choose.** A bot whose spec says so —
+
+```yaml
+brain: { profile: "Everyday", pick: true }
+```
+
+— puts a picker in the header of the room, and what you choose is kept on that bot's install there.
+It is per room, so your chat runs on what you picked and the bot goes on answering in channels the
+way its maker set it up. A bot that does not say `pick: true` keeps the brain it was given, and the
+api refuses the choice rather than quietly ignoring it.
+
+```
+POST  /api/workspaces/{ws}/bots/{bot}/dm              → { channel_id, brain, can_pick_brain }
+PATCH /api/workspaces/{ws}/bots/{bot}/install/{channel} { brain: "The big one" | null }
+```
+
 ## Events
 
 A bot's turn publishes `bot.run_started`, then `bot.run_finished` or `bot.run_failed`; installing

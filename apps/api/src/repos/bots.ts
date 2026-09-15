@@ -116,6 +116,20 @@ export async function uninstallBot(db: Db, botId: string, channelId: string): Pr
   return rows.length > 0;
 }
 
+/** One install: this bot in this room, with the scopes that narrow what it may do there. */
+export async function findInstall(
+  db: Db,
+  botId: string,
+  channelId: string,
+): Promise<BotInstall | null> {
+  const [row] = await db
+    .select()
+    .from(botInstalls)
+    .where(and(eq(botInstalls.botId, botId), eq(botInstalls.channelId, channelId)))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function installsOf(db: Db, botId: string): Promise<BotInstall[]> {
   return db.select().from(botInstalls).where(eq(botInstalls.botId, botId));
 }

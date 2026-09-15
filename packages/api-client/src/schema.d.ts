@@ -6956,6 +6956,136 @@ export type paths = {
         };
         options?: never;
         head?: never;
+        /** Choose the brain this bot runs on here */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                    channel: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PickBotBrain"];
+                };
+            };
+            responses: {
+                /** @description The chat */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BotDm"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bots/{bot}/dm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open the chat you have with this bot */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The chat */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BotDm"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -8526,6 +8656,7 @@ export type components = {
                     profile?: string;
                     temperature?: number;
                     maxOutputTokens?: number;
+                    pick?: boolean;
                 };
                 tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
@@ -8579,6 +8710,7 @@ export type components = {
                     profile?: string;
                     temperature?: number;
                     maxOutputTokens?: number;
+                    pick?: boolean;
                 };
                 tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
@@ -8624,6 +8756,7 @@ export type components = {
                     profile?: string;
                     temperature?: number;
                     maxOutputTokens?: number;
+                    pick?: boolean;
                 };
                 tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
                 triggers?: {
@@ -8666,6 +8799,15 @@ export type components = {
         InstallBot: {
             /** Format: uuid */
             channel_id: string;
+        };
+        BotDm: {
+            /** Format: uuid */
+            channel_id: string;
+            brain: string | null;
+            can_pick_brain: boolean;
+        };
+        PickBotBrain: {
+            brain: string | null;
         };
         BotTestReply: {
             reply: string;

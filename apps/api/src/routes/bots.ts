@@ -87,6 +87,20 @@ const patchBody = z
 
 const installBody = z.object({ channel_id: z.uuid() }).openapi("InstallBot");
 
+const dmSchema = z
+  .object({
+    channel_id: z.uuid(),
+    /** The brain this chat runs on, when the bot lets it be chosen; null means the bot's own. */
+    brain: z.string().nullable(),
+    /** Whether the person in the chat may choose it at all (spec §5.2). */
+    can_pick_brain: z.boolean(),
+  })
+  .openapi("BotDm");
+
+const pickBrainBody = z
+  .object({ brain: z.string().min(1).max(200).nullable() })
+  .openapi("PickBotBrain");
+
 const testBody = z
   .object({ text: z.string().min(1).max(4_000), channel_id: z.uuid() })
   .openapi("TestBot");
@@ -197,6 +211,37 @@ const uninstallRoute = createRoute({
   },
 });
 
+const dmRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/bots/{bot}/dm",
+  tags: ["bots"],
+  summary: "Open the chat you have with this bot",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: botParam },
+  responses: {
+    200: { description: "The chat", content: { "application/json": { schema: dmSchema } } },
+    ...errorResponses(403, 404, 409),
+  },
+});
+
+const pickBrainRoute = createRoute({
+  method: "patch",
+  path: "/api/workspaces/{ws}/bots/{bot}/install/{channel}",
+  tags: ["bots"],
+  summary: "Choose the brain this bot runs on here",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: installParam,
+    body: { content: { "application/json": { schema: pickBrainBody } } },
+  },
+  responses: {
+    200: { description: "The chat", content: { "application/json": { schema: dmSchema } } },
+    ...errorResponses(403, 404, 409, 422),
+  },
+});
+
 const testRoute = createRoute({
   method: "post",
   path: "/api/workspaces/{ws}/bots/{bot}/test",
@@ -303,6 +348,16 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     created_at: bot.createdAt.toISOString(),
   });
 
+  /** A chat with a bot, as the client needs it: where it is, and what it is running on. */
+  const dmBody = async (bot: Bot, channelId: string) => {
+    const install = (await deps.bots.installsOf(bot.id)).find((row) => row.channelId === channelId);
+    return {
+      channel_id: channelId,
+      brain: install?.scopes.brain ?? null,
+      can_pick_brain: bot.spec.brain?.pick === true,
+    };
+  };
+
   /** A bot you may see; a private one that is not yours is not here at all. */
   const visible = async (ws: string, id: string, userId: string) => {
     const bot = await botFor(deps.db.db, ws, id);
@@ -400,6 +455,28 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const channel = await channelFor(deps, ws, channelId, currentUser(c).id);
     await deps.bots.uninstall(bot, channel, actorOf(c));
     return c.json(await body(bot), 200);
+  });
+
+  app.openapi(dmRoute, async (c) => {
+    const { ws, bot: id } = c.req.valid("param");
+    // Talking to a bot is reading it: a chat of your own is not installing it anywhere shared.
+    await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const bot = await visible(ws, id, user.id);
+    if (bot.status === "disabled") throw PerchError.conflict("this bot is switched off");
+    const channel = await deps.bots.dm(bot, user.id, actorOf(c));
+    return c.json(await dmBody(bot, channel.id), 200);
+  });
+
+  app.openapi(pickBrainRoute, async (c) => {
+    const { ws, bot: id, channel: channelId } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const bot = await visible(ws, id, user.id);
+    const channel = await channelFor(deps, ws, channelId, user.id);
+    await deps.bots.pickBrain(bot, channel, input.brain, actorOf(c));
+    return c.json(await dmBody(bot, channel.id), 200);
   });
 
   app.openapi(testRoute, async (c) => {

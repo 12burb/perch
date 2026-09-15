@@ -3404,3 +3404,40 @@ no instructions left out. `e2e/forge.e2e.ts` at both viewports — **the accepta
 picked from a template, the form filled in from it, created against the workspace's brain, put in
 #general, tried in the Forge's test chat, and then answering `@grok` in the channel with its BOT
 badge; axe clean on the Forge.
+
+## ADR-0099: A chat with a bot is a room of threads
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.9
+
+### Context
+§5.2 asks for "DM-a-bot: 'New chat' starts a fresh thread; model picker per DM when the bot allows".
+Two things have to be decided: what a chat *is*, and where the picked model is kept.
+
+### Decision
+1. **A chat with a bot is an ordinary DM, and every chat in it is a thread.** Opening it makes a
+   `dm` channel with the person and the bot in it, one per pair, found rather than remade the second
+   time. "New chat" is not a new room and not a new column anywhere: it is simply nothing selected,
+   so the next message is a root and the chat hangs off it. A room of threads means the search,
+   read state, pins and everything else already written work on chats as they are.
+2. **A bot sees the conversation it is in.** Asked in a thread, that is the thread — its root and
+   the replies under it, which also fixes a bot answering in a channel thread having never been
+   shown the message that started it. Asked in a room, it is the room's recent flow, as before. A
+   chat is always a thread, so a new chat starts the bot on what is said in it and nothing else.
+   This is what "fresh context per thread" means, and it needs no new memory setting.
+3. **The picked brain is kept on the install** (`bot_installs.scopes.brain`), not on the bot and not
+   on the person. A DM is one person's room, so per room *is* per person there; and the same field
+   will carry a channel pinned to a local model when the policy engine (2.11) wants one, rather
+   than a second mechanism for the same idea.
+4. **A bot has to offer the choice.** `spec.brain.pick` makes the picker appear; without it the api
+   refuses with a conflict rather than ignoring the ask. A bot's maker decides whether its answers
+   may come from somewhere else, which matters when the persona was written for one model.
+5. **The bot's reply always hangs off what it answers**, in a DM as in a channel. It was the only
+   way to make chats hold together, and it costs nothing elsewhere: a room already threaded them.
+
+### Consequences
+No migration: the room is a channel, the chat is a thread, the choice is a scope. `New chat` is
+free, and a chat can be reopened from the picker with its own context intact. The cost is that a
+person cannot talk to a bot in a flat, unthreaded DM any more — every exchange belongs to a chat —
+which is the shape §5.2 asks for. Group DMs with a bot in them behave the same way.

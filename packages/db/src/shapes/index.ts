@@ -322,6 +322,11 @@ export const botSpecSchema = z
         profile: z.string().min(1).optional(),
         temperature: z.number().min(0).max(2).optional(),
         maxOutputTokens: z.number().int().min(1).max(32_000).optional(),
+        /**
+         * Whether the person talking to it may choose the model instead (spec §5.2 "model picker
+         * per DM when the bot allows"). The choice is kept per room, on the install. Task 2.9.
+         */
+        pick: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -356,7 +361,15 @@ export const botSpecSchema = z
 export type BotSpec = z.infer<typeof botSpecSchema>;
 
 export const botInstallScopesSchema = z
-  .object({ tools: z.array(z.enum(BOT_TOOLS)).optional(), post: z.boolean().optional() })
+  .object({
+    tools: z.array(z.enum(BOT_TOOLS)).optional(),
+    post: z.boolean().optional(),
+    /**
+     * The brain this bot runs on in this room, when the bot lets it be chosen (task 2.9). A DM is
+     * one person's room, so this is that person's pick; anywhere else it is the room's.
+     */
+    brain: z.string().min(1).optional(),
+  })
   .strict();
 export type BotInstallScopes = z.infer<typeof botInstallScopesSchema>;
 

@@ -3423,6 +3423,9 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 32000
+                  },
+                  "pick": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false
@@ -3669,6 +3672,9 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 32000
+                  },
+                  "pick": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false
@@ -3877,6 +3883,9 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 32000
+                  },
+                  "pick": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false
@@ -4068,6 +4077,45 @@
         },
         "required": [
           "channel_id"
+        ]
+      },
+      "BotDm": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "brain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "can_pick_brain": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel_id",
+          "brain",
+          "can_pick_brain"
+        ]
+      },
+      "PickBotBrain": {
+        "type": "object",
+        "properties": {
+          "brain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "brain"
         ]
       },
       "BotTestReply": {
@@ -13402,6 +13450,188 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "Choose the brain this bot runs on here",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "bot",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "channel",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickBotBrain"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotDm"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/bots/{bot}/dm": {
+      "post": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "Open the chat you have with this bot",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "bot",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotDm"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {

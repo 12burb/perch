@@ -58,6 +58,7 @@ import {
   chainOf,
   channelForBot,
   deleteBot,
+  findInstall,
   finishHop,
   finishRun,
   getBot,
@@ -72,8 +73,15 @@ import {
   uninstallBot,
   updateBot,
 } from "../repos/bots.ts";
-import { getChannel } from "../repos/channels.ts";
-import { getMessage, insertMessage, listMessages, updateMessageBlocks } from "../repos/messages.ts";
+import { addMember, findBotDm, getChannel, insertChannel } from "../repos/channels.ts";
+import {
+  getMessage,
+  getMessageRow,
+  insertMessage,
+  listMessages,
+  type MessageRow,
+  updateMessageBlocks,
+} from "../repos/messages.ts";
 import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
 import type { BrainsService } from "./brains.ts";
@@ -709,6 +717,72 @@ export class BotsService {
     }
   }
 
+  /**
+   * The room one person shares with one bot (spec §5.2 "DM-a-bot"). There is one per pair, made the
+   * first time it is opened: the bot is in it as a member, and nobody else can see it. Every chat
+   * in it is a thread, so "New chat" is a new root message and nothing else.
+   */
+  async dm(bot: Bot, userId: string, by: ActorContext): Promise<Channel> {
+    const found = await findBotDm(this.deps.db, bot.workspaceId, userId, bot.id);
+    if (found) return found;
+    const channel = await insertChannel(this.deps.db, {
+      workspaceId: bot.workspaceId,
+      type: "dm",
+      name: null,
+      topic: null,
+    });
+    await addMember(this.deps.db, {
+      channelId: channel.id,
+      memberType: "user",
+      memberId: userId,
+      role: "owner",
+    });
+    await this.deps.bus.publish(
+      "channel.created",
+      { workspaceId: channel.workspaceId, channelId: channel.id, type: channel.type },
+      by,
+    );
+    await this.install(bot, channel, by);
+    return channel;
+  }
+
+  /**
+   * Which brain this bot runs on in one room (spec §5.2 "model picker per DM when the bot allows").
+   * A bot that does not allow it keeps the brain its maker gave it; `null` puts it back.
+   */
+  async pickBrain(
+    bot: Bot,
+    channel: Channel,
+    profile: string | null,
+    by: ActorContext,
+  ): Promise<BotInstall> {
+    if (!bot.spec.brain?.pick) {
+      throw PerchError.conflict("this bot's brain is not yours to choose");
+    }
+    const install = await findInstall(this.deps.db, bot.id, channel.id);
+    if (!install) throw PerchError.notFound("bot");
+    if (profile) {
+      const profiles = await this.deps.brains.profiles(bot.workspaceId);
+      if (!profiles.some((row) => row.name === profile)) {
+        throw PerchError.validation(`there is no brain called ${profile}`);
+      }
+    }
+    const { brain: _was, ...rest } = install.scopes;
+    const scopes = profile ? { ...rest, brain: profile } : rest;
+    const saved = await installBot(this.deps.db, {
+      botId: bot.id,
+      channelId: channel.id,
+      scopes,
+    });
+    // The room's header says which brain it is on, so everybody watching it looks again.
+    await this.deps.bus.publish(
+      "channel.updated",
+      { workspaceId: channel.workspaceId, channelId: channel.id, changes: ["members"] },
+      by,
+    );
+    return saved;
+  }
+
   async uninstall(bot: Bot, channel: Channel, by: ActorContext): Promise<boolean> {
     const gone = await uninstallBot(this.deps.db, bot.id, channel.id);
     if (gone) {
@@ -790,7 +864,7 @@ export class BotsService {
 
     let placeholder: Message | null = null;
     try {
-      const profile = await this.brainFor(bot);
+      const profile = await this.brainFor(bot, input.install ?? null);
       const model = await this.deps.brains.languageModel(profile, bot.ownerId);
       const messages = await this.conversation(bot, channel, input);
       const allowed = this.toolsAllowed(bot.spec, input.install ?? null);
@@ -869,9 +943,14 @@ export class BotsService {
     }
   }
 
-  /** The brain the spec names, or the workspace's default for chat. */
-  private async brainFor(bot: Bot) {
-    const wanted = bot.spec.brain?.profile;
+  /**
+   * The brain this run uses: the one the room picked when the bot allows it to be picked (spec §5.2
+   * "model picker per DM when the bot allows"), else the one the spec names, else the workspace's
+   * default for chat.
+   */
+  private async brainFor(bot: Bot, install?: BotInstall | null) {
+    const picked = bot.spec.brain?.pick ? install?.scopes.brain : undefined;
+    const wanted = picked ?? bot.spec.brain?.profile;
     const profiles = await this.deps.brains.profiles(bot.workspaceId);
     const profile = wanted
       ? profiles.find((row) => row.name === wanted)
@@ -891,17 +970,23 @@ export class BotsService {
     return narrowed ? wanted.filter((tool) => narrowed.includes(tool)) : [...wanted];
   }
 
-  /** What the bot is shown: the last of the thread, oldest first, in the model's own shape. */
+  /**
+   * What the bot is shown, oldest first, in the model's own shape: the conversation it is in. Asked
+   * in a thread, that is the thread — its root and the replies under it. Asked in a room, it is the
+   * room's recent flow. A chat with a bot is a thread of its own, so "New chat" starts the bot on
+   * nothing but what is said in the new one (spec §5.2 "New chat starts a fresh thread"; task 2.9).
+   */
   private async conversation(bot: Bot, channel: Channel, input: RunInput): Promise<ModelMessage[]> {
     if (input.prompt && !input.message) {
       return [{ role: "user", content: input.prompt }];
     }
     const window = bot.spec.memory?.window ?? DEFAULT_WINDOW;
-    const rootId = input.message?.threadRootId ?? input.message?.id;
-    const rows = await listMessages(this.deps.db, channel.id, bot.ownerId, {
-      limit: window,
-      ...(rootId && input.message?.threadRootId ? { threadRootId: rootId } : {}),
-    });
+    const asked = input.message;
+    const alone = channel.type === "dm" || channel.type === "group";
+    const rootId = asked && (alone || asked.threadRootId) ? (asked.threadRootId ?? asked.id) : null;
+    const rows = rootId
+      ? await this.chat(channel, rootId, bot.ownerId, window)
+      : await listMessages(this.deps.db, channel.id, bot.ownerId, { limit: window });
     const seen = rows.some((row) => row.id === input.message?.id);
     const all = seen || !input.message ? rows : [...rows, { ...input.message, authorName: null }];
     const messages: ModelMessage[] = [];
@@ -926,10 +1011,25 @@ export class BotsService {
     asked: Message | undefined,
     text: string,
   ): Promise<Message> {
-    // A room keeps the answer in a thread; a conversation with the bot is already one.
-    const inThread = asked && channel.type !== "dm" && channel.type !== "group";
-    const threadRootId = inThread ? (asked.threadRootId ?? asked.id) : null;
+    // A room keeps the answer in a thread, and so does a chat with a bot: each chat is one, which
+    // is what lets "New chat" start the bot on a clean context (spec §5.2; task 2.9).
+    const threadRootId = asked ? (asked.threadRootId ?? asked.id) : null;
     return this.post(channel, threadRootId, bot, [{ type: "text", text }]);
+  }
+
+  /** One chat, oldest first: the message that started it and everything hanging off it. */
+  private async chat(
+    channel: Channel,
+    rootId: string,
+    readerId: string,
+    limit: number,
+  ): Promise<MessageRow[]> {
+    const root = await getMessageRow(this.deps.db, rootId, readerId);
+    const replies = await listMessages(this.deps.db, channel.id, readerId, {
+      threadRootId: rootId,
+      limit,
+    });
+    return [...(root ? [root] : []), ...replies];
   }
 
   /** Whatever the bot has to say, as blocks, where it was asked. */

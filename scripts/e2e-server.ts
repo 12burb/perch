@@ -50,11 +50,13 @@ const provider = Bun.serve({
       const asked = typeof last?.content === "string" ? last.content : "";
       const system = body.messages?.find((one) => one.role === "system");
       const handle = /writing @([a-z0-9_-]+)/.exec(String(system?.content ?? ""))?.[1] ?? "";
+      // How much of the conversation it was shown, which is what proves a fresh chat (task 2.9).
+      const turns = (body.messages ?? []).filter((one) => one.role !== "system").length;
       // A lead tags the desk, which is what makes a chain in the browser (task 2.7).
       const reply =
         handle === "lead"
           ? "<@gamma> what do you have?"
-          : `Reading you. You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
+          : `Reading you (${turns} shown). You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const send = (payload: unknown) =>

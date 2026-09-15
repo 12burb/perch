@@ -386,6 +386,8 @@ function Flow(props: {
   actions: RowActions;
   label: string;
   cards: Map<string, UnfurlCard>;
+  /** A chat with a bot is already a thread, so nothing in it offers to start another. */
+  inThread?: boolean;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
@@ -442,7 +444,7 @@ function Flow(props: {
                 <MessageItem
                   row={row}
                   actions={props.actions}
-                  inThread={false}
+                  inThread={props.inThread ?? false}
                   cards={props.cards}
                 />
               </div>
@@ -461,6 +463,12 @@ export function ChannelTranscript(props: {
   canModerate: boolean;
   /** Whether the reader is in the channel: a channel you only watch has no composer. */
   member: boolean;
+  /**
+   * One chat at a time, which is how a room shared with a bot reads (spec §5.2 "DM-a-bot"; task
+   * 2.9): the flow is that chat, the composer answers in it, and a chat with no root yet is a new
+   * one — the next thing said starts it, and `onStarted` says which message that was.
+   */
+  chat?: { rootId: string | null; onStarted: (rootId: string) => void } | undefined;
 }) {
   const queryClient = useQueryClient();
   const me = useQuery(meQuery);
@@ -472,7 +480,9 @@ export function ChannelTranscript(props: {
   const [editing, setEditing] = useState<MessageRow | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const replies = useQuery(threadQuery(props.workspaceId, threadRoot ?? "")).data ?? [];
+  // In a chat the open thread is the chat itself; elsewhere it is whatever the panel has open.
+  const openThread = props.chat ? props.chat.rootId : threadRoot;
+  const replies = useQuery(threadQuery(props.workspaceId, openThread ?? "")).data ?? [];
   const history = useQuery({
     queryKey: ["workspace", props.workspaceId, "messages", historyOf, "edits"],
     queryFn: async () =>
@@ -488,9 +498,9 @@ export function ChannelTranscript(props: {
     await queryClient.invalidateQueries({
       queryKey: ["workspace", props.workspaceId, "messages", props.channelId],
     });
-    if (threadRoot) {
+    if (openThread) {
       await queryClient.invalidateQueries({
-        queryKey: ["workspace", props.workspaceId, "thread", threadRoot],
+        queryKey: ["workspace", props.workspaceId, "thread", openThread],
       });
     }
     await queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "channels"] });
@@ -536,8 +546,10 @@ export function ChannelTranscript(props: {
           },
         }),
       ),
-    onSuccess: async () => {
+    onSuccess: async (said) => {
       setError(null);
+      // The first thing said in a new chat is what the chat hangs off from now on (task 2.9).
+      if (props.chat && !said.thread_root_id) props.chat.onStarted(said.id);
       await invalidate();
     },
     onError: (err: unknown) => setError(message(err)),
@@ -654,12 +666,12 @@ export function ChannelTranscript(props: {
 
   // Which bots have answered in this thread, how far it went, and what it cost (task 2.7).
   const chain = useQuery({
-    queryKey: ["workspace", props.workspaceId, "chain", threadRoot],
-    enabled: Boolean(threadRoot),
+    queryKey: ["workspace", props.workspaceId, "chain", openThread],
+    enabled: Boolean(openThread),
     queryFn: async () =>
       unwrap(
         await api.GET("/api/workspaces/{ws}/messages/{message}/chain", {
-          params: { path: { ws: props.workspaceId, message: threadRoot ?? "" } },
+          params: { path: { ws: props.workspaceId, message: openThread ?? "" } },
         }),
       ),
   });
@@ -680,8 +692,11 @@ export function ChannelTranscript(props: {
     },
   });
 
+  // A chat shows itself — its opening message and everything since; a room shows its flow.
+  const shown = props.chat ? replies : rows;
+
   // Reading the channel is what marks it read: the last message you have been shown.
-  const lastId = rows.at(-1)?.id ?? "";
+  const lastId = shown.at(-1)?.id ?? "";
   const marked = useRef("");
   useEffect(() => {
     if (!lastId || !props.member || marked.current === lastId) return;
@@ -774,13 +789,38 @@ export function ChannelTranscript(props: {
     [people, channels, inChannel],
   );
 
+  // Which bots have been in this thread, how far it went and what it cost (task 2.7). A room shows
+  // it inside the thread panel; a chat with a bot is the thread, so it goes above the flow.
+  const chainHeader =
+    chain.data && chain.data.hops.length > 0 ? (
+      <ChainHeader
+        hops={chain.data.hops.map(
+          (hop): ChainHop => ({
+            hop: hop.hop,
+            fromName: hop.from_name,
+            toName: hop.to_name,
+            mode: hop.mode,
+          }),
+        )}
+        costUsd={chain.data.cost_usd}
+        stopped={chain.data.stopped}
+        breaker={chain.data.breaker}
+      />
+    ) : null;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {props.chat && chainHeader ? <div className="px-2 pt-2">{chainHeader}</div> : null}
       <Flow
-        rows={rows}
+        rows={shown}
         actions={actions}
         cards={cards}
-        label={t("chat.flowOf", { name: props.channelName })}
+        inThread={Boolean(props.chat)}
+        label={
+          props.chat
+            ? t("chat.flowWith", { name: props.channelName })
+            : t("chat.flowOf", { name: props.channelName })
+        }
       />
 
       {historyOf ? (
@@ -846,16 +886,29 @@ export function ChannelTranscript(props: {
             />
           </label>
           <Composer
-            draftKey={`channel-${props.channelId}`}
-            label={t("chat.composer", { name: props.channelName })}
-            placeholder={t("chat.composerPlaceholder", { name: props.channelName })}
+            draftKey={`channel-${props.channelId}-${props.chat?.rootId ?? ""}`}
+            label={
+              props.chat
+                ? t("chat.composerTo", { name: props.channelName })
+                : t("chat.composer", { name: props.channelName })
+            }
+            placeholder={
+              props.chat
+                ? t("chat.composerToPlaceholder", { name: props.channelName })
+                : t("chat.composerPlaceholder", { name: props.channelName })
+            }
             suggest={suggest}
-            onSend={(text) => send.mutate({ text })}
+            onSend={(text) =>
+              send.mutate({
+                text,
+                ...(openThread && props.chat ? { threadRootId: openThread } : {}),
+              })
+            }
           />
         </div>
       ) : null}
 
-      {threadRoot ? (
+      {threadRoot && !props.chat ? (
         <section
           aria-label={t("chat.threadHeading")}
           data-testid="thread"
@@ -873,23 +926,7 @@ export function ChannelTranscript(props: {
             </Button>
           </header>
           <div className="min-h-0 flex-1 overflow-auto p-1">
-            {chain.data && chain.data.hops.length > 0 ? (
-              <div className="mb-1">
-                <ChainHeader
-                  hops={chain.data.hops.map(
-                    (hop): ChainHop => ({
-                      hop: hop.hop,
-                      fromName: hop.from_name,
-                      toName: hop.to_name,
-                      mode: hop.mode,
-                    }),
-                  )}
-                  costUsd={chain.data.cost_usd}
-                  stopped={chain.data.stopped}
-                  breaker={chain.data.breaker}
-                />
-              </div>
-            ) : null}
+            {chainHeader ? <div className="mb-1">{chainHeader}</div> : null}
             {replies.map((row) => (
               <MessageItem key={row.id} row={row} actions={actions} inThread cards={cards} />
             ))}

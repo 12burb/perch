@@ -5,7 +5,7 @@
 import { type MessageKey, type RailMode, Sidebar, SidebarItem, SidebarSection, t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ChannelsSection, DirectMessagesSection } from "../chat/channels.tsx";
+import { BotsSection, ChannelsSection, DirectMessagesSection } from "../chat/channels.tsx";
 import { useEditorStore } from "../code/editor-store.ts";
 import { FileTree } from "../code/file-tree.tsx";
 import { SessionsSection } from "../code/sessions-list.tsx";
@@ -65,6 +65,8 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
           <ChannelsSection key={section.title} workspace={props.workspace} />
         ) : section.title === "shell.home.dms" && props.workspace ? (
           <DirectMessagesSection key={section.title} workspace={props.workspace} />
+        ) : section.title === "shell.home.bots" && props.workspace ? (
+          <BotsSection key={section.title} workspace={props.workspace} empty={section.empty} />
         ) : section.title === "shell.code.projects" && props.workspace ? (
           <ProjectsSection key={section.title} workspace={props.workspace} empty={section.empty} />
         ) : section.title === "shell.code.sessions" && props.workspace ? (
