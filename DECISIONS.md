@@ -2636,3 +2636,50 @@ fails as a preview error rather than hanging. The browser half — the Preview t
 viewport — is task 1.18's Playwright spec; this environment has one machine, so a spec cannot have a
 laptop runner the in-process runner cannot also see, and the tunnel lane is therefore proven at the
 api rather than through Chromium.
+
+## ADR-0087: The Git panel stages by selection, and writes messages on the inline lane
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.20
+
+### Context
+§5.1 asks for a git panel with "status, stage, AI commit message, branch, push, Open PR". Two of
+those words hide decisions: "stage", because Perch has no index of its own, and "AI commit message",
+because a draft has to run somewhere and every lane so far costs a session.
+
+### Decision
+1. **Staging is a selection, not an index.** The panel ticks paths and `git commit` takes them;
+   Perch never runs `git add` on its own. An index Perch managed would drift from the one a session
+   or a terminal in the same checkout is using, and a person would have two notions of "staged" to
+   keep straight. What you tick is what lands; ticking nothing commits everything that changed.
+2. **The message runs on the inline lane.** The same one-prompt, one-answer, nobody-watching lane ⌘K
+   uses (task 1.14): no session pane, no permission prompts, no transcript. `inlineEdit` and
+   `commitMessage` are now two prompts over one `inlineRound`.
+3. **The draft is written against a ref, not the index.** A new file is the usual case for a
+   feature's first commit and is invisible in `git diff` alone, so the message is drafted from the
+   working tree against HEAD — or against git's empty tree when the repository has no commits yet.
+4. **Push and Open PR borrow a connection for one call.** The same credential path a clone takes
+   (task 1.16): minted, used, forgotten. A push with no connection still goes, for a remote that
+   needs no credential; Open PR without one is disabled with a line saying why.
+5. **Every button is a route.** `git/status`, `git/diff`, `git/commit`, `git/message`,
+   `git/branches`, `git/push` under the project, beside the `pull-request` route task 1.16 added.
+   The panel is a client of the api like anything else, and a script can do what it does.
+6. **The commit is the member's.** `git.commit` carries the member's name and email as the author
+   (ADR-0070), so a commit made from Perch is attributed to the person who made it rather than to
+   whatever git config the runner image happens to carry.
+
+### Consequences
+The loop §2 names — clone, ask for a change, watch it, review the diff, commit, PR — is now
+clickable end to end. What is not here: the Pull Requests page with inline comments and "ask the
+agent to address review" (Phase 3), and a hunk-level stage (the session pane's DiffView has hunk
+accept and reject; the panel's unit is a file).
+
+### What was actually verified
+`e2e/git.e2e.ts` at both viewports: a file edited in the editor shows up in the panel, the agent
+writes the message from the diff, the commit lands and the panel goes quiet, and a branch is made
+from the panel. `apps/api/test/git-panel.test.ts` covers the same routes directly against a real
+repository on the in-process runner, including a push with no remote failing as a git failure rather
+than a hang. Push and Open PR against a provider are `apps/api/test/connections.test.ts`, which
+drives them against a stand-in GitHub over authenticated smart HTTP — this environment cannot reach
+the real one.

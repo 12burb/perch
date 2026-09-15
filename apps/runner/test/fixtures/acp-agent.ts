@@ -37,6 +37,17 @@ async function runTurn(
     });
   const notify = (update: acp.SessionNotification["update"]) =>
     cx.notify(acp.methods.client.session.update, { sessionId, update });
+  // Task 1.20: the commit-message prompt asks for the message and nothing else.
+  if (text.startsWith("Perch commit message")) {
+    const touched = /^\+\+\+ b\/(.+)$/m.exec(text)?.[1] ?? "the project";
+    const scope =
+      touched
+        .split("/")
+        .pop()
+        ?.replace(/\.[^.]+$/, "") ?? "project";
+    await say(`feat(${scope}): update ${touched}\n\nWritten by the fake agent from the diff.`);
+    return;
+  }
   // Task 1.14: the api's ⌘K prompt asks for a replacement and nothing else.
   if (text.startsWith("Perch inline edit")) {
     const fenced = /```[^\n]*\n([\s\S]*?)\n?```/.exec(text);

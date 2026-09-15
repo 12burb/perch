@@ -290,3 +290,31 @@ export function previewsQuery(workspaceId: string, projectId: string) {
     refetchInterval: 4_000,
   });
 }
+
+/** What changed in a project's working tree (task 1.20). */
+export function gitStatusQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["git", workspaceId, projectId, "status"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/git/status", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: workspaceId !== "" && projectId !== "",
+  });
+}
+
+/** The project's branches, and which one it is on (task 1.20). */
+export function gitBranchesQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["git", workspaceId, projectId, "branches"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/git/branches", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: workspaceId !== "" && projectId !== "",
+  });
+}

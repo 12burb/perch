@@ -128,6 +128,42 @@ export type InlineEditInput = {
  * can tell this apart from a person talking; the reply is meant to be the replacement and nothing
  * else, because the editor puts it straight into the buffer.
  */
+/**
+ * What a commit message draft asks for (task 1.20). The first line is the same marker the inline
+ * lane's other prompts use, so an engine (and the tests' agent) can tell it from a person talking,
+ * and the answer is meant to be the message and nothing else.
+ */
+export function commitMessagePrompt(diff: string): string {
+  const trimmed = diff.length > 60_000 ? `${diff.slice(0, 60_000)}\n… (diff truncated)` : diff;
+  return [
+    "Perch commit message",
+    "Write the commit message for this diff. A conventional-commit subject under 72 characters,",
+    "then a blank line, then a short body only if the diff needs one. No fences, no preamble.",
+    "",
+    "```diff",
+    trimmed,
+    "```",
+  ].join("\n");
+}
+
+/** The agent's answer as a commit message: no fences, no preamble line, a bounded subject. */
+export function cleanCommitMessage(text: string): string {
+  const fenced = /```[^\n]*\n([\s\S]*?)\n?```/.exec(text);
+  const body = (fenced?.[1] ?? text).trim();
+  const lines = body.split("\n");
+  const first = (lines[0] ?? "").trim();
+  // An agent that opens with "Here is the commit message:" gets that line dropped.
+  const start = /message:?$/i.test(first) && lines.length > 1 ? 1 : 0;
+  const kept = lines
+    .slice(start)
+    .join("\n")
+    .trim()
+    .replace(/\n{3,}/g, "\n\n");
+  const [subject = "", ...rest] = kept.split("\n");
+  const capped = subject.length > 100 ? `${subject.slice(0, 99)}…` : subject;
+  return [capped, ...rest].join("\n").trim();
+}
+
 export function inlineEditPrompt(input: {
   path: string;
   selection: string;
@@ -530,6 +566,31 @@ export class SessionService {
    * on. An empty reply is not an error: the editor says there was nothing to put there.
    */
   async inlineEdit(input: InlineEditInput): Promise<{ replacement: string; sessionId: string }> {
+    const { text, sessionId } = await this.inlineRound(input, inlineEditPrompt(input));
+    return { replacement: proposedCode(text), sessionId };
+  }
+
+  /**
+   * A commit message drafted from a diff (spec §5.1 "AI commit message"; task 1.20). The same lane
+   * as ⌘K: one prompt, one answer, nobody watching — so it never opens a session pane and never
+   * asks for a permission.
+   */
+  async commitMessage(input: {
+    project: Project;
+    userId: string;
+    diff: string;
+    engine?: string;
+    by: ActorContext;
+  }): Promise<{ message: string; sessionId: string }> {
+    const { text, sessionId } = await this.inlineRound(input, commitMessagePrompt(input.diff));
+    return { message: cleanCommitMessage(text), sessionId };
+  }
+
+  /** One round on the project's inline session: the prompt in, the agent's whole answer out. */
+  private async inlineRound(
+    input: { project: Project; userId: string; engine?: string; by: ActorContext },
+    prompt: string,
+  ): Promise<{ text: string; sessionId: string }> {
     const session = await this.inlineSession(input);
     if (this.rounds.has(session.id)) {
       throw PerchError.conflict("an inline edit is already running on this project");
@@ -542,7 +603,6 @@ export class SessionService {
       await this.setStatus(session, "error", failure.message, input.by);
       throw failure;
     }
-    const prompt = inlineEditPrompt(input);
     await this.record(
       session,
       { type: "turn", text: prompt, mode: session.mode, userId: input.userId },
@@ -588,11 +648,16 @@ export class SessionService {
       this.rounds.delete(session.id);
     }
     await this.setStatus(running, "idle", null, input.by);
-    return { replacement: proposedCode(text), sessionId: session.id };
+    return { text, sessionId: session.id };
   }
 
   /** The project's inline session for this person, opened the first time ⌘K is used. */
-  private async inlineSession(input: InlineEditInput): Promise<CodingSession> {
+  private async inlineSession(input: {
+    project: Project;
+    userId: string;
+    engine?: string;
+    by: ActorContext;
+  }): Promise<CodingSession> {
     const existing = await findInlineSession(this.deps.db, input.project.id, input.userId);
     if (existing) return existing;
     return this.create({
@@ -609,7 +674,7 @@ export class SessionService {
    * ⌘K has no engine picker, so the inline lane opens on one the project's runner actually has:
    * the project's default when the runner reports it (or reports none), else the first it does.
    */
-  private async inlineEngine(input: InlineEditInput): Promise<string> {
+  private async inlineEngine(input: { project: Project; userId: string }): Promise<string> {
     const fallback = input.project.defaultEngine;
     try {
       const link = await projectRunnerLink(this.deps, input.project, input.userId);

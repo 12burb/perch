@@ -1097,6 +1097,261 @@
           "updated_at"
         ]
       },
+      "GitStatus": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tracking": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ahead": {
+            "type": "integer"
+          },
+          "behind": {
+            "type": "integer"
+          },
+          "clean": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "string"
+                },
+                "working_tree": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "index",
+                "working_tree"
+              ]
+            }
+          }
+        },
+        "required": [
+          "branch",
+          "tracking",
+          "ahead",
+          "behind",
+          "clean",
+          "files"
+        ]
+      },
+      "GitDiff": {
+        "type": "object",
+        "properties": {
+          "diff": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "additions": {
+                  "type": "integer"
+                },
+                "deletions": {
+                  "type": "integer"
+                },
+                "binary": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path",
+                "additions",
+                "deletions",
+                "binary"
+              ]
+            }
+          }
+        },
+        "required": [
+          "diff",
+          "files"
+        ]
+      },
+      "GitCommit": {
+        "type": "object",
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "changes": {
+                "type": "integer"
+              },
+              "insertions": {
+                "type": "integer"
+              },
+              "deletions": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "changes",
+              "insertions",
+              "deletions"
+            ]
+          }
+        },
+        "required": [
+          "commit",
+          "branch",
+          "summary"
+        ]
+      },
+      "GitCommitRequest": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "GitPush": {
+        "type": "object",
+        "properties": {
+          "pushed": {
+            "type": "boolean"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pushed",
+          "remote",
+          "branch"
+        ]
+      },
+      "GitPushRequest": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GitBranches": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "current",
+          "branches"
+        ]
+      },
+      "GitBranchRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "create": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "GitCommitMessage": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "message",
+          "session_id"
+        ]
+      },
+      "GitMessageRequest": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "maxItems": 1000
+          }
+        }
+      },
       "Session": {
         "type": "object",
         "properties": {
@@ -5647,6 +5902,754 @@
           },
           "422": {
             "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/status": {
+      "get": {
+        "tags": [
+          "git"
+        ],
+        "summary": "The working tree: branch, tracking, and what changed",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/diff": {
+      "get": {
+        "tags": [
+          "git"
+        ],
+        "summary": "The working tree's diff, or one ref against another",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "ref",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitDiff"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/commit": {
+      "post": {
+        "tags": [
+          "git"
+        ],
+        "summary": "Commit the named paths, or everything that changed",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitCommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommit"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/push": {
+      "post": {
+        "tags": [
+          "git"
+        ],
+        "summary": "Push the branch, on a connection's token or the workspace's deploy key",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitPushRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pushed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitPush"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/branches": {
+      "get": {
+        "tags": [
+          "git"
+        ],
+        "summary": "The branches this project has, and which one it is on",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitBranches"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "git"
+        ],
+        "summary": "Switch to a branch, creating it when asked",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitBranchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Branches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitBranches"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "451": {
+            "description": "Policy violation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/git/message": {
+      "post": {
+        "tags": [
+          "git"
+        ],
+        "summary": "Draft a commit message from what changed",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {

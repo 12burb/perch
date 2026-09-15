@@ -13,6 +13,7 @@ import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
 import { registerBrains } from "./routes/brains.ts";
 import { registerConnections } from "./routes/connections.ts";
+import { registerGit } from "./routes/git.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
@@ -114,6 +115,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerRunners(app, deps);
   registerProjects(app, deps);
   registerProjectFs(app, deps);
+  registerGit(app, deps);
   registerSessions(app, deps);
   registerBrains(app, deps);
   registerConnections(app, deps);

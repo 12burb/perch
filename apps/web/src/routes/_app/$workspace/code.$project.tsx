@@ -1,7 +1,7 @@
 import { Button, Drawer, EmptyState, t, useIsMobile } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { EditorPane } from "../../../code/editor-pane.tsx";
 import { useEditorStore } from "../../../code/editor-store.ts";
 import { SessionPane } from "../../../code/session-pane.tsx";
@@ -12,6 +12,11 @@ import { ModePage } from "../../../shell/mode-page.tsx";
 // xterm.js loads when the drawer first shows the terminal, not with the editor route.
 const TerminalDrawer = lazy(() =>
   import("../../../code/terminal.tsx").then((m) => ({ default: m.TerminalDrawer })),
+);
+
+// The Git panel loads with the drawer tab that shows it.
+const GitPanel = lazy(() =>
+  import("../../../code/git-panel.tsx").then((m) => ({ default: m.GitPanel })),
 );
 
 // The Preview pane loads when somebody asks for it, not with the editor.
@@ -128,7 +133,9 @@ function ProjectCode() {
     );
   }, [sessionId, mobile, shell]);
 
-  // The drawer holds the terminal (⌘J); the shell keeps running on the runner while it is closed.
+  // The drawer holds the terminal and the Git panel (⌘J); the shell keeps running on the runner
+  // while it is closed.
+  const [drawerTab, setDrawerTab] = useState("terminal");
   useEffect(() => {
     if (!workspaceId || !projectId) return;
     setDrawer(
@@ -152,13 +159,24 @@ function ProjectCode() {
               </Suspense>
             ),
           },
+          {
+            id: "git",
+            label: t("git.title"),
+            content: (
+              <Suspense
+                fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
+              >
+                <GitPanel workspaceId={workspaceId} projectId={projectId} />
+              </Suspense>
+            ),
+          },
         ]}
-        active="terminal"
-        onSelect={() => {}}
+        active={drawerTab}
+        onSelect={setDrawerTab}
       />,
     );
     return () => setDrawer(null);
-  }, [openFile, projectId, projectName, setDrawer, workspaceId]);
+  }, [openFile, projectId, projectName, setDrawer, workspaceId, drawerTab]);
 
   if (!workspace) return null;
   if (projects.isSuccess && !project) {
