@@ -20,6 +20,8 @@ export type CredentialRow = components["schemas"]["Credential"];
 export type ModelProfileRow = components["schemas"]["ModelProfile"];
 export type CatalogModel = components["schemas"]["CatalogModel"];
 export type ProviderRow = components["schemas"]["Provider"];
+export type ConnectionRow = components["schemas"]["Connection"];
+export type ConnectionProviderRow = components["schemas"]["ConnectionProvider"];
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
@@ -243,5 +245,32 @@ export function catalogQuery(workspaceId: string, credentialId: string) {
       ).models,
     enabled: workspaceId !== "" && credentialId !== "",
     retry: false,
+  });
+}
+
+/** The services this instance can connect to, with the URLs a wizard needs (task 1.16). */
+export function connectionProvidersQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "connection-providers"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/connection-providers", {
+          params: { path: { ws: workspaceId } },
+        }),
+      ).providers,
+    enabled: workspaceId !== "",
+  });
+}
+
+export function connectionsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "connections"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/connections", {
+          params: { path: { ws: workspaceId } },
+        }),
+      ).connections,
+    enabled: workspaceId !== "",
   });
 }

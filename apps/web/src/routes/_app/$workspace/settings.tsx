@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { BrainsSection } from "../../../components/brains-section.tsx";
+import { ConnectionsSection } from "../../../components/connections-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
 import { auditQuery, type Member, membersQuery } from "../../../lib/queries.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
@@ -32,6 +33,7 @@ function WorkspaceSettings() {
         />
         <MembersSection workspaceId={workspace.id} myId={me.id} myRole={workspace.role} />
         <BrainsSection workspaceId={workspace.id} canAdmin={canAdmin} />
+        <ConnectionsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         {canAdmin ? <InviteSection workspaceId={workspace.id} myRole={workspace.role} /> : null}
         {canAdmin ? <AuditSection workspaceId={workspace.id} /> : null}
       </div>

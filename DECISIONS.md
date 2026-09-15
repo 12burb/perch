@@ -2357,3 +2357,59 @@ round-trip per credential (cached by TanStack Query) and a model picker that is 
 credential is tested — acceptable, because the alternative was a wrong list. What is not here:
 per-brain parameters and tool policy (the columns exist, nothing reads them yet), cost caps, and
 the `chat` default, which waits for chat sessions in Phase 2.
+
+## ADR-0082: Connections v1: manifests, a minted token per call, and no JWT dependency
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.16
+
+### Context
+§3.5 names four registration lanes and says the paste lane is always available. It also says
+GitHub's remote MCP has no DCR, so GitHub means a GitHub App or a fine-grained PAT. What it does
+not say is where the knowledge of a provider lives, what Perch stores for an app, or what happens
+to a token between the vault and the provider — and those are the decisions that make or break the
+§1.6 invariant.
+
+### Decision
+1. **A provider is a manifest, not code.** `connectors/<id>/manifest.yaml` carries the lanes, the
+   API base, the token prefixes, the call that proves a connection works, and the OAuth endpoints.
+   Adding a service is a YAML file. The manifests are imported as text so a compiled `perch` binary
+   carries them, the way `packages/db` carries its migrations.
+2. **The paste lane is appended to any manifest that forgot it**, because §3.5 says it is always
+   available and a manifest should not be able to take it away by omission.
+3. **An app stores only its private key.** A GitHub App connection keeps the app id and the PEM;
+   every installation token is minted for one call and never persisted. So the blast radius of the
+   database is "an app that must be rotated", not "tokens that work until they expire".
+4. **`tokenFor` is the single door.** Every lane resolves through one method: a pasted token as it
+   was pasted, an OAuth access token out of its pair, an installation token minted on the spot.
+   Everything that calls a provider goes through it, so there is one place to audit.
+5. **No JWT library.** The app JWT is RS256, which Bun's WebCrypto signs natively; the only awkward
+   part is that GitHub issues PKCS#1 keys and WebCrypto imports PKCS#8, which is a fixed header to
+   wrap. Sixty lines and no dependency to keep current beats a dependency for sixty lines.
+6. **Authorizations in flight live in memory for ten minutes.** State and PKCE verifier are held in
+   a map, swept on use, and single-use — a replayed callback finds nothing. They do not survive an
+   api restart, which is the same trade §3.1 makes for presence and rate limits: an authorization
+   nobody is waiting on any more is not worth a table.
+7. **A clone and a pull request both take a connection.** `auth: {kind: "connection"}` on a clone,
+   and a pull-request route that pushes and opens in one round. Both mint the token for that round
+   and drop it; the runner sees a token, never a connection.
+8. **The callback answers with a redirect, not an error page.** A provider that refuses, or a state
+   Perch is not waiting for, lands the person back on the Connections page with the reason in the
+   query — a stack trace on a URL somebody was redirected to is nobody's idea of a good time.
+
+### Consequences
+GitHub works end to end: clone, push, open a pull request, all on a credential that exists for
+seconds. A second connector is a YAML file plus whatever its API shape needs. What is not here:
+MCP OAuth with DCR, refresh jobs for expiring tokens, the grants UI, and every connector but GitHub
+— all of which are task 2.14, with the MCP gateway itself at 1.17.
+
+### What could not be verified here
+`docs.github.com` answers 403 CONNECT through this build environment's egress proxy, and the proxy
+refuses the `/app/*` GitHub API paths outright. The App lane's request and response shapes are
+therefore implemented from knowledge and exercised only against a stand-in that matches them; they
+have not been checked against GitHub or its documentation. Worse, the proxy answers
+`GET https://api.github.com/user` with 200 for *any* bearer token, so nothing in this environment
+can observe GitHub refusing a credential — which is why the end-to-end spec depends on no provider
+at all and the provider interaction is covered against a stand-in instead. Whoever has a real
+GitHub App should confirm the installation-token exchange before this is relied on.
