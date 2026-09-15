@@ -185,8 +185,8 @@ export function SearchMain(props: { workspaceId: string; workspaceSlug: string }
       {q.length < 2 ? (
         <EmptyState
           icon={<Search className="size-8" aria-hidden="true" />}
-          title={t("search.emptyTitle")}
-          hint={t("search.emptyHint")}
+          title={t("shell.search.emptyTitle")}
+          hint={t("shell.search.emptyHint")}
         />
       ) : nothing ? (
         <EmptyState

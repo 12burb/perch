@@ -71,8 +71,6 @@
   "search.kind.files": "Files",
   "search.inChannel": "In",
   "search.anyChannel": "Any channel",
-  "search.emptyTitle": "Search this workspace",
-  "search.emptyHint": "Two characters is enough. Quote \"a phrase\", or put a minus in front of a word to leave it out.",
   "search.noneTitle": "Nothing matches {q}",
   "search.noneHint": "Try fewer words, or look in every channel.",
   "search.messages": "{count} messages",
