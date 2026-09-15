@@ -2855,3 +2855,53 @@ owner archives it, which marks it and drops it out of the sidebar while a member
 `apps/api/test/channels.test.ts` covers the rules directly: name normalization and the conflict, who
 sees what, joining twice, adding from the inside, the unread count with messages seeded in the
 table, and a member refused the archive that an owner is allowed.
+
+## ADR-0091: On a tunnel stream, the side that sent the last frame never hangs up
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.19 (fix forward)
+
+### Context
+CI went red on `e72c550` with one failure: the preview tunnel's acceptance test posted 200 KB
+through a laptop runner and got 49,152 bytes back — three 16 KiB chunks — with a 200 status, no
+error frame, and nothing in any log. It passes on an idle machine and fails on a loaded one, which
+is the signature of a race rather than a wrong answer.
+
+The cause is in Bun's client WebSocket: `close()` throws away whatever it has not yet written.
+A probe makes it plain — a client that sends fourteen frames and closes in the same tick delivers
+five of them; the same client that sends the fourteen and lets the peer close delivers all fourteen.
+The runner's half of the tunnel did exactly the losing thing: it wrote the dev server's answer,
+sent `end`, and hung up. On a quiet machine the queue had already drained; on a busy one — a CI
+runner with the api, the runner and PGlite sharing one event loop — most of the answer was still in
+the queue when the socket went.
+
+The api made it invisible: when a stream closed mid-answer it closed the response body, so a
+truncated page looked like a complete one.
+
+### Decision
+1. **The receiver hangs up, not the sender.** The runner finishes a tunnelled exchange by sending
+   its last frame — `end`, `close`, or `error` — and then leaving the socket alone. The api closes
+   the moment it has the whole answer, which it already did. A 30-second timer on the runner is
+   insurance against an api that never closes, not the mechanism. §7.6 says a stream is "closed by
+   either side"; this narrows that to "closed by the side that is reading", which is the only side
+   that can close without losing what is in flight.
+2. **A stream that dies mid-answer is an error, not a short page.** If the api's stream closes while
+   the response body is still open, the body is errored rather than closed. A browser that gets half
+   a page should see a failed request, and a test that sees one should fail.
+3. **The runner keeps closing streams it never wrote to.** A refused token or an unclaimed stream is
+   closed immediately: there is nothing queued, so there is nothing to lose.
+
+### Consequences
+The 200 KB round trip is whole under load, and any future loss is loud instead of silent. The same
+hazard exists wherever a runner writes to a stream and then closes it — `pty` closes its stream when
+a shell exits, and can drop the shell's last lines the same way. That is task 1.7's protocol to
+change (the api would have to learn "the shell ended" from a frame rather than from the socket) and
+is not done here; this ADR is the record that it is known.
+
+### What was actually verified
+`apps/runner/test/http-tunnel.test.ts`: the runner's tunnel against a stand-in api over a real
+client WebSocket, a 200 KB echo — the answer arrives whole and the api is the side that hangs up.
+The test fails on the old code (`hungUpBy: "runner"`, the body short) and passes on the new.
+`apps/api/test/preview-tunnel.test.ts` (the acceptance for task 1.19) and
+`apps/cli/test/parity.test.ts` stay green, as does `bun run check`.

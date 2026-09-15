@@ -67,6 +67,12 @@ Nothing about this is visible in the tab: the same URLs, the same share links. T
 is which way the bytes go. A runner that shares a network with the api is still reached directly,
 because that is faster and there is no reason not to.
 
+On a stream, the side that sent the last frame never hangs up (ADR-0091): the runner says `end` and
+the api, which is reading, closes. A client socket discards whatever it has not written yet when it
+is closed, so a runner that hung up on its own answer would deliver a page with its tail missing and
+nothing to say so. For the same reason a stream that closes mid-answer is a failed request, not a
+short page.
+
 ## Not here yet
 
 The inspector (⌘⇧C) and click-to-source, the console strip, screenshots, and tap-to-select on a

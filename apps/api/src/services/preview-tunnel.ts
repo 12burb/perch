@@ -178,8 +178,10 @@ export async function tunnelRequest(
         reject(PerchError.conflict(`nothing is listening on port ${target.port} yet`));
         return;
       }
+      // `end` clears the controller, so one still open here means the stream died mid-answer: the
+      // browser gets a broken body rather than a page that quietly stops (ADR-0091).
       try {
-        controller?.close();
+        controller?.error(new Error("the preview's answer was cut short"));
       } catch {
         // already closed
       }

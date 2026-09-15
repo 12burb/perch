@@ -21,6 +21,27 @@ import type { StreamOpener } from "./streams.ts";
 /** A stream token is claimed within this window or forgotten. */
 const OPEN_TIMEOUT_MS = 30_000;
 
+/**
+ * How long the runner leaves a finished stream open waiting for the api to hang up (ADR-0091).
+ * Only insurance: the api closes the moment it has the whole answer.
+ */
+const LINGER_MS = 30_000;
+
+/**
+ * The last word on a stream, without hanging up on it (ADR-0091).
+ *
+ * A client WebSocket in Bun throws away whatever it has not written yet when `close()` is called,
+ * so the side that sent the last frames is never the side that may close: a 200 KB page would
+ * arrive with its tail missing and no error anywhere. The runner says `end` and leaves the socket
+ * to the api, which closes as soon as it has everything. The timer is for an api that never does.
+ */
+function finish(stream: RunnerStream): void {
+  if (stream.closed) return;
+  const timer = setTimeout(() => stream.close(), LINGER_MS);
+  timer.unref?.();
+  stream.onClose(() => clearTimeout(timer));
+}
+
 type Pending = {
   params: RunnerRequestParams<"http.open">;
   timer: ReturnType<typeof setTimeout>;
@@ -72,7 +93,7 @@ export class HttpTunnel {
     run.catch((error: unknown) => {
       this.options.log?.(`http.open failed: ${error instanceof Error ? error.message : error}`);
       send(stream, { kind: "error", message: describe(error) });
-      stream.close();
+      finish(stream);
     });
     return true;
   }
@@ -174,7 +195,7 @@ async function relayRequest(
     }
   }
   send(stream, { kind: "end" });
-  stream.close();
+  finish(stream);
 }
 
 /** A WebSocket upgrade, relayed frame for frame until either side hangs up. */
@@ -203,11 +224,11 @@ async function relaySocket(
   });
   socket.addEventListener("close", (event: CloseEvent) => {
     send(stream, { kind: "close", code: closeCode(event.code), reason: event.reason ?? "" });
-    stream.close();
+    finish(stream);
   });
   socket.addEventListener("error", () => {
     if (!opened) send(stream, { kind: "error", message: "the dev server refused the socket" });
-    stream.close();
+    finish(stream);
   });
 
   for await (const frame of frames(stream)) {
