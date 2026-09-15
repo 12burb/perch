@@ -3506,10 +3506,17 @@ built-in floor. The question is where the *document* is read and who asks it.
 4. **A document that will not parse is an empty policy, not a locked door.** A broken file must not
    take the workspace down; writing one through the api is refused (422) so it cannot get there
    quietly, and a file that arrives another way simply does not apply.
-5. **The documents are columns, not a table.** `workspaces.policy_yaml` and `projects.policy_yaml`
-   hold the YAML as written (migration 0019). What comes back is what somebody typed, which matters
-   for a file people are meant to read; the parsed form is cached for five seconds so a busy channel
-   does not re-read it per message.
+5. **The documents live in §6's `policies` table**, one row per workspace and one per project that
+   has its own, with `rules` holding what the document parsed to and `version`/`updated_by` saying
+   which change this is and who made it. One column is added to that table — `yaml`, the document as
+   it was written — because what comes back has to be what somebody typed, for a file people are
+   meant to read and check in. The parsed form is cached for five seconds so a busy channel does not
+   re-read it per message.
+
+   *Corrected after the fact:* this first shipped as `policy_yaml` columns on `workspaces` and
+   `projects` (migration 0019), which is not what §6 says, and the commit that did it wrongly
+   claimed no spec deviation. Migration 0020 moves the documents to the `policies` table and drops
+   those columns; the one remaining deviation is the added `yaml` column, recorded here.
 6. **A refusal is a 451 and a `policy.violation`.** One shape everywhere: the error says which rule,
    the event is what the audit log and any card are built from, and a bot refused in a channel says
    so in the thread rather than going quiet.

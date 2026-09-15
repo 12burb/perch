@@ -85,7 +85,9 @@ PUT  /api/workspaces/{ws}/projects/{p}/policy        { yaml }
 POST /api/workspaces/{ws}/policy/evaluate            { request, project_id? } → { allow, rule, reason }
 ```
 
-`effective` is the workspace's rules with the project's narrowing already applied.
+`effective` is the workspace's rules with the project's narrowing already applied. Each document is
+a row in `policies` (spec §6) carrying both the YAML and what it parsed to, with `version` counting
+up and `updated_by` saying who changed it.
 
 The dry run is the same evaluator every enforcement point asks, so what it says is what would
 happen. Settings → Policy has it beside the document: pick what somebody might do, type it, and see

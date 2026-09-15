@@ -55,8 +55,6 @@ export const projects = pgTable(
     head: text("head"),
     /** Why the checked-in .perch/project.json was not applied (config stays {} then). */
     configError: text("config_error"),
-    /** This project's own `.perch/policy.yaml`, which narrows the workspace's (task 2.11). */
-    policyYaml: text("policy_yaml"),
     /** The parsed devcontainer.json (JSONC), when the project ships one. */
     devcontainer: jsonb("devcontainer").$type<Record<string, unknown>>(),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -161,6 +159,8 @@ export const policies = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     rules: jsonb("rules").$type<PolicyRules>().notNull().default({}),
+    /** The document as it was written (task 2.11): `rules` is what it parsed to. */
+    yaml: text("yaml"),
     version: integer("version").notNull().default(1),
     updatedBy: uuid("updated_by")
       .notNull()

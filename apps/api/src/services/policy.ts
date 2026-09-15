@@ -22,7 +22,7 @@ import {
 } from "@perch/policy";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
-import { workspacePolicyYaml } from "../repos/policy.ts";
+import { findPolicy } from "../repos/policy.ts";
 
 export type PolicyDeps = { db: Db; bus: Bus };
 
@@ -49,8 +49,12 @@ export class PolicyService {
   }
 
   /** The document a workspace is under, as it was written. */
-  async yamlOf(workspaceId: string): Promise<string> {
-    return workspacePolicyYaml(this.deps.db, workspaceId);
+  async yamlOf(workspaceId: string, projectId?: string | undefined): Promise<string> {
+    const row = await findPolicy(this.deps.db, {
+      workspaceId,
+      ...(projectId ? { projectId } : {}),
+    });
+    return row?.yaml ?? "";
   }
 
   async workspacePolicy(workspaceId: string): Promise<Policy> {
@@ -60,11 +64,10 @@ export class PolicyService {
   /** A project's policy is its workspace's, narrowed by its own. */
   async projectPolicy(project: Project): Promise<Policy> {
     const workspace = await this.workspacePolicy(project.workspaceId);
-    if (!project.policyYaml?.trim()) return workspace;
     const own = await this.cached(`project:${project.id}`, async () =>
-      parse(project.policyYaml ?? ""),
+      parse(await this.yamlOf(project.workspaceId, project.id)),
     );
-    return mergePolicies(workspace, own);
+    return Object.keys(own).length === 0 ? workspace : mergePolicies(workspace, own);
   }
 
   async policyFor(scope: PolicyScope): Promise<Policy> {

@@ -20,6 +20,7 @@ import m16 from "../../drizzle/0016_bots.sql" with { type: "text" };
 import m17 from "../../drizzle/0017_bot_chains.sql" with { type: "text" };
 import m18 from "../../drizzle/0018_inbox_items.sql" with { type: "text" };
 import m19 from "../../drizzle/0019_policy_yaml.sql" with { type: "text" };
+import m20 from "../../drizzle/0020_policies_yaml.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -56,4 +57,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 17, tag: "0017_bot_chains", when: 1789484479724, breakpoints: true, sql: m17 },
   { idx: 18, tag: "0018_inbox_items", when: 1789489075432, breakpoints: true, sql: m18 },
   { idx: 19, tag: "0019_policy_yaml", when: 1789491123072, breakpoints: true, sql: m19 },
+  { idx: 20, tag: "0020_policies_yaml", when: 1789492946369, breakpoints: true, sql: m20 },
 ];

@@ -9,10 +9,10 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { parsePolicy } from "@perch/policy";
 import { authorize } from "../auth/authorize.ts";
-import { requireUser } from "../auth/middleware.ts";
+import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
-import { setProjectPolicyYaml, setWorkspacePolicyYaml } from "../repos/policy.ts";
+import { savePolicy } from "../repos/policy.ts";
 import { getProject } from "../services/projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
@@ -184,7 +184,7 @@ export function registerPolicy(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const { yaml } = c.req.valid("json");
     await authorize(c, deps, "workspace.update", { type: "workspace", id: ws });
     const rules = parsed(yaml);
-    await setWorkspacePolicyYaml(deps.db.db, ws, yaml);
+    await savePolicy(deps.db.db, { workspaceId: ws }, { yaml, rules, userId: currentUser(c).id });
     deps.policy.forget(`ws:${ws}`);
     return c.json({ yaml, rules, effective: rules }, 200);
   });
@@ -193,13 +193,10 @@ export function registerPolicy(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const { ws, project: key } = c.req.valid("param");
     await authorize(c, deps, "projects.read", { type: "workspace", id: ws });
     const project = await projectOf(ws, key);
+    const own = await deps.policy.yamlOf(ws, project.id);
     const effective = await deps.policy.projectPolicy(project);
     return c.json(
-      {
-        yaml: project.policyYaml ?? "",
-        rules: parsed(project.policyYaml ?? ""),
-        effective: effective as Record<string, unknown>,
-      },
+      { yaml: own, rules: parsed(own), effective: effective as Record<string, unknown> },
       200,
     );
   });
@@ -210,9 +207,13 @@ export function registerPolicy(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
     const project = await projectOf(ws, key);
     const rules = parsed(yaml);
-    await setProjectPolicyYaml(deps.db.db, project.id, yaml);
+    await savePolicy(
+      deps.db.db,
+      { workspaceId: ws, projectId: project.id },
+      { yaml, rules, userId: currentUser(c).id },
+    );
     deps.policy.forget(`project:${project.id}`);
-    const effective = await deps.policy.projectPolicy({ ...project, policyYaml: yaml });
+    const effective = await deps.policy.projectPolicy(project);
     return c.json({ yaml, rules, effective: effective as Record<string, unknown> }, 200);
   });
 

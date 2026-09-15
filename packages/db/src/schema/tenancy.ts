@@ -9,8 +9,6 @@ export const workspaces = pgTable("workspaces", {
   slug: citext("slug").notNull().unique(),
   name: text("name").notNull(),
   settings: jsonb("settings").$type<WorkspaceSettings>().notNull().default({}),
-  /** `.perch/policy.yaml` for the whole workspace, as it was written (spec §5.7; task 2.11). */
-  policyYaml: text("policy_yaml"),
   // A deployment descriptor, never a billing tier: Perch has no paid plans (ADR-0064).
   plan: text("plan").notNull().default("self-hosted"),
   ...timestamps(),
