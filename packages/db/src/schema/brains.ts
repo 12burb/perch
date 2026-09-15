@@ -69,8 +69,12 @@ export const providerCredentials = pgTable(
 export type ProviderCredential = typeof providerCredentials.$inferSelect;
 export type NewProviderCredential = typeof providerCredentials.$inferInsert;
 
-/** What a profile is the default for, when it is one (spec §3.4). */
-export const PROFILE_DEFAULTS = ["chat", "code"] as const;
+/**
+ * What a profile is the default for, when it is one (spec §3.4). `embedding` is the workspace's
+ * model for the codebase index (task 2.17, ADR-0110): one brain, named once, and every embedding
+ * Perch computes goes through it.
+ */
+export const PROFILE_DEFAULTS = ["chat", "code", "embedding"] as const;
 export type ProfileDefault = (typeof PROFILE_DEFAULTS)[number];
 
 export type ModelParams = {
@@ -108,7 +112,10 @@ export const modelProfiles = pgTable(
     uniqueIndex("model_profiles_default_idx")
       .on(t.workspaceId, t.defaultFor)
       .where(sql`${t.defaultFor} is not null`),
-    check("model_profiles_default_for_check", sql`${t.defaultFor} in ('chat', 'code')`),
+    check(
+      "model_profiles_default_for_check",
+      sql`${t.defaultFor} in ('chat', 'code', 'embedding')`,
+    ),
   ],
 );
 export type ModelProfile = typeof modelProfiles.$inferSelect;

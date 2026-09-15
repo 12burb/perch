@@ -32,6 +32,11 @@ const DbPanel = lazy(() =>
   import("../../../code/ship-panel.tsx").then((m) => ({ default: m.DbPanel })),
 );
 
+// The codebase index (task 2.17): its own chunk, because most sessions never open this tab.
+const CodebasePanel = lazy(() =>
+  import("../../../code/codebase-panel.tsx").then((m) => ({ default: m.CodebasePanel })),
+);
+
 /** A project open in Code mode (task 1.6): the file tree in the sidebar, the editor in main. */
 export const Route = createFileRoute("/_app/$workspace/code/$project")({
   component: ProjectCode,
@@ -40,26 +45,32 @@ export const Route = createFileRoute("/_app/$workspace/code/$project")({
 
 /**
  * `?session=<id>` names the session in the panel; `?view=preview` puts the Preview in main and
- * `?port=<n>` picks which one (spec §4). Checked by hand: Zod would join the initial bundle
- * (ADR-0078).
+ * `?port=<n>` picks which one (spec §4). `?file=<path>&line=<n>` opens a file where something is —
+ * which is what a search result links to (task 2.17). Checked by hand: Zod would join the initial
+ * bundle (ADR-0078).
  */
 function validateSearch(search: Record<string, unknown>): {
   session?: string;
   view?: "preview";
   port?: number;
+  file?: string;
+  line?: number;
 } {
   const port = Number(search.port);
+  const line = Number(search.line);
   return {
     ...(typeof search.session === "string" && search.session ? { session: search.session } : {}),
     ...(search.view === "preview" ? { view: "preview" as const } : {}),
     ...(Number.isInteger(port) && port > 0 && port <= 65535 ? { port } : {}),
+    ...(typeof search.file === "string" && search.file ? { file: search.file } : {}),
+    ...(Number.isInteger(line) && line > 0 ? { line } : {}),
   };
 }
 
 function ProjectCode() {
   const { shell, workspace, setDrawer, setPanel } = useAppShell();
   const { project: key } = Route.useParams();
-  const { session: sessionId, view, port } = Route.useSearch();
+  const { session: sessionId, view, port, file, line } = Route.useSearch();
   const navigate = useNavigate();
   const mobile = useIsMobile();
   const projects = useQuery({ ...projectsQuery(workspace?.id ?? ""), enabled: workspace !== null });
@@ -69,6 +80,13 @@ function ProjectCode() {
   const projectName = project?.name ?? "";
   const workspaceId = workspace?.id ?? null;
   const workspaceSlug = workspace?.slug ?? "";
+
+  // A link that names a file opens it once the project is ready — a search result, a path in a
+  // terminal, a bookmark. Opening the same file again is the editor's own no-op.
+  useEffect(() => {
+    if (!projectId || !file) return;
+    openFile(projectId, file, line === undefined ? undefined : { line });
+  }, [projectId, file, line, openFile]);
 
   const showPreview = useCallback(
     (on: boolean, forPort?: number) => {
@@ -197,6 +215,21 @@ function ProjectCode() {
                 fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
               >
                 <DbPanel workspaceId={workspaceId} />
+              </Suspense>
+            ),
+          },
+          {
+            id: "codebase",
+            label: t("codebase.title"),
+            content: (
+              <Suspense
+                fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
+              >
+                <CodebasePanel
+                  workspaceId={workspaceId}
+                  projectId={projectId}
+                  onOpenPath={(path, at) => openFile(projectId, path, { line: at })}
+                />
               </Suspense>
             ),
           },

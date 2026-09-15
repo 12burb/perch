@@ -327,6 +327,14 @@ export class BrainsService {
     });
   }
 
+  /**
+   * The credential's key, decrypted for one call. Public so the repo index can embed with the
+   * workspace's brain (task 2.17); it is handed to a provider request and nowhere else.
+   */
+  async secretOf(row: ProviderCredential): Promise<string> {
+    return this.secret(row);
+  }
+
   private async secret(row: ProviderCredential): Promise<string> {
     try {
       return await this.deps.vault.decryptString(row.ciphertext, AAD(row.workspaceId));

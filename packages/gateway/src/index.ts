@@ -9,6 +9,13 @@ export {
   type FetchLike,
   listModels,
 } from "./catalog.ts";
+export {
+  EMBEDDING_DIMENSIONS,
+  EmbeddingError,
+  type EmbedRequest,
+  embed,
+  fit,
+} from "./embeddings.ts";
 export type { LanguageModel, ModelMessage } from "./models.ts";
 export {
   costOf,

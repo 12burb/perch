@@ -17,6 +17,7 @@ import type { DeployService } from "./services/deploys.ts";
 import type { McpGateway } from "./services/mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
+import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 
 /** What every handler can reach through the Hono context. */
@@ -61,6 +62,8 @@ export type Deps = {
   deploys: DeployService;
   /** The database panel, read-only by default (task 2.15). */
   dbBrowser: DbBrowser;
+  /** What Perch knows about a repository: the index behind @codebase (task 2.17). */
+  repoIndex: RepoIndexService;
   /** Feature flags (spec §9.1), default off. */
   flags: Flags;
   log: Logger;

@@ -17,7 +17,9 @@ Workspace settings → **Brains**. Two lists:
   your label, a hint (`sk…4f2a`) or the base URL, and who can use it. **Test** asks the provider for
   its model list; **Remove** says which brains pointed at it.
 - **Brains** — the named models. Each is a provider, a model id, and (optionally) a credential.
-  One may be the workspace's **default for code**, which is what a session uses when you don't pick.
+  One may be the workspace's **default for code**, which is what a session uses when you don't pick;
+  another its **default for chat**, and another its **default for embedding**, which is what the
+  codebase index uses.
 
 ## Credentials
 
@@ -45,8 +47,17 @@ Leave the credential as **The engine's own login** for lane B and C models: a Cl
 subscription the engine is already signed in to, which Perch never sees, never proxies, and never
 shares (spec §3.6).
 
-Tick **Default for code** to make a brain the one new sessions use. Only one brain per workspace
-holds that title; giving it to another takes it from the first.
+**Default for** names what a brain is the workspace's default for: **Code** is what new sessions
+use, **Chat** is what a bot falls back to, and **Embedding** is what the codebase index embeds with.
+Only one brain per workspace holds each title; giving it to another takes it from the first, and the
+buttons on each row move a title without retyping anything.
+
+Embedding is the one that is optional in a way the others are not: it buys the half of `@codebase`
+that finds a thing by what it does rather than by its name
+([`repo-intelligence.md`](repo-intelligence.md)), and without it the codebase index still exists and
+still cites the right file, on Postgres full-text search alone. Any OpenAI-compatible embedding model
+works, including one on a laptop's Ollama; Perch brings every vector to 1024 dimensions so the column
+means the same thing whichever provider filled it.
 
 ## Starting a session on a brain
 

@@ -2249,6 +2249,7 @@
             "enum": [
               "chat",
               "code",
+              "embedding",
               null
             ]
           },
@@ -2292,7 +2293,8 @@
             "type": "string",
             "enum": [
               "chat",
-              "code"
+              "code",
+              "embedding"
             ]
           }
         },
@@ -2309,7 +2311,8 @@
             "type": "string",
             "enum": [
               "chat",
-              "code"
+              "code",
+              "embedding"
             ]
           }
         },
@@ -5210,6 +5213,164 @@
           "sql"
         ]
       },
+      "RepoIndexStatus": {
+        "type": "object",
+        "properties": {
+          "chunks": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "embedded": {
+            "type": "integer"
+          },
+          "indexed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "embedding_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "chunks",
+          "files",
+          "commit_sha",
+          "embedded",
+          "indexed_at",
+          "embedding_model"
+        ]
+      },
+      "ReindexStarted": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "chunks": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "files": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "embedded": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "embedding_skipped": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "queued",
+          "chunks",
+          "files",
+          "embedded",
+          "embedding_skipped"
+        ]
+      },
+      "Reindex": {
+        "type": "object",
+        "properties": {
+          "wait": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "RepoHit": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "symbol",
+              "chunk",
+              "doc"
+            ]
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "end_line": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "path",
+          "symbol",
+          "kind",
+          "start_line",
+          "end_line",
+          "content",
+          "score"
+        ]
+      },
+      "AgentsDraftResult": {
+        "type": "object",
+        "properties": {
+          "markdown": {
+            "type": "string"
+          },
+          "saved_to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "markdown",
+          "saved_to"
+        ]
+      },
+      "AgentsDraft": {
+        "type": "object",
+        "properties": {
+          "save": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "PushKey": {
         "type": "object",
         "properties": {
@@ -5296,11 +5457,18 @@
             "items": {
               "$ref": "#/components/schemas/FileHit"
             }
+          },
+          "code": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodeHit"
+            }
           }
         },
         "required": [
           "messages",
-          "files"
+          "files",
+          "code"
         ]
       },
       "MessageHit": {
@@ -5404,6 +5572,53 @@
           "file",
           "channel_id",
           "channel_name"
+        ]
+      },
+      "CodeHit": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "end_line": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "project_key",
+          "path",
+          "symbol",
+          "start_line",
+          "end_line",
+          "content",
+          "rank"
         ]
       }
     },
@@ -11203,7 +11418,7 @@
         "tags": [
           "brains"
         ],
-        "summary": "Make this the workspace's default brain for chat or code",
+        "summary": "Make this the workspace's default brain for chat, code, or embedding",
         "security": [
           {
             "session": []
@@ -16564,6 +16779,385 @@
         }
       }
     },
+    "/api/workspaces/{ws}/projects/{project}/index": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "What Perch has indexed of this project",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoIndexStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Index this project's files, on a job",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reindex"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued, or — with `wait` — what the pass indexed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexStarted"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/codebase": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Ask the index a question",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "required": true,
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the index knows, best first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hits": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RepoHit"
+                      }
+                    }
+                  },
+                  "required": [
+                    "hits"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/agents-draft": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Draft an AGENTS.md from what this repository shows",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentsDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsDraftResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/push-key": {
       "get": {
         "tags": [
@@ -16769,7 +17363,7 @@
         "tags": [
           "search"
         ],
-        "summary": "Search the messages and files you can see",
+        "summary": "Search the messages, files, and indexed code you can see",
         "security": [
           {
             "session": []
@@ -16804,7 +17398,8 @@
               "enum": [
                 "all",
                 "messages",
-                "files"
+                "files",
+                "code"
               ]
             },
             "required": false,

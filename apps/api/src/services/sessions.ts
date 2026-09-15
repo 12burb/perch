@@ -365,12 +365,18 @@ export class SessionService {
     return fresh;
   }
 
-  /** Starts a round: the turn is recorded, the engine answers in the background. */
+  /**
+   * Starts a round: the turn is recorded, the engine answers in the background.
+   *
+   * `options.context` is material the engine should read before the turn — today the `@codebase`
+   * block (task 2.17, ADR-0110). It never reaches the transcript: what a person sees themselves
+   * having said is what they typed.
+   */
   async sendTurn(
     session: CodingSession,
     userId: string,
     turn: UserTurn,
-    options: { mode?: SessionMode; by: ActorContext },
+    options: { mode?: SessionMode; by: ActorContext; context?: string },
   ): Promise<{ seq: number; session: CodingSession }> {
     if (session.status === "ended") throw PerchError.conflict("the session has ended");
     if (this.rounds.has(session.id)) {
@@ -403,7 +409,10 @@ export class SessionService {
     const updated = await this.setStatus(session, "running", null, options.by);
     const round: Round = { engine, timer: null, cancelled: false };
     this.rounds.set(session.id, round);
-    void this.runRound(session, round, turn, mode).catch((error: unknown) => {
+    const input: UserTurn = options.context
+      ? { ...turn, text: `${options.context}\n\n${turn.text}` }
+      : turn;
+    void this.runRound(session, round, input, mode).catch((error: unknown) => {
       this.deps.log.error({ err: error, sessionId: session.id }, "session round crashed");
     });
     return { seq, session: updated };

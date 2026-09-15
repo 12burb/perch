@@ -33,6 +33,7 @@ import { DeployService } from "./services/deploys.ts";
 import { McpGateway } from "./services/mcp.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
+import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -150,6 +151,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // The Deploy button and the database panel (task 2.15): both run on a connection's own token —
   // the first against the provider's REST API, the second through the MCP gateway.
   const deploys = new DeployService({ db, bus, connections });
+  // What Perch knows about a repository: the index behind @codebase (task 2.17).
+  const repoIndex = new RepoIndexService({ db: db.db, bus, brains, log });
   const dbBrowser = new DbBrowser({ connections, gateway: mcp });
   const bots = new BotsService({
     db: db.db,
@@ -184,6 +187,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     previews,
     deploys,
     dbBrowser,
+    repoIndex,
     flags,
     log,
     version: versionInfo(env),

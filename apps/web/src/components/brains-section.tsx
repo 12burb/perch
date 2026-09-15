@@ -23,6 +23,23 @@ function message(err: unknown): string {
   return err instanceof RequestFailed ? err.message : t("common.error");
 }
 
+/**
+ * What a brain can be the workspace's default for. `embedding` is the codebase index's model
+ * (task 2.17); the other two are what a session and a bot run on.
+ */
+const DEFAULTS = ["chat", "code", "embedding"] as const;
+type ProfileDefault = (typeof DEFAULTS)[number];
+
+const DEFAULT_LABELS = {
+  chat: "brains.defaultFor.chat",
+  code: "brains.defaultFor.code",
+  embedding: "brains.defaultFor.embedding",
+} as const;
+
+function isDefaultFor(value: FormDataEntryValue | null): value is ProfileDefault {
+  return typeof value === "string" && (DEFAULTS as readonly string[]).includes(value);
+}
+
 /** What tells two credentials of one provider apart: the key's hint, or the endpoint it points at. */
 function subtitle(row: CredentialRow): string {
   return row.hint ?? row.base_url ?? "";
@@ -308,7 +325,7 @@ function ProfileList(props: {
       provider: string;
       model_id: string;
       credential_id?: string;
-      default_for?: "chat" | "code";
+      default_for?: ProfileDefault;
     }) =>
       unwrap(
         await api.POST("/api/workspaces/{ws}/model-profiles", {
@@ -323,11 +340,11 @@ function ProfileList(props: {
     onError: (err) => setError(message(err)),
   });
   const promote = useMutation({
-    mutationFn: async (id: string) =>
+    mutationFn: async (input: { id: string; for: ProfileDefault }) =>
       unwrap(
         await api.POST("/api/workspaces/{ws}/model-profiles/{id}/default", {
-          params: { path: { ws: props.workspaceId, id } },
-          body: { for: "code" },
+          params: { path: { ws: props.workspaceId, id: input.id } },
+          body: { for: input.for },
         }),
       ),
     onSuccess: () => void invalidate(),
@@ -353,7 +370,9 @@ function ProfileList(props: {
       provider: credential?.provider ?? "custom",
       model_id: String(data.get("model_id") ?? "").trim(),
       ...(credentialId ? { credential_id: credentialId } : {}),
-      ...(data.get("default_for") === "on" ? { default_for: "code" as const } : {}),
+      ...(isDefaultFor(data.get("default_for"))
+        ? { default_for: data.get("default_for") as ProfileDefault }
+        : {}),
     });
     form.reset();
   }
@@ -377,20 +396,26 @@ function ProfileList(props: {
             >
               <span className="font-medium">{row.name}</span>
               <span className="text-sm text-fg-muted">{row.model_id}</span>
-              {row.default_for === "code" ? (
-                <Badge tone="accent">{t("brains.default")}</Badge>
+              {row.default_for ? (
+                <Badge tone="accent">
+                  {t("brains.isDefault", { what: t(DEFAULT_LABELS[row.default_for]) })}
+                </Badge>
               ) : null}
               {props.canAdmin ? (
                 <span className="ml-auto flex gap-2">
-                  {row.default_for === "code" ? null : (
+                  {DEFAULTS.filter((what) => what !== row.default_for).map((what) => (
                     <Button
+                      key={what}
                       size="sm"
-                      onClick={() => promote.mutate(row.id)}
-                      aria-label={t("brains.makeDefault", { name: row.name })}
+                      onClick={() => promote.mutate({ id: row.id, for: what })}
+                      aria-label={t("brains.makeDefault", {
+                        name: row.name,
+                        what: t(DEFAULT_LABELS[what]),
+                      })}
                     >
-                      {t("brains.default")}
+                      {t(DEFAULT_LABELS[what])}
                     </Button>
-                  )}
+                  ))}
                   <Button
                     size="sm"
                     variant="danger"
@@ -444,10 +469,27 @@ function ProfileList(props: {
               </>
             )}
           </Field>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="default_for" className="size-4" />
-            {t("brains.default")}
-          </label>
+          <Field
+            id={`${formId}-default`}
+            label={t("brains.defaultFor")}
+            hint={t("brains.defaultForHint")}
+          >
+            {(control) => (
+              <select
+                {...control}
+                name="default_for"
+                defaultValue=""
+                className="h-9 rounded border border-border bg-surface px-2"
+              >
+                <option value="">{t("brains.defaultFor.none")}</option>
+                {DEFAULTS.map((what) => (
+                  <option key={what} value={what}>
+                    {t(DEFAULT_LABELS[what])}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
           <div>
             <Button type="submit" variant="primary" disabled={add.isPending}>
               {t("brains.addProfile")}

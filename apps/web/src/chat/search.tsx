@@ -9,13 +9,14 @@
 import "@perch/ui/i18n/chat";
 import { Badge, Button, EmptyState, Input, Peek, t } from "@perch/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, unwrap } from "../lib/api.ts";
 import { channelsQuery } from "../lib/queries.ts";
 
-type SearchType = "all" | "messages" | "files";
+type SearchType = "all" | "messages" | "files" | "code";
 
 export type MessageHit = {
   id: string;
@@ -114,7 +115,9 @@ export function SearchMain(props: { workspaceId: string; workspaceSlug: string }
   const words = queryWords(q);
   const messages = (results.data?.messages ?? []) as MessageHit[];
   const files = results.data?.files ?? [];
-  const nothing = q.length >= 2 && !results.isFetching && messages.length + files.length === 0;
+  const code = results.data?.code ?? [];
+  const nothing =
+    q.length >= 2 && !results.isFetching && messages.length + files.length + code.length === 0;
 
   return (
     <section aria-labelledby="search-heading" className="flex min-h-0 flex-1 flex-col p-4">
@@ -157,6 +160,7 @@ export function SearchMain(props: { workspaceId: string; workspaceSlug: string }
             <option value="all">{t("search.kind.all")}</option>
             <option value="messages">{t("search.kind.messages")}</option>
             <option value="files">{t("search.kind.files")}</option>
+            <option value="code">{t("search.kind.code")}</option>
           </select>
         </div>
         <div className="flex flex-col gap-1 text-sm">
@@ -223,6 +227,37 @@ export function SearchMain(props: { workspaceId: string; workspaceSlug: string }
                       </span>
                       {hit.channel_name ? <Badge>#{hit.channel_name}</Badge> : null}
                     </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {code.length > 0 ? (
+            <section aria-label={t("search.code", { count: code.length })}>
+              <h3 className="mb-1 text-sm font-semibold text-fg-muted">
+                {t("search.code", { count: code.length })}
+              </h3>
+              <ul className="flex flex-col gap-1">
+                {code.map((hit) => (
+                  <li key={`${hit.project_id}:${hit.path}:${hit.start_line}`}>
+                    <Link
+                      to="/$workspace/code/$project"
+                      params={{ workspace: props.workspaceSlug, project: hit.project_key }}
+                      search={{ file: hit.path, line: hit.start_line }}
+                      data-testid="code-hit"
+                      className="flex flex-col gap-1 rounded border border-border bg-raised p-2 text-sm hover:bg-surface-2"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-mono font-medium">
+                          {hit.path}:{hit.start_line}
+                        </span>
+                        <Badge>{hit.project_name}</Badge>
+                        {hit.symbol ? <span className="text-fg-muted">{hit.symbol}</span> : null}
+                      </span>
+                      <span className="line-clamp-2 whitespace-pre-wrap font-mono text-xs text-fg-muted">
+                        <Marked text={hit.content.slice(0, 300)} words={words} />
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>

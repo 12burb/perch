@@ -47,21 +47,22 @@ test("a key and an endpoint each become a brain that runs a session", async ({ p
   const endpointRow = brains.getByRole("listitem").filter({ hasText: "Ollama test" });
   await expect(endpointRow).toBeVisible();
 
-  // Test is the catalog call: both credentials reach the provider and list its two models.
+  // Test is the catalog call: both credentials reach the provider and list its models — two for
+  // chat and, since task 2.17, one the codebase index embeds with.
   await keyRow.getByRole("button", { name: "Test OpenAI test" }).click();
-  await expect(keyRow.getByRole("status")).toHaveText("2 models", { timeout: 20_000 });
+  await expect(keyRow.getByRole("status")).toHaveText("3 models", { timeout: 20_000 });
   await endpointRow.getByRole("button", { name: "Test Ollama test" }).click();
-  await expect(endpointRow.getByRole("status")).toHaveText("2 models", { timeout: 20_000 });
+  await expect(endpointRow.getByRole("status")).toHaveText("3 models", { timeout: 20_000 });
 
   // Two brains, one on each credential. The first is the workspace default for code.
   const addBrain = brains.getByRole("form", { name: "Add brain" });
   await addBrain.getByLabel("Name", { exact: true }).fill("Cloud");
   await addBrain.getByLabel("Credential").selectOption({ label: "OpenAI test" });
   await addBrain.getByLabel("Model", { exact: true }).fill("gpt-test-mini");
-  await addBrain.getByLabel("Default for code").check();
+  await addBrain.getByLabel("Default for").selectOption({ label: "Code" });
   await addBrain.getByRole("button", { name: "Add brain" }).click();
   await expect(brains.getByRole("listitem").filter({ hasText: "Cloud" })).toContainText(
-    "Default for code",
+    "Default for Code",
   );
 
   await addBrain.getByLabel("Name", { exact: true }).fill("Local");

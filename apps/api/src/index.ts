@@ -9,7 +9,9 @@
  */
 import { resolve } from "node:path";
 import { boot } from "./boot.ts";
+import { repoIndexJobHandlers } from "./jobs/repo-index.ts";
 import { serve } from "./server.ts";
+import { REPO_INDEX_QUEUE } from "./services/repo-index.ts";
 import { dockerodeClient } from "./supervisor/docker.ts";
 import { createSupervisor, supervisorConfigFromEnv } from "./supervisor/supervisor.ts";
 
@@ -43,8 +45,8 @@ if (entrypoint === "supervisor") {
 
 if (entrypoint === "worker" || entrypoint === "api") {
   const worker = booted.queue.worker({
-    queues: ["system", "bots"],
-    handlers: booted.bots.jobHandlers(),
+    queues: ["system", "bots", REPO_INDEX_QUEUE],
+    handlers: { ...booted.bots.jobHandlers(), ...repoIndexJobHandlers(booted) },
   });
   worker.start();
   const shutdown = async () => {

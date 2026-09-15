@@ -6,6 +6,7 @@
  * with its catalog is a provider that took the credential.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { PROFILE_DEFAULTS, type ProfileDefault } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
@@ -54,7 +55,7 @@ const profileSchema = z
     provider: z.string(),
     model_id: z.string(),
     credential_id: z.uuid().nullable(),
-    default_for: z.enum(["chat", "code"]).nullable(),
+    default_for: z.enum(PROFILE_DEFAULTS).nullable(),
     created_at: z.string(),
   })
   .openapi("ModelProfile");
@@ -206,7 +207,7 @@ const addProfileRoute = createRoute({
               provider: z.string().min(1).max(64),
               model_id: z.string().min(1).max(200),
               credential_id: z.uuid().optional(),
-              default_for: z.enum(["chat", "code"]).optional(),
+              default_for: z.enum(PROFILE_DEFAULTS).optional(),
             })
             .openapi("AddModelProfile"),
         },
@@ -223,7 +224,7 @@ const defaultProfileRoute = createRoute({
   method: "post",
   path: "/api/workspaces/{ws}/model-profiles/{id}/default",
   tags: ["brains"],
-  summary: "Make this the workspace's default brain for chat or code",
+  summary: "Make this the workspace's default brain for chat, code, or embedding",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
   request: {
@@ -231,7 +232,7 @@ const defaultProfileRoute = createRoute({
     body: {
       content: {
         "application/json": {
-          schema: z.object({ for: z.enum(["chat", "code"]) }).openapi("MakeDefaultProfile"),
+          schema: z.object({ for: z.enum(PROFILE_DEFAULTS) }).openapi("MakeDefaultProfile"),
         },
       },
     },
@@ -401,7 +402,7 @@ function toProfile(row: {
   provider: string;
   modelId: string;
   credentialId: string | null;
-  defaultFor: "chat" | "code" | null;
+  defaultFor: ProfileDefault | null;
   createdAt: Date;
 }) {
   return {

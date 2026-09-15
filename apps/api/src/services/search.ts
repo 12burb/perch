@@ -8,6 +8,7 @@
 import type { Bus } from "@perch/bus";
 import type { Db } from "@perch/db";
 import { PerchError } from "../errors.ts";
+import { type CodeHit, searchWorkspaceWords } from "../repos/repo-index.ts";
 import {
   type FileHit,
   type MessageHit,
@@ -20,7 +21,7 @@ import { channelFor } from "./channels.ts";
 /** `channelFor` refuses a channel the way the channel routes do, so the bus comes with it. */
 export type SearchDeps = { db: { db: Db }; bus: Bus };
 
-export const SEARCH_TYPES = ["all", "messages", "files"] as const;
+export const SEARCH_TYPES = ["all", "messages", "files", "code"] as const;
 export type SearchType = (typeof SEARCH_TYPES)[number];
 
 export type SearchInput = {
@@ -33,7 +34,7 @@ export type SearchInput = {
   limit?: number | undefined;
 };
 
-export type SearchResults = { messages: MessageHit[]; files: FileHit[] };
+export type SearchResults = { messages: MessageHit[]; files: FileHit[]; code: CodeHit[] };
 
 /** A query has to be something: one character is a scan of everything, not a search. */
 export function parseQuery(raw: string): string {
@@ -55,7 +56,7 @@ export async function search(deps: SearchDeps, input: SearchInput): Promise<Sear
   }
 
   const messages =
-    type === "files"
+    type === "files" || type === "code"
       ? []
       : await searchMessages(deps.db.db, {
           workspaceId: input.workspaceId,
@@ -65,7 +66,7 @@ export async function search(deps: SearchDeps, input: SearchInput): Promise<Sear
           ...(input.limit ? { limit: input.limit } : {}),
         });
   const files =
-    type === "messages"
+    type === "messages" || type === "code"
       ? []
       : await searchFiles(deps.db.db, {
           workspaceId: input.workspaceId,
@@ -74,5 +75,14 @@ export async function search(deps: SearchDeps, input: SearchInput): Promise<Sear
           scope,
           ...(input.limit ? { limit: input.limit } : {}),
         });
-  return { messages, files };
+  // The code lane never narrows to a channel: an index belongs to a project, not a conversation.
+  const code =
+    type === "messages" || type === "files" || input.channelId
+      ? []
+      : await searchWorkspaceWords(deps.db.db, {
+          workspaceId: input.workspaceId,
+          query: q,
+          limit: input.limit ?? 20,
+        });
+  return { messages, files, code };
 }

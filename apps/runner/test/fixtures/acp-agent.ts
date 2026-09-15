@@ -105,6 +105,19 @@ async function runTurn(
       return;
     }
   }
+  /**
+   * Task 2.17: a turn that arrives with the codebase index in front of it answers with the files it
+   * was handed and the question that followed them — which is §11's acceptance for `@codebase`
+   * ("an @codebase question cites the right file") seen from the model's side.
+   */
+  if (text.startsWith("From this project's index")) {
+    const cited = [...text.matchAll(/^([\w./-]+):(\d+)-(\d+)/gm)].map((one) => one[1] ?? "");
+    const fence = text.lastIndexOf("```\n\n");
+    const asked = fence < 0 ? text : text.slice(fence + 5);
+    await say(`cited: ${[...new Set(cited)].join(", ")}\n`);
+    await say(`asked: ${asked.trim()}`);
+    return;
+  }
   const [word] = text.split(/\s+/);
   switch (word) {
     case "edit": {

@@ -6,9 +6,10 @@
  *
  * It also stands up a fake OpenAI-compatible provider on E2E_PROVIDER_PORT (3998) so the brains
  * spec (task 1.15) can add a key and an endpoint that really answer `GET /v1/models` without
- * reaching the internet — and, for task 2.6, a streaming `POST /v1/chat/completions` so a bot in a
- * channel really answers, and a real Vite dev server on E2E_VITE_PORT (3997) so the preview spec
- * (task 1.18) proves HMR through the proxy against the thing itself, not a stand-in.
+ * reaching the internet; for task 2.6 a streaming `POST /v1/chat/completions` so a bot in a channel
+ * really answers; and for task 2.17 a `POST /v1/embeddings` so a codebase index has vectors. A real
+ * Vite dev server runs on E2E_VITE_PORT (3997) so the preview spec (task 1.18) proves HMR through
+ * the proxy against the thing itself, not a stand-in.
  *
  * For the Phase 1 exit criterion (task 1.22) it also starts a stand-in GitHub — the repository the
  * loop clones, pushes to, and opens a pull request on — and a stand-in `opencode serve`, so the
@@ -91,6 +92,24 @@ const provider = Bun.serve({
         headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
       });
     }
+    // The codebase index's brain (task 2.17): a bag of words over a fixed alphabet, which is near
+    // for two texts that share words and needs no model to compute.
+    if (url.pathname.endsWith("/embeddings")) {
+      const body = (await request.json()) as { input?: string[]; dimensions?: number };
+      const dimensions = body.dimensions ?? 1024;
+      return Response.json({
+        object: "list",
+        data: (body.input ?? []).map((one, index) => {
+          const vector = new Array<number>(dimensions).fill(0);
+          for (const word of one.toLowerCase().match(/[a-z_]{2,}/g) ?? []) {
+            let hash = 0;
+            for (const char of word) hash = (hash * 31 + char.charCodeAt(0)) % dimensions;
+            vector[hash] = (vector[hash] ?? 0) + 1;
+          }
+          return { object: "embedding", index, embedding: vector };
+        }),
+      });
+    }
     if (!url.pathname.endsWith("/models")) return new Response("not found", { status: 404 });
     const needsKey = url.pathname.startsWith("/key/");
     if (needsKey && !request.headers.get("authorization")?.startsWith("Bearer ")) {
@@ -101,6 +120,7 @@ const provider = Bun.serve({
       data: [
         { id: "gpt-test-mini", object: "model", owned_by: "e2e" },
         { id: "llama-test", object: "model", owned_by: "e2e" },
+        { id: "embed-test", object: "model", owned_by: "e2e" },
       ],
     });
   },

@@ -18,6 +18,7 @@ import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { getProject } from "../services/projects.ts";
+import { codebaseContextFor } from "../services/repo-index.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
@@ -487,7 +488,19 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     });
     if (body.prompt) {
       try {
-        const sent = await sessions.sendTurn(session, user.id, { text: body.prompt }, { by });
+        // A first turn is a turn: `@codebase` in it reaches the engine the same way (task 2.17).
+        const context = await codebaseContextFor(
+          { db: deps.db.db, repoIndex: deps.repoIndex, log: deps.log },
+          session,
+          user.id,
+          body.prompt,
+        );
+        const sent = await sessions.sendTurn(
+          session,
+          user.id,
+          { text: body.prompt },
+          { by, ...(context ? { context } : {}) },
+        );
         session = sent.session;
       } catch (error) {
         // The session exists; a first turn that could not start is on it as an error.
@@ -518,6 +531,15 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const body = c.req.valid("json");
     const session = await load(c, s, "sessions.update");
     const user = currentUser(c);
+    // `@codebase` (spec §5.7; task 2.17): the index puts real places in front of the engine, each
+    // citing its file and lines. It rides beside the turn, never inside it, so the transcript keeps
+    // what the person typed (ADR-0110).
+    const context = await codebaseContextFor(
+      { db: deps.db.db, repoIndex: deps.repoIndex, log: deps.log },
+      session,
+      user.id,
+      body.text,
+    );
     const turn = userTurnSchema.parse({
       text: body.text,
       ...(body.attachments ? { attachments: body.attachments } : {}),
@@ -525,6 +547,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const sent = await sessions.sendTurn(session, user.id, turn, {
       ...(body.mode ? { mode: body.mode } : {}),
       by: actorOf(c),
+      ...(context ? { context } : {}),
     });
     return c.json({ seq: sent.seq, session: sessionBody(sent.session) }, 202);
   });

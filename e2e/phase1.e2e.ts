@@ -138,10 +138,10 @@ test("clone, ask, watch from a phone, review, commit, pull request", async ({ pa
     await addBrain.getByLabel("Name", { exact: true }).fill("Phase brain");
     await addBrain.getByLabel("Credential").selectOption({ label: lane.credential.label });
     await addBrain.getByLabel("Model", { exact: true }).fill(lane.model);
-    await addBrain.getByLabel("Default for code").check();
+    await addBrain.getByLabel("Default for").selectOption({ label: "Code" });
     await addBrain.getByRole("button", { name: "Add brain" }).click();
     await expect(brains.getByRole("listitem").filter({ hasText: "Phase brain" })).toContainText(
-      "Default for code",
+      "Default for Code",
     );
   }
 

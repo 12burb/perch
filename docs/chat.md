@@ -238,22 +238,25 @@ region at the bottom of the shell with a link to follow.
 
 ## Search
 
-One box, both kinds of result: `GET /api/workspaces/{ws}/search?q&type&channel&from&limit`, the path
+One box, three kinds of result: `GET /api/workspaces/{ws}/search?q&type&channel&from&limit`, the path
 §7.1 names. Messages are matched by Postgres full text — `messages.text_search` is a generated
-tsvector with a GIN index, so nothing is indexed twice and there is no search service to run — and
-files by name.
+tsvector with a GIN index, so nothing is indexed twice and there is no search service to run — files
+by name, and code by the codebase index of every project in the workspace
+([`repo-intelligence.md`](repo-intelligence.md)).
 
 What you can type is what `websearch_to_tsquery` takes: bare words, `"a quoted phrase"`, `or`, and a
 leading `-` to leave a word out. English stemming means "migration" finds "migrations". Results are
 ranked by `ts_rank_cd` and, where two match equally well, the newer one is first.
 
-Filters: `type` (`all`, `messages`, `files`), `channel` (one channel — one you can see; naming any
-other answers 404, exactly as the channel itself does), and `from` (one person). Everything is
-scoped to what you could have read anyway: the public channels plus the ones you are in, and — for
-files — the messages in those channels that point at them.
+Filters: `type` (`all`, `messages`, `files`, `code`), `channel` (one channel — one you can see;
+naming any other answers 404, exactly as the channel itself does), and `from` (one person).
+Everything is scoped to what you could have read anyway: the public channels plus the ones you are
+in, and — for files — the messages in those channels that point at them. Narrowing to a channel drops
+the code lane, because an index belongs to a project rather than to a conversation.
 
 The Search tab draws the results with the matched words marked, and opens one as a **peek** with
-"Open full" to the channel it was said in, because leaving the page loses the list of results.
+"Open full" to the channel it was said in, because leaving the page loses the list of results. A code
+hit is a link instead: it opens the file at the line, in Code mode.
 
 A search of 100,000 messages answers in about 50 ms (the acceptance is 150 ms). Two queries do it:
 one picks the top ids by rank, the second fetches those rows and the names beside them — ranking and

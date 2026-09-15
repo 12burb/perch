@@ -3894,3 +3894,88 @@ for a query that never ends.
 
 Postgres is untouched: `postgres.js` closes its pool with its own timeout and has never had this
 problem. The guard is PGlite's because the bug is.
+
+## ADR-0110: An index nobody has to pay for, and context that rides beside the turn
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.17
+
+### Context
+Spec §5.7 asks for a "codebase index (symbols + embeddings in pgvector) behind @codebase; semantic
+search across code, chat, docs; generated repo docs and an AGENTS.md draft", and §11's acceptance is
+"an @codebase question cites the right file". §6 fixes the table — `repo_index: project_id,
+commit_sha, path, chunk_no int, kind check in (symbol, chunk, doc), symbol?, content, embedding
+vector(1024), text_search tsvector generated, unique(project_id, path, chunk_no, commit_sha),
+hnsw(embedding), gin(text_search)` — and it is implemented exactly, plus `start_line` and `end_line`
+so a hit can cite `path:line` rather than a file, which is what "cites the right file" is worth
+having. §7.1 has no route for any of this, so the endpoints, the job, and the shape of the context
+were this task's to choose.
+
+Three choices needed making, and each had an obvious answer that is wrong.
+
+**Embeddings could have been required.** pgvector is already there for `bot_memories`, so the
+straight reading of "symbols + embeddings" is that a project is indexed once a workspace has an
+embedding model and not before. But Perch is self-hosted and open source: an instance with no
+provider key and no Ollama is the normal first hour, not an edge case. An index that refuses to
+exist until somebody has paid for a model would make `@codebase` a feature of installs with
+credentials, which is the opposite of what this project is.
+
+**The context could have been written into the turn.** `withCodebaseContext` did exactly that at
+first: rewrite `body.text` in the route, and everything downstream carries it. It works, and it puts
+twelve thousand characters of somebody else's code into the transcript under the person's name.
+
+**The index could have been a fresh read of the repository each time.** Simpler — no table, no
+staleness. Also ten seconds a question on a real repository, and no vectors at all.
+
+### Decision
+**The embedding is optional and named, not assumed.** `repo_index.embedding` is
+`vector(1024)` and nullable. Every chunk gets a row and a generated tsvector; a chunk gets a vector
+only when the workspace has a model profile whose `default_for` is the new `"embedding"` — a third
+value beside `chat` and `code`. A search asks the words always and the meaning only when there are
+vectors, and merges the two lists with reciprocal rank fusion (k=60), which needs no shared scale
+between "how well the words matched" and "how near the vectors are". A provider that refuses does
+not fail the pass: the rows go in without vectors and `embedding_skipped` says why. So a Perch with
+no brains still has a codebase index, and `@codebase` still cites the right file — which is the
+acceptance, met without a credential.
+
+1024 is the spec's number, not a choice — but living with it is. Providers return whatever width
+their model has, so `fit()` in `packages/gateway/src/embeddings.ts` folds a longer vector and pads a
+shorter one, then L2-normalises, and `dimensions: 1024` is asked for in the request as well for the
+providers that honour it. Folding loses information; being unable to use a provider's model at all,
+or having to migrate a column to change models, loses more.
+
+**The context rides beside the turn, not inside it.** `codebaseContextFor` returns the block;
+`SessionService.sendTurn` takes it as `options.context`, records the turn as the person typed it,
+and prepends the context only on the way to the engine. The transcript is what a person said; the
+model gets what it needs. Nothing about `UserTurn` or the §7.6 runner protocol changes — the engine
+seam never learns that `@codebase` exists.
+
+**The index is rows, rebuilt on a job.** `POST .../projects/{p}/index` queues a pass on the new
+`repo-index` queue and `project.updated` says when it landed; `wait: true` runs it inline for
+scripts and for the panel's Index now. A pass writes every chunk for the current commit before
+dropping the other commits' rows, so a search during a reindex finds the old answer rather than
+none. Chunking is `@perch/repo`: a symbol chunk per declaration found by the shape its language
+declares things in, a 60-line window with 10 lines of overlap for everything else, and Markdown cut
+at its headings — no parser, the same trade ADR-0107 makes for the inspector's source tag.
+
+### Consequences
+A workspace names its embedding brain the same way it names its chat and code brains, so
+`PROFILE_DEFAULTS` is now `["chat", "code", "embedding"]` and the make-default route takes all
+three. That is a widened check constraint, in migration `0021_repo_index.sql` along with the table.
+
+The code lane joins the existing search box rather than getting a page: `GET .../search?type=code`
+searches every project of the workspace the caller can see, and the page links each hit to
+`/$workspace/code/$project?file=…&line=…`, which is a deep link the editor route now honours for
+anything that wants to point at a place in a file. That lane is the words only — a box that fires as
+you type should not call an embedding provider on every pause, and it spans projects that need not
+share an embedding model. The meaning is asked of one project at a time: the panel, or `@codebase`.
+
+A 3,000-file cap and a 400 KB per-file cap bound a pass. A repository past the cap indexes its
+shallowest files first — breadth-first — because those are what an answer is most often about. A
+`node_modules`, a lockfile, and a build directory are never read at all.
+
+`@codebase` is only ever as fresh as the last pass. Perch does not watch the filesystem for this: a
+watcher on a runner is a different feature with a different cost, and an index a person presses is
+one they can reason about. The panel says how many files and when, which is what makes a stale
+answer diagnosable rather than mysterious.

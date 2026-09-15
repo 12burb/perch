@@ -7,7 +7,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { boot } from "@perch/api/boot";
 import { loadEnv } from "@perch/api/env";
+import { repoIndexJobHandlers } from "@perch/api/jobs";
 import { serve } from "@perch/api/server";
+import { REPO_INDEX_QUEUE } from "@perch/api/services/repo-index";
 import { createInProcessRunner } from "@perch/runner";
 import { dataDirFrom, laptopLayout, webDistDir } from "./paths.ts";
 import { pgliteRuntime } from "./pglite-runtime.ts";
@@ -89,8 +91,8 @@ export async function startLaptop(options: LaptopOptions = {}): Promise<Laptop> 
     );
   }
   const worker = booted.queue.worker({
-    queues: ["system", "bots"],
-    handlers: booted.bots.jobHandlers(),
+    queues: ["system", "bots", REPO_INDEX_QUEUE],
+    handlers: { ...booted.bots.jobHandlers(), ...repoIndexJobHandlers(booted) },
   });
   worker.start();
   let stopping: Promise<void> | null = null;

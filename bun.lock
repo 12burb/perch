@@ -38,6 +38,7 @@
         "@perch/jobs": "workspace:*",
         "@perch/policy": "workspace:*",
         "@perch/preview": "workspace:*",
+        "@perch/repo": "workspace:*",
         "@perch/vault": "workspace:*",
         "better-auth": "1.7.4",
         "dockerode": "5.0.1",
@@ -267,6 +268,10 @@
       "dependencies": {
         "zod": "4.6.3",
       },
+    },
+    "packages/repo": {
+      "name": "@perch/repo",
+      "version": "0.0.0",
     },
     "packages/ui": {
       "name": "@perch/ui",
@@ -1039,6 +1044,8 @@
     "@perch/policy": ["@perch/policy@workspace:packages/policy"],
 
     "@perch/preview": ["@perch/preview@workspace:packages/preview"],
+
+    "@perch/repo": ["@perch/repo@workspace:packages/repo"],
 
     "@perch/runner": ["@perch/runner@workspace:apps/runner"],
 

@@ -27,6 +27,14 @@ Live updates come from the `session:<id>` topic: text deltas are applied as they
 other event triggers a replay of what is new after the last seq (the bus payloads carry ids, not
 the full records).
 
+## `@codebase` (task 2.17)
+
+Type `@codebase` anywhere in a turn and Perch searches the project's codebase index for what you
+asked, then puts the best six places — each with its file and lines — in front of your question on
+the way to the engine. The transcript keeps what you typed: the context rides beside the turn, never
+inside it. Details, and how to build the index, are in
+[`repo-intelligence.md`](repo-intelligence.md).
+
 ## Which model a session runs on (task 1.15)
 
 The **Brain** picker in the new-session form names the model: a brain is a provider, a model id,

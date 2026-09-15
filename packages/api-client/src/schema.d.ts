@@ -4510,7 +4510,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Make this the workspace's default brain for chat or code */
+        /** Make this the workspace's default brain for chat, code, or embedding */
         post: {
             parameters: {
                 query?: never;
@@ -8739,6 +8739,285 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What Perch has indexed of this project */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The index */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RepoIndexStatus"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Index this project's files, on a job */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["Reindex"];
+                };
+            };
+            responses: {
+                /** @description Queued, or — with `wait` — what the pass indexed */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReindexStarted"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/projects/{project}/codebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ask the index a question */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description What the index knows, best first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            hits: components["schemas"]["RepoHit"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/projects/{project}/agents-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draft an AGENTS.md from what this repository shows */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AgentsDraft"];
+                };
+            };
+            responses: {
+                /** @description The draft */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentsDraftResult"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/push-key": {
         parameters: {
             query?: never;
@@ -8923,12 +9202,12 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Search the messages and files you can see */
+        /** Search the messages, files, and indexed code you can see */
         get: {
             parameters: {
                 query: {
                     q: string;
-                    type?: "all" | "messages" | "files";
+                    type?: "all" | "messages" | "files" | "code";
                     channel?: string;
                     from?: string;
                     limit?: number;
@@ -9545,7 +9824,7 @@ export type components = {
             /** Format: uuid */
             credential_id: string | null;
             /** @enum {string|null} */
-            default_for: "chat" | "code" | null;
+            default_for: "chat" | "code" | "embedding" | null;
             created_at: string;
         };
         AddModelProfile: {
@@ -9555,11 +9834,11 @@ export type components = {
             /** Format: uuid */
             credential_id?: string;
             /** @enum {string} */
-            default_for?: "chat" | "code";
+            default_for?: "chat" | "code" | "embedding";
         };
         MakeDefaultProfile: {
             /** @enum {string} */
-            for: "chat" | "code";
+            for: "chat" | "code" | "embedding";
         };
         ClientMetadata: {
             client_id: string;
@@ -10270,6 +10549,43 @@ export type components = {
         DbQuery: {
             sql: string;
         };
+        RepoIndexStatus: {
+            chunks: number;
+            files: number;
+            commit_sha: string | null;
+            embedded: number;
+            indexed_at: string | null;
+            embedding_model: string | null;
+        };
+        ReindexStarted: {
+            queued: boolean;
+            chunks: number | null;
+            files: number | null;
+            embedded: number | null;
+            embedding_skipped: string | null;
+        };
+        Reindex: {
+            /** @default false */
+            wait: boolean;
+        };
+        RepoHit: {
+            path: string;
+            symbol: string | null;
+            /** @enum {string} */
+            kind: "symbol" | "chunk" | "doc";
+            start_line: number;
+            end_line: number;
+            content: string;
+            score: number;
+        };
+        AgentsDraftResult: {
+            markdown: string;
+            saved_to: string | null;
+        };
+        AgentsDraft: {
+            /** @default false */
+            save: boolean;
+        };
         PushKey: {
             /** @description The instance's VAPID public key */
             public_key: string;
@@ -10292,6 +10608,7 @@ export type components = {
         SearchResults: {
             messages: components["schemas"]["MessageHit"][];
             files: components["schemas"]["FileHit"][];
+            code: components["schemas"]["CodeHit"][];
         };
         MessageHit: {
             /** Format: uuid */
@@ -10319,6 +10636,18 @@ export type components = {
             /** Format: uuid */
             channel_id: string | null;
             channel_name: string | null;
+        };
+        CodeHit: {
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            project_key: string;
+            path: string;
+            symbol: string | null;
+            start_line: number;
+            end_line: number;
+            content: string;
+            rank: number;
         };
     };
     responses: never;
