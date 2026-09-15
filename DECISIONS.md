@@ -2589,3 +2589,50 @@ Initial js+css went from 179.2 KB to 176.5 KB with no change to what any screen 
 strings now cost the route rather than the first paint. A second locale would follow the same split.
 The rule to remember: a fragment key may only be used from a module in a chunk that imports the
 fragment, and the perf audit is what enforces it.
+
+## ADR-0086: The preview tunnel is framed text over the runner's own stream
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 1.19
+
+### Context
+§5.6 says that for local runners the api tunnels HTTP and WebSockets through the runner's
+connection, and §7.6 gives the method: `http.open {port, path, method, headers}` → a stream token,
+"carries request body then response head and body; WebSocket upgrades tunneled the same way". What
+it does not give is the shape of what crosses that stream — and a `RunnerStream` carries text, while
+an HTTP body does not.
+
+### Decision
+1. **One frame per line, tagged, with bytes in base64.** `b:` bytes, `t:` text, `h:` the response
+   head as JSON, `o:` the upgrade succeeded, `e:` end of body, `c:` closed, `x:` failed. The
+   encoder and decoder live in `packages/events` so both ends share one definition, and a frame a
+   side does not understand is dropped rather than guessed at. Base64 costs a third more bytes on a
+   lane that is already the slow one; mangling an image costs more.
+2. **The runner makes the request, so it only ever reaches its own loopback.** The api sends a port
+   and a path; the runner fetches `http://127.0.0.1:<port><path>`. There is no host to smuggle and
+   nothing else on the machine to reach.
+3. **Direct where it works, tunnelled where it does not.** `PreviewService.reach` returns a direct
+   host for a runner that published one (task 1.18) and a tunnel for one that did not. Nothing in
+   the Preview tab, the URLs or the share links changes between them; only which way the bytes go.
+4. **A tunnelled request runs as the person who got in.** A member's request acts as that member; a
+   share link's acts as whoever created the share. That is what §7.6's owner check on a local
+   runner reads, and on-behalf-of is the honest reading of a shared preview.
+5. **Perch's credentials never cross.** The same header rules as the direct proxy: hop-by-hop
+   headers, `cookie` and `authorization` are dropped before the request leaves the api
+   (AGENTS.md §1.6).
+
+### Consequences
+A dev server on a laptop is watchable from a phone with no port forwarding, no tunnel service and no
+inbound firewall rule. The cost is latency and a base64 tax on every byte, paid only by runners that
+need it. `mcp.spawn` can use the same framing when task 2.x needs it.
+
+### What was actually verified
+`apps/api/test/preview-tunnel.test.ts` connects a runner the way `perch runner connect` does — a
+real socket to `/api/runner`, a real token, `kind: "local"` and no `preview_host` — and asserts the
+lane is the tunnel, then pulls a page, a 200 KB request body, a binary body whose bytes are not
+valid UTF-8, and a WebSocket relayed frame for frame in both directions. A port nothing is serving
+fails as a preview error rather than hanging. The browser half — the Preview tab at a phone's
+viewport — is task 1.18's Playwright spec; this environment has one machine, so a spec cannot have a
+laptop runner the in-process runner cannot also see, and the tunnel lane is therefore proven at the
+api rather than through Chromium.

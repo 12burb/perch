@@ -43,6 +43,11 @@ export class PerchError extends Error {
     return new PerchError("conflict", message, details);
   }
 
+  /** Something Perch called on the caller's behalf failed or would not answer (spec §7.8, 502). */
+  static upstream(message: string, details?: Record<string, unknown>): PerchError {
+    return new PerchError("upstream_failed", message, details);
+  }
+
   toBody(requestId: string): ErrorResponse {
     return {
       error: {

@@ -12,6 +12,7 @@ import {
   worktreeCreate,
   worktreeRemove,
 } from "./git.ts";
+import { HttpTunnel } from "./http-tunnel.ts";
 import type { Notify } from "./notify.ts";
 import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
@@ -39,18 +40,20 @@ export type HandlerOptions = {
   sessions?: Omit<SessionsOptions, "root" | "policy" | "notify" | "homes">;
 };
 
-/** Handlers plus what the runner must shut down with them (shells, agent sessions). */
+/** Handlers plus what the runner must shut down with them (shells, agent sessions, tunnels). */
 export type RunnerServices = {
   handlers: RunnerHandlers;
   ptys: PtyManager;
   sessions: SessionManager;
+  /** The preview tunnel (task 1.19); the stream client hands it the sockets for its tokens. */
+  tunnel: HttpTunnel;
   close(): void;
 };
 
 /**
- * What every runner answers today (tasks 1.4, 1.5, 1.7, and 1.9): projects, the fs, git, worktree,
- * ports, exec, pty, and session methods (ACP agents). The preview tunnel and MCP spawning arrive
- * with their tasks.
+ * What every runner answers today (tasks 1.4, 1.5, 1.7, 1.9, and 1.19): projects, the fs, git,
+ * worktree, ports, exec, pty, session methods (ACP agents), and the preview tunnel. MCP spawning
+ * arrives with its task.
  */
 export function defaultHandlers(options: HandlerOptions = {}): RunnerHandlers {
   return createServices(options).handlers;
@@ -83,8 +86,12 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     ...(options.notify ? { notify: options.notify } : {}),
     ...options.sessions,
   });
+  const tunnel = new HttpTunnel({
+    ...(options.streams ? { streams: options.streams } : {}),
+  });
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
+    "http.open": (params) => tunnel.open(params),
     "session.create": (params) => sessions.create(params),
     "session.send": (params) => sessions.send(params),
     "session.permission": (params) => sessions.permission(params),
@@ -118,8 +125,10 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     handlers,
     ptys,
     sessions,
+    tunnel,
     close: () => {
       ptys.closeAll();
+      tunnel.close();
       void sessions.closeAll();
     },
   };

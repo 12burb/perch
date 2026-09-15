@@ -35,6 +35,12 @@ import { authenticate } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { findMembership } from "../repos/workspaces.ts";
+import {
+  type TunnelSocket,
+  type TunnelTarget,
+  tunnelRequest,
+  tunnelSocket,
+} from "../services/preview-tunnel.ts";
 import type { WsServer } from "../ws/server.ts";
 
 /**
@@ -55,7 +61,11 @@ export function isPreviewRequest(
 /** What a resolved preview request carries into the proxy. */
 type Resolved = {
   workspace: Workspace;
-  target: ProxyTarget;
+  /** Where the dev server is, when the api can reach it; absent on the tunnel lane (task 1.19). */
+  target?: ProxyTarget;
+  /** The runner to tunnel through, when the api cannot reach the port itself. */
+  tunnel?: TunnelTarget;
+  port: number;
   path: string;
   prefix?: string;
   /** Set when a share token or a member's ticket arrived on the query and should become a cookie. */
@@ -70,6 +80,7 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
     const found = resolved.get(c.req.raw);
     const log = c.get("log");
     let upstream: WebSocket | null = null;
+    let tunnelled: TunnelSocket | null = null;
     const backlog: (string | ArrayBuffer)[] = [];
     return {
       onOpen(_evt, ws: WSContext<unknown>) {
@@ -77,9 +88,31 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
           ws.close(1011, "no preview target");
           return;
         }
+        if (found.tunnel) {
+          // A laptop's port is reached back through the socket it opened (task 1.19).
+          const target = found.tunnel;
+          tunnelSocket(target, c.req.raw, found.path)
+            .then(async (socket) => {
+              tunnelled = socket;
+              await socket.ready;
+              socket.onMessage((frame) => {
+                if (ws.readyState === 1) ws.send(frame as string);
+              });
+              socket.onClose((code, reason) => {
+                if (ws.readyState === 1) ws.close(closeCode(code), reason || undefined);
+              });
+              for (const frame of backlog.splice(0)) socket.send(frame as string);
+            })
+            .catch((error: unknown) => {
+              log.debug({ err: error, port: target.port }, "preview tunnel socket failed");
+              if (ws.readyState === 1) ws.close(1011, "the dev server's socket failed");
+            });
+          return;
+        }
+        const direct = found.target as ProxyTarget;
         // Sec-WebSocket-Protocol matters to Vite: its HMR client asks for "vite-hmr".
         const protocols = c.req.header("sec-websocket-protocol");
-        const url = upstreamWebSocketUrl(found.target, found.path);
+        const url = upstreamWebSocketUrl(direct, found.path);
         const socket = protocols
           ? new WebSocket(
               url,
@@ -99,12 +132,17 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
           if (ws.readyState === 1) ws.close(closeCode(event.code), event.reason || undefined);
         });
         socket.addEventListener("error", () => {
-          log.debug({ port: found.target.port }, "preview socket failed");
+          log.debug({ port: direct.port }, "preview socket failed");
           if (ws.readyState === 1) ws.close(1011, "the dev server's socket failed");
         });
       },
       onMessage(evt) {
         const frame = evt.data as string | ArrayBuffer;
+        if (found?.tunnel) {
+          if (tunnelled) tunnelled.send(frame as string);
+          else backlog.push(frame);
+          return;
+        }
         if (!upstream || upstream.readyState === WebSocket.CONNECTING) {
           backlog.push(frame);
           return;
@@ -113,6 +151,7 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
       },
       onClose() {
         upstream?.close();
+        tunnelled?.close();
       },
     };
   });
@@ -129,11 +168,25 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
       throw PerchError.forbidden("this preview is not yours to open", { port: target.port });
     }
     const reach = deps.previews.reach(workspace.id, target.port);
-    const out: Resolved = {
-      workspace,
-      target: { host: reach.host, port: reach.port },
-      path: target.path,
-    };
+    const out: Resolved =
+      reach.kind === "direct"
+        ? {
+            workspace,
+            target: { host: reach.host, port: reach.port },
+            port: reach.port,
+            path: target.path,
+          }
+        : {
+            workspace,
+            tunnel: {
+              link: reach.link,
+              port: reach.port,
+              workspaceId: workspace.id,
+              userId: admission.userId ?? "",
+            },
+            port: reach.port,
+            path: target.path,
+          };
     if (target.mode === "path") out.prefix = `/p/${target.workspace}/${target.port}`;
     if (admission.keepShare) out.keepShare = admission.keepShare;
     return out;
@@ -152,12 +205,14 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
       return upgrade(c, next) as Promise<Response | undefined>;
     }
     try {
-      const answer = await proxyRequest({
-        target: found.target,
-        path: found.path,
-        request: c.req.raw,
-        ...(found.prefix ? { prefix: found.prefix } : {}),
-      });
+      const answer = found.tunnel
+        ? await tunnelRequest(found.tunnel, c.req.raw, found.path)
+        : await proxyRequest({
+            target: found.target as ProxyTarget,
+            path: found.path,
+            request: c.req.raw,
+            ...(found.prefix ? { prefix: found.prefix } : {}),
+          });
       // The share token arrived on the URL; from here on it is a cookie, so the dev server's own
       // links work without it trailing through every address bar. The response is the proxy's own,
       // so the cookie is set on it rather than on the context.
@@ -175,8 +230,8 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
       return answer;
     } catch (error) {
       if (error instanceof PreviewUnreachable) {
-        throw PerchError.conflict(`nothing is listening on port ${found.target.port} yet`, {
-          port: found.target.port,
+        throw PerchError.conflict(`nothing is listening on port ${found.port} yet`, {
+          port: found.port,
         });
       }
       throw error;
@@ -210,6 +265,14 @@ export function registerPreview(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer?:
   app.all("/p/:ws/:port/*", byPath);
 }
 
+/** Who got in, and what to remember them by: the user the request then acts as (§7.6). */
+type Admission = {
+  ok: boolean;
+  /** Who the request runs as on the runner; absent only when nobody got in. */
+  userId?: string;
+  keepShare?: { name: string; token: string; expiresAt: Date };
+};
+
 /**
  * Whether this caller may open this port: a member of the workspace, or the holder of a live share
  * for that port. A share arrives on the query string once and becomes a cookie, so the dev server's
@@ -220,11 +283,11 @@ async function admitted(
   deps: Deps,
   workspace: Workspace,
   port: number,
-): Promise<{ ok: boolean; keepShare?: { name: string; token: string; expiresAt: Date } }> {
+): Promise<Admission> {
   const user = c.get("user");
   if (user) {
     const membership = await findMembership(deps.db.db, workspace.id, user.id);
-    if (membership) return { ok: true };
+    if (membership) return { ok: true, userId: user.id };
   }
   const url = new URL(c.req.url);
 
@@ -241,9 +304,10 @@ async function admitted(
         return ticketed
           ? {
               ok: true,
+              userId: claims.user,
               keepShare: { name: TICKET_COOKIE, token: ticket, expiresAt: new Date(claims.exp) },
             }
-          : { ok: true };
+          : { ok: true, userId: claims.user };
       }
     }
   }
@@ -252,9 +316,14 @@ async function admitted(
   const token = fromQuery || getCookie(c, SHARE_COOKIE) || "";
   const share = await deps.previews.shareFor(token, { workspaceId: workspace.id, port });
   if (!share) return { ok: false };
+  // A shared preview acts for whoever shared it: that is whose runner it is.
   return fromQuery
-    ? { ok: true, keepShare: { name: SHARE_COOKIE, token, expiresAt: share.expiresAt } }
-    : { ok: true };
+    ? {
+        ok: true,
+        userId: share.createdBy,
+        keepShare: { name: SHARE_COOKIE, token, expiresAt: share.expiresAt },
+      }
+    : { ok: true, userId: share.createdBy };
 }
 
 /**

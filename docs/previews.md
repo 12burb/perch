@@ -56,11 +56,18 @@ A shared preview is the dev server's page and nothing else: no inspector is inje
 
 ## Local runners
 
-A laptop connected with `perch runner connect` is somewhere the api has no route to, so its ports
-cannot be proxied this way. That lane is the tunnel of task 1.19, over the runner's own connection;
-until then a preview on a local runner says so rather than hanging.
+A laptop connected with `perch runner connect` is behind whatever network it is behind, so the api
+has no address to proxy to. Its previews travel the other way instead: back through the WebSocket
+the runner already opened (spec §7.6 `http.open`). The api asks the runner to make the request,
+the runner reaches its own loopback, and the answer — or a whole WebSocket, relayed frame for
+frame — comes back on a stream. HMR works the same as anywhere else, which is what lets you watch
+a laptop's dev server from a phone.
+
+Nothing about this is visible in the tab: the same URLs, the same share links. The only difference
+is which way the bytes go. A runner that shares a network with the api is still reached directly,
+because that is faster and there is no reason not to.
 
 ## Not here yet
 
-The inspector (⌘⇧C) and click-to-source, the console strip, screenshots, tap-to-select on a phone,
-and the preview tunnel for local runners. Task 1.19 and Phase 2.
+The inspector (⌘⇧C) and click-to-source, the console strip, screenshots, and tap-to-select on a
+phone — Phase 2.

@@ -50,7 +50,14 @@ export type PreviewPort = {
   configured: boolean;
 };
 
-export type PreviewReach = { link: RunnerLink; runnerId: string; host: string; port: number };
+/**
+ * How the api gets to a port. A hosted runner shares a network with the api, so it is proxied to
+ * directly; a laptop opened its socket outward and is reached back through it (task 1.19).
+ */
+export type PreviewReach = { link: RunnerLink; runnerId: string; port: number } & (
+  | { kind: "direct"; host: string }
+  | { kind: "tunnel" }
+);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -81,15 +88,23 @@ export class PreviewService {
     // A port the poller has not caught up with yet is still worth trying on the workspace's own
     // runner: ports.changed is a hint, not a gate.
     const pool = listening.length > 0 ? listening : candidates;
-    const reachable = pool.find((runner) => hostOf(runner));
-    if (!reachable) {
-      const why = pool.some((runner) => runner.link.info.kind !== "hosted")
-        ? "previews on a local runner travel through the runner's own connection, which arrives with task 1.19"
-        : "the runner did not say where its ports can be reached";
-      throw PerchError.conflict(why, { port });
+    // A runner that said where it is gets the direct lane; one that did not gets the tunnel, which
+    // needs only the socket it already opened.
+    const direct = pool.find((runner) => hostOf(runner));
+    if (direct) {
+      return {
+        kind: "direct",
+        link: direct.link,
+        runnerId: direct.link.id,
+        host: hostOf(direct) as string,
+        port,
+      };
     }
-    const host = hostOf(reachable) as string;
-    return { link: reachable.link, runnerId: reachable.link.id, host, port };
+    const tunnelled = pool.find((runner) => runner.link.openStream);
+    if (!tunnelled) {
+      throw PerchError.conflict("this workspace has no runner that can serve a preview", { port });
+    }
+    return { kind: "tunnel", link: tunnelled.link, runnerId: tunnelled.link.id, port };
   }
 
   /**
@@ -110,7 +125,8 @@ export class PreviewService {
     const configured = configuredPort(project);
     const seen = new Map<number, PreviewPort>();
     for (const runner of this.deps.registry.forWorkspace(workspace.id)) {
-      if (!hostOf(runner)) continue;
+      // Either lane will do: a hosted runner is proxied to, a laptop is tunnelled through.
+      if (!hostOf(runner) && !runner.link.openStream) continue;
       for (const { port } of runner.ports) {
         if (NEVER.has(port) || seen.has(port)) continue;
         seen.set(port, {
