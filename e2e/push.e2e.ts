@@ -33,6 +33,19 @@ test("the worker registers, and a push shows up in the app", async ({ page, cont
 
   // Settings says where this device stands, and offers to turn notifications on.
   await page.goto("/settings/profile");
+  // This spec runs on the full Chromium (see playwright.config.ts). The headless shell Playwright
+  // uses by default has the Push API but reports notifications as denied on this page whatever the
+  // context granted — so the settings section would rightly say so, and the rest of this test would
+  // be asserting the wrong branch. Said out loud, where the page itself reads it, so a browser that
+  // cannot be notified fails here with the reason rather than at a missing button.
+  expect(
+    await page.evaluate(() => ({
+      push: "PushManager" in window,
+      worker: "serviceWorker" in navigator,
+      permission: Notification.permission,
+    })),
+  ).toEqual({ push: true, worker: true, permission: "granted" });
+
   const notifications = page.getByRole("region", { name: "Notifications" });
   await expect(notifications).toBeVisible();
   await expect(notifications.getByRole("button", { name: "Notify this device" })).toBeVisible({
