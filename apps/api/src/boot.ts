@@ -156,7 +156,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     ...(env.search ? { search: env.search } : {}),
   });
   const sessions = new SessionService(
-    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, log },
+    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
     options.sessions ?? {},
   );
   const deps: Deps = {

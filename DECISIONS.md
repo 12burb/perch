@@ -3567,3 +3567,42 @@ A planted key blocks the commit with a card at both viewports, and the same comm
 the key is out. The cost is one extra `git.diff`, one `git.status` and a read per new file on every
 commit; the scan itself is a few regular expressions over the added lines. What this does not catch
 is a key committed from a terminal inside the runner, which is the shell's own business (ADR-0101).
+
+## ADR-0103: A project's environment is write-only, and the transcript is redacted
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.13
+
+### Context
+§5.7 asks for an encrypted per-project env, "injected into runner, previews, sessions; never into a
+model context". The second half is the hard one: a session runs with the values, an agent can print
+them, and the transcript is both a record people read and something a model is shown later.
+
+### Decision
+1. **Values never come back over the wire.** `GET .../env` answers with keys, sources and when each
+   was set. There is no route that returns a value, so there is nothing to leak through the api,
+   the SDK, a screenshot or a log line. Each value is sealed under `project-env:<project>:<key>`, so
+   a ciphertext is bound to the row it belongs to.
+2. **The transcript is redacted at the one place every event passes.** `SessionService.record()`
+   replaces any of the project's values with `[redacted: NAME]` before the event is persisted or
+   fanned out, walking the whole event rather than a known field, because a value can arrive in a
+   tool's arguments as easily as in text. The engine still runs with the real values; only the
+   record is cleaned.
+3. **A session's secrets are read once, when its engine is made** — which is before any event of
+   that round can arrive — and cached for the life of the process. Re-reading per event would mean
+   a decrypt per token of streamed text.
+4. **Values under six characters are not redacted.** A three-character value turns a transcript into
+   noise, and a secret that short is not one.
+5. **`pty.open` takes an `env`** (additive to §7.6, like ADR-0073's `pty_id` and ADR-0083's
+   `mcp_servers`), so a terminal — and the dev server somebody starts in it, which is what a preview
+   proxies — has the project's environment. `PERCH_*` names are never taken from a project.
+6. **The model's credential wins.** The project's environment goes in first and the model profile's
+   own credential on top, so a project variable cannot stand in for a provider key (AGENTS.md §1.6).
+
+### Consequences
+The acceptance is provable rather than asserted: the fixture agent is asked to print `DATABASE_URL`,
+answers with the value, and the transcript says `[redacted: DATABASE_URL]`. What this does not cover
+is a value the agent transforms before printing — base64, or a string it assembles — which no
+redactor can catch; the answer to that is the same as everywhere else, that an agent is given what
+it needs and nothing more.

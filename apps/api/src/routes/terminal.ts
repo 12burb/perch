@@ -17,6 +17,7 @@ import { authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { envFor } from "../services/project-env.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
 import { runnerError } from "../services/runners.ts";
 import type { WsServer } from "../ws/server.ts";
@@ -67,6 +68,7 @@ export function registerTerminal(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer:
         }
         const { project, link, userId, query } = target;
         (async () => {
+          const projectEnv = await envFor({ db: deps.db.db, vault: deps.vault }, project);
           if (!link.openStream) throw new Error("this runner cannot open streams");
           const raw = await link.call("pty.open", {
             workspace_id: project.workspaceId,
@@ -76,6 +78,8 @@ export function registerTerminal(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer:
             cwd: `${project.workspaceId}/${project.id}`,
             user: userId,
             ...(query.pty_id ? { pty_id: query.pty_id } : {}),
+            // The project's own environment, so what is started here has what it needs (task 2.13).
+            ...(Object.keys(projectEnv).length > 0 ? { env: projectEnv } : {}),
           });
           const result = ptyOpenResultSchema.parse(raw);
           const s = await link.openStream(result.stream_token);

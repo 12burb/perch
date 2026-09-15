@@ -2,12 +2,13 @@ import "@perch/ui/i18n/code";
 import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import {
   connectionsQuery,
   deployKeyQuery,
   type ProjectRow,
+  projectEnvQuery,
   projectsQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
@@ -482,6 +483,137 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
 }
 
 /** Code mode's main column until the editor lands: the projects and the form. */
+/**
+ * A project's environment (spec §5.7 "encrypted per-project env"; task 2.13). Keys and where they
+ * came from: the values are write-only, here as everywhere else.
+ */
+function EnvCard(props: { workspaceId: string }) {
+  const queryClient = useQueryClient();
+  const id = useId();
+  const projects = useQuery(projectsQuery(props.workspaceId)).data ?? [];
+  const ready = projects.filter((one) => one.status === "ready");
+  const [chosen, setChosen] = useState("");
+  const projectId = chosen || (ready[0]?.id ?? "");
+  const vars = useQuery(projectEnvQuery(props.workspaceId, projectId)).data ?? [];
+  const [key, setKey] = useState("");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const write = useMutation({
+    mutationFn: async (body: { vars: { key: string; value: string }[]; remove?: string[] }) =>
+      unwrap(
+        await api.PUT("/api/workspaces/{ws}/projects/{project}/env", {
+          params: { path: { ws: props.workspaceId, project: projectId } },
+          body,
+        }),
+      ),
+    onSuccess: async () => {
+      setError(null);
+      setKey("");
+      setValue("");
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace", props.workspaceId, "project", projectId, "env"],
+      });
+    },
+    onError: (err: unknown) =>
+      setError(err instanceof RequestFailed ? err.message : t("common.error")),
+  });
+
+  if (ready.length === 0) return null;
+  return (
+    <section aria-labelledby="env-heading" className="flex flex-col gap-2">
+      <h2 id="env-heading" className="text-md font-semibold">
+        {t("env.title")}
+      </h2>
+      <p className="max-w-prose text-sm text-fg-muted">{t("env.hint")}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${id}-project`} className="text-sm font-medium">
+          {t("env.project")}
+        </label>
+        <select
+          id={`${id}-project`}
+          className="h-8 rounded border border-border bg-surface px-2 text-md"
+          value={projectId}
+          onChange={(event) => setChosen(event.target.value)}
+        >
+          {ready.map((one) => (
+            <option key={one.id} value={one.id}>
+              {one.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {vars.length === 0 ? (
+        <p className="text-sm text-fg-subtle">{t("env.empty")}</p>
+      ) : (
+        <ul aria-label={t("env.title")} className="flex flex-col gap-1">
+          {vars.map((one) => (
+            <li
+              key={one.key}
+              data-testid="env-var"
+              className="flex items-center gap-2 rounded border border-border px-2 py-1 text-sm"
+            >
+              <span className="font-mono">{one.key}</span>
+              <span className="text-fg-muted">
+                {t(`env.source.${one.source}` as "env.source.manual")}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                aria-label={t("env.remove", { key: one.key })}
+                disabled={write.isPending}
+                onClick={() => write.mutate({ vars: [], remove: [one.key] })}
+              >
+                {t("projects.delete")}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        aria-label={t("env.title")}
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault();
+          write.mutate({ vars: [{ key: key.trim(), value }] });
+        }}
+      >
+        <Field id={`${id}-key`} label={t("env.key")}>
+          {(control) => (
+            <Input
+              {...control}
+              className="w-48 font-mono"
+              value={key}
+              required
+              onChange={(event) => setKey(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field id={`${id}-value`} label={t("env.value")}>
+          {(control) => (
+            <Input
+              {...control}
+              type="password"
+              className="w-64"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          )}
+        </Field>
+        <Button type="submit" size="sm" variant="primary" disabled={write.isPending}>
+          {write.isPending ? t("env.adding") : t("env.add")}
+        </Button>
+      </form>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export function ProjectsMain(props: {
   workspaceId: string;
   workspaceSlug: string;
@@ -494,6 +626,7 @@ export function ProjectsMain(props: {
         workspaceSlug={props.workspaceSlug}
         canDelete={props.canAdmin}
       />
+      <EnvCard workspaceId={props.workspaceId} />
       <NewProjectSection workspaceId={props.workspaceId} canRotateKey={props.canAdmin} />
     </div>
   );

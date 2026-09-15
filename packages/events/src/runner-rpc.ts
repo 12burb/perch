@@ -128,6 +128,11 @@ export const apiToRunnerParams = {
     user: z.string(),
     /** Additive (ADR-0073): reattach to a shell the runner still holds (a reload, a closed drawer). */
     pty_id: z.string().optional(),
+    /**
+     * The project's own environment (spec §5.7 "injected into runner, previews, sessions"), so a
+     * dev server started in this shell has what it needs. Additive to §7.6 (ADR-0103).
+     */
+    env: z.record(z.string(), z.string()).optional(),
   }),
   "pty.input": z.object({ ...ctx, pty_id: z.string(), data: z.string() }),
   "pty.resize": z.object({

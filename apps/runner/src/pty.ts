@@ -127,10 +127,15 @@ export function shellEnv(
   options: Pick<PtyOptions, "homes">,
   user: string,
   base: NodeJS.ProcessEnv = process.env,
+  project: Record<string, string> = {},
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base))
     if (value !== undefined) env[key] = key.startsWith("PERCH_") ? "" : value;
+  // The project's own environment (task 2.13), after the runner's and before Perch's own names:
+  // a project may set DATABASE_URL, and may not set PERCH_USER.
+  for (const [key, value] of Object.entries(project))
+    if (!key.startsWith("PERCH_")) env[key] = value;
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   env.PERCH = "1";
@@ -218,7 +223,7 @@ export class PtyManager {
       cols: size.cols,
       rows: size.rows,
       cwd,
-      env: shellEnv(this.options, params.user),
+      env: shellEnv(this.options, params.user, process.env, params.env ?? {}),
     });
     let carry = "";
     const shell: Shell = {

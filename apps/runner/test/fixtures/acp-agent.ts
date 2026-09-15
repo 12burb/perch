@@ -227,6 +227,11 @@ async function runTurn(
       await say(names.length > 0 ? `env: ${names.join(", ")}` : "env: none");
       return;
     }
+    // Task 2.13: the project's own environment, as the value itself — which is what makes the
+    // transcript's redaction provable rather than assumed.
+    case "secret?":
+      await say(`DATABASE_URL=${process.env.DATABASE_URL ?? "none"}`);
+      return;
     // Task 1.17: the tools an MCP server gives the agent, used through whatever Perch injected.
     case "tools?": {
       const http = session.mcpServers.filter(

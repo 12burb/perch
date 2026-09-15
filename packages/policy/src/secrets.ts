@@ -192,3 +192,52 @@ export function scanText(path: string, text: string, options: ScanOptions = {}):
     .join("\n");
   return scanDiff(`+++ b/${path}\n${body}`, options);
 }
+
+/** One thing that must not be repeated, and the name to put in its place. */
+export type Redaction = { key: string; value: string };
+
+/**
+ * Values shorter than this are left alone: a two-character secret is indistinguishable from
+ * ordinary text, and redacting every "1" in a transcript helps nobody.
+ */
+const REDACT_MIN = 6;
+
+function worthHiding(secrets: readonly Redaction[]): Redaction[] {
+  // Longest first, so a value that contains another is taken out whole.
+  return secrets
+    .filter((one) => one.value.length >= REDACT_MIN)
+    .sort((a, b) => b.value.length - a.value.length);
+}
+
+/**
+ * Takes a project's own secrets out of anything about to be written down (spec §5.7 "never into a
+ * model context"; task 2.13). A transcript is a record people read and agents are shown, so what
+ * lands in it says `[redacted: DATABASE_URL]` where the value was.
+ */
+export function redact(text: string, secrets: readonly Redaction[]): string {
+  let out = text;
+  for (const secret of worthHiding(secrets)) {
+    if (!out.includes(secret.value)) continue;
+    out = out.split(secret.value).join(`[redacted: ${secret.key}]`);
+  }
+  return out;
+}
+
+/** The same, through whatever shape it is in: an event, a tool's arguments, a file's content. */
+export function redactDeep<T>(value: T, secrets: readonly Redaction[]): T {
+  const ready = worthHiding(secrets);
+  if (ready.length === 0) return value;
+  const walk = (input: unknown): unknown => {
+    if (typeof input === "string") return redact(input, ready);
+    if (Array.isArray(input)) return input.map(walk);
+    if (input && typeof input === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [key, one] of Object.entries(input as Record<string, unknown>)) {
+        out[key] = walk(one);
+      }
+      return out;
+    }
+    return input;
+  };
+  return walk(value) as T;
+}

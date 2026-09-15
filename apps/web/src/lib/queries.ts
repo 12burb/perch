@@ -347,6 +347,20 @@ export function policyQuery(workspaceId: string) {
   });
 }
 
+/** What a project's environment carries — keys only, never values (task 2.13). */
+export function projectEnvQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "project", projectId, "env"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/env", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ).vars,
+    enabled: workspaceId !== "" && projectId !== "",
+  });
+}
+
 export function channelsQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "channels"],

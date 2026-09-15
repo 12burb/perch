@@ -27,6 +27,8 @@ import {
   type UserTurn,
 } from "@perch/events";
 import { proposedCode } from "@perch/events/code-blocks";
+import { type Redaction, redactDeep } from "@perch/policy";
+import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -49,6 +51,7 @@ import {
 import type { RunnerRegistry } from "../runners/registry.ts";
 import type { BrainsService } from "./brains.ts";
 import type { McpGateway } from "./mcp.ts";
+import { envFor, secretsOf } from "./project-env.ts";
 import { getProject, projectRunnerLink } from "./projects.ts";
 import { runnerCall, runnerError } from "./runners.ts";
 
@@ -62,6 +65,8 @@ export type SessionDeps = {
   brains: BrainsService;
   /** The MCP gateway (task 1.17): what a session may reach, and the tokens it reaches with. */
   mcp: McpGateway;
+  /** Where a project's own environment is sealed (task 2.13). */
+  vault: Vault;
   log: Logger;
 };
 
@@ -221,6 +226,8 @@ export class SessionService {
   private readonly pending = new Map<string, PendingPermission>();
   /** Sessions this process has opened on their engine (engines forget across api restarts). */
   private readonly known = new Set<string>();
+  /** What must not turn up in each session's transcript (task 2.13). */
+  private readonly secrets = new Map<string, Redaction[]>();
   private readonly silenceMs: number;
   private readonly inlineMs: number;
 
@@ -766,11 +773,31 @@ export class SessionService {
     session: CodingSession,
     userId: string,
   ): Promise<{ env?: Record<string, string> }> {
-    if (!session.modelProfileId) return {};
-    const profile = await this.deps.brains.profileFor(session.workspaceId, session.modelProfileId);
-    if (!profile) return {};
-    const env = await this.deps.brains.engineEnv(profile, userId);
+    // The project's own environment first (spec §5.7 "injected into runner, previews, sessions"),
+    // then the model's credential, which a project variable must not be able to stand in for.
+    const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
+    const own = project ? await envFor({ db: this.deps.db, vault: this.deps.vault }, project) : {};
+    const profile = session.modelProfileId
+      ? await this.deps.brains.profileFor(session.workspaceId, session.modelProfileId)
+      : null;
+    const credential = profile ? await this.deps.brains.engineEnv(profile, userId) : {};
+    const env = { ...own, ...credential };
     return Object.keys(env).length > 0 ? { env } : {};
+  }
+
+  /**
+   * What must not turn up in this session's transcript (spec §5.7 "never into a model context";
+   * task 2.13). Read once when the engine is made, which is before any event can arrive.
+   */
+  private async secretsFor(session: CodingSession): Promise<Redaction[]> {
+    const found = this.secrets.get(session.id);
+    if (found) return found;
+    const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
+    const secrets = project
+      ? await secretsOf({ db: this.deps.db, vault: this.deps.vault }, project)
+      : [];
+    this.secrets.set(session.id, secrets);
+    return secrets;
   }
 
   private async linkFor(
@@ -821,6 +848,7 @@ export class SessionService {
     } catch (error) {
       throw engineFailure(error);
     }
+    await this.secretsFor(session);
     if (!this.known.has(session.id)) {
       try {
         const created = await engine.createSession({
@@ -941,9 +969,12 @@ export class SessionService {
   /** Persists an event at the next seq and republishes it (spec §3.3). */
   private async record(
     session: CodingSession,
-    event: SessionEvent,
+    raw: SessionEvent,
     by?: ActorContext,
   ): Promise<{ seq: number; ts: Date }> {
+    // A project's own secrets never land in the record: what is written says which name it was
+    // (task 2.13). The engine still runs with the real values; only the transcript is cleaned.
+    const event = redactDeep(raw, this.secrets.get(session.id) ?? []);
     const stored = await appendEvent(this.deps.db, session.id, event);
     const base = { workspaceId: session.workspaceId, sessionId: session.id, seq: stored.seq };
     const wide = { ...(by ?? {}), topics: this.wide(session) };

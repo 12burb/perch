@@ -26,6 +26,7 @@ import { registerMessages } from "./routes/messages.ts";
 import { registerPolicy } from "./routes/policy.ts";
 import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
+import { registerProjectEnv } from "./routes/project-env.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerPush } from "./routes/push.ts";
@@ -137,6 +138,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerUnfurl(app, deps);
   registerInbox(app, deps);
   registerPolicy(app, deps);
+  registerProjectEnv(app, deps);
   registerPush(app, deps);
   registerSearch(app, deps);
 

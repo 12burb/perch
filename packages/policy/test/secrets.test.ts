@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mask, scanDiff, scanText } from "../src/secrets.ts";
+import { mask, redact, redactDeep, scanDiff, scanText } from "../src/secrets.ts";
 
 /**
  * Task 2.12 (spec §5.7 "secret scanning on every agent diff before commit"): what it catches, what
@@ -10,8 +10,8 @@ import { mask, scanDiff, scanText } from "../src/secrets.ts";
 function diff(path: string, ...added: string[]): string {
   return [
     `diff --git a/${path} b/${path}`,
-    "--- a/" + path,
-    "+++ b/" + path,
+    `--- a/${path}`,
+    `+++ b/${path}`,
     "@@ -1,0 +1,2 @@",
     ...added.map((line) => `+${line}`),
   ].join("\n");
@@ -89,5 +89,35 @@ describe("secret scanning", () => {
     expect(scanText("a.ts", `const key = "${PLANTED}"`)[0]?.path).toBe("a.ts");
     expect(mask("short")).toBe("sh…");
     expect(mask("abcdefghijklmnop")).toBe("abcd…mnop");
+  });
+});
+
+describe("redaction", () => {
+  const secrets = [
+    { key: "DATABASE_URL", value: "postgres://perch:h8Zq2LmZ@db:5432/perch" },
+    { key: "SHORT", value: "ab" },
+  ];
+
+  test("a value is replaced by its name, wherever it turns up", () => {
+    const line = `connecting to ${secrets[0]?.value ?? ""} now`;
+    expect(redact(line, secrets)).toBe("connecting to [redacted: DATABASE_URL] now");
+    // Too short to be worth hiding: redacting every "ab" would ruin the transcript.
+    expect(redact("about", secrets)).toBe("about");
+    expect(redact("nothing to hide", secrets)).toBe("nothing to hide");
+  });
+
+  test("through whatever shape it is in", () => {
+    const event = {
+      type: "tool_result",
+      output: `env: ${secrets[0]?.value ?? ""}`,
+      args: { list: ["ok", secrets[0]?.value ?? ""] },
+      cost: 1,
+    };
+    const clean = redactDeep(event, secrets);
+    expect(JSON.stringify(clean)).not.toContain("h8Zq2LmZ");
+    expect(clean.args.list[1]).toBe("[redacted: DATABASE_URL]");
+    expect(clean.cost).toBe(1);
+    // Nothing to hide is the same object's worth of work and no change.
+    expect(redactDeep(event, [])).toEqual(event);
   });
 });
