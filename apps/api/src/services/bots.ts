@@ -85,12 +85,15 @@ import {
 import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
 import type { BrainsService } from "./brains.ts";
+import type { PolicyService } from "./policy.ts";
 
 export type BotsDeps = {
   db: Db;
   bus: Bus;
   botEvents: BotEvents;
   brains: BrainsService;
+  /** What may happen here (spec §5.7): the channel's models, the ceilings, the bot rails. */
+  policy: PolicyService;
   /** Where a bot's scheduled triggers live (spec §5.3 `schedule (cron)`). */
   queue: Queue;
   log: Logger;
@@ -423,7 +426,7 @@ export class BotsService {
         fromId: message.authorId,
         toBotId: bot.id,
       } as const;
-      const state = await this.chainState(threadRootId, bot);
+      const state = await this.chainState(threadRootId, bot, channel);
       const verdict = mayHop(state, from);
       if (!verdict.ok) {
         // A chain that has gone as far as it may stops for everybody, and says so once.
@@ -537,7 +540,11 @@ export class BotsService {
   }
 
   /** The thread as the rails see it: its hops, and what the bot that started it allowed. */
-  private async chainState(threadRootId: string, bot: Bot): Promise<ChainState> {
+  private async chainState(
+    threadRootId: string,
+    bot: Bot,
+    channel?: Channel | undefined,
+  ): Promise<ChainState> {
     const hops = await chainOf(this.deps.db, threadRootId);
     const first = hops[0];
     const starter = first ? await getBot(this.deps.db, first.toBotId) : bot;
@@ -545,6 +552,17 @@ export class BotsService {
     // A person who pressed Continue after the money ran out has said what the thread may spend.
     const facts = await threadFactsOf(this.deps.db, threadRootId);
     const allowed = typeof facts[ALLOWANCE] === "number" ? facts[ALLOWANCE] : null;
+    // The workspace's rails narrow a bot's own, never widen them (spec §5.7; task 2.11).
+    const policy = channel
+      ? await this.deps.policy.policyFor({ workspaceId: channel.workspaceId })
+      : undefined;
+    const rails = [budget.maxHops ?? DEFAULT_MAX_HOPS, policy?.bots?.maxHops].filter(
+      (one): one is number => typeof one === "number",
+    );
+    const ceiling = policy?.budgets?.perThreadUsd;
+    const thread = [allowed ?? budget.perThreadUsd, ceiling].filter(
+      (one): one is number => typeof one === "number",
+    );
     return {
       hops: hops.map((hop) => ({
         fromType: hop.fromType,
@@ -553,8 +571,8 @@ export class BotsService {
         mode: hop.mode,
         costUsd: Number(hop.costUsd),
       })),
-      budgetUsd: allowed ?? budget.perThreadUsd ?? null,
-      maxHops: budget.maxHops ?? DEFAULT_MAX_HOPS,
+      budgetUsd: thread.length > 0 ? Math.min(...thread) : null,
+      maxHops: Math.min(...rails),
     };
   }
 
@@ -816,7 +834,10 @@ export class BotsService {
     day.setUTCHours(0, 0, 0, 0);
     const hour = new Date(now.getTime() - 60 * 60 * 1000);
     const state = await spending(this.deps.db, bot.id, { day, hour });
-    const verdict = withinBudget(bot.budget, state);
+    // A workspace's ceilings narrow a bot's own budget and never widen it (spec §5.7; task 2.11).
+    const ceilings = (await this.deps.policy.policyFor({ workspaceId: channel.workspaceId }))
+      .budgets;
+    const verdict = withinBudget(capped(bot.budget, ceilings), state);
 
     const run = await startRun(this.deps.db, {
       workspaceId: channel.workspaceId,
@@ -865,6 +886,18 @@ export class BotsService {
     let placeholder: Message | null = null;
     try {
       const profile = await this.brainFor(bot, input.install ?? null);
+      // What this room allows (spec §5.7 "this channel: local models only"; task 2.11).
+      const onTheList = await this.deps.policy.check(
+        { workspaceId: channel.workspaceId, subject: { type: "bot", id: bot.id } },
+        {
+          kind: "model",
+          ref: `${profile.provider}/${profile.modelId}`,
+          profile: profile.name,
+          ...(channel.name ? { channel: channel.name } : {}),
+        },
+        input.by,
+      );
+      if (!onTheList.allow) throw new PerchError("policy_violation", onTheList.reason);
       const model = await this.deps.brains.languageModel(profile, bot.ownerId);
       const messages = await this.conversation(bot, channel, input);
       const allowed = this.toolsAllowed(bot.spec, input.install ?? null);
@@ -1171,7 +1204,13 @@ export class BotsService {
           handle.replace(/^@/, "").toLowerCase(),
         ]);
         if (!tagged) return { ok: false, reason: `there is no @${handle} here` };
-        const state = await this.chainState(threadRootId, bot);
+        // Whether bots talk to each other here at all is the workspace's to say (spec §5.7).
+        const rails = await this.deps.policy.evaluate(
+          { workspaceId: channel.workspaceId },
+          { kind: "bot.mention", ...(channel.name ? { channel: channel.name } : {}) },
+        );
+        if (!rails.allow) return { ok: false, reason: rails.reason };
+        const state = await this.chainState(threadRootId, bot, channel);
         const verdict = mayHop(state, {
           fromType: "bot",
           fromId: bot.id,
@@ -1239,6 +1278,25 @@ export class BotsService {
 }
 
 /** A handle is what people type after an `@`: lower case, digits, dots and dashes. */
+/** A bot's budget under the workspace's ceilings: the lower of the two, wherever both say a number. */
+export function capped(
+  budget: Bot["budget"],
+  ceilings: { dailyUsd?: number; perRunUsd?: number; perThreadUsd?: number } | undefined,
+): Bot["budget"] {
+  if (!ceilings) return budget;
+  const lower = (a: number | undefined, b: number | undefined) =>
+    a === undefined ? b : b === undefined ? a : Math.min(a, b);
+  const dailyUsd = lower(budget.dailyUsd, ceilings.dailyUsd);
+  const perRunUsd = lower(budget.perRunUsd, ceilings.perRunUsd);
+  const perThreadUsd = lower(budget.perThreadUsd, ceilings.perThreadUsd);
+  return {
+    ...budget,
+    ...(dailyUsd === undefined ? {} : { dailyUsd }),
+    ...(perRunUsd === undefined ? {} : { perRunUsd }),
+    ...(perThreadUsd === undefined ? {} : { perThreadUsd }),
+  };
+}
+
 export function normalizeHandle(raw: string): string {
   const handle = raw
     .trim()

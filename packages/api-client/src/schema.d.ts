@@ -7715,6 +7715,295 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What may happen in this workspace */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The policy */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Policy"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** Write the workspace's policy */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["WritePolicy"];
+                };
+            };
+            responses: {
+                /** @description The policy */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Policy"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/projects/{project}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What may happen in this project */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The policy */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Policy"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** Write the project's policy */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["WritePolicy"];
+                };
+            };
+            responses: {
+                /** @description The policy */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Policy"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/policy/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Would this be allowed? (a dry run: nothing happens) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["EvaluatePolicy"];
+                };
+            };
+            responses: {
+                /** @description The answer */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PolicyDecision"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/push-key": {
         parameters: {
             query?: never;
@@ -9067,6 +9356,60 @@ export type components = {
         SnoozeInboxItem: {
             /** Format: date-time */
             until?: string;
+        };
+        Policy: {
+            yaml: string;
+            rules: {
+                [key: string]: unknown;
+            };
+            effective: {
+                [key: string]: unknown;
+            };
+        };
+        WritePolicy: {
+            yaml: string;
+        };
+        PolicyDecision: {
+            allow: boolean;
+            rule: string | null;
+            reason: string | null;
+        };
+        EvaluatePolicy: {
+            request: components["schemas"]["PolicyRequest"];
+            /** Format: uuid */
+            project_id?: string;
+        };
+        PolicyRequest: {
+            /** @enum {string} */
+            kind: "git.push";
+            branch: string;
+            force?: boolean;
+        } | {
+            /** @enum {string} */
+            kind: "exec";
+            command: string;
+        } | {
+            /** @enum {string} */
+            kind: "fs.write";
+            path: string;
+        } | {
+            /** @enum {string} */
+            kind: "model";
+            ref: string;
+            profile?: string;
+            channel?: string;
+            project?: string;
+        } | {
+            /** @enum {string} */
+            kind: "budget";
+            /** @enum {string} */
+            of: "dailyUsd" | "perRunUsd" | "perThreadUsd";
+            usd: number;
+        } | {
+            /** @enum {string} */
+            kind: "bot.mention";
+            channel?: string;
+            hop?: number;
         };
         PushKey: {
             /** @description The instance's VAPID public key */

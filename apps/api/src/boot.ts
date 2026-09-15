@@ -29,6 +29,7 @@ import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
 import { McpGateway } from "./services/mcp.ts";
+import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
@@ -143,11 +144,13 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     previewDomain: env.previewDomain,
     secret: env.sessionSecret,
   });
+  const policy = new PolicyService({ db: db.db, bus });
   const bots = new BotsService({
     db: db.db,
     bus,
     botEvents,
     brains,
+    policy,
     queue,
     log,
     ...(env.search ? { search: env.search } : {}),
@@ -169,6 +172,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     brains,
     bots,
+    policy,
     connections,
     mcp,
     previews,

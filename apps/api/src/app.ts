@@ -23,6 +23,7 @@ import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
 import { registerMessages } from "./routes/messages.ts";
+import { registerPolicy } from "./routes/policy.ts";
 import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
@@ -135,6 +136,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerFiles(app, deps);
   registerUnfurl(app, deps);
   registerInbox(app, deps);
+  registerPolicy(app, deps);
   registerPush(app, deps);
   registerSearch(app, deps);
 

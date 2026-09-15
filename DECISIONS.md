@@ -3477,3 +3477,46 @@ A queue renders in one query and says the same thing the push notification said.
 is what was true when it arrived — a permission whose tool was renamed still reads as it did — which
 is right for a record of "this needed you", and is why the row also carries the path to the live
 thing. Migration 0018 adds the table.
+
+## ADR-0101: The policy is evaluated where the context is, and the runner keeps its floor
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.11
+
+### Context
+§5.7 puts `.perch/policy.yaml` at workspace and project level and lists rules that live in very
+different places: branches and commands belong to a runner, models and budgets to the api, bot rails
+to a thread. Task 1.5 already gave every runner fs/git/exec method a policy hook (ADR-0070) with a
+built-in floor. The question is where the *document* is read and who asks it.
+
+### Decision
+1. **`@perch/policy` owns what a document means** — the schema, the merge, and `evaluate(policy,
+   request)` — and knows nothing about databases, runners or HTTP. One evaluator, so the dry run and
+   every enforcement point cannot drift apart.
+2. **The api evaluates; the runner keeps its floor.** The api has the workspace, the channel, the
+   project and the model to hand, so that is where the document is read and enforced. A runner goes
+   on refusing what it always refused, whatever the document says, so a policy can only tighten what
+   an agent may do. Pushing the document down the §7.6 protocol — so a runner enforces the same
+   `commands.deny` inside a session's own tool calls — is a later task, and is why `commands.deny`
+   is answered by the dry run today rather than at a second enforcement point.
+3. **A later layer narrows and never widens.** Lists join, allow-lists shrink, ceilings take the
+   lower number, and a switch that is off by default cannot be turned on further down. A project can
+   tighten what it inherits; that is the whole point of having two levels.
+4. **A document that will not parse is an empty policy, not a locked door.** A broken file must not
+   take the workspace down; writing one through the api is refused (422) so it cannot get there
+   quietly, and a file that arrives another way simply does not apply.
+5. **The documents are columns, not a table.** `workspaces.policy_yaml` and `projects.policy_yaml`
+   hold the YAML as written (migration 0019). What comes back is what somebody typed, which matters
+   for a file people are meant to read; the parsed form is cached for five seconds so a busy channel
+   does not re-read it per message.
+6. **A refusal is a 451 and a `policy.violation`.** One shape everywhere: the error says which rule,
+   the event is what the audit log and any card are built from, and a bot refused in a channel says
+   so in the thread rather than going quiet.
+
+### Consequences
+The acceptance holds at both ends: a channel pinned to local models refuses a cloud profile before
+the model is ever built, and `git push --force` comes back refused from the same evaluator that the
+runner's floor refuses it with. What is not yet enforced at a second point — `commands.deny` and
+`paths.*` inside a running session — is the runner's floor today and named as such here, rather than
+quietly missing.

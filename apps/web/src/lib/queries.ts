@@ -335,6 +335,18 @@ export type InboxKindFilter = NonNullable<
 >;
 export type InboxItemRow = components["schemas"]["InboxItem"];
 
+/** What may happen in this workspace (spec §5.7; task 2.11): the document and what it parsed to. */
+export function policyQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "policy"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/policy", { params: { path: { ws: workspaceId } } }),
+      ),
+    enabled: workspaceId !== "",
+  });
+}
+
 export function channelsQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "channels"],

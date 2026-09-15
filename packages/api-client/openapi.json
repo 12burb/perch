@@ -4484,6 +4484,231 @@
           }
         }
       },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "yaml": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "effective": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "yaml",
+          "rules",
+          "effective"
+        ]
+      },
+      "WritePolicy": {
+        "type": "object",
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "yaml"
+        ]
+      },
+      "PolicyDecision": {
+        "type": "object",
+        "properties": {
+          "allow": {
+            "type": "boolean"
+          },
+          "rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "allow",
+          "rule",
+          "reason"
+        ]
+      },
+      "EvaluatePolicy": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/PolicyRequest"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      },
+      "PolicyRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "git.push"
+                ]
+              },
+              "branch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "force": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "branch"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "exec"
+                ]
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "kind",
+              "command"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fs.write"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "kind",
+              "path"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "profile": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "channel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "kind",
+              "ref"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "budget"
+                ]
+              },
+              "of": {
+                "type": "string",
+                "enum": [
+                  "dailyUsd",
+                  "perRunUsd",
+                  "perThreadUsd"
+                ]
+              },
+              "usd": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "kind",
+              "of",
+              "usd"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "bot.mention"
+                ]
+              },
+              "channel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "hop": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        ]
+      },
       "PushKey": {
         "type": "object",
         "properties": {
@@ -14477,6 +14702,372 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InboxItem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/policy": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "What may happen in this workspace",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Write the workspace's policy",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritePolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/policy": {
+      "get": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "What may happen in this project",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Write the project's policy",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WritePolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/policy/evaluate": {
+      "post": {
+        "tags": [
+          "policy"
+        ],
+        "summary": "Would this be allowed? (a dry run: nothing happens)",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluatePolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDecision"
                 }
               }
             }

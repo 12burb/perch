@@ -1,8 +1,12 @@
 /**
  * @perch/policy — authorize() (spec §9.1: "authorize(ctx, action, resource) from packages/policy in
  * every handler"). Pure: no database, no HTTP. The caller resolves the membership role and token scopes;
- * this module answers allow/deny with a reason. The policy.yaml evaluator (spec §5.7) joins in task 2.11.
+ * this module answers allow/deny with a reason. `./document.ts` beside it is the policy.yaml
+ * evaluator (spec §5.7, task 2.11): the same shape of answer, for what may happen rather than who
+ * may ask.
  */
+
+export * from "./document.ts";
 
 export const ROLES = ["owner", "admin", "member"] as const;
 export type Role = (typeof ROLES)[number];

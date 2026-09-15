@@ -322,6 +322,12 @@ export function registerGit(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const project = await target(c);
     const user = currentUser(c);
     const link = await projectRunnerLink(services, project, user.id);
+    // What this workspace protects, before the runner's own floor (spec §5.7; task 2.11).
+    await deps.policy.enforce(
+      { workspaceId: project.workspaceId, project },
+      { kind: "git.push", branch: body.branch ?? project.defaultBranch },
+      actorOf(c),
+    );
     const auth = await pushCredential(deps, project.workspaceId, user.id, body.connection_id);
     const raw = await runnerCall(link, "git.push", {
       workspace_id: ws,

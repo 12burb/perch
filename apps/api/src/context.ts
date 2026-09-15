@@ -13,6 +13,7 @@ import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
 import type { McpGateway } from "./services/mcp.ts";
+import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
 import type { SessionService } from "./services/sessions.ts";
 
@@ -49,6 +50,8 @@ export type Deps = {
   brains: BrainsService;
   /** The native bot runtime: triggers, tools, runs and their ledger (task 2.6). */
   bots: BotsService;
+  /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */
+  policy: PolicyService;
   connections: ConnectionsService;
   mcp: McpGateway;
   previews: PreviewService;

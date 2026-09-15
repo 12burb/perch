@@ -134,6 +134,13 @@
       "when": 1789489075432,
       "tag": "0018_inbox_items",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789491123072,
+      "tag": "0019_policy_yaml",
+      "breakpoints": true
     }
   ]
 }
