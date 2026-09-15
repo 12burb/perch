@@ -22,6 +22,7 @@
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
 | [`inbox.md`](inbox.md) | The inbox: what needs you, where it comes from, and approving from a phone |
 | [`policy.md`](policy.md) | The policy: what may happen here, how two documents merge, and where each rule is asked |
+| [`shipping.md`](shipping.md) | The Deploy button and the database panel: preview-URL cards in a thread, read-only SQL |
 | [`project-env.md`](project-env.md) | A project's environment: write-only values, where they are injected, and why a transcript never repeats them |
 | [`phase-0-report.md`](phase-0-report.md) | What Phase 0 delivered: commits, verification, spike outcomes, ADRs, deviations |
 | [`telemetry.md`](telemetry.md) | Every field the opt-in ping sends |

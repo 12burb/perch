@@ -102,5 +102,16 @@
   "chat.brainDefault": "Its own brain",
   "chat.flowWith": "Messages with {name}",
   "chat.composerTo": "Message {name}",
-  "chat.composerToPlaceholder": "Say something to {name}"
+  "chat.composerToPlaceholder": "Say something to {name}",
+  "chat.deploy": "Deploy",
+  "chat.deployOf": "{name} · {target}",
+  "chat.deployTarget.preview": "preview",
+  "chat.deployTarget.production": "production",
+  "chat.deployState.queued": "Queued",
+  "chat.deployState.building": "Building",
+  "chat.deployState.ready": "Ready",
+  "chat.deployState.error": "Failed",
+  "chat.deployState.canceled": "Cancelled",
+  "chat.deployLogs": "Build log",
+  "chat.deployWaiting": "No URL yet."
 }

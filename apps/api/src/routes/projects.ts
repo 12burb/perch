@@ -10,6 +10,7 @@ import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { updateProject } from "../repos/projects.ts";
 import {
   type DeployKeyView,
   getOrCreateDeployKey,
@@ -23,6 +24,7 @@ import {
   listProjects,
   type ProjectDeps,
   uploadProjectFiles,
+  validateRepoUrl,
 } from "../services/projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
@@ -206,6 +208,40 @@ const getProjectRoute = createRoute({
   },
 });
 
+/**
+ * What a project can be told about itself after it exists (task 2.15). A project created empty and
+ * pushed somewhere later has a repository, and until it can say so it cannot be deployed from.
+ */
+const patchProjectRoute = createRoute({
+  method: "patch",
+  path: "/api/workspaces/{ws}/projects/{project}",
+  tags: ["projects"],
+  summary: "Rename a project, or tell it where its repository is",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: projectParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              name: nameSchema.optional(),
+              /** Empty or null forgets the repository. */
+              repo_url: z.string().trim().max(2048).nullable().optional(),
+              default_branch: branchSchema,
+            })
+            .openapi("PatchProject"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "The project", content: { "application/json": { schema: projectSchema } } },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
 const deleteProjectRoute = createRoute({
   method: "delete",
   path: "/api/workspaces/{ws}/projects/{project}",
@@ -364,6 +400,33 @@ export function registerProjects(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const project = await getProject(deps.db.db, ws, id);
     if (!project) throw PerchError.notFound("project");
     return c.json(projectBody(project), 200);
+  });
+
+  app.openapi(patchProjectRoute, async (c) => {
+    const { ws, project: id } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, id);
+    if (!project) throw PerchError.notFound("project");
+    const repoUrl =
+      body.repo_url === undefined
+        ? undefined
+        : body.repo_url === null || body.repo_url === ""
+          ? null
+          : validateRepoUrl(body.repo_url);
+    const patch = {
+      ...(body.name ? { name: body.name } : {}),
+      ...(body.default_branch ? { defaultBranch: body.default_branch } : {}),
+      ...(repoUrl === undefined ? {} : { repoUrl }),
+    };
+    const row =
+      Object.keys(patch).length > 0 ? await updateProject(deps.db.db, project.id, patch) : project;
+    await deps.bus.publish(
+      "project.updated",
+      { workspaceId: ws, projectId: row.id, changes: Object.keys(patch) },
+      actorOf(c),
+    );
+    return c.json(projectBody(row), 200);
   });
 
   app.openapi(deleteProjectRoute, async (c) => {

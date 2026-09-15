@@ -28,6 +28,8 @@ import { RunnerRegistry } from "./runners/registry.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
+import { DbBrowser } from "./services/db-browser.ts";
+import { DeployService } from "./services/deploys.ts";
 import { McpGateway } from "./services/mcp.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
@@ -145,6 +147,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     secret: env.sessionSecret,
   });
   const policy = new PolicyService({ db: db.db, bus });
+  // The Deploy button and the database panel (task 2.15): both run on a connection's own token —
+  // the first against the provider's REST API, the second through the MCP gateway.
+  const deploys = new DeployService({ db, bus, connections });
+  const dbBrowser = new DbBrowser({ connections, gateway: mcp });
   const bots = new BotsService({
     db: db.db,
     bus,
@@ -176,6 +182,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     connections,
     mcp,
     previews,
+    deploys,
+    dbBrowser,
     flags,
     log,
     version: versionInfo(env),

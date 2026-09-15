@@ -15,4 +15,13 @@ token_prefix:
   - sbp_
 test_path: /v1/projects
 mcp_url: https://mcp.supabase.com/mcp
+# The database panel (task 2.15) is the MCP gateway with these two tools; read-only is Perch's own
+# rule, checked before the call, not a mode the server is trusted to be in.
+db:
+  tables_tool: list_tables
+  schemas_arg: schemas
+  schemas:
+    - public
+  query_tool: execute_sql
+  query_arg: query
 webhook_signature: none

@@ -28,6 +28,26 @@ const oauthSchema = z
   })
   .strict();
 
+/**
+ * What the database panel needs from a provider that has one (spec §5.5; task 2.15). The panel is
+ * the MCP gateway with these tool names, so a provider whose MCP server can list tables and run a
+ * query needs a manifest and no code.
+ */
+const dbSchema = z
+  .object({
+    /** The tool that lists tables, and the argument it takes the schemas in. */
+    tables_tool: z.string().min(1),
+    schemas_arg: z.string().min(1).default("schemas"),
+    /** The schemas to ask about when nobody says otherwise. */
+    schemas: z.array(z.string()).default(["public"]),
+    /** The tool that runs one statement, and the argument it takes it in. */
+    query_tool: z.string().min(1),
+    query_arg: z.string().min(1).default("query"),
+  })
+  .strict();
+
+export type DbManifest = z.infer<typeof dbSchema>;
+
 const manifestSchema = z
   .object({
     /** The id used in routes, connections.provider, and the connectors index. */
@@ -53,6 +73,8 @@ const manifestSchema = z
     oauth: oauthSchema.optional(),
     /** The Streamable HTTP MCP server this provider exposes, when it has one (task 1.17). */
     mcp_url: z.url().optional(),
+    /** How to browse this provider's database, when it has one (task 2.15). */
+    db: dbSchema.optional(),
     /** How inbound webhooks are signed, when this provider sends them (task 2.x). */
     webhook_signature: z.enum(["hmac_sha256", "none"]).default("none"),
   })
@@ -84,6 +106,11 @@ export function parseManifest(source: string): Manifest {
     throw new ManifestError(`manifest is not valid: ${issues.join("; ")}`, issues);
   }
   const data = result.data;
+  if (data.db && !data.mcp_url) {
+    throw new ManifestError("a manifest with a db block needs the MCP server it browses through", [
+      "mcp_url: required when db is set",
+    ]);
+  }
   if (data.auth.includes("oauth2") && !data.oauth) {
     throw new ManifestError("a manifest with the oauth2 lane needs an oauth block", [
       "oauth: required when auth includes oauth2",

@@ -75,6 +75,8 @@ export async function listProjects(db: Db, workspaceId: string): Promise<Project
 }
 
 export type ProjectPatch = Partial<{
+  name: string;
+  repoUrl: string | null;
   status: ProjectStatus;
   statusMessage: string | null;
   runnerId: string | null;

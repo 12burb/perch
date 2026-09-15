@@ -31,6 +31,7 @@ export {
   AUTH_KINDS,
   type AuthKind,
   apiBaseOf,
+  type DbManifest,
   lanesOf,
   type Manifest,
   ManifestError,

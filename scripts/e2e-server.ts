@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { startStandInGitHub } from "../apps/api/test/fixtures/github.ts";
 import { startStandInMcp } from "../apps/api/test/fixtures/mcp-server.ts";
+import { startStandInSupabase, startStandInVercel } from "../apps/api/test/fixtures/paas.ts";
 import { startFakeOpenCode } from "../apps/runner/test/fixtures/opencode-server.ts";
 
 const root = resolve(import.meta.dir, "..");
@@ -192,6 +193,14 @@ const github = Object.fromEntries(
  */
 const mcp = startStandInMcp();
 
+/**
+ * The two platforms task 2.15 ships through: a Vercel whose deployments really move from building
+ * to ready, and a Supabase whose MCP server really lists tables. Both are reached through the
+ * connection's own `api_base` and `mcp_url`, the way a self-hosted one would be.
+ */
+const vercel = startStandInVercel({ readyAfterMs: 1_500 });
+const supabase = startStandInSupabase();
+
 /** Where the specs (other processes) read all of this from. */
 const manifestPath = process.env.E2E_MANIFEST ?? join(tmpdir(), "perch-e2e-manifest.json");
 writeFileSync(
@@ -202,6 +211,8 @@ writeFileSync(
       opencode: { url: opencode.url },
       provider: { url: `http://127.0.0.1:${providerPort}` },
       mcp: { url: mcp.mcpUrl, issuer: mcp.issuer },
+      vercel: { url: vercel.url, token: vercel.token },
+      supabase: { url: supabase.url, mcpUrl: supabase.mcpUrl, token: supabase.token },
       vite: { port: vitePort, dir: viteDir },
     },
     null,
@@ -264,6 +275,8 @@ const api = Bun.spawn(
 const stop = () => {
   provider.stop(true);
   mcp.stop();
+  vercel.stop();
+  supabase.stop();
   vite.kill();
   opencode.close();
   for (const origin of origins) origin.stop();

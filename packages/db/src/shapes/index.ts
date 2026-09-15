@@ -175,6 +175,29 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
       text: z.string().optional(),
     })
     .strict(),
+  /**
+   * What a deploy came to (spec §5.5 "preview-URL cards"; task 2.15). The card is the record: it is
+   * rewritten in place as the build moves, so the thread always shows where the deploy got to.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("deploy_card"),
+      provider: z.string().min(1),
+      /** The provider's own id, which is what a refresh asks about. */
+      deploymentId: z.string().min(1),
+      /** Where it is being deployed from, for a card that outlives the branch. */
+      target: z.enum(["preview", "production"]),
+      state: z.enum(["queued", "building", "ready", "error", "canceled"]),
+      /** The preview URL, once the provider has one. */
+      url: z.string().optional(),
+      /** The provider's own build page, for logs. */
+      inspectorUrl: z.string().optional(),
+      branch: z.string().optional(),
+      commit: z.string().optional(),
+      text: z.string().optional(),
+    })
+    .strict(),
   z
     .object({
       ...interactive,

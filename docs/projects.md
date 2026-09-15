@@ -42,6 +42,16 @@ from the name when omitted. Every route needs `projects.read` / `projects.create
 A `repo_url` with embedded credentials (`https://user:token@…`), a `file://` URL, or a local path is
 refused with 422.
 
+## Changing one afterwards
+
+`PATCH /api/workspaces/{ws}/projects/{project}` takes `name`, `default_branch`, and `repo_url`.
+
+`repo_url` matters beyond bookkeeping: it is what a git-based deploy builds and what Open PR opens
+against. A cloned project has it from the start; a project created empty and pushed somewhere later
+can say so here, and the Deploy panel asks for it rather than refusing (see
+[shipping](./shipping.md)). An empty string or `null` forgets it. Changing it does not move the
+directory on the runner — it says where the project belongs, not where it is.
+
 ## What the runner reads back
 
 After the directory exists the runner reads two files and reports them; the api validates and

@@ -3693,3 +3693,74 @@ behalf, on an API key or a local model (AGENTS.md §1.6).
 None. `/connections` — where a provider's callback lands — is not in §7.1's route list because it is
 a page, not an endpoint: the api redirects there, the browser resolves which workspace it belongs to
 and carries the outcome to that workspace's Connections card.
+
+## ADR-0106: A deploy's card is the deploy; the database panel is the MCP gateway
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.15
+
+### Context
+Spec §5.5 asks for a Deploy button with "preview-URL cards" and for Supabase's "schema/table browser
+in the panel, SQL with permission prompt for writes". §11's acceptance is "a Vercel deploy posts its
+preview URL in a thread". Neither §6 nor §7.1 has anything for either: no `deployments` table, no
+deploy route, no database route.
+
+Two obvious designs were available and both are worse than what landed.
+
+A `deployments` table with rows the IDE lists, and a card posted beside it. That is two records of
+one thing, and they drift: the row says `ready` and the card in the thread still says `building`,
+because the card was a notification rather than the thing itself.
+
+A database panel on each vendor's REST API — Supabase's Management API, then Neon's, then
+Planetscale's. That is a release per provider, and a second place where a credential is used.
+
+### Decision
+
+**The card is the deploy.** `POST .../projects/{p}/deploys` asks the provider to build and posts one
+message carrying a `deploy_card` block: the provider, its deployment id, the target, the branch, the
+state, and the URL once there is one. `POST .../deploys/refresh` asks the provider again and
+rewrites that same block in place, with no edit history, because a build moving is not an edit
+somebody made. The IDE panel polls while the build runs, so the thread fills itself in whether or
+not anybody is watching the panel. Nothing is stored anywhere else, so nothing can disagree.
+
+**The database panel is the MCP gateway with two tool names off the manifest.** A connector that has
+a database carries a `db` block — `tables_tool`, `query_tool` and the argument names — and the panel
+calls those through `/mcp` (task 1.17), which already attaches the connection's own token, filters
+by allow-list, and audits every call. Adding a second database provider is a YAML file.
+
+**Read-only is Perch's rule, checked here.** One statement, starting with a read, with no
+data-modifying word anywhere in it — so a write cannot hide in a CTE or behind a comment. A refusal
+is a 451 naming `db.read_only`, and the provider is never touched. Trusting a server's own read-only
+mode would be trusting a promise somebody else made.
+
+### Consequences
+A deploy older than its channel's retention is gone with the message, which is the right trade for a
+build URL: the deployment still exists at the provider, and the card links to its build page. There
+is no "all deploys for this project" list; the channel is that list, searchable like everything else
+in it.
+
+Polling is the IDE's, not the server's: close the tab mid-build and the card stays at *Building*
+until somebody presses **Check again** — a deploy webhook (spec §5.5's "build/runtime logs → thread")
+is what fixes that, and it is Phase 3's.
+
+The blunt read-only test refuses some legitimate SELECTs. It is easy to loosen later and impossible
+to un-drop a table, so it starts strict and says why.
+
+### Spec deviations
+Three, all additive.
+
+- **`deploy_card`** joins the §6 message-block union. The interactive blocks of §5.2 are unchanged;
+  this is a card the app draws, like `diff_card` and `session_card` before it.
+- **`deploy.started`** joins the §7.7 bus catalog, the way `session.turn` and `session.status` did
+  (ADR-0074). It carries the project, the provider, the deployment, and the message its card is in.
+- **Five routes** beyond §7.1: `POST .../projects/{p}/deploys`, `POST .../projects/{p}/deploys/refresh`,
+  `GET .../connections/{id}/db/tables`, `POST .../connections/{id}/db/query`, and
+  `PATCH .../projects/{p}`. §7.1 lists no route for either feature while §5.5 asks for both; these
+  are the smallest surface that does what §5.5 says. The PATCH is the one that is not about a
+  provider: a project's repository could only be set by cloning, so a project created empty and
+  pushed somewhere later could never deploy. It takes a name, a default branch, and a repository URL
+  — the plain fields §6 already gives `projects` — and the Deploy panel asks for the URL rather than
+  refusing.
+
+No table was added, so there is no migration and §6 is untouched.

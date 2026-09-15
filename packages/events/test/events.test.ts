@@ -41,8 +41,11 @@ const SPEC_API_TO_RUNNER =
 
 /** Methods beyond the spec's list, each with an ADR: project.setup / project.remove (ADR-0069), git.apply (ADR-0079). */
 const ADDITIVE_API_TO_RUNNER = ["project.setup", "project.remove", "git.apply"];
-/** Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074). */
-const ADDITIVE_BUS_EVENTS = ["session.turn", "session.status"];
+/**
+ * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
+ * deploy.started (ADR-0106).
+ */
+const ADDITIVE_BUS_EVENTS = ["session.turn", "session.status", "deploy.started"];
 
 describe("bus event catalog (spec §7.7)", () => {
   test("every event in the spec catalog has a schema, and nothing else does", () => {

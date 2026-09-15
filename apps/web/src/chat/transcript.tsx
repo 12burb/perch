@@ -167,6 +167,9 @@ function Blocks(props: {
           const file = (props.files ?? []).find((row) => row.id === block.fileId);
           return file ? <FileBlock key={key} file={file} /> : null;
         }
+        if (block.type === "deploy_card") {
+          return <DeployCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "code") {
           return (
             <pre
@@ -949,6 +952,63 @@ export function ChannelTranscript(props: {
         <p role="alert" className="p-2 text-sm text-danger">
           {error}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Where a deploy got to (spec §5.5 "preview-URL cards"; task 2.15). The api rewrites this block as
+ * the build moves, so the card is the deploy's record rather than the first thing anybody heard
+ * about it — which is why the URL can appear in a message that was posted before there was one.
+ */
+type DeployState = "queued" | "building" | "ready" | "error" | "canceled";
+const DEPLOY_TONE: Record<DeployState, "accent" | "neutral" | "danger" | "success"> = {
+  queued: "neutral",
+  building: "accent",
+  ready: "success",
+  error: "danger",
+  canceled: "neutral",
+};
+
+function DeployCard(props: { block: Record<string, unknown> }) {
+  const raw = String(props.block.state ?? "building");
+  const state: DeployState = raw in DEPLOY_TONE ? (raw as DeployState) : "building";
+  const target = props.block.target === "production" ? "production" : "preview";
+  const url = typeof props.block.url === "string" ? props.block.url : "";
+  const logs = typeof props.block.inspectorUrl === "string" ? props.block.inspectorUrl : "";
+  const name = String(props.block.text ?? props.block.provider ?? "");
+  return (
+    <div
+      data-testid="deploy-card"
+      className="my-1 flex flex-wrap items-center gap-2 rounded border border-border bg-raised p-2"
+    >
+      <span className="font-medium">{t("chat.deploy")}</span>
+      <span className="text-sm text-fg-muted">
+        {t("chat.deployOf", { name, target: t(`chat.deployTarget.${target}`) })}
+      </span>
+      <Badge tone={DEPLOY_TONE[state]}>{t(`chat.deployState.${state}`)}</Badge>
+      {url ? (
+        <a
+          className="break-all text-sm text-accent underline"
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {url}
+        </a>
+      ) : (
+        <span className="text-sm text-fg-subtle">{t("chat.deployWaiting")}</span>
+      )}
+      {logs ? (
+        <a
+          className="ml-auto text-sm text-accent underline"
+          href={logs}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t("chat.deployLogs")}
+        </a>
       ) : null}
     </div>
   );

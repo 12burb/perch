@@ -24,6 +24,14 @@ const PreviewPane = lazy(() =>
   import("../../../code/preview-pane.tsx").then((m) => ({ default: m.PreviewPane })),
 );
 
+// Deploy and the database browser (task 2.15): one chunk, loaded with whichever tab asks for it.
+const DeployPanel = lazy(() =>
+  import("../../../code/ship-panel.tsx").then((m) => ({ default: m.DeployPanel })),
+);
+const DbPanel = lazy(() =>
+  import("../../../code/ship-panel.tsx").then((m) => ({ default: m.DbPanel })),
+);
+
 /** A project open in Code mode (task 1.6): the file tree in the sidebar, the editor in main. */
 export const Route = createFileRoute("/_app/$workspace/code/$project")({
   component: ProjectCode,
@@ -167,6 +175,28 @@ function ProjectCode() {
                 fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
               >
                 <GitPanel workspaceId={workspaceId} projectId={projectId} />
+              </Suspense>
+            ),
+          },
+          {
+            id: "deploy",
+            label: t("deploy.title"),
+            content: (
+              <Suspense
+                fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
+              >
+                <DeployPanel workspaceId={workspaceId} projectId={projectId} />
+              </Suspense>
+            ),
+          },
+          {
+            id: "db",
+            label: t("db.title"),
+            content: (
+              <Suspense
+                fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
+              >
+                <DbPanel workspaceId={workspaceId} />
               </Suspense>
             ),
           },

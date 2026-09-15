@@ -199,6 +199,17 @@ export const busEventPayloads = {
     subjectId: uuid,
   }),
   "connection.grant_removed": z.object({ ...ws, connectionId: uuid, grantId: uuid }),
+  /** A deploy asked for from the IDE (spec §5.5; task 2.15); the card in the thread is its record. */
+  "deploy.started": z.object({
+    ...ws,
+    projectId: uuid,
+    provider: z.string(),
+    deploymentId: z.string(),
+    target: z.enum(["preview", "production"]),
+    state: z.enum(["queued", "building", "ready", "error", "canceled"]),
+    url: z.string().optional(),
+    messageId: uuid,
+  }),
   "tools.called": z.object({
     ...ws,
     connectionId: uuid.optional(),

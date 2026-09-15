@@ -12,6 +12,8 @@ import type { RunnerRegistry } from "./runners/registry.ts";
 import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
+import type { DbBrowser } from "./services/db-browser.ts";
+import type { DeployService } from "./services/deploys.ts";
 import type { McpGateway } from "./services/mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
@@ -55,6 +57,10 @@ export type Deps = {
   connections: ConnectionsService;
   mcp: McpGateway;
   previews: PreviewService;
+  /** The Deploy button: a provider builds the project, and the card in a thread says so (2.15). */
+  deploys: DeployService;
+  /** The database panel, read-only by default (task 2.15). */
+  dbBrowser: DbBrowser;
   /** Feature flags (spec §9.1), default off. */
   flags: Flags;
   log: Logger;
