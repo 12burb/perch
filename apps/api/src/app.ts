@@ -17,6 +17,8 @@ import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
+import { registerPreview } from "./routes/preview.ts";
+import { registerPreviews } from "./routes/previews.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerRunners } from "./routes/runners.ts";
@@ -85,6 +87,9 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
     app.get("/api/runner", options.runnerChannel.handler);
     app.get("/api/runner/stream/:token", options.runnerChannel.streamHandler);
   }
+  // Wildcard mode is decided on the Host header, so the preview proxy is mounted before the api's
+  // own routes: on a preview hostname, "/" is the dev server's, not Perch's (spec §5.6).
+  registerPreview(app, deps, options.ws);
   app.use("/api/*", authenticate(deps));
 
   if (options.ws) {
@@ -106,6 +111,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerBrains(app, deps);
   registerConnections(app, deps);
   registerMcp(app, deps);
+  registerPreviews(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

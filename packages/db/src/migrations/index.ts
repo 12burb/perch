@@ -12,6 +12,7 @@ import m8 from "../../drizzle/0008_sessions_inline.sql" with { type: "text" };
 import m9 from "../../drizzle/0009_brains.sql" with { type: "text" };
 import m10 from "../../drizzle/0010_connections.sql" with { type: "text" };
 import m11 from "../../drizzle/0011_mcp_servers.sql" with { type: "text" };
+import m12 from "../../drizzle/0012_preview_share_runner_optional.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -34,4 +35,11 @@ export const migrationSources: MigrationSource[] = [
   { idx: 9, tag: "0009_brains", when: 1789432725675, breakpoints: true, sql: m9 },
   { idx: 10, tag: "0010_connections", when: 1789434419436, breakpoints: true, sql: m10 },
   { idx: 11, tag: "0011_mcp_servers", when: 1789436757734, breakpoints: true, sql: m11 },
+  {
+    idx: 12,
+    tag: "0012_preview_share_runner_optional",
+    when: 1789438762897,
+    breakpoints: true,
+    sql: m12,
+  },
 ];

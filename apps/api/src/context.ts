@@ -11,6 +11,7 @@ import type { RunnerRegistry } from "./runners/registry.ts";
 import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
 import type { McpGateway } from "./services/mcp.ts";
+import type { PreviewService } from "./services/previews.ts";
 import type { SessionService } from "./services/sessions.ts";
 
 /** What every handler can reach through the Hono context. */
@@ -44,6 +45,7 @@ export type Deps = {
   brains: BrainsService;
   connections: ConnectionsService;
   mcp: McpGateway;
+  previews: PreviewService;
   /** Feature flags (spec §9.1), default off. */
   flags: Flags;
   log: Logger;

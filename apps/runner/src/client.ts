@@ -47,6 +47,22 @@ export type RunnerLogger = (
   fields?: Record<string, unknown>,
 ) => void;
 
+/**
+ * Where the api can reach this runner's listening ports (spec §5.6; task 1.18). A hosted runner is
+ * a container on the api's own network, so its hostname resolves there — Docker registers the
+ * container's name and short id on a user-defined network. A local or remote runner is somewhere
+ * the api has no route to, so it says nothing and waits for the tunnel of task 1.19.
+ */
+export function previewHostOf(
+  kind: RunnerInfo["kind"],
+  override?: string | null,
+): string | undefined {
+  if (override === null) return undefined;
+  const named = (override ?? process.env.PERCH_RUNNER_PREVIEW_HOST ?? "").trim();
+  if (named) return named;
+  return kind === "hosted" ? hostname() : undefined;
+}
+
 export type RunnerClientOptions = {
   /** The api's public URL (http or https); the socket opens at /api/runner. */
   apiUrl: string;
@@ -63,6 +79,11 @@ export type RunnerClientOptions = {
   handlerOptions?: Omit<HandlerOptions, "notify" | "streams">;
   /** ports.changed polling period; 0 disables the watcher. */
   portsIntervalMs?: number;
+  /**
+   * The hostname the api reaches this runner's ports on for previews (task 1.18). Defaults to
+   * PERCH_RUNNER_PREVIEW_HOST, else this container's own hostname for a hosted runner, else none.
+   */
+  previewHost?: string | null;
   /** Reconnect policy; false gives up on the first drop. */
   reconnect?: { minMs?: number; maxMs?: number; maxRefusals?: number } | false;
   log?: RunnerLogger;
@@ -139,11 +160,16 @@ export function connectRunner(options: RunnerClientOptions): RunnerClient {
         streams: { open: openStreamSocket },
       });
   const handlers: RunnerHandlers = options.handlers ?? services?.handlers ?? {};
+  const reachableAt = previewHostOf(kind, options.previewHost);
   const info: RunnerInfo = {
     name: options.name ?? hostname(),
     kind,
     capabilities: options.capabilities ?? localCapabilities(),
     versions: { bun: Bun.version, ...options.versions },
+    // Previews (task 1.18): a hosted runner shares a network with the api, so it says where it is.
+    // A laptop does not, and saying so would only send the api somewhere it cannot go — that lane
+    // is the tunnel of task 1.19.
+    ...(reachableAt ? { preview_host: reachableAt } : {}),
   };
   const reconnect = options.reconnect === undefined ? {} : options.reconnect;
   const minMs = reconnect === false ? 0 : (reconnect.minMs ?? 1_000);

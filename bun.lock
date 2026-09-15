@@ -35,6 +35,7 @@
         "@perch/gateway": "workspace:*",
         "@perch/jobs": "workspace:*",
         "@perch/policy": "workspace:*",
+        "@perch/preview": "workspace:*",
         "@perch/vault": "workspace:*",
         "better-auth": "1.7.4",
         "dockerode": "5.0.1",
@@ -257,6 +258,9 @@
     "packages/preview": {
       "name": "@perch/preview",
       "version": "0.0.0",
+      "dependencies": {
+        "zod": "4.6.3",
+      },
     },
     "packages/ui": {
       "name": "@perch/ui",

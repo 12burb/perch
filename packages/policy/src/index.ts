@@ -37,6 +37,8 @@ export const ACTIONS = [
   "connections.read",
   "connections.write",
   "connections.admin",
+  "previews.read",
+  "previews.share",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -99,6 +101,10 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "connections.read": ["owner", "admin", "member"],
   "connections.write": ["owner", "admin", "member"],
   "connections.admin": ["owner", "admin"],
+  // Anyone who can open a project can watch it run; sharing it outside is the same weight as
+  // changing the project, because a share link leaves the workspace.
+  "previews.read": ["owner", "admin", "member"],
+  "previews.share": ["owner", "admin", "member"],
 };
 
 /** The token scope each action needs: read → `read`; writes → `write`; administration → `admin`. */
@@ -129,6 +135,8 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "connections.read": "read",
   "connections.write": "write",
   "connections.admin": "admin",
+  "previews.read": "read",
+  "previews.share": "write",
 };
 
 const SCOPE_IMPLIES: Record<"read" | "write" | "admin", readonly string[]> = {

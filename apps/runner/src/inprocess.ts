@@ -86,6 +86,8 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
     kind: "local",
     capabilities,
     versions: { bun: Bun.version, runner: "0.0.0", ...options.versions },
+    // The api is this process, so a preview is a loopback connection away (task 1.18).
+    preview_host: "127.0.0.1",
   };
   const heartbeat = () => {
     const usage = process.memoryUsage();

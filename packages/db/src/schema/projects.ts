@@ -178,9 +178,13 @@ export const previewShares = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    runnerId: uuid("runner_id")
-      .notNull()
-      .references(() => runners.id, { onDelete: "cascade" }),
+    /**
+     * The runner that served the port when the share was made, for provenance. Null in laptop mode,
+     * where the runner is the api's own process and has no row; a share is resolved by port at the
+     * moment it is used, never by this (task 1.18, ADR-0084) — a container that restarts gets a new
+     * row, and a share that outlived it is still a share.
+     */
+    runnerId: uuid("runner_id").references(() => runners.id, { onDelete: "set null" }),
     port: integer("port").notNull(),
     path: text("path").notNull().default("/"),
     tokenHash: text("token_hash").notNull().unique(),

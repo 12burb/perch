@@ -28,6 +28,12 @@ export const runnerToApiParams = {
     kind: z.enum(["hosted", "local", "remote"]),
     capabilities: z.record(z.string(), z.unknown()),
     versions: z.record(z.string(), z.string()),
+    /**
+     * The hostname the api can reach this runner's listening ports on, for previews (spec §5.6;
+     * task 1.18). Only a runner that believes the api can route to it says so — a laptop behind
+     * NAT stays silent and gets the tunnel of task 1.19 instead. Additive to §7.6 (ADR-0084).
+     */
+    preview_host: z.string().min(1).optional(),
   }),
   "runner.heartbeat": z.object({
     load: z.object({ cpu: z.number().min(0), memoryMb: z.number().nonnegative() }).partial(),

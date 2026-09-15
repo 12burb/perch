@@ -25,6 +25,7 @@ import { RunnerRegistry } from "./runners/registry.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
 import { McpGateway } from "./services/mcp.ts";
+import { PreviewService } from "./services/previews.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -124,6 +125,13 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     secret: env.sessionSecret,
     publicUrl: env.publicUrl,
   });
+  const previews = new PreviewService({
+    db: db.db,
+    bus,
+    registry: runners,
+    publicUrl: env.publicUrl,
+    previewDomain: env.previewDomain,
+  });
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, flags, brains, mcp, log },
     options.sessions ?? {},
@@ -141,6 +149,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     brains,
     connections,
     mcp,
+    previews,
     flags,
     log,
     version: versionInfo(env),
