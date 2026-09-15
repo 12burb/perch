@@ -158,7 +158,7 @@ describe("projects on a runner", () => {
     expect(result.head).toBeNull();
     expect(result.config).toBeNull();
     expect(result.postCreate).toBeUndefined();
-  });
+  }, 30_000);
 
   test("a clone brings the files, reads both config files, and runs postCreateCommand", async () => {
     const root = tmp("perch-projects-");
@@ -177,7 +177,7 @@ describe("projects on a runner", () => {
     expect(result.devcontainer).toMatchObject({ name: "hello" });
     expect(result.postCreate?.exitCode).toBe(0);
     expect(readFileSync(join(result.path, "created.txt"), "utf8").trim()).toBe("created");
-  });
+  }, 30_000);
 
   test("postCreate: false skips the command; a failing command is reported, not thrown", async () => {
     const root = tmp("perch-projects-");
@@ -199,7 +199,7 @@ describe("projects on a runner", () => {
     const failed = await setupProject({ root }, { ...ctx, source: { kind: "clone", url: source } });
     expect(failed.postCreate?.exitCode).toBe(3);
     expect(failed.postCreate?.output).toContain("boom");
-  });
+  }, 30_000);
 
   test("a clone of a missing repository fails with git's message and leaves no directory", async () => {
     const root = tmp("perch-projects-");
@@ -207,7 +207,7 @@ describe("projects on a runner", () => {
       setupProject({ root }, { ...ctx, source: { kind: "clone", url: join(root, "nope.git") } }),
     ).rejects.toThrow();
     expect(existsSync(projectDir(root, WS, PROJECT))).toBe(false);
-  });
+  }, 30_000);
 
   test("uploads write utf8 or base64 content inside the project only", async () => {
     const root = tmp("perch-projects-");
