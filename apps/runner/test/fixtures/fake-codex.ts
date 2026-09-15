@@ -4,7 +4,7 @@
  * (thread.started, item.*, turn.completed), resumes a thread when asked, and records its argv so
  * the test can check the flags the harness passes.
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 const log = process.env.FAKE_CLI_LOG;
@@ -13,7 +13,12 @@ const resumeAt = argv.indexOf("resume");
 const threadId =
   resumeAt >= 0 ? (argv[resumeAt + 1] ?? "thread_x") : `thread_${Date.now().toString(36)}`;
 const prompt = argv[argv.length - 1] ?? "";
-const say = (event: Record<string, unknown>) => process.stdout.write(`${JSON.stringify(event)}\n`);
+/**
+ * Written straight to the descriptor rather than through `process.stdout`: a script that ends
+ * right after its last line can exit with a pipe write still buffered on Windows, and the harness
+ * then sees a CLI that said nothing at all.
+ */
+const say = (event: Record<string, unknown>) => writeSync(1, `${JSON.stringify(event)}\n`);
 
 say({ type: "thread.started", thread_id: threadId });
 say({ type: "turn.started" });

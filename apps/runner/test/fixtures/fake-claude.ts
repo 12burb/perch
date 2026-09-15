@@ -4,7 +4,7 @@
  * documented JSONL stream (system init, assistant, user tool results, result), honours --resume,
  * and records its argv for the test.
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 const log = process.env.FAKE_CLI_LOG;
@@ -15,8 +15,9 @@ const sessionId =
 const modeAt = argv.indexOf("--permission-mode");
 const mode = modeAt >= 0 ? (argv[modeAt + 1] ?? "default") : "default";
 const prompt = argv[argv.length - 1] ?? "";
+/** Straight to the descriptor: see the note in fake-codex.ts about a buffered pipe on Windows. */
 const say = (event: Record<string, unknown>) =>
-  process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
+  writeSync(1, `${JSON.stringify({ ...event, session_id: sessionId })}\n`);
 
 say({
   type: "system",
