@@ -27,6 +27,7 @@ import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerPush } from "./routes/push.ts";
 import { registerRunners } from "./routes/runners.ts";
+import { registerSearch } from "./routes/search.ts";
 import { registerSessions } from "./routes/sessions.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerTerminal } from "./routes/terminal.ts";
@@ -131,6 +132,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerFiles(app, deps);
   registerUnfurl(app, deps);
   registerPush(app, deps);
+  registerSearch(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

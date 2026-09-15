@@ -150,11 +150,10 @@ What comes back is deliberately dull (ADR-0093):
 Uploads are capped at 25 MB, and previews are the original bytes rather than a thumbnail: nothing is
 re-encoded yet, and the transcript constrains what it draws.
 
-One limit to know about: a file is read as the **workspace's**, not as the channel's. Any member
-holding a file's id may fetch it, even if it was attached in a private channel they are not in. Ids
-are UUIDv7 and are only ever handed out beside a message the reader can already see, but that is a
-weaker promise than the one a private channel makes about its messages (ADR-0093). Per-channel file
-visibility arrives with search in task 2.4, which needs the same index.
+Reading a file is reading the message it was said in: your own uploads always, and anybody else's
+only through a message in a channel you can see (ADR-0094). A file attached in a private channel is
+as private as the channel — asking for it by id answers 404, the same way the channel does. A file
+nobody has posted yet is its uploader's alone.
 
 ## Unfurls
 
@@ -187,3 +186,27 @@ sealed by the vault: a laptop-mode Perch notifies people with no configuration a
 
 While the tab is open the worker passes the message to the page instead, and it shows as a live
 region at the bottom of the shell with a link to follow.
+
+
+## Search
+
+One box, both kinds of result: `GET /api/workspaces/{ws}/search?q&type&channel&from&limit`, the path
+§7.1 names. Messages are matched by Postgres full text — `messages.text_search` is a generated
+tsvector with a GIN index, so nothing is indexed twice and there is no search service to run — and
+files by name.
+
+What you can type is what `websearch_to_tsquery` takes: bare words, `"a quoted phrase"`, `or`, and a
+leading `-` to leave a word out. English stemming means "migration" finds "migrations". Results are
+ranked by `ts_rank_cd` and, where two match equally well, the newer one is first.
+
+Filters: `type` (`all`, `messages`, `files`), `channel` (one channel — one you can see; naming any
+other answers 404, exactly as the channel itself does), and `from` (one person). Everything is
+scoped to what you could have read anyway: the public channels plus the ones you are in, and — for
+files — the messages in those channels that point at them.
+
+The Search tab draws the results with the matched words marked, and opens one as a **peek** with
+"Open full" to the channel it was said in, because leaving the page loses the list of results.
+
+A search of 100,000 messages answers in about 50 ms (the acceptance is 150 ms). Two queries do it:
+one picks the top ids by rank, the second fetches those rows and the names beside them — ranking and
+sorting whole rows costs several times as much (ADR-0094).

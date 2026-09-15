@@ -1,9 +1,10 @@
-import { Avatar, Badge, EmptyState, Input, type RailMode, t } from "@perch/ui";
+import { Avatar, Badge, EmptyState, type RailMode, t } from "@perch/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { Bot, Code, Inbox, MessageSquare, Search, SquareKanban } from "lucide-react";
 import type { ComponentType } from "react";
 import { ChannelsMain } from "../../../chat/channels.tsx";
+import { SearchMain } from "../../../chat/search.tsx";
 import { ProjectsMain } from "../../../code/projects.tsx";
 import { membersQuery } from "../../../lib/queries.ts";
 import { usePresence } from "../../../lib/ws.ts";
@@ -51,19 +52,9 @@ function ModeRoute() {
         />
       ) : null}
       {mode === "search" ? (
-        <div className="p-4">
-          <label htmlFor="search" className="sr-only">
-            {t("shell.search.placeholder")}
-          </label>
-          <Input
-            id="search"
-            type="search"
-            placeholder={t("shell.search.placeholder")}
-            autoComplete="off"
-          />
-        </div>
+        <SearchMain workspaceId={workspace.id} workspaceSlug={workspace.slug} />
       ) : null}
-      {mode === "code" || mode === "home" ? null : (
+      {mode === "code" || mode === "home" || mode === "search" ? null : (
         <EmptyState
           icon={<Icon className="size-8" aria-hidden="true" />}
           title={t(`shell.${mode}.emptyTitle`)}

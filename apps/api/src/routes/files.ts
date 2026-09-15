@@ -12,6 +12,7 @@ import { authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { canReadFile, visibleChannelIds } from "../repos/search.ts";
 import { bodyOf, getFile, isInline, MAX_UPLOAD_BYTES, storeUpload } from "../services/files.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
@@ -98,11 +99,19 @@ function disposition(kind: "inline" | "attachment", name: string): string {
 }
 
 export function registerFiles(app: OpenAPIHono<AppEnv>, deps: Deps): void {
-  /** A file is the workspace's: seeing it is being in that workspace. */
+  /**
+   * Seeing a file is being in its workspace *and* having somewhere to have seen it: your own
+   * upload, or a message in a channel you can see (task 2.4, ADR-0094). A file you have no way to
+   * have come across is not there as far as you are concerned, which is the answer a private
+   * channel gives about everything else of its own.
+   */
   const fileFor = async (c: Parameters<typeof authorize>[0], id: string): Promise<FileRow> => {
     const row = await getFile(deps.db.db, id);
     if (!row) throw PerchError.notFound("file");
     await authorize(c, deps, "files.read", { type: "workspace", id: row.workspaceId });
+    const userId = currentUser(c).id;
+    const scope = await visibleChannelIds(deps.db.db, row.workspaceId, userId);
+    if (!(await canReadFile(deps.db.db, row, userId, scope))) throw PerchError.notFound("file");
     return row;
   };
 

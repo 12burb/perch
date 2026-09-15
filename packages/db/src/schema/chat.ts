@@ -95,6 +95,9 @@ export const messages = pgTable(
     index("messages_channel_created_idx").on(t.channelId, t.createdAt.desc()),
     index("messages_thread_created_idx").on(t.threadRootId, t.createdAt),
     index("messages_text_search_idx").using("gin", t.textSearch),
+    // Which messages point at a file (task 2.4): `blocks @> '[{"type":"file","fileId":"…"}]'`
+    // is what decides whether somebody may read an attachment, so it has an index of its own.
+    index("messages_blocks_idx").using("gin", sql`${t.blocks} jsonb_path_ops`),
     check("messages_author_type_check", sql`${t.authorType} in ('user', 'bot', 'system')`),
   ],
 );

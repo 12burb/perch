@@ -6895,6 +6895,77 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search the messages and files you can see */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    type?: "all" | "messages" | "files";
+                    channel?: string;
+                    from?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Results */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SearchResults"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -7769,6 +7840,37 @@ export type components = {
                 p256dh: string;
                 auth: string;
             };
+        };
+        SearchResults: {
+            messages: components["schemas"]["MessageHit"][];
+            files: components["schemas"]["FileHit"][];
+        };
+        MessageHit: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            channel_id: string;
+            channel_name: string | null;
+            /** Format: uuid */
+            thread_root_id: string | null;
+            /** @enum {string} */
+            author_type: "user" | "bot" | "system";
+            /** Format: uuid */
+            author_id: string;
+            author_name: string | null;
+            blocks: ({
+                type: string;
+            } & {
+                [key: string]: unknown;
+            })[];
+            created_at: string;
+            rank: number;
+        };
+        FileHit: {
+            file: components["schemas"]["File"];
+            /** Format: uuid */
+            channel_id: string | null;
+            channel_name: string | null;
         };
     };
     responses: never;

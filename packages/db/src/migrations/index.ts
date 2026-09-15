@@ -15,6 +15,7 @@ import m11 from "../../drizzle/0011_mcp_servers.sql" with { type: "text" };
 import m12 from "../../drizzle/0012_preview_share_runner_optional.sql" with { type: "text" };
 import m13 from "../../drizzle/0013_message_edits.sql" with { type: "text" };
 import m14 from "../../drizzle/0014_push_subscriptions.sql" with { type: "text" };
+import m15 from "../../drizzle/0015_messages_blocks_index.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -46,4 +47,5 @@ export const migrationSources: MigrationSource[] = [
   },
   { idx: 13, tag: "0013_message_edits", when: 1789450387581, breakpoints: true, sql: m13 },
   { idx: 14, tag: "0014_push_subscriptions", when: 1789454375029, breakpoints: true, sql: m14 },
+  { idx: 15, tag: "0015_messages_blocks_index", when: 1789456953088, breakpoints: true, sql: m15 },
 ];

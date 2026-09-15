@@ -62,5 +62,20 @@
   "chat.reactWith": "React with",
   "chat.reactWithEmoji": "React with {emoji}",
   "chat.reactionCount": "{emoji}, {count} — click to add yours or take yours off",
-  "chat.attach": "Attach a file"
+  "chat.attach": "Attach a file",
+  "search.heading": "Search",
+  "search.label": "What are you looking for",
+  "search.kind": "Kind",
+  "search.kind.all": "Everything",
+  "search.kind.messages": "Messages",
+  "search.kind.files": "Files",
+  "search.inChannel": "In",
+  "search.anyChannel": "Any channel",
+  "search.emptyTitle": "Search this workspace",
+  "search.emptyHint": "Two characters is enough. Quote \"a phrase\", or put a minus in front of a word to leave it out.",
+  "search.noneTitle": "Nothing matches {q}",
+  "search.noneHint": "Try fewer words, or look in every channel.",
+  "search.messages": "{count} messages",
+  "search.files": "{count} files",
+  "search.peekTitle": "{name} in #{channel}"
 }

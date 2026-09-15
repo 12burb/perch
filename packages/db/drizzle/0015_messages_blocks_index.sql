@@ -1,0 +1,1 @@
+CREATE INDEX "messages_blocks_idx" ON "messages" USING gin ("blocks" jsonb_path_ops);

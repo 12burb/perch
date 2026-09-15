@@ -3063,3 +3063,61 @@ key, and a mention that arrives at a stand-in push service as ciphertext the tes
 toolbar and off again from the pill, a PNG attached and drawn (`naturalWidth > 0`), an identifier
 that becomes a card, the worker registering, and a push delivered through the DevTools protocol
 showing up as a live region with a link that lands in the right place.
+
+## ADR-0094: Search is two queries, and a file is as private as the message it was said in
+
+- Status: accepted
+- Date: 2026-09-15
+- Task: 2.4
+
+### Context
+§5.2 asks for "Postgres full-text over messages and files with filters" with a results page and a
+peek, and the acceptance is 150 ms on 100,000 messages. The schema has had what search needs since
+task 0.5: a generated `text_search` tsvector on `messages` with a GIN index. ADR-0093 also left one
+thing open on purpose — files were authorized against their workspace rather than the channel they
+were posted in — and said the fix would come with this task, because it needs the same index.
+
+### Decision
+1. **The matching is Postgres's.** `websearch_to_tsquery('english', …)` parses what people type —
+   bare words, quoted phrases, `or`, `-not` — without throwing on punctuation, and `ts_rank_cd`
+   ranks. No second index, no search service (spec §3.1).
+2. **Two queries, not one.** The first picks ids and ranks and takes the top of them; the second
+   fetches those rows and joins the channel and author names. Measured on 100k messages in PGlite
+   with a term matching a third of them: one query that ranks and sorts whole rows (blocks jsonb and
+   tsvector included) takes ~145 ms; ranking the id/rank pair and fetching thirty rows takes ~45 ms.
+   The acceptance is met with room to spare, and it is met by the shape of the query rather than by
+   a warm cache.
+3. **Scope before filter.** Every search is restricted to the channels the caller can see before any
+   filter is applied. A `channel` they cannot see is refused through `channelFor` — 404, the same
+   answer the channel itself gives (ADR-0090) — rather than quietly returning nothing, because an
+   empty result would confirm the channel exists.
+4. **Files are matched by name.** A file name is short and a workspace has thousands of files, not
+   millions; `ilike` over them is cheaper than a second tsvector to maintain. If that stops being
+   true, the column is there to add.
+5. **A file is as private as the message it was said in.** Reading a file now requires being its
+   uploader or seeing a message that points at it in a channel the caller can see, which is what
+   ADR-0093 left open. The check is a jsonb containment — `blocks @> '[{"type":"file","fileId":…}]'`
+   — with a GIN index (`jsonb_path_ops`, migration 0015) behind it. A file nobody has posted is its
+   uploader's alone; anything else answers 404, not 403, so an id proves nothing.
+6. **Results are marked, not summarized.** The api returns the message; the client marks the words
+   that matched. `ts_headline` would mean a second parse of every result on the server for a
+   fragment the client can produce from text it already has.
+7. **A result opens as a peek** (spec §4) with "Open full" to the channel, because following a
+   result straight out of the page loses the list of results.
+
+### Consequences
+Chat is searchable and the last hole in file privacy is closed. The `messages_blocks_idx` that does
+it is also what a "which messages carry this file" question will want later.
+
+What is not here: search over sessions, work items and code (spec §5.7's `@codebase` is Phase 3),
+`type=files` ranking (files come back newest first), highlighting inside code blocks, and paging —
+a search answers with its best 50 and asks you to narrow rather than scroll.
+
+### What was actually verified
+`apps/api/test/search.test.ts`: stemming and phrases and `-not`; the filters; a private channel that
+keeps its messages and its attachments to its members, including the 404 for naming it; files found
+by name only where they could have been seen; and the acceptance — 100,000 messages seeded in the
+database, three searches, the slowest under 150 ms (about 50 ms in practice, printed by the test).
+`e2e/search.e2e.ts` at both viewports: two channels, a word in each, the marked results, the channel
+filter narrowing them to one, the peek and its "Open full" landing in the right channel, and a
+search that finds nothing saying so.
