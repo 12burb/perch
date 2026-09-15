@@ -12,6 +12,7 @@ import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./c
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
 import { registerBrains } from "./routes/brains.ts";
+import { registerConnections } from "./routes/connections.ts";
 import { registerHealth } from "./routes/health.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMe } from "./routes/me.ts";
@@ -102,6 +103,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerProjectFs(app, deps);
   registerSessions(app, deps);
   registerBrains(app, deps);
+  registerConnections(app, deps);
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

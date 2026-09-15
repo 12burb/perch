@@ -39,11 +39,22 @@ export type ProjectDeps = {
   queue: Queue;
   registry: RunnerRegistry;
   log: Logger;
+  /**
+   * Mints the token for a clone that runs on a connection (task 1.16). A function rather than the
+   * service so this module stays free of it; the api wires ConnectionsService in at boot.
+   */
+  connectionToken?: (input: {
+    workspaceId: string;
+    userId: string;
+    connectionId: string;
+  }) => Promise<string>;
 };
 
 export type CloneAuth =
   | { kind: "token"; token: string; username?: string }
-  | { kind: "deploy_key" };
+  | { kind: "deploy_key" }
+  /** A connection (task 1.16): the token is minted when the clone runs and never stored here. */
+  | { kind: "connection"; connectionId: string };
 
 export type ProjectSourceInput =
   | { kind: "empty"; defaultBranch?: string }
@@ -221,6 +232,7 @@ async function runnerSource(
   deps: ProjectDeps,
   project: Project,
   source: ProjectSourceInput,
+  userId: string,
 ): Promise<RunnerSource> {
   switch (source.kind) {
     case "empty":
@@ -238,6 +250,20 @@ async function runnerSource(
           ...branch,
           auth: { kind: "token", token: source.auth.token, ...username },
         };
+      }
+      if (source.auth.kind === "connection") {
+        // Minted here, handed to the runner for this one clone, and never written down.
+        if (!deps.connectionToken) {
+          throw new Error("this instance cannot clone through a connection");
+        }
+        const token = await deps.connectionToken({
+          workspaceId: project.workspaceId,
+          userId,
+          connectionId: source.auth.connectionId,
+        });
+        // GitHub takes an installation or personal token as the password with any username; the
+        // documented one for an app is x-access-token.
+        return { ...base, ...branch, auth: { kind: "token", token, username: "x-access-token" } };
       }
       const privateKey = await decryptDeployKey(deps, project.workspaceId);
       if (!privateKey) {
@@ -319,7 +345,7 @@ async function runSetup(
   });
   await publish(["status", "runner_id"]);
   try {
-    const params = await runnerSource(deps, project, source);
+    const params = await runnerSource(deps, project, source, userId);
     const raw = await link.call("project.setup", {
       workspace_id: project.workspaceId,
       user_id: userId,

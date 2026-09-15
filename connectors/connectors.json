@@ -1,0 +1,6 @@
+{
+  "$comment": "The connectors that ship with Perch (spec §5.5). Each id is a directory with a manifest.yaml.",
+  "connectors": [
+    { "id": "github", "name": "GitHub", "manifest": "github/manifest.yaml", "since": "1.16" }
+  ]
+}

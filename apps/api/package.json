@@ -27,6 +27,8 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
     "@opentelemetry/sdk-node": "0.222.0",
     "@perch/bus": "workspace:*",
+    "@perch/connect": "workspace:*",
+    "@perch/connectors": "workspace:*",
     "@perch/db": "workspace:*",
     "@perch/engines": "workspace:*",
     "@perch/events": "workspace:*",

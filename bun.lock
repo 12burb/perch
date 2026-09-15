@@ -26,6 +26,8 @@
         "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
         "@opentelemetry/sdk-node": "0.222.0",
         "@perch/bus": "workspace:*",
+        "@perch/connect": "workspace:*",
+        "@perch/connectors": "workspace:*",
         "@perch/db": "workspace:*",
         "@perch/engines": "workspace:*",
         "@perch/events": "workspace:*",
@@ -178,6 +180,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0",
+        "@perch/connectors": "workspace:*",
         "arctic": "3.7.0",
         "yaml": "2.9.1",
         "zod": "4.6.3",

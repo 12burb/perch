@@ -16,6 +16,7 @@ import {
   rotateDeployKey,
 } from "../services/deploy-keys.ts";
 import {
+  type CloneAuth,
   createProject,
   deleteProject,
   getProject,
@@ -107,6 +108,8 @@ const cloneAuthSchema = z.discriminatedUnion("kind", [
     username: z.string().trim().min(1).max(200).optional(),
   }),
   z.object({ kind: z.literal("deploy_key") }),
+  /** A connection (task 1.16): Perch mints the token when the clone runs. */
+  z.object({ kind: z.literal("connection"), connection_id: z.uuid() }),
 ]);
 
 const listProjectsRoute = createRoute({
@@ -278,6 +281,13 @@ const rotateDeployKeyRoute = createRoute({
   },
 });
 
+/** The wire shape is snake_case; the service's is not. */
+function cloneAuthOf(auth: z.infer<typeof cloneAuthSchema>): CloneAuth {
+  return auth.kind === "connection"
+    ? { kind: "connection", connectionId: auth.connection_id }
+    : auth;
+}
+
 export function projectDeps(deps: Deps): ProjectDeps {
   return {
     db: deps.db.db,
@@ -286,6 +296,12 @@ export function projectDeps(deps: Deps): ProjectDeps {
     queue: deps.queue,
     registry: deps.runners,
     log: deps.log,
+    // A clone on a connection (task 1.16): the token is minted for that one clone and never kept.
+    connectionToken: async ({ workspaceId, userId, connectionId }) => {
+      const row = await deps.connections.connectionFor(workspaceId, userId, connectionId);
+      if (!row) throw PerchError.notFound("connection");
+      return deps.connections.tokenFor(row);
+    },
   };
 }
 
@@ -334,7 +350,7 @@ export function registerProjects(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         kind: "clone",
         repoUrl: body.repo_url,
         ...(body.branch ? { branch: body.branch } : {}),
-        ...(body.auth ? { auth: body.auth } : {}),
+        ...(body.auth ? { auth: cloneAuthOf(body.auth) } : {}),
       },
       userId: user.id,
       by: actorOf(c),

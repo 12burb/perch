@@ -1,0 +1,32 @@
+# GitHub (spec §3.5, §5.5; task 1.16).
+#
+# GitHub's remote MCP has no dynamic client registration, so the lanes are a GitHub App — which
+# gives installation tokens, webhooks, and check runs — or a fine-grained personal access token.
+# Plain OAuth2 is listed too, for an instance that registered its own OAuth app.
+id: github
+name: GitHub
+summary: Clone and push repositories, open pull requests, and read issues.
+docs_url: https://docs.github.com/en/apps
+auth:
+  - github_app
+  - oauth2
+  - token
+api_base: https://api.github.com
+# A fine-grained token is github_pat_, a classic one ghp_, an installation token ghs_.
+token_prefix:
+  - github_pat_
+  - ghp_
+  - ghs_
+  - gho_
+test_path: /user
+account_field: login
+oauth:
+  authorize_url: https://github.com/login/oauth/authorize
+  token_url: https://github.com/login/oauth/access_token
+  scopes:
+    - repo
+    - read:org
+  scope_separator: " "
+  refresh: false
+mcp_url: https://api.githubcopilot.com/mcp/
+webhook_signature: hmac_sha256

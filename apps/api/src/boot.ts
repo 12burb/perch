@@ -23,6 +23,7 @@ import {
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
 import { BrainsService } from "./services/brains.ts";
+import { ConnectionsService } from "./services/connections.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -107,6 +108,13 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
     ...(env.ollamaUrls.length > 0 ? { ollamaUrls: env.ollamaUrls } : {}),
   });
+  const connections = new ConnectionsService({
+    db: db.db,
+    bus,
+    vault,
+    log,
+    publicUrl: env.publicUrl,
+  });
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, flags, brains, log },
     options.sessions ?? {},
@@ -122,6 +130,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     engines,
     sessions,
     brains,
+    connections,
     flags,
     log,
     version: versionInfo(env),
