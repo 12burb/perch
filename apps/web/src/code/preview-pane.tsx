@@ -327,7 +327,11 @@ export function PreviewPane(props: {
       </div>
 
       {inspector.on || inspector.lines.length > 0 || inspector.failures.length > 0 ? (
-        <InspectorPanel projectId={props.projectId} state={inspector} />
+        <InspectorPanel
+          workspaceId={props.workspaceId}
+          projectId={props.projectId}
+          state={inspector}
+        />
       ) : null}
     </section>
   );

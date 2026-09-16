@@ -60,7 +60,44 @@ rule.
 A screenshot needs a browser on the runner. The hosted runner image ships one; a local runner uses
 whatever is installed, and `PERCH_CHROMIUM` names one explicitly.
 
+## Direct tweaks (task 3.21)
+
+With an element selected, the panel gives you its **Text** and its **Classes**. Typing in either
+changes the page as you type — the preview is a page, and changing a page is cheap. Nothing has been
+written anywhere yet.
+
+**Write to source** is the other half:
+
+```
+POST /api/workspaces/{ws}/projects/{p}/element-edit  {source, class_name?, text?}
+  → {path, changed, diff}
+```
+
+It takes the element's own `data-perch-src`, so you never say which file or which line. That is what
+makes it deterministic: there is no model, and no guess about which `<div className="p-2">` was
+meant. Given the file and the position, it finds the opening tag and changes the one attribute or
+the one piece of text it was asked to. The diff comes back with it, and the panel shows it.
+
+**It refuses more than it attempts**, which is the point:
+
+| It will not | Because |
+|---|---|
+| `className={cn(a, b)}` | that is an expression, not a list of classes to rewrite |
+| text in an element holding anything but text | there is no one string to replace |
+| text on `<img />` | nothing to put it in |
+| a position the file has moved on from | it is not that element any more |
+| text containing `<` or `{` | that is markup, not words |
+
+Each refusal is a `422` carrying its reason, which is what the panel shows you instead. A refusal is
+something you can work around — open the file, or ask the agent. A guess would be a wrong edit in
+your repository.
+
+An element written over several lines keeps its indentation: JSX collapses the whitespace either
+way, and reflowing a file to change one word is a rude diff.
+
+Without the dev plugin there is no `data-perch-src`, so there is nothing to write to and the button
+is disabled. The tweak still shows in the page.
+
 ## Not here yet
 
-Direct tweaks (edit text, classes and CSS in the panel, written back to source), the agent's own
-Playwright eyes, and preflight visual smoke are Phase 3 (spec §5.6).
+The agent's own Playwright eyes and preflight visual smoke are the rest of §5.6's Phase 3.

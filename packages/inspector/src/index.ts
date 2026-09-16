@@ -15,6 +15,15 @@ export {
   type Selection,
 } from "./client.ts";
 export {
+  applyElementEdit,
+  type EditApplied,
+  type EditRefusal,
+  type EditResult,
+  type ElementAt,
+  type ElementEdit,
+  parseSource,
+} from "./edit.ts";
+export {
   type InspectorOptions,
   type LoaderContext,
   perchInspector,

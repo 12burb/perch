@@ -51,7 +51,20 @@ export type HostMessage =
   | { source: typeof HOST_MESSAGE; nonce: string; type: "enable" }
   | { source: typeof HOST_MESSAGE; nonce: string; type: "disable" }
   | { source: typeof HOST_MESSAGE; nonce: string; type: "tree" }
-  | { source: typeof HOST_MESSAGE; nonce: string; type: "reveal"; path: number[] };
+  | { source: typeof HOST_MESSAGE; nonce: string; type: "reveal"; path: number[] }
+  /**
+   * A tweak, applied in the page before anybody writes it to source (spec §5.6 "applied
+   * instantly"; task 3.21). The page is the thing being looked at, so it changes first; the file
+   * catches up through `apply_element_edit`, and the panel says so if it cannot.
+   */
+  | {
+      source: typeof HOST_MESSAGE;
+      nonce: string;
+      type: "tweak";
+      path: number[];
+      className?: string;
+      text?: string;
+    };
 
 /**
  * The bits of a page this uses, as its own interfaces. The client is serialized and runs in a
@@ -182,6 +195,16 @@ function client(nonce: string, origin: string): void {
       },
       chain,
     };
+  }
+
+  /** One element, changed where it stands. Whatever is absent is left exactly as it was. */
+  function tweak(input: { path?: number[]; className?: string; text?: string }): void {
+    const element = at(input.path ?? []);
+    if (!element) return;
+    if (typeof input.className === "string") element.setAttribute("class", input.className);
+    if (typeof input.text === "string") element.textContent = input.text;
+    // Selected again, so the panel's own fields match what the page now says.
+    send({ type: "select", selection: describe(element) });
   }
 
   function outline(element: El | null): void {
@@ -338,12 +361,20 @@ function client(nonce: string, origin: string): void {
 
   win.addEventListener("message", (event: { origin: string; data: unknown }) => {
     if (event.origin !== origin) return;
-    const data = event.data as { source?: string; nonce?: string; type?: string; path?: number[] };
+    const data = event.data as {
+      source?: string;
+      nonce?: string;
+      type?: string;
+      path?: number[];
+      className?: string;
+      text?: string;
+    };
     if (!data || data.source !== HOST || data.nonce !== nonce) return;
     if (data.type === "enable") enable(true);
     else if (data.type === "disable") enable(false);
     else if (data.type === "tree") sendTree();
     else if (data.type === "reveal") outline(at(data.path ?? []));
+    else if (data.type === "tweak") tweak(data);
   });
 
   win.addEventListener("mousemove", onMove as (event: never) => void, true);

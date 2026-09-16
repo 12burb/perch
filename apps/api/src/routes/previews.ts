@@ -17,6 +17,7 @@ import { getChannel } from "../repos/channels.ts";
 import { insertMessage } from "../repos/messages.ts";
 import { getShare } from "../repos/previews.ts";
 import { findWorkspaceById } from "../repos/workspaces.ts";
+import { editElement } from "../services/element-edit.ts";
 import { storeUpload } from "../services/files.ts";
 import { configPath, previewCommand } from "../services/previews.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
@@ -194,7 +195,77 @@ function toShare(share: PreviewShare) {
   };
 }
 
+/**
+ * A direct tweak, written to source (spec §5.6; task 3.21). It takes the element's own
+ * `data-perch-src`, so the caller never says which file or which line — that is what makes the
+ * edit deterministic rather than a guess about which `<div className="p-2">` was meant.
+ */
+const elementEditRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/element-edit",
+  tags: ["previews"],
+  summary: "Write a panel tweak back to the source it came from",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: projectParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              /** `src/app.tsx:42:7`, off the element. */
+              source: z.string().min(3).max(1000),
+              class_name: z.string().max(2000).optional(),
+              text: z.string().max(10_000).optional(),
+            })
+            .openapi("ElementEditRequest"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "What changed, and the diff of the one file",
+      content: {
+        "application/json": {
+          schema: z.object({
+            path: z.string(),
+            changed: z.array(z.enum(["className", "text"])),
+            diff: z.string(),
+          }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422, 502),
+  },
+});
+
 export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
+  app.openapi(elementEditRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    // Writing a file is writing a file, whoever pressed the button.
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const link = await projectRunnerLink(projectDeps(deps), project, user.id);
+    return c.json(
+      await editElement({
+        project,
+        link,
+        userId: user.id,
+        source: body.source,
+        edit: {
+          ...(body.class_name === undefined ? {} : { className: body.class_name }),
+          ...(body.text === undefined ? {} : { text: body.text }),
+        },
+      }),
+      200,
+    );
+  });
+
   app.openapi(screenshotRoute, async (c) => {
     const { ws, project: projectId } = c.req.valid("param");
     const body = c.req.valid("json");

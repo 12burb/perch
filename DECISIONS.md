@@ -5401,3 +5401,53 @@ What is not here: replying to a single inline comment (the push answers the revi
 resolving a thread, merging from Perch, and requesting a reviewer. Merging especially: the merge
 queue (3.15) lands branches on the runner's checkout, and a "Merge" button on this page would be a
 second, different way to land something.
+
+## ADR-0138: A tweak changes the page first and the file only when asked, and refuses rather than guesses
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.21
+
+### Context
+§5.6 asks for "Direct tweaks (Phase 3): edit text, classes, common CSS in the panel → applied
+instantly → written to source via a deterministic `apply_element_edit` tool → diff card".
+
+### Decision
+**Two halves, deliberately unequal.** Typing in the panel changes the page on every keystroke, and
+nothing is written anywhere. **Write to source** is a separate press. Looking at a thing is cheap
+and editing somebody's repository is not, and a tweak that wrote a file per keystroke would be a
+hundred commits' worth of churn for one decision.
+
+**Deterministic means it is given the position, not asked to find it.** `data-perch-src` already
+carries `file:line:column` for the `<` that opens the element (task 2.16), so the caller never names
+a file. Everything that makes this hard — "which `<div className="p-2">` did they mean" — was solved
+by the tagger, and the edit is a pure function over a file and a position. `applyElementEdit` lives
+in `@perch/inspector` with no I/O in it at all, which is why it can be exhaustively unit-tested.
+
+**It refuses more than it attempts.** `className={cn(a, b)}` is not a string to rewrite; an element
+holding a child element has no "the text"; a position the file has moved on from is not that element
+any more. Each refusal is a `422` carrying its reason, because a reason is something the panel can
+show and an agent can work around, and a guess is a wrong edit in somebody's repository. The scanner
+is the tagger's, not a parser: a JSX toolchain in the api to change one attribute would be a large
+dependency bought to make the failure mode worse.
+
+**Common CSS reaches source as classes.** §5.6 names "text, classes, common CSS". In a
+Tailwind-shaped project — which is what §5.6's "classes (Tailwind-aware)" assumes — a CSS tweak *is*
+a class change, and that is the edit this writes. Writing an inline `style={{…}}` into somebody's
+JSX is a different and worse change than the one they made in the panel, so it is not offered.
+
+**Whitespace survives.** An element written over three lines keeps its indentation: only the trimmed
+text is replaced. JSX collapses it either way, and reflowing a file to change one word makes a diff
+nobody wants to read.
+
+### Consequences
+The endpoint returns the diff of the one file, computed here rather than asked of git: the working
+tree may have other changes in it, and this card is about the one edit just made.
+
+It goes through `projects.update` and the runner's own policy hook — writing a file is writing a
+file, whoever pressed the button — so a protected path is protected from the panel exactly as it is
+from a session.
+
+What is not here: the same edit as an agent tool on `/mcp/perch`. The service is shaped for it
+(`editElement` takes a project and a link and nothing web-shaped), and the tool belongs with the
+rest of the agent's eyes rather than with the panel's hands.

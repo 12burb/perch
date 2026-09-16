@@ -75,6 +75,8 @@ export type InspectorState = {
   failures: FailedRequest[];
   toggle: () => void;
   reveal: (path: number[]) => void;
+  /** Change the selected element where it stands (task 3.21); the file catches up afterwards. */
+  tweak: (path: number[], change: { className?: string; text?: string }) => void;
   clearStrip: () => void;
 };
 
@@ -159,16 +161,26 @@ export function useInspector(
   }, [post]);
 
   const reveal = useCallback((path: number[]) => post({ type: "reveal", path }), [post]);
+  /** A tweak in the page, before anybody writes it to source (task 3.21). */
+  const tweak = useCallback(
+    (path: number[], change: { className?: string; text?: string }) =>
+      post({ type: "tweak", path, ...change }),
+    [post],
+  );
   const clearStrip = useCallback(() => {
     setLines([]);
     setFailures([]);
   }, []);
 
-  return { on, ready, tree, selection, lines, failures, toggle, reveal, clearStrip };
+  return { on, ready, tree, selection, lines, failures, toggle, reveal, tweak, clearStrip };
 }
 
 /** The Elements tree, the selected element, and the strip — the panel §5.6 describes. */
-export function InspectorPanel(props: { projectId: string; state: InspectorState }) {
+export function InspectorPanel(props: {
+  workspaceId: string;
+  projectId: string;
+  state: InspectorState;
+}) {
   const add = useContextChips((store) => store.add);
   const { state } = props;
   const chip = (chip: Omit<ContextChip, "id">) => add(props.projectId, chip);
@@ -206,9 +218,12 @@ export function InspectorPanel(props: { projectId: string; state: InspectorState
               {t("inspect.use")}
             </Button>
           </div>
-          {state.selection.text ? (
-            <p className="truncate text-fg-muted">{state.selection.text}</p>
-          ) : null}
+          <Tweak
+            workspaceId={props.workspaceId}
+            projectId={props.projectId}
+            selection={state.selection}
+            onTweak={state.tweak}
+          />
           <ul className="flex flex-wrap gap-1">
             {state.selection.attributes.slice(0, 8).map((one) => (
               <li key={one.name} className="rounded bg-raised px-1 font-mono text-xs">
@@ -282,6 +297,106 @@ export function InspectorPanel(props: { projectId: string; state: InspectorState
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * A direct tweak (spec §5.6; task 3.21): change the text or the classes here, watch the page
+ * change, and press Write to source to make it true in the repository.
+ *
+ * The page changes on every keystroke and the file changes only when somebody says so, which is
+ * the right way round: looking at a thing is cheap and editing somebody's repository is not.
+ */
+function Tweak(props: {
+  workspaceId: string;
+  projectId: string;
+  selection: Selection;
+  onTweak: (path: number[], change: { className?: string; text?: string }) => void;
+}) {
+  const { selection } = props;
+  const [text, setText] = useState(selection.text);
+  const [classes, setClasses] = useState(selection.classes.join(" "));
+  const [applied, setApplied] = useState<{ path: string; diff: string } | null>(null);
+  const key = selection.path.join(".");
+
+  // A new element is a new pair of fields; the page's own words, not the last element's.
+  useEffect(() => {
+    setText(selection.text);
+    setClasses(selection.classes.join(" "));
+    setApplied(null);
+  }, [selection.text, selection.classes]);
+
+  const write = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/projects/{project}/element-edit", {
+          params: { path: { ws: props.workspaceId, project: props.projectId } },
+          body: {
+            source: selection.source ?? "",
+            ...(classes === selection.classes.join(" ") ? {} : { class_name: classes }),
+            ...(text === selection.text ? {} : { text }),
+          },
+        }),
+      ),
+    onSuccess: (result) => setApplied({ path: result.path, diff: result.diff }),
+  });
+
+  const changed = text !== selection.text || classes !== selection.classes.join(" ");
+
+  return (
+    <div data-testid="inspector-tweak" className="flex flex-col gap-1">
+      <label className="flex items-center gap-2">
+        <span className="w-14 shrink-0 text-fg-muted">{t("inspect.text")}</span>
+        <input
+          className="min-w-0 flex-1 rounded border border-border bg-surface px-1 py-0.5"
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            props.onTweak(selection.path, { text: event.target.value });
+          }}
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        <span className="w-14 shrink-0 text-fg-muted">{t("inspect.classes")}</span>
+        <input
+          className="min-w-0 flex-1 rounded border border-border bg-surface px-1 py-0.5 font-mono text-xs"
+          value={classes}
+          onChange={(event) => {
+            setClasses(event.target.value);
+            props.onTweak(selection.path, { className: event.target.value });
+          }}
+        />
+      </label>
+      <span className="flex items-center gap-2">
+        <Button
+          size="sm"
+          // Without a source there is no file to write to: the dev plugin was not in the build.
+          disabled={!selection.source || !changed || write.isPending}
+          onClick={() => write.mutate()}
+        >
+          {t("inspect.write")}
+        </Button>
+        {applied ? (
+          <span key={key} className="truncate font-mono text-xs text-success">
+            {applied.path}
+          </span>
+        ) : null}
+        {write.error ? (
+          <span role="alert" className="truncate text-xs text-danger">
+            {write.error instanceof RequestFailed ? write.error.message : t("common.error")}
+          </span>
+        ) : null}
+      </span>
+      {applied ? (
+        // The diff card, at panel size: what the file says now, beside what it said before.
+        <pre
+          data-testid="tweak-diff"
+          className="max-h-32 overflow-auto rounded border border-border bg-raised p-1 font-mono text-xs"
+        >
+          {applied.diff}
+        </pre>
+      ) : null}
+    </div>
   );
 }
 

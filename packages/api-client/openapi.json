@@ -3062,6 +3062,27 @@
           "subject_id"
         ]
       },
+      "ElementEditRequest": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 1000
+          },
+          "class_name": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
       "Screenshot": {
         "type": "object",
         "properties": {
@@ -14803,6 +14824,126 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/projects/{project}/element-edit": {
+      "post": {
+        "tags": [
+          "previews"
+        ],
+        "summary": "Write a panel tweak back to the source it came from",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ElementEditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What changed, and the diff of the one file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "className",
+                          "text"
+                        ]
+                      }
+                    },
+                    "diff": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "changed",
+                    "diff"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
             "content": {
               "application/json": {
                 "schema": {
