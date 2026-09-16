@@ -146,6 +146,51 @@ const createSessionRoute = createRoute({
   },
 });
 
+/**
+ * A run for the night (spec §5.7; task 3.17). It needs a channel because the whole promise is that
+ * it reports somewhere: a background session with nowhere to say anything is a session nobody will
+ * ever read.
+ */
+const backgroundBody = z
+  .object({
+    prompt: z.string().min(1).max(100_000),
+    channel_id: z.uuid(),
+    thread_root_id: z.uuid().optional(),
+    engine: z.string().min(1).max(64).optional(),
+    agent: z.string().min(1).max(64).optional(),
+    /** Work in a git worktree of this name rather than in the project checkout (task 3.14). */
+    worktree: z.string().min(1).max(200).optional(),
+  })
+  .openapi("StartBackgroundSession");
+
+const backgroundStartedSchema = z
+  .object({
+    id: z.uuid(),
+    /** The one card it keeps rewritten in the channel, so a caller can link straight to it. */
+    card_message_id: z.uuid(),
+  })
+  .openapi("BackgroundSessionStarted");
+
+const backgroundRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/sessions/background",
+  tags: ["sessions"],
+  summary: "Run a session unattended, reporting as one card in a channel",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: projectParam,
+    body: { content: { "application/json": { schema: backgroundBody } } },
+  },
+  responses: {
+    201: {
+      description: "The session and its card",
+      content: { "application/json": { schema: backgroundStartedSchema } },
+    },
+    ...sessionErrors,
+  },
+});
+
 const listSessionsRoute = createRoute({
   method: "get",
   path: "/api/workspaces/{ws}/projects/{project}/sessions",
@@ -530,6 +575,26 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       }
     }
     return c.json(sessionBody(session), 201);
+  });
+
+  app.openapi(backgroundRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "sessions.create", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const started = await deps.background.start({
+      project,
+      prompt: body.prompt,
+      userId: currentUser(c).id,
+      by: actorOf(c),
+      channelId: body.channel_id,
+      ...(body.thread_root_id ? { threadRootId: body.thread_root_id } : {}),
+      ...(body.engine ? { engine: body.engine } : {}),
+      ...(body.agent ? { agent: body.agent } : {}),
+      ...(body.worktree ? { worktree: body.worktree } : {}),
+    });
+    return c.json({ id: started.sessionId, card_message_id: started.cardMessageId }, 201);
   });
 
   app.openapi(listSessionsRoute, async (c) => {

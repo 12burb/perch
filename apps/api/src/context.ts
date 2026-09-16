@@ -9,6 +9,7 @@ import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { BackgroundService } from "./services/background.ts";
 import type { BotApiService } from "./services/bot-api.ts";
 import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
@@ -69,6 +70,8 @@ export type Deps = {
   mergeQueue: MergeQueueService;
   /** The same task on several engines at once, and the choice between them (task 3.16). */
   races: RaceService;
+  /** Sessions that run to a finish line and report as one card (task 3.17). */
+  background: BackgroundService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

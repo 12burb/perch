@@ -179,6 +179,9 @@ function Blocks(props: {
         if (block.type === "race_card") {
           return <RaceCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "background_card") {
+          return <BackgroundCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "plan_card") {
           return <PlanCard key={key} block={block as Record<string, unknown>} />;
         }
@@ -1124,6 +1127,83 @@ function QueueCard(props: { block: Record<string, unknown> }) {
  * row is the whole decision — which is why the numbers are next to each other rather than in
  * four separate cards.
  */
+/**
+ * A session that ran while nobody was looking (spec §5.7; task 3.17). Rewritten in place as it
+ * goes, so what is here in the morning is the run rather than a stack of notifications: what it
+ * was asked, how far it got, and — once it is over — what the whole night came to.
+ */
+function BackgroundCard(props: { block: Record<string, unknown> }) {
+  const state = String(props.block.state ?? "running");
+  const url = String(props.block.url ?? "");
+  const said = String(props.block.text ?? "");
+  const detail = String(props.block.detail ?? "");
+  const waitingOn = String(props.block.waitingOn ?? "");
+  const number = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const turns = number(props.block.turns);
+  const tools = number(props.block.tools);
+  const files = number(props.block.filesChanged);
+  const cost = number(props.block.costUsd);
+  const elapsed = number(props.block.elapsedMs);
+  const tone =
+    state === "done"
+      ? "success"
+      : state === "failed"
+        ? "danger"
+        : state === "needs_you"
+          ? "warning"
+          : "neutral";
+  return (
+    <div
+      data-testid="background-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{t("chat.background")}</span>
+        <Badge tone={tone}>{t(`chat.background.${state}` as "chat.background.running")}</Badge>
+        {waitingOn ? (
+          <span className="text-sm text-fg-muted">
+            {t("chat.backgroundWaiting", { tool: waitingOn })}
+          </span>
+        ) : null}
+      </span>
+      <span className="text-sm">{String(props.block.prompt ?? "")}</span>
+      {said ? <span className="text-sm text-fg-muted">{said}</span> : null}
+      <span className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+        {turns !== null ? <span>{t("chat.backgroundTurns", { turns: String(turns) })}</span> : null}
+        {tools !== null ? <span>{t("chat.backgroundTools", { tools: String(tools) })}</span> : null}
+        {files !== null && files > 0 ? (
+          <span className="font-mono">
+            {t("chat.backgroundFiles", {
+              files: String(files),
+              additions: String(number(props.block.additions) ?? 0),
+              deletions: String(number(props.block.deletions) ?? 0),
+            })}
+          </span>
+        ) : null}
+        {cost !== null ? <span>{t("chat.backgroundCost", { cost: cost.toFixed(2) })}</span> : null}
+        {elapsed !== null ? (
+          <span>
+            {t("chat.backgroundElapsed", {
+              minutes: String(Math.max(1, Math.round(elapsed / 60000))),
+            })}
+          </span>
+        ) : null}
+      </span>
+      {detail ? (
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-sm text-fg-subtle">
+          {detail}
+        </pre>
+      ) : null}
+      {url ? (
+        <a href={url} className="text-sm text-accent hover:underline">
+          {t("chat.backgroundOpen")}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 function RaceCard(props: { block: Record<string, unknown> }) {
   const client = useQueryClient();
   const raceId = String(props.block.raceId ?? "");

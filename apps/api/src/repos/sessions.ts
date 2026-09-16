@@ -118,6 +118,8 @@ export type SessionPatch = Partial<{
   reasoning: SessionReasoning;
   turns: number;
   endedAt: Date | null;
+  /** The card a background session keeps rewritten in its thread (task 3.17). */
+  cardMessageId: string | null;
 }>;
 
 export async function updateSession(

@@ -123,6 +123,12 @@ export const projectConfigSchema = z
         unattended: z.array(z.string().min(1).max(120)).max(50).optional(),
         /** End a session by itself once a round finishes with nothing waiting on a person. */
         autoSettle: z.boolean().optional(),
+        /**
+         * When a background session is allowed to reach a phone (spec §5.7 "the phone gets what
+         * needs a human"; task 3.17, ADR-0134). `needs_you` — a permission or an error — is the
+         * default; `always` adds the finish; `never` leaves the card to speak for itself.
+         */
+        notify: z.enum(["needs_you", "always", "never"]).optional(),
       })
       .strict()
       .optional(),
@@ -358,6 +364,38 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
             .strict(),
         )
         .max(8),
+    })
+    .strict(),
+  /**
+   * A background session, as one card rewritten in place (spec §5.7 "every state change posts to
+   * the task's thread"; task 3.17). What it was asked, where it got to, and — once it is over —
+   * what the whole run came to, so somebody reading it in the morning needs nothing else.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("background_card"),
+      sessionId: z.uuid(),
+      state: z.enum(["running", "needs_you", "done", "failed"]),
+      /** What it was asked to do, which is the first thing anybody wants to know. */
+      prompt: z.string().max(2000),
+      /** Where to open it: `/<slug>/code/<project>?session=<id>`. */
+      url: z.string().max(2000).optional(),
+      /** The last thing it said, or what it is waiting on. */
+      text: z.string().max(4000).optional(),
+      /** The tool it stopped to ask about, while it is asking. */
+      waitingOn: z.string().max(200).optional(),
+      turns: z.number().int().optional(),
+      /** Tool calls it made, as one number: the transcript is a click away. */
+      tools: z.number().int().optional(),
+      filesChanged: z.number().int().optional(),
+      additions: z.number().int().optional(),
+      deletions: z.number().int().optional(),
+      costUsd: z.number().nonnegative().optional(),
+      /** Wall clock from the first turn to the finish. */
+      elapsedMs: z.number().int().nonnegative().optional(),
+      /** Why it stopped, when it stopped badly. Never a credential. */
+      detail: z.string().max(2000).optional(),
     })
     .strict(),
   /**

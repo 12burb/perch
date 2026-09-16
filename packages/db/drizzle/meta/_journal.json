@@ -232,6 +232,13 @@
       "when": 1789555816533,
       "tag": "0032_races",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789557256190,
+      "tag": "0033_background_card",
+      "breakpoints": true
     }
   ]
 }

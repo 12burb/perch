@@ -5176,3 +5176,59 @@ Auto-settle now reads `background.autoSettle || session.unattended`. A project's
 policy (task 2.18) still applies to everything, including sessions a person opened. Anything that
 starts a session on somebody's behalf in a later task — the testing loop, a scheduled run — says
 `unattended: true` and gets the same lifecycle for free rather than growing another special case.
+
+## ADR-0134: A background run is one card, and the phone hears only what needs a person
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.17
+
+### Context
+§5.7 asks for "background by default: sessions keep running when the tab or laptop closes; every
+state change posts to the task's thread; the phone gets what needs a human", and §11's line for
+3.17 for "a background session finishes overnight and its card is the whole story".
+
+The first clause was already true and always had been: a session runs on the api, driven by the
+round loop in `SessionService`, and a browser is a viewer. Closing a tab has never stopped one, and
+the acceptance test proves it by never opening a WebSocket at all. So this task is the other two
+clauses.
+
+### Decision
+**One card, rewritten in place.** Not a message per event. A run that says four things overnight is
+four notifications to scroll past in the morning; a run that keeps one card is a thing you read.
+The card carries what it was asked, where it got to, the tool it is waiting on, and — once it is
+over — turns, tool calls, files changed, cost and elapsed time. `coding_sessions.card_message_id`
+is where it lives, the same way a race and a queue entry each carry theirs.
+
+This is the third feature to want a card rewritten in place (3.15, 3.16, now 3.17), and all three
+use the same `updateMessageBlocks(..., {history: false})` path a streaming reply uses. A machine
+rewriting its own status line is not somebody editing a message, so it leaves no edit history.
+
+**The counts come out of the transcript, not a second ledger.** Tool calls, files touched and the
+last thing it said are folded out of `session_events` when the card is written. The transcript is
+already the record; anything else would be a copy of it that can disagree with it.
+
+**`background.notify` decides what reaches a phone**, per project, in `.perch/project.json` beside
+`unattended` and `autoSettle` (task 2.18): `needs_you` (the default — a permission it is stuck on,
+or a failure), `always` (those plus the finish), `never`. `needs_you` is the default because that
+is the whole promise: a run getting on with it is a card to read later, and a run that is stuck is
+somebody's evening. One notification per state per session, tagged `session:<id>`, so an evening of
+state changes replaces itself on the lock screen instead of stacking up.
+
+**A channel is required.** `POST …/sessions/background` takes `channel_id` and refuses without it
+(`422`). A background session with nowhere to report is a session nobody will ever read, and
+defaulting it to some channel would be a guess about whose attention this deserves.
+
+### Consequences
+`background_card` joins §5.2's blocks. The finish line is ADR-0133's: the session is `unattended`,
+so it settles when its round goes quiet, and the card's `done` and the session's `ended` are the
+same moment rather than two things that can drift apart.
+
+Push reuses task 2.3's `notify()` and its vault-held VAPID keys, so a laptop-mode Perch wakes a
+phone with no configuration — and a push that fails is a notification somebody misses, never a run
+that fails.
+
+What is not here: no schedule (a run every night at two is cron, task 3.5's, pointed at this
+endpoint), no budget ceiling of its own (the policy engine's, task 2.11), and no digest of several
+runs. The approval inbox already collects what needs a person across features (task 2.10); this
+adds the card, not a second queue.

@@ -3250,6 +3250,94 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/sessions/background": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a session unattended, reporting as one card in a channel */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["StartBackgroundSession"];
+                };
+            };
+            responses: {
+                /** @description The session and its card */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BackgroundSessionStarted"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions/{s}": {
         parameters: {
             query?: never;
@@ -11985,6 +12073,22 @@ export type components = {
             reasoning?: "auto" | "low" | "medium" | "high";
             title?: string;
             prompt?: string;
+        };
+        BackgroundSessionStarted: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            card_message_id: string;
+        };
+        StartBackgroundSession: {
+            prompt: string;
+            /** Format: uuid */
+            channel_id: string;
+            /** Format: uuid */
+            thread_root_id?: string;
+            engine?: string;
+            agent?: string;
+            worktree?: string;
         };
         SessionTurn: {
             text: string;

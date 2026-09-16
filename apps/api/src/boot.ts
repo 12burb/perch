@@ -26,6 +26,7 @@ import {
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
 import { AgentBotsService } from "./services/agent-bots.ts";
+import { BackgroundService } from "./services/background.ts";
 import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
@@ -225,6 +226,16 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const mergeQueue = new MergeQueueService({ db, bus, log, sessions, registry: runners });
   // The same task on several engines at once, compared and decided (task 3.16).
   const races = new RaceService({ db, bus, log, sessions, mergeQueue, registry: runners });
+  // A run nobody is watching, reporting as one card and waking a phone only when it has to
+  // (spec §5.7; task 3.17).
+  const background = new BackgroundService({
+    db,
+    bus,
+    log,
+    vault,
+    env: { publicUrl: env.publicUrl },
+    sessions,
+  });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -258,6 +269,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     work,
     mergeQueue,
     races,
+    background,
     previews,
     deploys,
     dbBrowser,
@@ -286,6 +298,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const stopWork = work.start();
   // A race hears its entrants finish the same way the board hears its sessions (task 3.16).
   const stopRaces = races.watch();
+  // And a background session's card is rewritten by the same seam (task 3.17).
+  const stopBackground = background.watch();
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -315,6 +329,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       stopAgentBots();
       stopWork();
       stopRaces();
+      stopBackground();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

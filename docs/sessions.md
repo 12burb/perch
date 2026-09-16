@@ -247,6 +247,49 @@ session does not know it is being watched, and the thread hears about it by subs
 It runs as the bot's **owner** — a bot is not a person and has no runner — while the actor on every
 event says which bot asked, so the audit log records both.
 
+## A session that runs overnight (task 3.17)
+
+Every session runs on the api rather than in a browser, so closing the tab has never stopped one.
+What a **background session** adds is the other two thirds of §5.7's promise: somewhere for a run
+nobody is watching to say what it is doing, and a rule about when that is allowed to reach a phone.
+
+```
+POST /api/workspaces/{ws}/projects/{p}/sessions/background
+  {prompt, channel_id, thread_root_id?, engine?, agent?, worktree?}
+  → {id, card_message_id}
+```
+
+A channel is required: a run with nowhere to report is a run nobody will ever read. What comes back
+is the session and **one card**, which is then rewritten in place for the rest of the night —
+never a message per event.
+
+| The card says | While running | At the end |
+|---|---|---|
+| What it was asked | ✅ | ✅ |
+| Where it got to — working, needs you, done, stopped | ✅ | ✅ |
+| The tool it stopped to ask about | ✅ | — |
+| Turns, tools, files changed, cost | ✅ | ✅ |
+| How long it took | — | ✅ |
+| The last thing it said | ✅ | ✅ |
+
+It is **unattended** (ADR-0133), so it settles when its round goes quiet instead of holding a runner
+open for a turn nobody is going to type. That is the finish line: the card's `done` and the
+session's `ended` are the same moment.
+
+### What reaches a phone
+
+`background.notify` in `.perch/project.json`:
+
+| | Wakes a phone for |
+|---|---|
+| `needs_you` (the default) | a permission it is waiting on, or a failure |
+| `always` | those, and the finish |
+| `never` | nothing; the card speaks for itself |
+
+One notification per state and one per session, so an evening of state changes replaces itself on
+the lock screen rather than stacking up. A push that fails is a notification somebody misses, never
+a run that fails.
+
 ## The lifecycle
 
 ```

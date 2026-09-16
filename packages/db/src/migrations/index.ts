@@ -33,6 +33,7 @@ import m29 from "../../drizzle/0029_agent_bots.sql" with { type: "text" };
 import m30 from "../../drizzle/0030_work_items.sql" with { type: "text" };
 import m31 from "../../drizzle/0031_merge_queue.sql" with { type: "text" };
 import m32 from "../../drizzle/0032_races.sql" with { type: "text" };
+import m33 from "../../drizzle/0033_background_card.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -82,4 +83,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 30, tag: "0030_work_items", when: 1789550060158, breakpoints: true, sql: m30 },
   { idx: 31, tag: "0031_merge_queue", when: 1789552974684, breakpoints: true, sql: m31 },
   { idx: 32, tag: "0032_races", when: 1789555816533, breakpoints: true, sql: m32 },
+  { idx: 33, tag: "0033_background_card", when: 1789557256190, breakpoints: true, sql: m33 },
 ];

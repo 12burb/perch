@@ -151,5 +151,17 @@
   "chat.raceChecksFail": "checks fail",
   "chat.racePick": "Pick",
   "chat.racePickOne": "Pick {engine}",
-  "chat.raceEntrants": "What each engine did"
+  "chat.raceEntrants": "What each engine did",
+  "chat.background": "Overnight",
+  "chat.background.running": "Working",
+  "chat.background.needs_you": "Needs you",
+  "chat.background.done": "Done",
+  "chat.background.failed": "Stopped",
+  "chat.backgroundOpen": "Open the session",
+  "chat.backgroundWaiting": "waiting on {tool}",
+  "chat.backgroundTurns": "{turns} turns",
+  "chat.backgroundTools": "{tools} tools",
+  "chat.backgroundFiles": "{files} files, +{additions} \u2212{deletions}",
+  "chat.backgroundCost": "${cost}",
+  "chat.backgroundElapsed": "{minutes} min"
 }

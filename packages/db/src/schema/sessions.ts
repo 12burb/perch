@@ -90,6 +90,12 @@ export const codingSessions = pgTable(
      * runner open for a next turn that is never coming (ADR-0133; tasks 3.13, 3.16).
      */
     unattended: boolean("unattended").notNull().default(false),
+    /**
+     * The one card this session keeps rewritten in its thread (spec §5.7 "every state change posts
+     * to the task's thread"; task 3.17). A night of work is one card that ends up being the whole
+     * story, not a notification per event.
+     */
+    cardMessageId: uuid("card_message_id"),
     threadRootId: uuid("thread_root_id"),
     /**
      * The chat this session is answering in, when a bot opened it from one (spec §5.3 "agent
