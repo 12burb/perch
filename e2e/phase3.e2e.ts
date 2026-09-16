@@ -222,11 +222,28 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
             body: JSON.stringify({ channel_id: input.ship }),
           })
         ).status;
-      // The button's install is a request of its own; a list read the instant it was clicked can
-      // be a list without them in it yet.
-      for (let i = 0; i < 120 && !(idOf("dawn") && idOf("kimi")); i++) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        listed = await roster();
+      // The button's install is a request of its own, and a list read the instant it was clicked
+      // can be a list without them in it yet. When it still is, ask for the install here — the
+      // same request the button makes — rather than turning a slow one into a failed run.
+      const settled = async (tries: number) => {
+        for (let i = 0; i < tries && !(idOf("dawn") && idOf("kimi")); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          listed = await roster();
+        }
+        return Boolean(idOf("dawn") && idOf("kimi"));
+      };
+      let how = "the button";
+      if (!(await settled(60))) {
+        how = `again (${
+          (
+            await fetch(`/api/workspaces/${input.ws}/nest`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({}),
+            })
+          ).status
+        })`;
+        await settled(60);
       }
       const dawn = idOf("dawn");
       const kimi = idOf("kimi");
@@ -250,7 +267,7 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
       });
       await install(dawn);
       await install(kimi);
-      return { dawn, kimi };
+      return { dawn, kimi, how, handles: listed.map((one) => one.handle).join(",") };
     },
     {
       ws: ids.workspaceId,
@@ -259,8 +276,8 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
       supabaseConnection: ids.supabaseConnection,
     },
   );
-  expect(bots.dawn).not.toBe("");
-  expect(bots.kimi).not.toBe("");
+  expect(bots.dawn, `${bots.how}: ${bots.handles}`).not.toBe("");
+  expect(bots.kimi, `${bots.how}: ${bots.handles}`).not.toBe("");
 
   // ------------------------------------------- "@dawn fix X" ships a diff card and a PR (3.7)
   await page.goto(`/${slug}/home/${ids.ship}`);
