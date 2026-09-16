@@ -4,7 +4,7 @@ import { getBot } from "../src/repos/bots.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { fetchable, mentionsIn, readable } from "../src/services/bots.ts";
 import { bootTestApp } from "../src/testing.ts";
-import { captureSpans } from "./fixtures/spans.ts";
+import { captureSpans, releaseSpans } from "./fixtures/spans.ts";
 
 /**
  * Task 2.6 (spec §5.3): the native bot runtime. The acceptance is the last test here — a bot
@@ -26,10 +26,11 @@ let robin = { cookie: "", id: "" };
 let wren = { cookie: "", id: "" };
 const asked: string[] = [];
 /** Task 3.22: a bot run is a trace, and this is where they land. */
-const spans = captureSpans();
+let spans: ReturnType<typeof captureSpans>;
 let reply = "The plan is to deploy on Friday.";
 
 beforeAll(async () => {
+  spans = captureSpans();
   // An OpenAI-compatible endpoint: it lists one model and streams whatever `reply` says.
   model = Bun.serve({
     port: 0,
@@ -80,6 +81,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  releaseSpans();
   await running.stop();
   model?.stop(true);
 });

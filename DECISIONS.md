@@ -5575,13 +5575,18 @@ and call it directly. A helper traces the callers who remember to use it; `Runne
 traces the link itself, so "every RPC is a span" means every one, including the ones written next
 year.
 
-**Nesting is by context, with the one parent that matters passed explicitly.** `session.round` and
-`bot.run` are active spans, so a runner call three layers below needs to know nothing about the
-round it is part of — the AsyncLocalStorage context manager the SDK installs carries it. Tool spans
-are the exception: they are opened from an event and closed by a later one, held in a map in
-between, so they are given their round as a parent rather than inheriting whatever context happened
-to be current. The tests install the same context manager the SDK does, so nesting is tested the
-way it ships.
+**Nesting is explicit wherever it is asserted, and by context everywhere else.** `session.round`
+and `bot.run` are active spans, so a runner call three layers below needs to know nothing about the
+round it is part of: the AsyncLocalStorage context manager the SDK installs at boot carries it.
+But the active context is only as good as that context manager, and there is none when the SDK is
+off — so every span whose parentage is part of the answer (a tool call, a bot's model call, a
+bot's tool call) is handed its parent instead of inheriting one. A test can then assert the shape
+without installing a process-wide async hook, which is not a thing a test fixture should switch on
+for a suite that is not about tracing.
+
+**The tracer is resolved per call, not kept.** `trace.getTracer()` binds to whichever proxy is
+current, and the provider arrives at boot — after every module that traces has been imported. A
+tracer held in a module is a tracer that can be bound to a proxy nobody registered against.
 
 **Tracing off is the default and costs nothing.** With no `PERCH_OTLP_ENDPOINT` there is no SDK
 loaded at all — the import is lazy — and `span()` is a few allocations around the same call. A

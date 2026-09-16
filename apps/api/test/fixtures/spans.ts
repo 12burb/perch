@@ -1,30 +1,30 @@
 /**
  * The spans the api made, in memory (task 3.22).
  *
- * Registering a tracer provider is global and takes once per process — `bun test` runs every file
- * in one — so this hands the same exporter to whichever file asks first and to every one after it.
- * A second registration would quietly do nothing and the second file's assertions would be about
- * an exporter nobody exports to.
+ * Registering a tracer provider is global and `bun test` runs every file in one process, so this
+ * is deliberately narrow: a file asks for the exporter in `beforeAll` and gives it back in
+ * `afterAll`, and the 147 files that know nothing about tracing run against the no-op tracer they
+ * always did. A fixture that quietly turns telemetry on for a whole suite is a fixture that
+ * changes what the suite is testing.
  */
-import { context, trace } from "@opentelemetry/api";
-import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { trace } from "@opentelemetry/api";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 
-let exporter: InMemorySpanExporter | null = null;
+const exporter = new InMemorySpanExporter();
+const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
 
+/** Start collecting. Idempotent: two files in one process share the one exporter. */
 export function captureSpans(): InMemorySpanExporter {
-  if (exporter) return exporter;
-  const made = new InMemorySpanExporter();
-  // The same context manager the SDK installs in a running instance, so a span opened three
-  // layers below its round is a child here for the same reason it is one in production.
-  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
-  trace.setGlobalTracerProvider(
-    new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(made)] }),
-  );
-  exporter = made;
-  return made;
+  trace.disable();
+  trace.setGlobalTracerProvider(provider);
+  return exporter;
+}
+
+/** Stop, leaving the process as it was found. */
+export function releaseSpans(): void {
+  trace.disable();
 }

@@ -100,7 +100,7 @@ import {
 } from "../repos/messages.ts";
 import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
-import { ids, span, tracer } from "../telemetry/tracing.ts";
+import { ids, spanUnder, tracer } from "../telemetry/tracing.ts";
 import type { BrainsService } from "./brains.ts";
 import type { ConnectionsService } from "./connections.ts";
 import type { McpGateway } from "./mcp.ts";
@@ -534,7 +534,13 @@ export class BotsService {
    * 3.6). A connection nobody granted it contributes nothing, and says so in the log: a bot with a
    * hopeful spec should be quiet rather than broken.
    */
-  private async attachedTools(bot: Bot, channel: Channel, input: RunInput): Promise<ToolSet> {
+  private async attachedTools(
+    bot: Bot,
+    channel: Channel,
+    input: RunInput,
+    /** The run's span: a tool the bot reaches for belongs inside it (task 3.22). */
+    run: Span,
+  ): Promise<ToolSet> {
     const wanted = bot.spec.mcp ?? [];
     if (wanted.length === 0 || !this.deps.connections || !this.deps.mcp) return {};
     const rows = await workspaceConnections(this.deps.db, bot.workspaceId);
@@ -576,7 +582,8 @@ export class BotsService {
         // A span per tool the bot actually calls (task 3.22): the name and the provider, never
         // the arguments — a tool's arguments are the conversation.
         call: async (name: string, args: Record<string, unknown>) =>
-          await span(
+          await spanUnder(
+            run,
             `tool.${name}`,
             {
               "perch.tool": name,
@@ -1602,7 +1609,7 @@ export class BotsService {
 
     // One trace per bot run (task 3.22), whichever lane answers it. Active for the length of the
     // run, so the model call and every tool it reaches for land inside it.
-    return await tracer.startActiveSpan(
+    return await tracer().startActiveSpan(
       "bot.run",
       {
         attributes: {
@@ -1655,13 +1662,14 @@ export class BotsService {
       // Native tools, plus anything an attached MCP server contributes (spec §5.3; task 3.6).
       const tools = {
         ...toolsFor(allowed, this.hostFor(bot, channel, input)),
-        ...(await this.attachedTools(bot, channel, input)),
+        ...(await this.attachedTools(bot, channel, input, traced)),
       };
       placeholder = input.quiet ? null : await this.say(bot, channel, input.message, PLACEHOLDER);
 
       const stopper = new AbortController();
       this.stopping.set(run.id, stopper);
-      const result = await span(
+      const result = await spanUnder(
+        traced,
         "bot.model",
         {
           "perch.model_id": profile.modelId,

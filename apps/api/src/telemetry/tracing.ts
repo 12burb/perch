@@ -11,11 +11,25 @@
  * background flush — `span()` still runs the work, because a Perch with tracing off must behave
  * exactly like a Perch with tracing on minus the spans (ADR-0141).
  */
-import { type Attributes, type Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  type Attributes,
+  context,
+  type Span,
+  SpanStatusCode,
+  type Tracer,
+  trace,
+} from "@opentelemetry/api";
 import type { Logger } from "pino";
 
-/** The one tracer everything here uses; named for the service rather than the file. */
-export const tracer = trace.getTracer("perch");
+/**
+ * The one tracer everything here uses, named for the service rather than the file — and resolved
+ * per call rather than kept. A tracer taken before a provider is registered is bound to the proxy
+ * that was current then, and the provider arrives at boot, after every module that traces has been
+ * imported. Asking for it each time costs an object and is always the tracer that is running now.
+ */
+export function tracer(): Tracer {
+  return trace.getTracer("perch");
+}
 
 export type Tracing = { shutdown: () => Promise<void> };
 
@@ -50,13 +64,19 @@ export async function startTracing(
 /**
  * Run something inside a span. The span ends whatever happens, an error is recorded on it and
  * rethrown, and with no exporter configured this is a few object allocations and the same call.
+ *
+ * `parent` is for the callers that are holding the span this one belongs under. Without it the
+ * active context decides, which is right when the SDK is running (it installs a context manager)
+ * and is the root when nothing is — so anything whose parentage matters says so.
  */
 export async function span<T>(
   name: string,
   attributes: Attributes,
   run: (span: Span) => Promise<T>,
+  parent?: Span,
 ): Promise<T> {
-  return tracer.startActiveSpan(name, { attributes }, async (current) => {
+  const under = parent ? trace.setSpan(context.active(), parent) : context.active();
+  return tracer().startActiveSpan(name, { attributes }, under, async (current) => {
     try {
       const answer = await run(current);
       current.setStatus({ code: SpanStatusCode.OK });
@@ -72,6 +92,16 @@ export async function span<T>(
       current.end();
     }
   });
+}
+
+/** The same, for a caller that is holding the span this one belongs under. */
+export async function spanUnder<T>(
+  parent: Span,
+  name: string,
+  attributes: Attributes,
+  run: (span: Span) => Promise<T>,
+): Promise<T> {
+  return span(name, attributes, run, parent);
 }
 
 /** Attributes that are always safe to attach: ids and small facts, never content (§9.1's log rule). */

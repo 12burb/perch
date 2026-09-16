@@ -7,7 +7,7 @@ import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
-import { captureSpans } from "./fixtures/spans.ts";
+import { captureSpans, releaseSpans } from "./fixtures/spans.ts";
 
 /**
  * Task 3.22 (spec §8 "OpenTelemetry SDK, OTLP export off by default"; §5.7 "OTel traces and cost
@@ -26,7 +26,7 @@ let cookie = "";
 let ws = "";
 let project = "";
 
-const spans = captureSpans();
+let spans: ReturnType<typeof captureSpans>;
 
 const worker = new FakeEngine({
   id: "worker",
@@ -51,6 +51,7 @@ const worker = new FakeEngine({
 });
 
 beforeAll(async () => {
+  spans = captureSpans();
   booted = await bootTestApp({}, { engines: [worker], sessions: { silenceMs: 60_000 } });
   projectsDir = mkdtempSync(join(tmpdir(), "perch-traces-"));
   booted.runners.attach(createInProcessRunner({ projectsDir, portsIntervalMs: 0 }));
@@ -59,6 +60,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+  releaseSpans();
   await running.stop();
   rmSync(projectsDir, { recursive: true, force: true });
 });

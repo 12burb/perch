@@ -293,7 +293,7 @@ function traceEvent(round: Span, tools: Map<string, Span>, event: SessionEvent):
     const under = trace.setSpan(context.active(), round);
     tools.set(
       event.id,
-      tracer.startSpan(`tool.${event.name}`, { attributes: { "perch.tool": event.name } }, under),
+      tracer().startSpan(`tool.${event.name}`, { attributes: { "perch.tool": event.name } }, under),
     );
     return;
   }
@@ -1179,7 +1179,7 @@ export class SessionService {
     // One trace per round (task 3.22): the model call is this span, and every tool it asks for
     // and every runner RPC underneath lands inside it — active, so a runner call three layers
     // down needs to know nothing about the round it is part of.
-    await tracer.startActiveSpan(
+    await tracer().startActiveSpan(
       "session.round",
       {
         attributes: {
