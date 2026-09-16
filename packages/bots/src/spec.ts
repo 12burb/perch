@@ -23,6 +23,8 @@ import { parse as parseYaml } from "yaml";
 export const SPEC_BOTS_DIR = "bots";
 export const SPEC_BOT_FILE = "bot.yaml";
 export const SPEC_PERSONA_FILE = "SYSTEM.md";
+/** A code bot's own JavaScript, beside its bot.yaml (spec §5.3; task 3.2). */
+export const SPEC_CODE_FILE = "bot.js";
 export const SPEC_SKILLS_DIR = "skills";
 
 /** A handle is what people type after an `@`, so it is what a handle may be. */
@@ -43,6 +45,8 @@ export type SpecBotFiles = {
   yaml: string;
   /** `bots/<handle>/SYSTEM.md`, when the directory has one. */
   systemMd?: string | undefined;
+  /** `bots/<handle>/bot.js`, when the directory has one: this is a code bot rather than a spec one. */
+  code?: string | undefined;
   /** Every `bots/<handle>/skills/**\/SKILL.md`, by path inside the bot's directory. */
   skills?: { path: string; text: string }[] | undefined;
 };
@@ -51,10 +55,14 @@ export type SpecBotFiles = {
 export type SpecBot = {
   handle: string;
   name: string;
+  /** `code` when the directory has a `bot.js`, `spec` otherwise (spec §5.3's four ways). */
+  level: "spec" | "code";
   visibility: BotVisibility;
   orchestrator: boolean;
   budget: BotBudget;
   spec: BotSpec;
+  /** The JavaScript a code bot runs, or null. */
+  code: string | null;
 };
 
 type Loose = Record<string, unknown>;
@@ -197,13 +205,16 @@ export function parseSpecBot(dir: string, files: SpecBotFiles): SpecBot {
   }
 
   const visibility = doc.visibility === "private" ? "private" : "workspace";
+  const code = files.code?.trim() ? files.code : null;
   return {
     handle,
     name: name.slice(0, 120),
+    level: code ? "code" : "spec",
     visibility,
     orchestrator: doc.orchestrator === true,
     budget: budget.data,
     spec: spec.data,
+    code,
   };
 }
 

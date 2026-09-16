@@ -15,6 +15,7 @@ import {
   parseSpecBot,
   SPEC_BOT_FILE,
   SPEC_BOTS_DIR,
+  SPEC_CODE_FILE,
   SPEC_PERSONA_FILE,
   SPEC_SKILLS_DIR,
   type SpecBot,
@@ -121,9 +122,11 @@ export class SpecBotsService {
     const yaml = await this.read(link, ctx, `${SPEC_BOTS_DIR}/${dir}/${SPEC_BOT_FILE}`);
     if (yaml === null) return null;
     const systemMd = await this.read(link, ctx, `${SPEC_BOTS_DIR}/${dir}/${SPEC_PERSONA_FILE}`);
+    const code = await this.read(link, ctx, `${SPEC_BOTS_DIR}/${dir}/${SPEC_CODE_FILE}`);
     return parseSpecBot(dir, {
       yaml,
       ...(systemMd === null ? {} : { systemMd }),
+      ...(code === null ? {} : { code }),
       skills: await this.skillsOf(link, ctx, dir),
     });
   }
@@ -170,7 +173,8 @@ export class SpecBotsService {
       const values: Partial<NewBot> = {
         handle: parsed.handle,
         name: parsed.name,
-        level: "spec",
+        level: parsed.level,
+        code: parsed.code,
         spec: parsed.spec,
         visibility: parsed.visibility,
         orchestrator: parsed.orchestrator,
@@ -237,6 +241,8 @@ function changed(was: Bot, values: Partial<NewBot>): boolean {
   return (
     was.handle !== values.handle ||
     was.name !== values.name ||
+    was.level !== values.level ||
+    was.code !== values.code ||
     was.visibility !== values.visibility ||
     was.orchestrator !== values.orchestrator ||
     was.status !== values.status ||

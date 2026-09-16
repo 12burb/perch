@@ -148,8 +148,8 @@ const reload = async (): Promise<Sync> =>
 const botsNow = async (): Promise<BotRow[]> =>
   ((await call(`/api/workspaces/${ws}/bots`)) as { body: { bots: BotRow[] } }).body.bots;
 
-/** Says something in the channel and waits for the bot's answer in its thread. */
-async function askScribe(text: string): Promise<string> {
+/** Says something in the channel and waits for a bot answer whose text carries `looks`. */
+async function askBot(text: string, looks: string): Promise<string> {
   const said = (await call(`/api/workspaces/${ws}/channels/${channel}/messages`, {
     method: "POST",
     json: { text },
@@ -161,7 +161,7 @@ async function askScribe(text: string): Promise<string> {
       body: { messages: MessageRow[] };
     };
     const answer = res.body.messages.find(
-      (one) => one.author_type === "bot" && (one.blocks[0]?.text ?? "").includes("Reading:"),
+      (one) => one.author_type === "bot" && (one.blocks[0]?.text ?? "").includes(looks),
     );
     if (answer) return answer.blocks[0]?.text ?? "";
     if (Date.now() > deadline) {
@@ -271,7 +271,7 @@ describe("bots that live in a repository (task 3.1)", () => {
     });
     expect(installed.status).toBe(200);
 
-    expect(await askScribe("@scribe what is the plan?")).toContain("You take notes.");
+    expect(await askBot("@scribe what is the plan?", "Reading:")).toContain("You take notes.");
 
     // The repository changes; nothing restarts.
     expect(
@@ -279,7 +279,7 @@ describe("bots that live in a repository (task 3.1)", () => {
     ).toBe(200);
     expect(await reload()).toMatchObject({ added: [], updated: ["scribe"], removed: [] });
 
-    expect(await askScribe("@scribe and now?")).toContain("You count birds.");
+    expect(await askBot("@scribe and now?", "Reading:")).toContain("You count birds.");
   }, 120_000);
 
   test("a bot.yaml that stops making sense pauses that bot and says why", async () => {
@@ -297,6 +297,59 @@ describe("bots that live in a repository (task 3.1)", () => {
     expect((await write("bots/scribe/bot.yaml", BOT_YAML)).status).toBe(200);
     expect(await reload()).toMatchObject({ updated: ["scribe"] });
     expect((await botsNow()).find((one) => one.handle === "scribe")?.status).toBe("active");
+  }, 120_000);
+
+  test("a code bot answers a mention, and one that loops is stopped by its ceiling", async () => {
+    // A second bot in the same repository, this one with a bot.js beside its bot.yaml.
+    expect(
+      (
+        await write(
+          "bots/tally/bot.yaml",
+          "handle: tally\nname: Tally\ntools: [chat_post]\ntriggers:\n  - mention\n",
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await write(
+          "bots/tally/bot.js",
+          `export default bot({
+             async onMessage(event, perch) {
+               perch.log("counting", event.text.length);
+               return "I counted " + event.text.length + " characters.";
+             },
+           });`,
+        )
+      ).status,
+    ).toBe(200);
+    const synced = await reload();
+    expect(synced.added).toEqual(["tally"]);
+
+    const tally = (await botsNow()).find((one) => one.handle === "tally");
+    expect(tally?.level).toBe("code");
+    const installed = await call(`/api/workspaces/${ws}/bots/${tally?.id}/install`, {
+      method: "POST",
+      json: { channel_id: channel },
+    });
+    expect(installed.status).toBe(200);
+
+    // It answers without a model: what it says is what its own JavaScript returned.
+    const said = "@tally count this";
+    const answer = await askBot(said, "I counted");
+    expect(answer).toBe(`I counted ${said.length} characters.`);
+
+    // And one that will not stop is stopped, with the reason where it was asked.
+    expect(
+      (
+        await write(
+          "bots/tally/bot.js",
+          "export default bot({ onMessage: () => { while (true) {} } });",
+        )
+      ).status,
+    ).toBe(200);
+    expect(await reload()).toMatchObject({ updated: ["tally"] });
+    const stopped = await askBot("@tally count this too", "did not run");
+    expect(stopped).toContain("interrupt");
   }, 120_000);
 
   test("a bot whose directory is gone is gone", async () => {

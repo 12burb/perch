@@ -4,9 +4,9 @@ Spec §5.3, §5.4, §7.3. A bot is a member of the workspace that happens not to
 handle people type after an `@`, a spec that says how it behaves, an owner who answers for it, and a
 ledger of everything it has done and spent.
 
-Three of the four ways to make one are here: the **Forge** (a form, task 2.8), a **spec bot** that
-lives in a repository (`bots/<handle>/bot.yaml`, below), and an **external bot** over the
-[Bot API](bot-api.md). Code bots — `@perch/bot-sdk` in a sandbox — arrive with task 3.2.
+All four ways to make one are here: the **Forge** (a form, task 2.8), a **spec bot** that lives in
+a repository (`bots/<handle>/bot.yaml`, below), a **code bot** whose own JavaScript answers
+(`bot.js`, below), and an **external bot** over the [Bot API](bot-api.md).
 
 ## Making one
 
@@ -132,6 +132,39 @@ policy live (ADR-0116).
 `SYSTEM.md` is the persona — what the bot was told about itself. Each `skills/**/SKILL.md` is one
 skill in the Agent Skills format: YAML frontmatter with `name` and `description`, then the
 instructions. A skill with no frontmatter takes its name from its folder.
+
+### A bot that is code
+
+Put a `bot.js` beside the `bot.yaml` and the bot stops asking a model anything — its own JavaScript
+answers:
+
+```js
+export default bot({
+  async onMessage(event, perch) {
+    perch.log("heard", event.text);
+    await perch.chat_post({ channel: event.channel, text: "noted" });
+    return "and I said so out loud";
+  },
+  async onSchedule(event, perch) {},
+  async onWebhook(event, perch) {},
+});
+```
+
+The handler gets the event and a `perch` object. On `perch` are **exactly the tools the bot's
+`tools:` list allows** — `chat_post`, `chat_read`, `http_fetch`, `web_search`, `remember`, `recall`
+and the rest — called by name and awaited. A tool the spec did not grant is not on `perch` at all,
+so a code bot has no permission a Forge bot does not. `perch.log(…)` writes to the run's log.
+
+Returning a string posts it. A handler that posts for itself and returns nothing stays quiet.
+
+It runs in **QuickJS with no host** (ADR-0033): no `fetch`, no `process`, no `require`, no timers,
+no filesystem — `perch` is the whole of the outside. And it runs under a ceiling: 200 ms of
+uninterrupted JavaScript at a time, 15 seconds for the whole run including tool calls, 16 MB of
+memory, and 32 tool calls. A bot that loops is stopped and says so where it was asked; the run is a
+failed `bot_runs` row and nothing else in Perch notices.
+
+`import` is refused rather than ignored, because a bot that thinks it imported something fails in a
+way nobody can read.
 
 ### Reading them
 

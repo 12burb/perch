@@ -31,6 +31,7 @@ import {
   toolsFor,
   withinBudget,
 } from "@perch/bots";
+import { type CodeBotEvent, runCodeBot } from "@perch/bots/sandbox";
 import type { Bus } from "@perch/bus";
 import type {
   Bot,
@@ -829,6 +830,84 @@ export class BotsService {
   }
 
   /** One turn: the budget, the brain, the placeholder, the model, the reply, the ledger. */
+  /**
+   * One event through a code bot (spec §5.3; task 3.2). It runs in QuickJS with no host and a
+   * ceiling: what it may do is the tools its spec allows, through the same registry a native bot
+   * uses, so a code bot has no permission a form bot does not. A run that loops, throws or runs out
+   * of memory is a failed `bot_runs` row and nothing more.
+   */
+  private async runCode(
+    bot: Bot,
+    channel: Channel,
+    input: RunInput,
+    run: BotRun,
+  ): Promise<RunOutcome> {
+    const allowed = this.toolsAllowed(bot.spec, input.install ?? null);
+    const set = toolsFor(allowed, this.hostFor(bot, channel, input));
+    const tools: Record<string, (args: unknown) => Promise<unknown>> = {};
+    for (const [name, one] of Object.entries(set)) {
+      const shaped = one as {
+        inputSchema?: { parse: (value: unknown) => unknown };
+        execute?: (args: unknown, options: unknown) => Promise<unknown>;
+      };
+      if (!shaped.execute) continue;
+      tools[name] = async (args) => {
+        const parsed = shaped.inputSchema ? shaped.inputSchema.parse(args ?? {}) : (args ?? {});
+        return await shaped.execute?.(parsed, {});
+      };
+    }
+
+    const event: CodeBotEvent = {
+      kind:
+        input.trigger === "schedule"
+          ? "schedule"
+          : input.trigger === "webhook"
+            ? "webhook"
+            : "message",
+      payload: {
+        text: input.prompt ?? (input.message ? textOf(input.message.blocks) : ""),
+        channel: channel.id,
+        channel_name: channel.name,
+        thread_root_id: input.message?.threadRootId ?? input.message?.id ?? null,
+        trigger: input.trigger,
+      },
+    };
+    const result = await runCodeBot({ code: bot.code ?? "", event, tools });
+    // A handler that returns a string has said something; one that posted for itself has not.
+    const said = typeof result.returned === "string" ? result.returned.trim() : "";
+    if (said && !input.quiet) await this.say(bot, channel, input.message, said);
+    if (result.error && !input.quiet) {
+      await this.say(bot, channel, input.message, `That did not run: ${result.error}`);
+    }
+    if (result.logs.length > 0) {
+      this.deps.log.info({ botId: bot.id, runId: run.id, logs: result.logs }, "code bot");
+    }
+    const ended = await finishRun(this.deps.db, run.id, {
+      status: result.error ? "error" : "done",
+      ...(result.error ? { error: result.error.slice(0, 1000) } : {}),
+    });
+    if (input.chain) {
+      await finishHop(this.deps.db, input.chain.id, {
+        status: result.error ? "error" : "done",
+        tokens: 0,
+        costUsd: 0,
+      });
+    }
+    await this.deps.bus.publish(
+      result.error ? "bot.run_failed" : "bot.run_finished",
+      result.error
+        ? {
+            workspaceId: channel.workspaceId,
+            botId: bot.id,
+            runId: run.id,
+            error: result.error.slice(0, 500),
+          }
+        : { workspaceId: channel.workspaceId, botId: bot.id, runId: run.id, costUsd: 0 },
+      input.by,
+    );
+    return { run: ended ?? run, text: said || (result.error ?? "") };
+  }
+
   async run(input: RunInput): Promise<RunOutcome> {
     const { bot, channel } = input;
     const now = new Date();
@@ -884,6 +963,9 @@ export class BotsService {
       }
       return { run: ended ?? run, text: verdict.reason };
     }
+
+    // A code bot is its own answer: the file decides, not a model (spec §5.3; task 3.2).
+    if (bot.code) return await this.runCode(bot, channel, input, run);
 
     let placeholder: Message | null = null;
     try {

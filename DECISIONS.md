@@ -4315,3 +4315,52 @@ unschedules it before the row goes.
 
 The idempotence check compares the spec and budget order-insensitively, because jsonb hands back its
 own key order: a repository nobody touched must not look like one that changed.
+
+## ADR-0117: A code bot has no permission a form bot does not
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.2
+
+### Context
+Spec §5.3: "code bots `export default bot({ onMessage, onSchedule, onWebhook })` with
+`@perch/bot-sdk` in a QuickJS sandbox". §9.3 fixed the ceiling at a 200 ms CPU budget, and spike
+0.4.5 (ADR-0033) proved the shape: the sync release build, an interrupt handler, a memory limit, and
+host tools as QuickJS promises settled from the host.
+
+### Decision
+**`perch` inside the sandbox is the bot's own tool allow-list, nothing more.** A code bot calls
+`perch.chat_post(…)`, `perch.http_fetch(…)` and the rest through the same registry a native bot's
+model calls, narrowed the same way by its spec and its install. A tool the bot was not granted is
+not a property on `perch`, so the refusal is a `TypeError` in the bot's own code rather than a
+permission check somewhere else. There is no second surface to keep in step.
+
+**`@perch/bot-sdk` is not what runs inside.** The published SDK is HTTP and a WebSocket, which a
+sandbox with no host cannot do; what a code bot is written against is the same *shape* — named
+methods, awaited — backed by the host. The spec's sentence is read as "the bot-sdk's shape", and
+that is a deviation worth naming.
+
+**Two ceilings, because one is not enough.** The interrupt handler only fires while JavaScript is
+running, so a bot waiting on a tool is invisible to it: `cpuMs` (200) bounds one slice and is reset
+each time a tool answers — so a bot that awaits twice is not punished for the wait — while `wallMs`
+(15 s) bounds the whole run from outside. `toolCalls` (32) bounds a loop made of allowed calls,
+which neither of the others would catch.
+
+**`export default` is rewritten, `import` is refused.** QuickJS has no module system. The one-line
+rewrite turns the spec's `export default bot({…})` into an assignment; an `import` throws before
+anything runs, because silently ignoring it would fail later in a way nobody can read.
+
+**A failed run is a row, not an exception.** A bot that loops, throws, or runs out of memory comes
+back with `error` set, the reason is posted where it was asked, and `bot_runs` records it. Nothing a
+bot's file does can fail the request that triggered it.
+
+### Consequences
+`bots.code` (migration 0025) holds the JavaScript, synced from `bots/<handle>/bot.js` by task 3.1's
+sync, so a code bot arrives, changes and leaves with its directory like a spec bot does.
+
+A code bot spends nothing: `bot_runs` records zero cost, because no model was asked. Budgets still
+apply to the runs-per-hour ceiling, which is the one that matters for something this cheap to start.
+
+The QuickJS runtime is created per run and disposed after it. That is a few milliseconds of setup
+per event, which is far below what a model call costs and buys a bot that cannot keep anything
+between runs except what it `remember`s through a tool.

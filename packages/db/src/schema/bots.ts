@@ -65,6 +65,11 @@ export const bots = pgTable(
       onDelete: "cascade",
     }),
     sourcePath: text("source_path"),
+    /**
+     * A code bot's own JavaScript (spec §5.3; task 3.2): `bots/<handle>/bot.js`, run in a QuickJS
+     * sandbox instead of a model. Null for every other kind of bot.
+     */
+    code: text("code"),
     /** What was wrong with its files the last time they were read; null when they were fine. */
     sourceError: text("source_error"),
     ...timestamps(),
