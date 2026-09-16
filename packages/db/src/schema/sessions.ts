@@ -5,8 +5,10 @@
  * provider and model id a session was opened with, so a transcript stays readable after a profile
  * changes.
  */
+import { sql } from "drizzle-orm";
 import {
   bigint,
+  check,
   index,
   integer,
   jsonb,
@@ -30,6 +32,13 @@ export const CODING_SESSION_STATUSES = ["idle", "running", "needs_you", "error",
 export type CodingSessionStatus = (typeof CODING_SESSION_STATUSES)[number];
 
 /** What a session is for: one a person drives, or the editor's ⌘K lane (task 1.14, ADR-0080). */
+/**
+ * How hard the model should think (spec §4 composer; task 2.18, ADR-0111). `auto` leaves it to the
+ * agent, which is where a session starts and what every engine understands.
+ */
+export const SESSION_REASONING_LEVELS = ["auto", "low", "medium", "high"] as const;
+export type SessionReasoning = (typeof SESSION_REASONING_LEVELS)[number];
+
 export const CODING_SESSION_KINDS = ["agent", "inline"] as const;
 export type CodingSessionKind = (typeof CODING_SESSION_KINDS)[number];
 
@@ -64,6 +73,7 @@ export const codingSessions = pgTable(
       onDelete: "set null",
     }),
     mode: text("mode").$type<SessionModeValue>().notNull().default("build"),
+    reasoning: text("reasoning").$type<SessionReasoning>().notNull().default("auto"),
     /** agent: a session in the pane; inline: the editor's ⌘K lane, kept out of the session list. */
     kind: text("kind").$type<CodingSessionKind>().notNull().default("agent"),
     status: text("status").$type<CodingSessionStatus>().notNull().default("idle"),
@@ -90,6 +100,10 @@ export const codingSessions = pgTable(
     // The editor reuses one inline session per person and project (task 1.14).
     index("coding_sessions_inline_idx").on(t.projectId, t.userId, t.kind),
     index("coding_sessions_workspace_idx").on(t.workspaceId, t.startedAt),
+    check(
+      "coding_sessions_reasoning_check",
+      sql`${t.reasoning} in ('auto', 'low', 'medium', 'high')`,
+    ),
   ],
 );
 export type CodingSession = typeof codingSessions.$inferSelect;

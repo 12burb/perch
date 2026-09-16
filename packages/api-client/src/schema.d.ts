@@ -1721,6 +1721,90 @@ export type paths = {
         };
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/config/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-read this project's .perch/project.json where it is */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The project */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Project"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/projects/{project}/files": {
         parameters: {
             query?: never;
@@ -3219,7 +3303,7 @@ export type paths = {
         delete?: never;
         options?: never;
         head?: never;
-        /** Rename a session */
+        /** Rename a session, or change how hard it thinks */
         patch: {
             parameters: {
                 query?: never;
@@ -3231,7 +3315,7 @@ export type paths = {
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["RenameSession"];
+                    "application/json": components["schemas"]["PatchSession"];
                 };
             };
             responses: {
@@ -9530,6 +9614,7 @@ export type components = {
             config: {
                 [key: string]: unknown;
             };
+            actions: components["schemas"]["ProjectAction"][];
             config_error: string | null;
             devcontainer: {
                 [key: string]: unknown;
@@ -9538,6 +9623,18 @@ export type components = {
             created_by: string | null;
             created_at: string;
             updated_at: string;
+        };
+        ProjectAction: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "prompt" | "run";
+            prompt: string | null;
+            command: string | null;
+            /** @enum {string|null} */
+            mode: "plan" | "build" | null;
+            /** @enum {string|null} */
+            reasoning: "auto" | "low" | "medium" | "high" | null;
         };
         PatchProject: {
             name?: string;
@@ -9630,6 +9727,8 @@ export type components = {
             /** @enum {string} */
             mode: "plan" | "build";
             /** @enum {string} */
+            reasoning: "auto" | "low" | "medium" | "high";
+            /** @enum {string} */
             status: "idle" | "running" | "needs_you" | "error" | "ended";
             status_message: string | null;
             title: string | null;
@@ -9655,6 +9754,8 @@ export type components = {
             model_profile_id?: string;
             /** @enum {string} */
             mode?: "plan" | "build";
+            /** @enum {string} */
+            reasoning?: "auto" | "low" | "medium" | "high";
             title?: string;
             prompt?: string;
         };
@@ -9663,9 +9764,13 @@ export type components = {
             attachments?: string[];
             /** @enum {string} */
             mode?: "plan" | "build";
+            /** @enum {string} */
+            reasoning?: "auto" | "low" | "medium" | "high";
         };
-        RenameSession: {
-            title: string | null;
+        PatchSession: {
+            title?: string | null;
+            /** @enum {string} */
+            reasoning?: "auto" | "low" | "medium" | "high";
         };
         InlineEdit: {
             path: string;

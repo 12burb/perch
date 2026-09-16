@@ -114,6 +114,7 @@ export function runnerEngine(options: RunnerEngineOptions): RunnerEngine {
           session_id: sessionId,
           turn: input,
           ...(opts?.mode ? { mode: opts.mode } : {}),
+          ...(opts?.reasoning ? { reasoning: opts.reasoning } : {}),
         });
         for (;;) {
           let next = session.queue.shift();

@@ -58,9 +58,10 @@ After the directory exists the runner reads two files and reports them; the api 
 applies them:
 
 - `.perch/project.json` is validated against the config schema (`packages/db` `projectConfigSchema`:
-  `engine`, `modelProfile`, `permissionPolicy`, `run`, `envFile`, `preview`, `background`). A valid
-  file becomes `config` and sets the project's defaults (`default_engine` from `engine`). An invalid
-  or unparsable file leaves `config` at `{}` and explains why in `config_error`.
+  `engine`, `modelProfile`, `permissionPolicy`, `run`, `actions`, `envFile`, `preview`,
+  `background`). A valid file becomes `config` and sets the project's defaults (`default_engine`
+  from `engine`). An invalid or unparsable file leaves `config` at `{}` and explains why in
+  `config_error`.
 - `devcontainer.json` (`.devcontainer/devcontainer.json` or `.devcontainer.json`, JSONC: comments
   and trailing commas allowed) is stored in `devcontainer`. Its `postCreateCommand` (string or
   array) runs once after a clone or an upload with a 10-minute budget; a non-zero exit is reported in
@@ -69,6 +70,50 @@ applies them:
 
 `head` is the checkout's commit and `default_branch` the branch git checked out (a clone's default
 branch, or the branch you asked for).
+
+The file changes with a pull, an edit, or an agent. `POST .../projects/{p}/config/reload` re-reads it
+where the project already is — no re-clone — and is what the editor calls after somebody saves it.
+
+## Quick actions (task 2.18)
+
+A project says what its buttons are, and Perch draws them in the session pane and puts them in ⌘K:
+
+```json
+{
+  "run": { "test": "bun test", "dev": "bun run dev" },
+  "actions": [
+    { "id": "review", "name": "Review my changes", "prompt": "Review the working tree and say what you would change.", "mode": "plan", "reasoning": "high" },
+    { "id": "dev", "name": "Start the dev server", "run": "dev" }
+  ]
+}
+```
+
+Every key of `run` is already an action; `actions` adds named ones, and an action that reuses a run
+key's id takes it over. An action is either a **prompt** — sent to the session as a turn, in the
+action's own `mode` and `reasoning` — or a **run**, typed into the project's terminal where its
+output belongs. Never both.
+
+## The background policy (task 2.18)
+
+```json
+{
+  "background": {
+    "unattended": ["Read *", "Run tests*"],
+    "autoSettle": true
+  }
+}
+```
+
+`unattended` names the tools that may run with nobody watching: a literal name, or one with a
+trailing `*`. Perch answers those permission prompts itself and writes into the transcript that the
+project allowed it, rather than leaving a record that looks like somebody pressed Allow. Everything
+else still waits in `needs_you` and reaches the inbox.
+
+This never weakens `.perch/policy.yaml` (see [`policy.md`](policy.md)): what the tool then does is
+still governed by the policy engine, and a denied command is still denied.
+
+`autoSettle` ends a session once a round finishes with nothing waiting on a person, so a background
+run does not hold a runner open for a conversation nobody is having.
 
 ## Where the directory lives
 

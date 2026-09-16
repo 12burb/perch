@@ -8,6 +8,7 @@ import type {
   EngineEvent,
   ModelRef,
   PermissionAnswer,
+  ReasoningLevel,
   SessionMcpServer,
   SessionMode,
   UserTurn,
@@ -53,7 +54,8 @@ export type EngineSession = {
   engineSessionId?: string;
 };
 
-export type SendOptions = { mode?: SessionMode };
+/** `reasoning` is how hard to think for this round (task 2.18); an engine that cannot say so ignores it. */
+export type SendOptions = { mode?: SessionMode; reasoning?: ReasoningLevel };
 
 export interface Engine {
   /** acp, opencode, cli-harness, native, hermes, cli, native-code, or a test engine's name. */

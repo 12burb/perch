@@ -1026,6 +1026,12 @@
             "type": "object",
             "additionalProperties": {}
           },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectAction"
+            }
+          },
           "config_error": {
             "type": [
               "string",
@@ -1067,11 +1073,75 @@
           "runner_id",
           "head",
           "config",
+          "actions",
           "config_error",
           "devcontainer",
           "created_by",
           "created_at",
           "updated_at"
+        ]
+      },
+      "ProjectAction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "run"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "plan",
+              "build",
+              null
+            ]
+          },
+          "reasoning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high",
+              null
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "prompt",
+          "command",
+          "mode",
+          "reasoning"
         ]
       },
       "PatchProject": {
@@ -1425,6 +1495,15 @@
               "build"
             ]
           },
+          "reasoning": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -1484,6 +1563,7 @@
           "engine_session_id",
           "model",
           "mode",
+          "reasoning",
           "status",
           "status_message",
           "title",
@@ -1545,6 +1625,15 @@
               "build"
             ]
           },
+          "reasoning": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
           "title": {
             "type": "string",
             "minLength": 1,
@@ -1578,13 +1667,22 @@
               "plan",
               "build"
             ]
+          },
+          "reasoning": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high"
+            ]
           }
         },
         "required": [
           "text"
         ]
       },
-      "RenameSession": {
+      "PatchSession": {
         "type": "object",
         "properties": {
           "title": {
@@ -1593,11 +1691,17 @@
               "null"
             ],
             "maxLength": 200
+          },
+          "reasoning": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "low",
+              "medium",
+              "high"
+            ]
           }
-        },
-        "required": [
-          "title"
-        ]
+        }
       },
       "InlineEdit": {
         "type": "object",
@@ -7731,6 +7835,104 @@
         }
       }
     },
+    "/api/workspaces/{ws}/projects/{project}/config/reload": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Re-read this project's .perch/project.json where it is",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "project",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{ws}/projects/{project}/files": {
       "post": {
         "tags": [
@@ -9768,7 +9970,7 @@
         "tags": [
           "sessions"
         ],
-        "summary": "Rename a session",
+        "summary": "Rename a session, or change how hard it thinks",
         "security": [
           {
             "session": []
@@ -9792,7 +9994,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RenameSession"
+                "$ref": "#/components/schemas/PatchSession"
               }
             }
           }

@@ -11,7 +11,13 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
-import type { EngineEvent, FileDiff, PermissionAnswer, SessionMode } from "@perch/events";
+import type {
+  EngineEvent,
+  FileDiff,
+  PermissionAnswer,
+  ReasoningLevel,
+  SessionMode,
+} from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
 import type { Notify } from "./notify.ts";
 import { projectRelative } from "./paths.ts";
@@ -122,6 +128,56 @@ export function pickMode(
   return build?.id ?? null;
 }
 
+/**
+ * Perch's reasoning level onto an agent's own session config (task 2.18, ADR-0111).
+ *
+ * ACP 1.4 gives a select option the category `thought_level` for exactly this, so that is what is
+ * looked for first; an agent that names the option something recognisable is taken second. The
+ * level is then matched to one of the option's own values by id or name, and failing that by
+ * position — first is least, last is most — because "low" and "minimal" are the same intent under
+ * two names, and refusing to map them would make the control do nothing on most agents.
+ */
+export function pickThoughtOption(
+  options: readonly acp.SessionConfigOption[] | null | undefined,
+): (acp.SessionConfigOption & { type: "select" }) | null {
+  const selects = (options ?? []).filter(
+    (one): one is acp.SessionConfigOption & { type: "select" } => one.type === "select",
+  );
+  return (
+    selects.find((one) => one.category === "thought_level") ??
+    selects.find((one) => /reason|effort|think|thought/i.test(`${one.id} ${one.name}`)) ??
+    null
+  );
+}
+
+const THOUGHT_WORDS: Record<Exclude<ReasoningLevel, "auto">, RegExp> = {
+  low: /^(low|minimal|none|off|fast|quick|lite)$/i,
+  medium: /^(medium|default|balanced|normal|standard|auto)$/i,
+  high: /^(high|max|maximum|deep|thorough|extended|hard)$/i,
+};
+
+export function pickThoughtValue(
+  level: ReasoningLevel,
+  option: acp.SessionConfigOption & { type: "select" },
+): string | null {
+  if (level === "auto") return null;
+  const flat: Array<{ value: string; name: string }> = [];
+  for (const entry of option.options) {
+    if ("options" in entry) {
+      for (const one of entry.options) flat.push({ value: one.value, name: one.name });
+    } else {
+      flat.push({ value: entry.value, name: entry.name });
+    }
+  }
+  if (flat.length === 0) return null;
+  const word = THOUGHT_WORDS[level];
+  const named = flat.find((one) => word.test(one.value) || word.test(one.name));
+  if (named) return named.value;
+  // By position, so an agent with its own vocabulary still gets least, middle, most.
+  const at = level === "low" ? 0 : level === "high" ? flat.length - 1 : (flat.length - 1) >> 1;
+  return flat[at]?.value ?? null;
+}
+
 const MAX_OUTPUT = 64 * 1024;
 
 function textOf(content: acp.ToolCallContent[] | null | undefined): string {
@@ -228,6 +284,8 @@ export class AcpSession {
   readonly agentSessionId: string;
   readonly modes: { current: string; available: Array<{ id: string; name: string }> } | null;
   private currentMode: string | null;
+  /** The reasoning value already set on the agent, so a repeat turn does not ask again. */
+  private currentThought: string | null = null;
   private pending: PendingPermission | null = null;
   private permissionCounter = 0;
   private turning = false;
@@ -374,8 +432,27 @@ export class AcpSession {
     this.currentMode = target;
   }
 
+  /**
+   * Perch's reasoning level onto the agent's own session config. A no-op for `auto`, and for an
+   * agent that advertises nothing to set — the level is still what Perch recorded, and the docs
+   * say which agents can act on it.
+   */
+  async ensureReasoning(level: ReasoningLevel): Promise<void> {
+    if (level === "auto") return;
+    const option = pickThoughtOption(this.active.newSessionResponse.configOptions);
+    if (!option) return;
+    const value = pickThoughtValue(level, option);
+    if (!value || value === this.currentThought) return;
+    await this.ctx.request(acp.methods.agent.session.setConfigOption, {
+      sessionId: this.agentSessionId,
+      configId: option.id,
+      value,
+    });
+    this.currentThought = value;
+  }
+
   /** One round: the prompt, its updates as EngineEvents, and done or error at the end. */
-  async runTurn(text: string, mode?: SessionMode): Promise<void> {
+  async runTurn(text: string, mode?: SessionMode, reasoning?: ReasoningLevel): Promise<void> {
     if (this.closed) {
       this.options.emit({ type: "error", message: "the agent is gone" });
       return;
@@ -384,6 +461,8 @@ export class AcpSession {
     this.turning = true;
     try {
       if (mode) await this.ensureMode(mode);
+      // An agent that refuses the option still answers the turn; the level is a preference.
+      if (reasoning) await this.ensureReasoning(reasoning).catch(() => {});
       let failure: string | null = null;
       const prompt = this.active.prompt(text).catch((error: unknown) => {
         failure = describeError(error);

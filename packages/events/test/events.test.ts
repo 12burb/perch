@@ -46,6 +46,7 @@ const SPEC_API_TO_RUNNER =
 const ADDITIVE_API_TO_RUNNER = [
   "project.setup",
   "project.remove",
+  "project.config",
   "git.apply",
   "preview.screenshot",
 ];

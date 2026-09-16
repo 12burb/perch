@@ -22,11 +22,27 @@ import {
   sessionQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { useActionQueue } from "./action-store.ts";
 import { type ContextChip, useContextChips, withChips } from "./context-store.ts";
 import { editorFor, useEditorStore } from "./editor-store.ts";
+import { useTerminalQueue } from "./terminal-store.ts";
 import { reduceTranscript, type TranscriptRecord } from "./transcript.ts";
 
 type Mode = "plan" | "build";
+type SessionMode = Mode;
+type Reasoning = "auto" | "low" | "medium" | "high";
+const REASONING: Reasoning[] = ["auto", "low", "medium", "high"];
+
+/** A quick action as the project route hands it over (task 2.18). */
+export type ProjectActionView = {
+  id: string;
+  name: string;
+  kind: "prompt" | "run";
+  prompt: string | null;
+  command: string | null;
+  mode: Mode | null;
+  reasoning: Reasoning | null;
+};
 
 /** The transcript so far: a replay, then every event the topic announces (deltas inline). */
 function useTranscript(sessionId: string) {
@@ -127,10 +143,15 @@ export type SessionPaneProps = {
   sessionId: string;
   onClose: () => void;
   onOpenSession: (sessionId: string) => void;
+  /** The project's quick actions (task 2.18); none means the row is not drawn. */
+  actions?: ProjectActionView[];
+  /** Called when a run action queued a command, so the pane's owner can show the terminal. */
+  onRunCommand?: () => void;
 };
 
 /** One array, so the chip selector does not hand React a new one on every render. */
 const EMPTY_CHIPS: ContextChip[] = [];
+const EMPTY_ACTIONS: ProjectActionView[] = [];
 
 export function SessionPane(props: SessionPaneProps) {
   const { sessionId } = props;
@@ -184,6 +205,8 @@ export function SessionPane(props: SessionPaneProps) {
     if (session.data?.mode) setMode(session.data.mode);
   }, [session.data?.mode]);
 
+  const reasoning = session.data?.reasoning ?? "auto";
+
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
     void queryClient.invalidateQueries({
@@ -210,19 +233,72 @@ export function SessionPane(props: SessionPaneProps) {
   const chips = useContextChips((store) => store.byProject[projectId] ?? EMPTY_CHIPS);
   const dropChip = useContextChips((store) => store.remove);
   const clearChips = useContextChips((store) => store.clear);
+  const queueCommand = useTerminalQueue((store) => store.run);
+  const takeAction = useActionQueue((store) => store.take);
+  const actions = props.actions ?? EMPTY_ACTIONS;
 
-  const send = useCallback(
-    (text: string) =>
+  const sendTurn = useCallback(
+    (text: string, options: { mode?: SessionMode; reasoning?: Reasoning } = {}) =>
       act(async () => {
         const turn = await api.POST("/api/sessions/{s}/turns", {
           params: { path: { s: sessionId } },
-          body: { text: withChips(text, chips), mode },
+          body: {
+            text: withChips(text, chips),
+            mode: options.mode ?? mode,
+            ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+          },
         });
         clearChips(projectId);
         return unwrap(turn);
       }),
     [act, sessionId, mode, chips, clearChips, projectId],
   );
+
+  const send = useCallback((text: string) => sendTurn(text), [sendTurn]);
+
+  /** How hard this session thinks from the next round on (task 2.18). */
+  const setReasoning = useCallback(
+    (level: Reasoning) =>
+      act(async () =>
+        unwrap(
+          await api.PATCH("/api/sessions/{s}", {
+            params: { path: { s: sessionId } },
+            body: { reasoning: level },
+          }),
+        ),
+      ),
+    [act, sessionId],
+  );
+
+  /**
+   * A quick action (task 2.18): a prompt goes to this session as a turn in the action's own mode
+   * and level; a run command is typed in the project's terminal, where its output belongs.
+   */
+  const runAction = useCallback(
+    (action: ProjectActionView) => {
+      if (action.kind === "run" && action.command) {
+        queueCommand(projectId, action.command);
+        props.onRunCommand?.();
+        return;
+      }
+      if (action.prompt) {
+        void sendTurn(action.prompt, {
+          ...(action.mode ? { mode: action.mode } : {}),
+          ...(action.reasoning ? { reasoning: action.reasoning } : {}),
+        });
+      }
+    },
+    [projectId, props.onRunCommand, queueCommand, sendTurn],
+  );
+
+  // An action ⌘K fired while this pane was not mounted (task 2.18): it waited, and now it runs.
+  useEffect(() => {
+    if (status === "running" || actions.length === 0) return;
+    const waiting = takeAction(projectId);
+    if (!waiting) return;
+    const action = actions.find((one) => one.id === waiting);
+    if (action) runAction(action);
+  }, [actions, projectId, runAction, status, takeAction]);
 
   const cancel = useCallback(
     () =>
@@ -578,6 +654,22 @@ export function SessionPane(props: SessionPaneProps) {
               </label>
             ))}
           </fieldset>
+          <label className="flex items-center gap-1">
+            <span>{t("session.reasoning")}</span>
+            <select
+              aria-label={t("session.reasoning")}
+              data-testid="session-reasoning"
+              className="rounded border border-border bg-surface px-1 py-0.5"
+              value={reasoning}
+              onChange={(event) => void setReasoning(event.target.value as Reasoning)}
+            >
+              {REASONING.map((level) => (
+                <option key={level} value={level}>
+                  {t(`session.reasoning.${level}`)}
+                </option>
+              ))}
+            </select>
+          </label>
           <span data-testid="session-usage">
             {t("session.usage", {
               input: String(usage.input),
@@ -591,6 +683,21 @@ export function SessionPane(props: SessionPaneProps) {
             </Button>
           ) : null}
         </div>
+        {actions.length > 0 ? (
+          <ul
+            aria-label={t("session.actions")}
+            data-testid="quick-actions"
+            className="mb-2 flex flex-wrap gap-1"
+          >
+            {actions.map((action) => (
+              <li key={action.id}>
+                <Button size="sm" variant="ghost" onClick={() => runAction(action)}>
+                  {action.name}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {chips.length > 0 ? (
           <ul
             aria-label={t("inspect.chips")}

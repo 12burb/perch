@@ -22,6 +22,7 @@ import m18 from "../../drizzle/0018_inbox_items.sql" with { type: "text" };
 import m19 from "../../drizzle/0019_policy_yaml.sql" with { type: "text" };
 import m20 from "../../drizzle/0020_policies_yaml.sql" with { type: "text" };
 import m21 from "../../drizzle/0021_repo_index.sql" with { type: "text" };
+import m22 from "../../drizzle/0022_session_reasoning.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -60,4 +61,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 19, tag: "0019_policy_yaml", when: 1789491123072, breakpoints: true, sql: m19 },
   { idx: 20, tag: "0020_policies_yaml", when: 1789492946369, breakpoints: true, sql: m20 },
   { idx: 21, tag: "0021_repo_index", when: 1789507940175, breakpoints: true, sql: m21 },
+  { idx: 22, tag: "0022_session_reasoning", when: 1789519790515, breakpoints: true, sql: m22 },
 ];

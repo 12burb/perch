@@ -4,7 +4,13 @@
  * verifies; a local runner refuses requests for users other than its owner unless a grant is attached.
  */
 import { z } from "zod";
-import { engineEventSchema, fileDiffSchema, modelRefSchema, sessionModeSchema } from "./engine.ts";
+import {
+  engineEventSchema,
+  fileDiffSchema,
+  modelRefSchema,
+  reasoningLevelSchema,
+  sessionModeSchema,
+} from "./engine.ts";
 
 export const jsonRpcIdSchema = z.union([z.string(), z.number().int()]);
 
@@ -94,6 +100,8 @@ export const apiToRunnerParams = {
     session_id: z.uuid(),
     turn: z.object({ text: z.string(), attachments: z.array(z.string()).optional() }),
     mode: sessionModeSchema.optional(),
+    /** How hard to think (task 2.18, ADR-0111): additive, and an engine that cannot say so ignores it. */
+    reasoning: reasoningLevelSchema.optional(),
   }),
   "session.permission": z.object({
     ...ctx,
@@ -240,6 +248,12 @@ export const apiToRunnerParams = {
     postCreate: z.boolean().optional(),
   }),
   "project.remove": z.object({ ...ctx, project: z.uuid() }),
+  /**
+   * Re-read a project's checked-in files without touching the checkout (task 2.18, ADR-0111).
+   * `.perch/project.json` is the project's own document: it changes with a pull or an edit, and
+   * before this the only way Perch noticed was to set the project up again.
+   */
+  "project.config": z.object({ ...ctx, project: z.uuid() }),
   "worktree.create": z.object({
     ...ctx,
     project: z.uuid(),
@@ -325,6 +339,15 @@ export const projectSetupResultSchema = z
   })
   .strict();
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
+
+/** What project.config returns: the same two files, re-read where they are. */
+export const projectConfigResultSchema = projectSetupResultSchema.pick({
+  config: true,
+  configError: true,
+  devcontainer: true,
+  devcontainerError: true,
+});
+export type ProjectConfigResult = z.infer<typeof projectConfigResultSchema>;
 
 /** Results of the fs, git, ports, and exec methods (task 1.5, ADR-0070): what the api validates. */
 export const fsEntrySchema = z.object({

@@ -16,7 +16,13 @@ import { HttpTunnel } from "./http-tunnel.ts";
 import type { Notify } from "./notify.ts";
 import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
-import { type ProjectsOptions, projectsRoot, removeProject, setupProject } from "./projects.ts";
+import {
+  type ProjectsOptions,
+  projectConfig,
+  projectsRoot,
+  removeProject,
+  setupProject,
+} from "./projects.ts";
 import { PtyManager, type PtyOptions } from "./pty.ts";
 import { screenshot } from "./screenshot.ts";
 import { SessionManager, type SessionsOptions } from "./sessions.ts";
@@ -114,6 +120,7 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     "pty.close": async (params) => ({ closed: ptys.close(params.pty_id) }),
     "project.setup": (params) => setupProject(projects, params),
     "project.remove": (params) => removeProject(projects, params),
+    "project.config": (params) => projectConfig(projects, params),
     "fs.list": (params) => fsList(fs, params),
     "fs.read": (params) => fsRead(fs, params),
     "fs.write": (params) => fsWrite(fs, params),

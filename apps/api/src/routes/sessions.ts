@@ -8,6 +8,7 @@ import type { CodingSession } from "@perch/db";
 import {
   fileDiffSchema,
   permissionAnswerSchema,
+  reasoningLevelSchema,
   sessionEventSchema,
   sessionModeSchema,
   sessionStatusSchema,
@@ -45,6 +46,7 @@ export const sessionSchema = z
     engine_session_id: z.string().nullable(),
     model: modelBody,
     mode: sessionModeSchema,
+    reasoning: reasoningLevelSchema,
     status: sessionStatusSchema,
     status_message: z.string().nullable(),
     title: z.string().nullable(),
@@ -73,6 +75,7 @@ export function sessionBody(row: CodingSession): z.infer<typeof sessionSchema> {
       ...(row.modelProfileId ? { profile_id: row.modelProfileId } : {}),
     },
     mode: row.mode,
+    reasoning: row.reasoning,
     status: row.status,
     status_message: row.statusMessage,
     title: row.title,
@@ -94,6 +97,8 @@ const createBody = z
     /** The brain to run on (task 1.15); without one, the workspace's default for code. */
     model_profile_id: z.uuid().optional(),
     mode: sessionModeSchema.optional(),
+    /** How hard to think (task 2.18); the agent's own choice otherwise. */
+    reasoning: reasoningLevelSchema.optional(),
     title: z.string().min(1).max(200).optional(),
     /** Sends the first turn right away. */
     prompt: z.string().min(1).max(100_000).optional(),
@@ -105,6 +110,8 @@ const turnBody = z
     text: z.string().min(1).max(100_000),
     attachments: z.array(z.string()).max(32).optional(),
     mode: sessionModeSchema.optional(),
+    /** This round only; the session's own level otherwise (task 2.18). */
+    reasoning: reasoningLevelSchema.optional(),
   })
   .openapi("SessionTurn");
 
@@ -226,7 +233,7 @@ const renameRoute = createRoute({
   method: "patch",
   path: "/api/sessions/{s}",
   tags: ["sessions"],
-  summary: "Rename a session",
+  summary: "Rename a session, or change how hard it thinks",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
   request: {
@@ -234,7 +241,12 @@ const renameRoute = createRoute({
     body: {
       content: {
         "application/json": {
-          schema: z.object({ title: z.string().max(200).nullable() }).openapi("RenameSession"),
+          schema: z
+            .object({
+              title: z.string().max(200).nullable().optional(),
+              reasoning: reasoningLevelSchema.optional(),
+            })
+            .openapi("PatchSession"),
         },
       },
     },
@@ -483,6 +495,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         : {}),
       ...(body.model_profile_id ? { modelProfileId: body.model_profile_id } : {}),
       ...(body.mode ? { mode: body.mode } : {}),
+      ...(body.reasoning ? { reasoning: body.reasoning } : {}),
       title: body.title ?? null,
       by,
     });
@@ -548,6 +561,7 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       ...(body.mode ? { mode: body.mode } : {}),
       by: actorOf(c),
       ...(context ? { context } : {}),
+      ...(body.reasoning ? { reasoning: body.reasoning } : {}),
     });
     return c.json({ seq: sent.seq, session: sessionBody(sent.session) }, 202);
   });
@@ -570,10 +584,14 @@ export function registerSessions(app: OpenAPIHono<AppEnv>, deps: Deps): void {
 
   app.openapi(renameRoute, async (c) => {
     const { s } = c.req.valid("param");
-    const { title } = c.req.valid("json");
-    const session = await load(c, s, "sessions.update");
-    const renamed = await sessions.rename(session, title?.trim() ? title.trim() : null);
-    return c.json(sessionBody(renamed), 200);
+    const body = c.req.valid("json");
+    let session = await load(c, s, "sessions.update");
+    if (body.title !== undefined) {
+      const title = body.title?.trim();
+      session = await sessions.rename(session, title ? title : null);
+    }
+    if (body.reasoning) session = await sessions.setReasoning(session, body.reasoning);
+    return c.json(sessionBody(session), 200);
   });
 
   app.openapi(forkRoute, async (c) => {

@@ -35,6 +35,26 @@ the way to the engine. The transcript keeps what you typed: the context rides be
 inside it. Details, and how to build the index, are in
 [`repo-intelligence.md`](repo-intelligence.md).
 
+## How hard it thinks (task 2.18)
+
+The composer's **Thinking** control sets the session's reasoning level — `auto` (the agent's own
+choice, where a session starts), `low`, `medium`, or `high` — and it is the session's from the next
+round on. A quick action can name its own level for one turn without changing the session's.
+
+The level travels to the runner with the turn. What an agent does with it depends on the agent: the
+ACP adapter looks for the session config option ACP gives the category `thought_level`, or one whose
+name says reason, effort, or thinking, and sets it to the nearest value the agent offers — matching
+by name first (`low` also means `minimal`, `fast`, `off`) and by position otherwise. An agent that
+advertises no such option ignores the level; Perch still records it, so the transcript says what was
+asked for. The reasoning is ADR-0111.
+
+## Quick actions (task 2.18)
+
+The row above the composer is the project's own, from `.perch/project.json`: its run commands plus
+any actions it declares. A prompt action sends its text as a turn in its own mode and level; a run
+action is typed into the project's terminal. The same actions are in ⌘K, and firing one there with
+no session open starts one. See [`projects.md`](projects.md).
+
 ## Which model a session runs on (task 1.15)
 
 The **Brain** picker in the new-session form names the model: a brain is a provider, a model id,

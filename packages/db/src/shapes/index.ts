@@ -56,6 +56,36 @@ export const runnerPolicySchema = z
   .strict();
 export type RunnerPolicy = z.infer<typeof runnerPolicySchema>;
 
+/**
+ * A quick action (spec §5.1 "quick actions from .perch/project.json run commands plus custom
+ * actions"; task 2.18). Either it asks the agent something (`prompt`) or it runs one of the
+ * project's own commands in the terminal (`run`), never both: an action a person presses has to
+ * have one obvious outcome.
+ */
+export const projectActionSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9][a-z0-9_-]*$/, "an action id is lowercase letters, digits, - and _"),
+    name: z.string().min(1).max(80),
+    /** What to ask the agent. Sent as a turn in the session pane's session. */
+    prompt: z.string().min(1).max(4_000).optional(),
+    /** The key of a command in `run`, executed in the project's terminal. */
+    run: z.string().min(1).max(64).optional(),
+    /** Which mode the turn runs in; the session's own mode otherwise. */
+    mode: z.enum(["plan", "build"]).optional(),
+    /** How hard to think for this one turn; the session's own level otherwise. */
+    reasoning: z.enum(["auto", "low", "medium", "high"]).optional(),
+  })
+  .strict()
+  .refine(
+    (one) => (one.prompt === undefined) !== (one.run === undefined),
+    "an action is either a prompt or a run command",
+  );
+export type ProjectAction = z.infer<typeof projectActionSchema>;
+
 // projects.config — the checked-in .perch/project.json (spec §5.1)
 export const projectConfigSchema = z
   .object({
@@ -75,9 +105,16 @@ export const projectConfigSchema = z
       })
       .strict()
       .optional(),
+    /** Buttons in the session pane and commands in ⌘K (task 2.18). */
+    actions: z.array(projectActionSchema).max(20).optional(),
     background: z
       .object({
-        unattended: z.array(z.string().min(1)).optional(),
+        /**
+         * Tool names that may run without asking anybody, as literal names or `prefix*` globs
+         * (task 2.18, ADR-0111). The policy engine still applies to what the tool then does.
+         */
+        unattended: z.array(z.string().min(1).max(120)).max(50).optional(),
+        /** End a session by itself once a round finishes with nothing waiting on a person. */
         autoSettle: z.boolean().optional(),
       })
       .strict()

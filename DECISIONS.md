@@ -3979,3 +3979,83 @@ shallowest files first — breadth-first — because those are what an answer is
 watcher on a runner is a different feature with a different cost, and an index a person presses is
 one they can reason about. The panel says how many files and when, which is what makes a stale
 answer diagnosable rather than mysterious.
+
+## ADR-0111: A project decides its own buttons, and how hard its agent thinks
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 2.18
+
+### Context
+Spec §5.1 asks the session pane for "quick actions from .perch/project.json run commands plus custom
+actions, background policy per project: what runs unattended, what waits, auto-settle"; §4 asks the
+composer in session mode for a "reasoning level". §11's acceptance is "a custom action runs from the
+session pane and from ⌘K". §6's `coding_sessions` has no column for a reasoning level, §7.6 has no
+field for one, and `projectConfigSchema` had `run` and a `background` block that nothing read.
+
+Three questions, and the obvious answer is wrong in each.
+
+**Reasoning could have been a string Perch invents and prepends.** "Think harder about this." It
+would work on every engine and mean nothing on any of them: a sentence in a prompt is not a setting,
+and it would sit in the transcript as if a person wrote it.
+
+**Unattended tools could have been a Perch-side allow-list.** A workspace setting, an admin screen.
+But which tools are safe to run without asking is a property of the repository — its test command is
+harmless, its deploy script is not — and the repository already has a file that says such things.
+
+**Auto-settle could have been a timer.** End a session that has been idle for N minutes. That is a
+different feature (an idle reaper, which the runner already has for its own sessions) and it answers
+a different question: "has this been abandoned" rather than "is this finished".
+
+### Decision
+**The reasoning level is a session column and an ACP session config option.** `coding_sessions`
+gains `reasoning` (`auto`, `low`, `medium`, `high`; `auto` is where a session starts and means "the
+agent's own choice"), settable at creation, on `PATCH /api/sessions/{s}`, and per turn. It travels
+to the runner as an optional `reasoning` on §7.6 `session.send`.
+
+What the ACP adapter does with it is the part worth writing down. ACP 1.4 gives a session config
+option the category `thought_level` — the protocol has a place for exactly this — so the adapter
+looks for that option, then for one whose id or name says reason/effort/think, and sets it with
+`session/set_config_option`. The value is matched to the agent's own vocabulary by name
+(`low` also means `minimal`, `fast`, `off`) and, failing that, by position: first is least, last is
+most. Refusing to map a level whose name Perch does not recognise would make the control do nothing
+on most agents. An agent that advertises no such option ignores the level entirely, and the docs say
+so rather than pretending otherwise.
+
+**The background policy is the project's file, and it is two separate things.**
+`background.unattended` is a list of tool names — literal, or one trailing `*` — that may run with
+nobody watching: the api answers that permission `allow` itself and writes a `tool_result` into the
+transcript saying the project allowed it, rather than leaving a record that looks like somebody
+pressed a button. `background.autoSettle` ends a session once a round finishes with nothing waiting
+on a person, so a background run does not hold a runner open for a conversation nobody is having.
+Neither weakens the policy engine (task 2.11): what the tool then does is still governed by
+`.perch/policy.yaml`, and a denied command is still denied.
+
+**Actions are the run commands plus the project's own, merged.** Every key of `run` is already an
+action — a project that declares `test` has said what pressing Test should do — and
+`config.actions` adds named ones that can take a run key over by using its id. An action is either a
+`prompt` (a turn in the session, in the action's own mode and level) or a `run` (typed into the
+project's terminal, where its output belongs), never both, because a button a person presses has to
+have one obvious outcome. They appear as a row in the session pane and as commands in ⌘K; from ⌘K
+with no session open, the action waits in a small store while the route opens one.
+
+**`.perch/project.json` can be re-read without re-cloning.** The file is the project's own document
+and changes with a pull or an edit; before this, the only way Perch noticed was `project.setup`,
+which deletes and re-creates the checkout. §7.6 gains `project.config`, which re-reads the two
+checked-in files where the project already is, behind `POST .../projects/{p}/config/reload`.
+
+### Consequences
+Migration `0022_session_reasoning.sql` adds the column and its check constraint.
+`REASONING_LEVELS` lives in `@perch/events` beside `sessionModeSchema` and in `@perch/db` beside the
+session modes, because both the wire and the column need it.
+
+`project.config` is additive to §7.6 and registered in `packages/events/test/events.test.ts`
+alongside the other additions. `session.send` gains an optional field rather than a new method,
+which older runners ignore.
+
+The shell gains `setCommands` so a screen can contribute to ⌘K and take its commands away when it
+leaves. Today only Code mode uses it; Home and Inbox are the obvious next callers.
+
+`projectActions` is derived, never stored: there is one source of truth for what a project can do,
+and it is the file in the repository. A project whose `project.json` is malformed keeps its old
+config and says why in `config_error`, exactly as it did at setup.

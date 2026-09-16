@@ -52,6 +52,14 @@ export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>;
 export const sessionModeSchema = z.enum(["plan", "build"]);
 export type SessionMode = z.infer<typeof sessionModeSchema>;
 
+/**
+ * How hard the model should think before it answers (spec §4 composer; task 2.18, ADR-0111).
+ * `auto` is "whatever the agent would do by itself", which is what a session starts on.
+ */
+export const REASONING_LEVELS = ["auto", "low", "medium", "high"] as const;
+export const reasoningLevelSchema = z.enum(REASONING_LEVELS);
+export type ReasoningLevel = z.infer<typeof reasoningLevelSchema>;
+
 export const engineIdSchema = z.enum([
   "acp",
   "opencode",

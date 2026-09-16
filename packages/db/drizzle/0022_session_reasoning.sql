@@ -1,0 +1,2 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "reasoning" text DEFAULT 'auto' NOT NULL;--> statement-breakpoint
+ALTER TABLE "coding_sessions" ADD CONSTRAINT "coding_sessions_reasoning_check" CHECK ("coding_sessions"."reasoning" in ('auto', 'low', 'medium', 'high'));

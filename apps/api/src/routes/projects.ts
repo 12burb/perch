@@ -23,6 +23,8 @@ import {
   getProject,
   listProjects,
   type ProjectDeps,
+  projectActions,
+  reloadProjectConfig,
   uploadProjectFiles,
   validateRepoUrl,
 } from "../services/projects.ts";
@@ -30,6 +32,25 @@ import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const wsParam = z.object({ ws: z.uuid() });
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
+
+/**
+ * A quick action as a client needs it (spec §5.1; task 2.18): the run commands the project already
+ * declares, plus its own actions, merged and ready to press. A `prompt` action goes to the session
+ * as a turn; a `run` action goes to the project's terminal.
+ */
+const actionSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    kind: z.enum(["prompt", "run"]),
+    /** What to ask the agent, for a prompt action. */
+    prompt: z.string().nullable(),
+    /** The shell command, for a run action. */
+    command: z.string().nullable(),
+    mode: z.enum(["plan", "build"]).nullable(),
+    reasoning: z.enum(["auto", "low", "medium", "high"]).nullable(),
+  })
+  .openapi("ProjectAction");
 
 export const projectSchema = z
   .object({
@@ -46,6 +67,8 @@ export const projectSchema = z
     runner_id: z.uuid().nullable(),
     head: z.string().nullable(),
     config: z.record(z.string(), z.unknown()),
+    /** The project's quick actions, run commands first (task 2.18). */
+    actions: z.array(actionSchema),
     config_error: z.string().nullable(),
     devcontainer: z.record(z.string(), z.unknown()).nullable(),
     created_by: z.uuid().nullable(),
@@ -69,6 +92,15 @@ export function projectBody(row: Project): z.infer<typeof projectSchema> {
     runner_id: row.runnerId,
     head: row.head,
     config: row.config,
+    actions: projectActions(row).map((one) => ({
+      id: one.id,
+      name: one.name,
+      kind: one.kind,
+      prompt: one.prompt ?? null,
+      command: one.command ?? null,
+      mode: one.mode ?? null,
+      reasoning: one.reasoning ?? null,
+    })),
     config_error: row.configError,
     devcontainer: row.devcontainer ?? null,
     created_by: row.createdBy,
@@ -242,6 +274,20 @@ const patchProjectRoute = createRoute({
   },
 });
 
+const reloadConfigRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/config/reload",
+  tags: ["projects"],
+  summary: "Re-read this project's .perch/project.json where it is",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: projectParam },
+  responses: {
+    200: { description: "The project", content: { "application/json": { schema: projectSchema } } },
+    ...errorResponses(403, 404, 409, 422, 502),
+  },
+});
+
 const deleteProjectRoute = createRoute({
   method: "delete",
   path: "/api/workspaces/{ws}/projects/{project}",
@@ -400,6 +446,16 @@ export function registerProjects(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const project = await getProject(deps.db.db, ws, id);
     if (!project) throw PerchError.notFound("project");
     return c.json(projectBody(project), 200);
+  });
+
+  app.openapi(reloadConfigRoute, async (c) => {
+    const { ws, project: id } = c.req.valid("param");
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, id);
+    if (!project) throw PerchError.notFound("project");
+    const user = currentUser(c);
+    const reloaded = await reloadProjectConfig(projectDeps(deps), project, user.id);
+    return c.json(projectBody(reloaded), 200);
   });
 
   app.openapi(patchProjectRoute, async (c) => {

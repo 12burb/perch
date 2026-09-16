@@ -5,6 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { type ILink, type ILinkProvider, Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
+import { useTerminalQueue } from "./terminal-store.ts";
 
 /**
  * The terminal drawer (spec §5.1, task 1.7): xterm.js over the project terminal socket. The
@@ -134,6 +135,10 @@ export function TerminalDrawer(props: TerminalProps) {
         if (frame.t === "open") {
           writePtyId(projectId, frame.pty_id);
           setStatus(frame.reattached ? "reattached" : "connected");
+          // A quick action of the `run` kind is typed here, where its output belongs (task 2.18).
+          for (const command of useTerminalQueue.getState().take(projectId)) {
+            socket.send(JSON.stringify({ t: "i", d: `${command}\r` }));
+          }
         } else if (frame.t === "o") {
           term.write(frame.d);
         } else if (frame.t === "x") {

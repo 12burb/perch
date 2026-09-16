@@ -69,7 +69,11 @@ export type SessionsOptions = {
 export interface HostedSession {
   readonly busy: boolean;
   readonly engineSessionId: string | null;
-  runTurn(text: string, mode?: RunnerRequestParams<"session.send">["mode"]): Promise<void>;
+  runTurn(
+    text: string,
+    mode?: RunnerRequestParams<"session.send">["mode"],
+    reasoning?: RunnerRequestParams<"session.send">["reasoning"],
+  ): Promise<void>;
   answerPermission(
     permissionId: string,
     answer: RunnerRequestParams<"session.permission">["answer"],
@@ -183,7 +187,7 @@ export class SessionManager {
           return acp.busy;
         },
         engineSessionId: acp.agentSessionId,
-        runTurn: (text, mode) => acp.runTurn(text, mode),
+        runTurn: (text, mode, reasoning) => acp.runTurn(text, mode, reasoning),
         answerPermission: (id, answer) => acp.answerPermission(id, answer),
         cancel: () => acp.cancel(),
         close: () => acp.close(),
@@ -366,7 +370,7 @@ export class SessionManager {
     }
     live.lastUsed = Date.now();
     void live.session
-      .runTurn(params.turn.text, params.mode)
+      .runTurn(params.turn.text, params.mode, params.reasoning)
       .catch((error: unknown) => {
         this.emitEvent(params.session_id, { type: "error", message: describeError(error) });
       })

@@ -1,11 +1,14 @@
 import { Button, Drawer, EmptyState, t, useIsMobile } from "@perch/ui";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActionQueue } from "../../../code/action-store.ts";
 import { EditorPane } from "../../../code/editor-pane.tsx";
 import { useEditorStore } from "../../../code/editor-store.ts";
 import { SessionPane } from "../../../code/session-pane.tsx";
-import { projectsQuery } from "../../../lib/queries.ts";
+import { useTerminalQueue } from "../../../code/terminal-store.ts";
+import { api, unwrap } from "../../../lib/api.ts";
+import { projectsQuery, sessionsQuery } from "../../../lib/queries.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
 
@@ -68,13 +71,16 @@ function validateSearch(search: Record<string, unknown>): {
 }
 
 function ProjectCode() {
-  const { shell, workspace, setDrawer, setPanel } = useAppShell();
+  const { shell, workspace, setDrawer, setPanel, setCommands } = useAppShell();
   const { project: key } = Route.useParams();
   const { session: sessionId, view, port, file, line } = Route.useSearch();
   const navigate = useNavigate();
   const mobile = useIsMobile();
+  const queryClient = useQueryClient();
   const projects = useQuery({ ...projectsQuery(workspace?.id ?? ""), enabled: workspace !== null });
   const openFile = useEditorStore((state) => state.open);
+  const [drawerTab, setDrawerTab] = useState("terminal");
+  const queueAction = useActionQueue((store) => store.run);
   const project = projects.data?.find((p) => p.key === key) ?? null;
   const projectId = project?.status === "ready" ? project.id : null;
   const projectName = project?.name ?? "";
@@ -126,6 +132,36 @@ function ProjectCode() {
     [navigate, workspaceSlug, key],
   );
 
+  // The project's quick actions (task 2.18): the run commands it declares plus its own actions.
+  const actions = useMemo(() => project?.actions ?? [], [project]);
+
+  /**
+   * The session a ⌘K prompt action talks to: the newest one this project has, or a new one. The
+   * pane takes the queued action once it is mounted.
+   */
+  const openNewestSession = useCallback(async () => {
+    if (!workspaceId || !projectId) return;
+    const listed = await queryClient.fetchQuery(sessionsQuery(workspaceId, projectId));
+    const open = listed.find((one) => one.status !== "ended");
+    if (open) {
+      openSession(open.id);
+      return;
+    }
+    const made = unwrap(
+      await api.POST("/api/workspaces/{ws}/projects/{project}/sessions", {
+        params: { path: { ws: workspaceId, project: projectId } },
+        body: {},
+      }),
+    );
+    openSession(made.id);
+  }, [workspaceId, projectId, queryClient, openSession]);
+
+  /** A run action types its command in the terminal, so the drawer opens on that tab. */
+  const showTerminal = useCallback(() => {
+    setDrawerTab("terminal");
+    shell.onStateChange({ ...shell.state, drawerOpen: true });
+  }, [shell]);
+
   // The panel holds the session pane (spec §4: panel = agent session) while ?session= names one.
   useEffect(() => {
     if (!workspaceId || !projectId || !sessionId) return;
@@ -138,11 +174,43 @@ function ProjectCode() {
           sessionId={sessionId}
           onClose={() => openSession(null)}
           onOpenSession={(id) => openSession(id)}
+          actions={actions}
+          onRunCommand={showTerminal}
         />
       ),
     });
     return () => setPanel(null);
-  }, [workspaceId, projectId, sessionId, setPanel, openSession]);
+  }, [workspaceId, projectId, sessionId, setPanel, openSession, actions, showTerminal]);
+
+  /**
+   * The same actions in ⌘K (task 2.18's acceptance: "a custom action runs from the session pane and
+   * from ⌘K"). A prompt action needs a session to talk to, so it opens the newest one — or starts
+   * one — and the pane sends it; a run action goes straight to the terminal.
+   */
+  useEffect(() => {
+    if (!projectId || actions.length === 0) {
+      setCommands([]);
+      return;
+    }
+    setCommands(
+      actions.map((action) => ({
+        id: `action-${projectId}-${action.id}`,
+        label: action.name,
+        group: t("session.actions"),
+        run: () => {
+          if (action.kind === "run" && action.command) {
+            useTerminalQueue.getState().run(projectId, action.command);
+            showTerminal();
+            return;
+          }
+          if (!action.prompt) return;
+          queueAction(projectId, action.id);
+          if (!sessionId) void openNewestSession();
+        },
+      })),
+    );
+    return () => setCommands([]);
+  }, [actions, projectId, setCommands, showTerminal, queueAction, sessionId, openNewestSession]);
 
   // Opening a session shows the panel (the sheet on a phone), once per session; the person can
   // still fold it away with ⌘. and it stays away until the next session opens.
@@ -161,7 +229,6 @@ function ProjectCode() {
 
   // The drawer holds the terminal and the Git panel (⌘J); the shell keeps running on the runner
   // while it is closed.
-  const [drawerTab, setDrawerTab] = useState("terminal");
   useEffect(() => {
     if (!workspaceId || !projectId) return;
     setDrawer(

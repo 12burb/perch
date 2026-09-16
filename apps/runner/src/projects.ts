@@ -9,7 +9,13 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import type { ProjectSetupResult, RunnerRequestParams } from "@perch/events";
+import {
+  JSON_RPC_ERRORS,
+  type ProjectConfigResult,
+  type ProjectSetupResult,
+  type RunnerRequestParams,
+  RunnerRpcError,
+} from "@perch/events";
 import { simpleGit } from "simple-git";
 
 export type ProjectsOptions = {
@@ -192,6 +198,21 @@ export async function runPostCreate(
     exitCode,
     output: output.length > OUTPUT_LIMIT ? `${output.slice(0, OUTPUT_LIMIT)}\n…` : output,
   };
+}
+
+/**
+ * A project's checked-in files, re-read where the project already is (task 2.18). Nothing about the
+ * checkout is touched: this is the api asking what `.perch/project.json` says now.
+ */
+export async function projectConfig(
+  options: ProjectsOptions,
+  params: { workspace_id: string; project: string },
+): Promise<ProjectConfigResult> {
+  const dir = projectDir(options.root, params.workspace_id, params.project);
+  if (!existsSync(dir)) {
+    throw new RunnerRpcError(JSON_RPC_ERRORS.invalidParams, "the project is not on this runner");
+  }
+  return readProjectFiles(dir);
 }
 
 export async function setupProject(

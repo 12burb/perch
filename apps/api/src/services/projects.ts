@@ -9,6 +9,7 @@ import type { Bus } from "@perch/bus";
 import { type Db, type Project, projectConfigSchema } from "@perch/db";
 import {
   type ProjectSetupResult,
+  projectConfigResultSchema,
   projectSetupResultSchema,
   type RunnerCallParams,
   type RunnerLink,
@@ -30,6 +31,7 @@ import { findRunnerById } from "../repos/runners.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import { requestRunner } from "../supervisor/queue.ts";
 import { decryptDeployKey } from "./deploy-keys.ts";
+import { runnerCall } from "./runners.ts";
 import { slugify } from "./workspaces.ts";
 
 export type ProjectDeps = {
@@ -117,6 +119,43 @@ export function projectKeyFrom(name: string): string {
 
 function scrub(text: string): string {
   return text.replace(/(\w+:\/\/)[^/@\s]+@/g, "$1***@");
+}
+
+/** A quick action, merged from the project's run commands and its own actions (task 2.18). */
+export type QuickAction = {
+  id: string;
+  name: string;
+  kind: "prompt" | "run";
+  prompt?: string;
+  command?: string;
+  mode?: "plan" | "build";
+  reasoning?: "auto" | "low" | "medium" | "high";
+};
+
+/**
+ * The buttons a project offers (spec §5.1 "quick actions from .perch/project.json run commands plus
+ * custom actions"). Every `run` command is an action by itself — a project that declares `test`
+ * already said what pressing Test should do — and the project's own `actions` come after, able to
+ * take over a run key by using its id.
+ */
+export function projectActions(project: Project): QuickAction[] {
+  const byId = new Map<string, QuickAction>();
+  for (const [id, command] of Object.entries(project.config.run ?? {})) {
+    byId.set(id, { id, name: id, kind: "run", command });
+  }
+  for (const one of project.config.actions ?? []) {
+    byId.set(one.id, {
+      id: one.id,
+      name: one.name,
+      kind: one.prompt === undefined ? "run" : "prompt",
+      ...(one.prompt === undefined ? {} : { prompt: one.prompt }),
+      // A run action names a command in `run`; a name that is not there is the command itself.
+      ...(one.run === undefined ? {} : { command: project.config.run?.[one.run] ?? one.run }),
+      ...(one.mode ? { mode: one.mode } : {}),
+      ...(one.reasoning ? { reasoning: one.reasoning } : {}),
+    });
+  }
+  return [...byId.values()];
 }
 
 export function listProjects(db: Db, workspaceId: string): Promise<Project[]> {
@@ -275,6 +314,70 @@ async function runnerSource(
 }
 
 /** What a finished setup writes back: validated config, defaults applied, the checkout facts. */
+/**
+ * Re-read `.perch/project.json` where the project already is (task 2.18, ADR-0111). The file is
+ * the project's own document — it changes with a pull, an edit, or an agent — and before this the
+ * only way Perch noticed was to set the project up again, which means re-cloning it.
+ */
+export async function reloadProjectConfig(
+  deps: ProjectDeps,
+  project: Project,
+  userId: string,
+): Promise<Project> {
+  const link = await projectRunnerLink(deps, project, userId);
+  const raw = await runnerCall(link, "project.config", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+  });
+  const result = projectConfigResultSchema.parse(raw);
+  const { config, configError, devcontainer, devcontainerError } = readConfigFiles(project, result);
+  const notes = devcontainerError ? scrub(devcontainerError).slice(0, 1000) : null;
+  const updated =
+    (await updateProject(deps.db, project.id, {
+      config,
+      configError,
+      devcontainer,
+      defaultEngine: config.engine ?? project.defaultEngine,
+      statusMessage: notes,
+    })) ?? project;
+  await deps.bus.publish(
+    "project.updated",
+    { workspaceId: project.workspaceId, projectId: project.id, changes: ["config"] },
+    { actor: { type: "user", id: userId }, meta: {} },
+  );
+  return updated;
+}
+
+/** The two checked-in files as columns: what setup and reload both do with them. */
+function readConfigFiles(
+  project: Project,
+  result: Pick<ProjectSetupResult, "config" | "configError" | "devcontainer" | "devcontainerError">,
+) {
+  const parsed = projectConfigSchema.safeParse(result.config ?? {});
+  const config = parsed.success ? parsed.data : {};
+  const configError = result.configError
+    ? result.configError
+    : parsed.success
+      ? null
+      : `.perch/project.json: ${parsed.error.issues
+          .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+          .join("; ")}`;
+  const devcontainer =
+    typeof result.devcontainer === "object" &&
+    result.devcontainer !== null &&
+    !Array.isArray(result.devcontainer)
+      ? (result.devcontainer as Record<string, unknown>)
+      : null;
+  void project;
+  return {
+    config,
+    configError,
+    devcontainer,
+    ...(result.devcontainerError ? { devcontainerError: result.devcontainerError } : {}),
+  };
+}
+
 export function applySetupResult(project: Project, result: ProjectSetupResult) {
   const parsed = projectConfigSchema.safeParse(result.config ?? {});
   const config = parsed.success ? parsed.data : {};

@@ -55,6 +55,11 @@ export type ShellContextValue = {
   };
   setPanel: (panel: { title: string; content: ReactNode } | null) => void;
   setDrawer: (drawer: ReactNode | null) => void;
+  /**
+   * Commands this screen contributes to ⌘K (task 2.18): a project's quick actions belong to the
+   * project, not the shell, and they leave when the screen does.
+   */
+  setCommands: (commands: PaletteCommand[]) => void;
   openPalette: () => void;
 };
 
@@ -115,6 +120,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
   const [state, setState] = useState<ShellState>(() => readState(stateKey));
   const [panel, setPanel] = useState<{ title: string; content: ReactNode } | null>(null);
   const [drawer, setDrawer] = useState<ReactNode | null>(null);
+  const [extraCommands, setCommands] = useState<PaletteCommand[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -124,6 +130,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
     setState(readState(stateKey));
     setPanel(null);
     setDrawer(null);
+    setCommands([]);
   }, [stateKey]);
 
   useEffect(() => {
@@ -175,6 +182,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
       run: () => goMode(m),
     }));
     return [
+      ...extraCommands,
       ...nav,
       {
         id: "toggle-sidebar",
@@ -236,7 +244,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
         run: () => void signOut(),
       },
     ];
-  }, [goMode, navigate, onStateChange, signOut, state, workspace]);
+  }, [extraCommands, goMode, navigate, onStateChange, signOut, state, workspace]);
 
   const railMode: RailMode = mode === "settings" || mode === "welcome" ? "home" : mode;
   const mobileTab: MobileTab =
@@ -273,6 +281,7 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
     shell: { state, onStateChange, hasPanel: panel !== null, hasDrawer: drawer !== null },
     setPanel,
     setDrawer,
+    setCommands,
     openPalette,
   };
 

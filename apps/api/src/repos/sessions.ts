@@ -11,6 +11,7 @@ import {
   type SessionCheckpoint,
   type SessionEventRow,
   type SessionModeValue,
+  type SessionReasoning,
   type StoredSessionEvent,
   schema,
 } from "@perch/db";
@@ -31,6 +32,8 @@ export async function insertSession(
     agent?: string | null;
     model: ModelRef;
     mode: SessionModeValue;
+    /** How hard to think, when the project or the caller asked for something other than auto. */
+    reasoning?: SessionReasoning;
     title: string | null;
     forkedFromId?: string | null;
     kind?: CodingSessionKind;
@@ -51,6 +54,7 @@ export async function insertSession(
       modelId: values.model.modelId,
       modelProfileId: values.model.profileId ?? null,
       mode: values.mode,
+      ...(values.reasoning ? { reasoning: values.reasoning } : {}),
       title: values.title,
       forkedFromId: values.forkedFromId ?? null,
       ...(values.kind ? { kind: values.kind } : {}),
@@ -94,6 +98,7 @@ export type SessionPatch = Partial<{
   engineSessionId: string | null;
   runnerId: string | null;
   title: string | null;
+  reasoning: SessionReasoning;
   turns: number;
   endedAt: Date | null;
 }>;

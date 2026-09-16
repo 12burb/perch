@@ -6,7 +6,14 @@
  * engine that goes silent mid-round is cancelled after `silenceMs`.
  */
 import type { Bus } from "@perch/bus";
-import type { CodingSession, CodingSessionKind, Db, Project, SessionCheckpoint } from "@perch/db";
+import type {
+  CodingSession,
+  CodingSessionKind,
+  Db,
+  Project,
+  SessionCheckpoint,
+  SessionReasoning,
+} from "@perch/db";
 import { type Engine, EngineError, type EngineRegistry } from "@perch/engines";
 import {
   type FileDiff,
@@ -112,6 +119,8 @@ export type CreateSessionInput = {
   kind?: CodingSessionKind;
   /** The brain to run on (task 1.15); without one, the workspace's default for code, then the engine's own. */
   modelProfileId?: string;
+  /** How hard to think (task 2.18); `auto` — the agent's own choice — otherwise. */
+  reasoning?: SessionReasoning;
   by: ActorContext;
 };
 
@@ -200,6 +209,24 @@ type Round = {
 type PendingPermission = { id: string; tool: string; seq: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a tool may run with nobody watching (task 2.18, ADR-0111). A name matches literally or
+ * through one trailing `*`; the list is the project's own `.perch/project.json`, so this is the
+ * repository saying what it trusts, not Perch deciding for it. The policy engine still applies to
+ * whatever the tool then does.
+ */
+export function unattended(names: readonly string[] | undefined, tool: string): boolean {
+  if (!names || names.length === 0) return false;
+  const want = tool.trim().toLowerCase();
+  if (!want) return false;
+  return names.some((raw) => {
+    const name = raw.trim().toLowerCase();
+    if (!name) return false;
+    if (name === "*") return true;
+    return name.endsWith("*") ? want.startsWith(name.slice(0, -1)) : want === name;
+  });
+}
 
 /** An engine's refusal as the §7.8 error it means to the caller. */
 export function engineFailure(error: unknown): PerchError {
@@ -293,6 +320,7 @@ export class SessionService {
       ...(input.agent ? { agent: input.agent } : {}),
       model,
       mode: input.mode ?? "build",
+      ...(input.reasoning ? { reasoning: input.reasoning } : {}),
       title: input.title ?? null,
       ...(input.kind ? { kind: input.kind } : {}),
     });
@@ -314,6 +342,11 @@ export class SessionService {
   /** A new title. */
   async rename(session: CodingSession, title: string | null): Promise<CodingSession> {
     return (await updateSession(this.deps.db, session.id, { title })) ?? session;
+  }
+
+  /** How hard this session thinks from the next round on (task 2.18). */
+  async setReasoning(session: CodingSession, reasoning: SessionReasoning): Promise<CodingSession> {
+    return (await updateSession(this.deps.db, session.id, { reasoning })) ?? session;
   }
 
   /**
@@ -371,12 +404,20 @@ export class SessionService {
    * `options.context` is material the engine should read before the turn — today the `@codebase`
    * block (task 2.17, ADR-0110). It never reaches the transcript: what a person sees themselves
    * having said is what they typed.
+   *
+   * `options.reasoning` is how hard to think for this round (task 2.18); without one the session's
+   * own level stands.
    */
   async sendTurn(
     session: CodingSession,
     userId: string,
     turn: UserTurn,
-    options: { mode?: SessionMode; by: ActorContext; context?: string },
+    options: {
+      mode?: SessionMode;
+      by: ActorContext;
+      context?: string;
+      reasoning?: SessionReasoning;
+    },
   ): Promise<{ seq: number; session: CodingSession }> {
     if (session.status === "ended") throw PerchError.conflict("the session has ended");
     if (this.rounds.has(session.id)) {
@@ -412,7 +453,8 @@ export class SessionService {
     const input: UserTurn = options.context
       ? { ...turn, text: `${options.context}\n\n${turn.text}` }
       : turn;
-    void this.runRound(session, round, input, mode).catch((error: unknown) => {
+    const reasoning = options.reasoning ?? session.reasoning;
+    void this.runRound(session, round, input, mode, reasoning).catch((error: unknown) => {
       this.deps.log.error({ err: error, sessionId: session.id }, "session round crashed");
     });
     return { seq, session: updated };
@@ -907,13 +949,33 @@ export class SessionService {
     round: Round,
     turn: UserTurn,
     mode: SessionMode,
+    reasoning: SessionReasoning,
   ): Promise<void> {
     let ended = false;
+    // The project's background policy (task 2.18, ADR-0111): which tools may run with nobody
+    // watching, and whether the session lets itself go once the round is over.
+    const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
+    const background = project?.config.background ?? {};
     try {
       this.armSilence(session, round);
-      for await (const event of round.engine.send(session.id, turn, { mode })) {
+      for await (const event of round.engine.send(session.id, turn, {
+        mode,
+        ...(reasoning === "auto" ? {} : { reasoning }),
+      })) {
         const { seq } = await this.record(session, event);
         if (event.type === "permission") {
+          if (unattended(background.unattended, event.tool)) {
+            // Answered by the project's own policy, and the transcript says so rather than
+            // pretending a person pressed Allow.
+            await this.record(session, {
+              type: "tool_result",
+              id: event.id,
+              output: `allowed without asking: ${event.tool} is unattended in this project`,
+            });
+            await round.engine.respondPermission(session.id, event.id, "allow").catch(() => {});
+            this.armSilence(session, round);
+            continue;
+          }
           this.pending.set(session.id, { id: event.id, tool: event.tool, seq });
           if (round.timer) clearTimeout(round.timer);
           round.timer = null;
@@ -936,6 +998,12 @@ export class SessionService {
       if (!ended) {
         await this.record(session, { type: "done" });
         await this.setStatus(session, "idle");
+      }
+      // Auto-settle: a background run that finished with nothing waiting on a person lets its
+      // session go, so a runner is not held open by a conversation nobody is having.
+      if (background.autoSettle && !this.pending.has(session.id)) {
+        const fresh = await getSession(this.deps.db, session.id);
+        if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
