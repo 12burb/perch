@@ -4713,3 +4713,35 @@ one file for exactly that reason: a fork edits the list, and nothing else change
 Birbus carries `orchestrator: true` and the tools to tag and wait, but what an orchestrator *does*
 with a fan-out — the plan card, the per-child budgets, folding the answers back — is task 3.10. Until
 then Birbus is a bot that may tag other bots, which is what task 2.7 already gives it.
+
+## ADR-0125: The passkey plugin is not part of the first paint
+
+- Status: accepted
+- Date: 2026-09-16
+
+### Context
+The initial-paint budget (`scripts/perf-budget.ts`, 180 KB gzipped for everything `index.html`
+references) had drifted to 179.9 KB — a tenth of a kilobyte of headroom, which means the next task
+to touch the entry fails the gate for a reason that has nothing to do with it. A budget that can
+only be met by adding nothing is not a budget; it is a wall.
+
+### Decision
+**Two auth clients, one session.** `lib/auth-client.ts` makes a better-auth client with no plugins
+and is what the shell imports — it asks who you are before anything is drawn, so whatever is in it
+is downloaded by everyone. `lib/passkeys.ts` makes a second client with `passkeyClient()` and is
+imported by exactly the two screens that use passkeys: signing in, and settings → security. Both
+speak to the same endpoints and the same cookie, so there is one session; what they do not share is
+code nobody else needs.
+
+Measured: 179.9 KB → 176 KB, so the passkey plugin was 3.9 KB of every first paint for a feature
+used on two screens.
+
+### Consequences
+Four kilobytes is not much, and the point is not the four kilobytes: it is that the budget has room
+again, and that the way to find more is the same — look at what the shell imports, and ask which of
+it belongs to a screen instead. `virtual-list` moved out of the `@perch/ui` barrel for exactly this
+reason in task 2.20 (ADR-0113).
+
+The passkey e2e (Chromium's virtual authenticator, desktop and mobile) covers both screens and
+passed unchanged, which is what makes this safe: a split that silently broke sign-in would have
+shown up there.

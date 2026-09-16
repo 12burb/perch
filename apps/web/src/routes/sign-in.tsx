@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
 import { useInstance } from "../lib/instance.ts";
+import { passkeyAuth } from "../lib/passkeys.ts";
 import { instanceQuery } from "../lib/queries.ts";
 import { redirectSearch } from "../lib/redirect.ts";
 
@@ -42,7 +43,7 @@ function SignIn() {
 
   async function withPasskey() {
     setBusy(true);
-    const result = await authClient.signIn.passkey();
+    const result = await passkeyAuth.signIn.passkey();
     setBusy(false);
     if (result?.error) {
       setError(t("auth.passkeyFailed"));

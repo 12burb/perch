@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
-import { authClient } from "../../../lib/auth-client.ts";
+import { passkeyAuth } from "../../../lib/passkeys.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
 
@@ -30,14 +30,14 @@ function Passkeys() {
   const passkeys = useQuery({
     queryKey: ["passkeys"],
     queryFn: async () => {
-      const result = await authClient.passkey.listUserPasskeys();
+      const result = await passkeyAuth.passkey.listUserPasskeys();
       if (result.error) throw new Error(result.error.message ?? t("common.error"));
       return result.data ?? [];
     },
   });
   const add = useMutation({
     mutationFn: async (name: string) => {
-      const result = await authClient.passkey.addPasskey({ name });
+      const result = await passkeyAuth.passkey.addPasskey({ name });
       if (result?.error) throw new Error(result.error.message ?? t("common.error"));
     },
     onSuccess: () => {
@@ -48,7 +48,7 @@ function Passkeys() {
   });
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      const result = await authClient.passkey.deletePasskey({ id });
+      const result = await passkeyAuth.passkey.deletePasskey({ id });
       if (result.error) throw new Error(result.error.message ?? t("common.error"));
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["passkeys"] }),
