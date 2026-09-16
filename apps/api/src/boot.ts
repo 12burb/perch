@@ -39,6 +39,7 @@ import { McpGateway } from "./services/mcp.ts";
 import { MergeQueueService } from "./services/merge-queue.ts";
 import { NestService } from "./services/nest.ts";
 import { PerchMcpService } from "./services/perch-mcp.ts";
+import { PlanningService } from "./services/planning.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreflightService } from "./services/preflight.ts";
 import { PreviewService } from "./services/previews.ts";
@@ -247,6 +248,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   });
   // Work items, and the board that follows the sessions doing them (task 3.13).
   const work = new WorkService({ db, bus, log, sessions });
+  // What the work is planned into: cycles, modules, saved views, relations (task 3.26).
+  const planning = new PlanningService({ db, bus, log });
   // And the queue those branches land through, one at a time (task 3.15).
   const mergeQueue = new MergeQueueService({ db, bus, log, sessions, registry: runners });
   // The same task on several engines at once, compared and decided (task 3.16).
@@ -303,6 +306,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     localMcp,
     perchMcp,
     work,
+    planning,
     mergeQueue,
     races,
     background,

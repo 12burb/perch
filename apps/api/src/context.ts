@@ -22,6 +22,7 @@ import type { McpGateway } from "./services/mcp.ts";
 import type { MergeQueueService } from "./services/merge-queue.ts";
 import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
+import type { PlanningService } from "./services/planning.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreflightService } from "./services/preflight.ts";
 import type { PreviewService } from "./services/previews.ts";
@@ -71,6 +72,8 @@ export type Deps = {
   perchMcp: PerchMcpService;
   /** Work items and the board, moved by the sessions doing them (task 3.13). */
   work: WorkService;
+  /** Cycles, modules, saved views and relations (task 3.26). */
+  planning: PlanningService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */
   mergeQueue: MergeQueueService;
   /** The same task on several engines at once, and the choice between them (task 3.16). */

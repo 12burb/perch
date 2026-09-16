@@ -56,7 +56,8 @@ const ADDITIVE_API_TO_RUNNER = [
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
  * deploy.started (ADR-0106), bot.permission_requested / bot.permission_answered (ADR-0121),
- * merge.* (ADR-0131), race.* (ADR-0132), agent.stopped (ADR-0136).
+ * merge.* (ADR-0131), race.* (ADR-0132), agent.stopped (ADR-0136), cycle.* / module.* / view.*
+ * (ADR-0144).
  */
 const ADDITIVE_BUS_EVENTS = [
   "session.turn",
@@ -76,6 +77,15 @@ const ADDITIVE_BUS_EVENTS = [
   "race.started",
   "race.entrant_finished",
   "race.decided",
+  // The planning around the items: §4 names cycles, modules and saved views and not their events
+  // (task 3.26, ADR-0144).
+  "cycle.created",
+  "cycle.updated",
+  "cycle.closed",
+  "module.created",
+  "module.updated",
+  "view.saved",
+  "view.removed",
 ];
 
 describe("bus event catalog (spec §7.7)", () => {

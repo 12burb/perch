@@ -37,6 +37,32 @@ export const workItemDescriptionSchema = z.object({
 });
 export type WorkItemDescription = z.infer<typeof workItemDescriptionSchema>;
 
+// saved_views.filters: which items a view is about (spec §4 "saved views with filters and display
+// properties"; task 3.26). Every field is optional and absent means "do not narrow by this".
+export const viewFiltersSchema = z.object({
+  states: z.array(z.string()).max(16).optional(),
+  types: z.array(z.string()).max(8).optional(),
+  priorities: z.array(z.number().int().min(0).max(4)).max(5).optional(),
+  labels: z.array(z.string().max(64)).max(32).optional(),
+  assignees: z.array(z.uuid()).max(64).optional(),
+  cycleId: z.uuid().nullish(),
+  moduleId: z.uuid().nullish(),
+  /** A word in the title, which is what a person types when they mean "the login one". */
+  search: z.string().max(200).optional(),
+});
+export type ViewFilters = z.infer<typeof viewFiltersSchema>;
+
+// saved_views.display: how the view looks once it has decided what it is about.
+export const viewDisplaySchema = z.object({
+  groupBy: z.enum(["state", "priority", "assignee", "cycle", "module", "type", "none"]).optional(),
+  orderBy: z.enum(["priority", "created", "updated", "due", "title"]).optional(),
+  direction: z.enum(["asc", "desc"]).optional(),
+  /** The columns a spreadsheet shows and a list puts beside a title. */
+  properties: z.array(z.string().max(32)).max(24).optional(),
+  showSubItems: z.boolean().optional(),
+});
+export type ViewDisplay = z.infer<typeof viewDisplaySchema>;
+
 // audit_log.details: the audited event's payload (ids and small facts; never a secret or a body)
 export const auditDetailsSchema = z.record(z.string(), z.unknown());
 export type AuditDetails = z.infer<typeof auditDetailsSchema>;

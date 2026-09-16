@@ -28,6 +28,7 @@ import { registerMcpServers } from "./routes/mcp-servers.ts";
 import { registerMe } from "./routes/me.ts";
 import { registerMergeQueue } from "./routes/merge-queue.ts";
 import { registerMessages } from "./routes/messages.ts";
+import { registerPlanning } from "./routes/planning.ts";
 import { registerPolicy } from "./routes/policy.ts";
 import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
 import { registerPreviews } from "./routes/previews.ts";
@@ -154,6 +155,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerUnfurl(app, deps);
   registerInbox(app, deps);
   registerWork(app, deps);
+  registerPlanning(app, deps);
   registerMergeQueue(app, deps);
   registerRaces(app, deps);
   registerAgents(app, deps);

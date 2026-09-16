@@ -13,6 +13,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   check,
   index,
   integer,
@@ -24,7 +25,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { id, timestamps, timestamptz } from "../columns.ts";
-import type { WorkItemDescription } from "../shapes/index.ts";
+import type { ViewDisplay, ViewFilters, WorkItemDescription } from "../shapes/index.ts";
 import { projects } from "./projects.ts";
 import { codingSessions } from "./sessions.ts";
 import { workspaces } from "./tenancy.ts";
@@ -57,6 +58,10 @@ export type WorkAssignee = (typeof WORK_ASSIGNEES)[number];
 export const WORK_ITEM_SOURCES = ["manual", "message", "bot", "intake"] as const;
 export type WorkItemSource = (typeof WORK_ITEM_SOURCES)[number];
 
+/** Where a cycle is in its life: planned, running now, or over (spec §6 `cycles.status`). */
+export const CYCLE_STATUSES = ["planned", "active", "closed"] as const;
+export type CycleStatus = (typeof CYCLE_STATUSES)[number];
+
 export const cycles = pgTable(
   "cycles",
   {
@@ -67,10 +72,13 @@ export const cycles = pgTable(
     name: text("name").notNull(),
     startsAt: timestamptz("starts_at"),
     endsAt: timestamptz("ends_at"),
-    status: text("status").notNull().default("planned"),
+    status: text("status").$type<CycleStatus>().notNull().default("planned"),
     ...timestamps(),
   },
-  (t) => [index("cycles_project_idx").on(t.projectId, t.startsAt)],
+  (t) => [
+    index("cycles_project_idx").on(t.projectId, t.startsAt),
+    check("cycles_status_check", sql`${t.status} in ('planned', 'active', 'closed')`),
+  ],
 );
 
 export const modules = pgTable(
@@ -123,6 +131,12 @@ export const workItems = pgTable(
     threadRootId: uuid("thread_root_id"),
     /** The session doing it. Set when one is started from here; cleared when it ends. */
     sessionId: uuid("session_id").references(() => codingSessions.id, { onDelete: "set null" }),
+    /**
+     * When it reached `done` or `cancelled`, cleared if it comes back out (task 3.26). A burndown
+     * is a question about the past — how much was left on Tuesday — and `updated_at` cannot answer
+     * it, because editing a finished item's title would move the line.
+     */
+    completedAt: timestamptz("completed_at"),
     prUrl: text("pr_url"),
     previewShareId: uuid("preview_share_id"),
     createdBy: uuid("created_by"),
@@ -148,7 +162,75 @@ export const workItems = pgTable(
   ],
 );
 
+/**
+ * How two items are related (spec §6 `work_item_relations`; task 3.26). `blocks` and `blocked_by`
+ * are the same fact from both ends, and Perch writes both rows: a person who opens the blocked one
+ * should not have to know which end it was entered from.
+ */
+export const WORK_RELATION_KINDS = ["blocks", "blocked_by", "relates", "duplicates"] as const;
+export type WorkRelationKind = (typeof WORK_RELATION_KINDS)[number];
+
+export const workItemRelations = pgTable(
+  "work_item_relations",
+  {
+    id: id(),
+    workItemId: uuid("work_item_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
+    relatedId: uuid("related_id")
+      .notNull()
+      .references(() => workItems.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<WorkRelationKind>().notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("work_item_relations_idx").on(t.workItemId, t.relatedId, t.kind),
+    index("work_item_relations_related_idx").on(t.relatedId),
+    check(
+      "work_item_relations_kind_check",
+      sql`${t.kind} in ('blocks', 'blocked_by', 'relates', 'duplicates')`,
+    ),
+  ],
+);
+
+/** The five layouts of §4. A view is one of them plus what it is about. */
+export const VIEW_LAYOUTS = ["board", "list", "calendar", "timeline", "spreadsheet"] as const;
+export type ViewLayout = (typeof VIEW_LAYOUTS)[number];
+
+/**
+ * A saved view (spec §6 `saved_views`; task 3.26): a layout, what to filter by, and what to show.
+ * `owner_id` is who made it and `shared` is whether anybody else sees it — a view is somebody's
+ * way of looking at the work before it is the team's.
+ */
+export const savedViews = pgTable(
+  "saved_views",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id"),
+    name: text("name").notNull(),
+    layout: text("layout").$type<ViewLayout>().notNull().default("board"),
+    filters: jsonb("filters").$type<ViewFilters>().notNull().default({}),
+    display: jsonb("display").$type<ViewDisplay>().notNull().default({}),
+    shared: boolean("shared").notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [
+    index("saved_views_project_idx").on(t.projectId, t.name),
+    index("saved_views_workspace_idx").on(t.workspaceId, t.name),
+    check(
+      "saved_views_layout_check",
+      sql`${t.layout} in ('board', 'list', 'calendar', 'timeline', 'spreadsheet')`,
+    ),
+  ],
+);
+
 export type WorkItem = typeof workItems.$inferSelect;
 export type NewWorkItem = typeof workItems.$inferInsert;
 export type Cycle = typeof cycles.$inferSelect;
 export type Module = typeof modules.$inferSelect;
+export type WorkItemRelation = typeof workItemRelations.$inferSelect;
+export type SavedView = typeof savedViews.$inferSelect;

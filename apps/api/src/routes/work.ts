@@ -11,6 +11,7 @@ import {
   WORK_ASSIGNEES,
   WORK_ITEM_STATES,
   WORK_ITEM_TYPES,
+  WORK_RELATION_KINDS,
   type WorkItem,
   type WorkItemState,
 } from "@perch/db";
@@ -19,7 +20,9 @@ import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { findProject } from "../repos/projects.ts";
+import { optionsFrom } from "../repos/work.ts";
 import { viewWorkItem } from "../services/work.ts";
+import { savedViewSchema, viewSaved } from "./planning.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
@@ -46,6 +49,16 @@ const itemSchema = z
     assignee_type: z.enum(WORK_ASSIGNEES).nullable(),
     assignee_id: z.uuid().nullable(),
     labels: z.array(z.string()),
+    /** §4's rich description, when one has been written; the plain text is always there too. */
+    description_doc: z.unknown().nullable(),
+    cycle_id: z.uuid().nullable(),
+    module_id: z.uuid().nullable(),
+    parent_id: z.uuid().nullable(),
+    estimate: z.number().nullable(),
+    due_at: z.string().nullable(),
+    /** `pending`, `accepted` or `declined` for something that arrived through intake. */
+    intake_status: z.string().nullable(),
+    completed_at: z.string().nullable(),
     /** The thread it was made from, when a message is where it started. */
     thread_root_id: z.uuid().nullable(),
     /** The session doing it right now, when one is. */
@@ -57,7 +70,12 @@ const itemSchema = z
   .openapi("WorkItem");
 
 const boardSchema = z
-  .object({ items: z.array(itemSchema), states: z.array(z.enum(WORK_ITEM_STATES)) })
+  .object({
+    items: z.array(itemSchema),
+    states: z.array(z.enum(WORK_ITEM_STATES)),
+    /** The saved view this list came from, when one was asked for (task 3.26). */
+    view: savedViewSchema.nullable(),
+  })
   .openapi("WorkBoard");
 
 const createBody = z
@@ -71,6 +89,12 @@ const createBody = z
     labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     /** The thread this came out of, so the conversation and the work stay one thing. */
     thread_root_id: z.uuid().optional(),
+    /** Where it is planned, so quick-add's `cycle:12` lands somewhere (task 3.26). */
+    cycle_id: z.uuid().nullable().optional(),
+    module_id: z.uuid().nullable().optional(),
+    parent_id: z.uuid().nullable().optional(),
+    estimate: z.number().min(0).max(1000).nullable().optional(),
+    due_at: z.iso.datetime().nullable().optional(),
   })
   .openapi("CreateWorkItem");
 
@@ -84,6 +108,13 @@ const patchBody = z
     assignee: assigneeSchema.optional(),
     labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     pr_url: z.url().max(500).nullable().optional(),
+    /** The Tiptap document §4 asks for; `null` takes it away and leaves the text. */
+    description_doc: z.unknown().optional(),
+    cycle_id: z.uuid().nullable().optional(),
+    module_id: z.uuid().nullable().optional(),
+    parent_id: z.uuid().nullable().optional(),
+    estimate: z.number().min(0).max(1000).nullable().optional(),
+    due_at: z.iso.datetime().nullable().optional(),
   })
   .openapi("PatchWorkItem");
 
@@ -108,6 +139,13 @@ const boardRoute = createRoute({
       state: z.enum(WORK_ITEM_STATES).optional(),
       assignee: z.uuid().optional(),
       limit: z.coerce.number().int().min(1).max(500).optional(),
+      /** A saved view's id: its filters and its display decide what comes back (task 3.26). */
+      view: z.uuid().optional(),
+      cycle: z.uuid().optional(),
+      module: z.uuid().optional(),
+      type: z.enum(WORK_ITEM_TYPES).optional(),
+      label: z.string().max(64).optional(),
+      q: z.string().max(200).optional(),
     }),
   },
   responses: {
@@ -203,6 +241,79 @@ const costRouteDef = createRoute({
   },
 });
 
+const relationSchema = z
+  .object({
+    kind: z.enum(WORK_RELATION_KINDS),
+    related_id: z.uuid(),
+    /** The item on the other end, so a panel shows a title rather than an id. */
+    item: itemSchema.nullable(),
+  })
+  .openapi("WorkItemRelation");
+
+const relationsRoute = createRoute({
+  method: "get",
+  path: "/api/work-items/{id}/relations",
+  tags: ["work"],
+  summary: "What this item blocks, is blocked by, relates to or duplicates — and its sub-items",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: itemParam },
+  responses: {
+    200: {
+      description: "Relations and children",
+      content: {
+        "application/json": {
+          schema: z
+            .object({ relations: z.array(relationSchema), children: z.array(itemSchema) })
+            .openapi("WorkItemRelations"),
+        },
+      },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
+const relateRoute = createRoute({
+  method: "post",
+  path: "/api/work-items/{id}/relations",
+  tags: ["work"],
+  summary: "Relate two items; the other end is written too",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: itemParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({ related_id: z.uuid(), kind: z.enum(WORK_RELATION_KINDS) })
+            .openapi("RelateWorkItem"),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "The relation",
+      content: { "application/json": { schema: relationSchema } },
+    },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const unrelateRoute = createRoute({
+  method: "delete",
+  path: "/api/work-items/{id}/relations/{kind}/{related}",
+  tags: ["work"],
+  summary: "Take a relation away, from both ends",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: itemParam.extend({ kind: z.enum(WORK_RELATION_KINDS), related: z.uuid() }),
+  },
+  responses: { 204: { description: "Gone" }, ...errorResponses(403, 404) },
+});
+
 const startRouteDef = createRoute({
   method: "post",
   path: "/api/work-items/{id}/start-session",
@@ -246,9 +357,26 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const project = await findProject(deps.db.db, ws, projectId);
     if (!project) throw PerchError.notFound("project");
     const query = c.req.valid("query");
+    // A saved view is the base, and anything in the query narrows it further: opening a view and
+    // then typing in the search box should not throw the view away (task 3.26).
+    let options = {};
+    let view = null;
+    if (query.view) {
+      const saved = await deps.planning.view(query.view);
+      if (!saved || saved.workspaceId !== ws) throw PerchError.notFound("view");
+      if (!deps.planning.mayRead(saved, currentUser(c).id)) throw PerchError.notFound("view");
+      options = optionsFrom(saved.filters, saved.display);
+      view = saved;
+    }
     const items = await deps.work.board(project.id, {
+      ...options,
       ...(query.state ? { states: [query.state as WorkItemState] } : {}),
       ...(query.assignee ? { assigneeId: query.assignee } : {}),
+      ...(query.cycle ? { cycleId: query.cycle } : {}),
+      ...(query.module ? { moduleId: query.module } : {}),
+      ...(query.type ? { types: [query.type] } : {}),
+      ...(query.label ? { labels: [query.label] } : {}),
+      ...(query.q ? { search: query.q } : {}),
       ...(query.limit ? { limit: query.limit } : {}),
     });
     return c.json(
@@ -256,6 +384,7 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         items: items.map((item) => viewWorkItem(item, project.key)),
         // The columns a board draws, in order, so the client does not keep its own copy.
         states: [...WORK_ITEM_STATES],
+        view: view ? viewSaved(view) : null,
       },
       200,
     );
@@ -283,7 +412,29 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         ? { threadRootId: body.thread_root_id, source: "message" as const }
         : {}),
     });
-    return c.json(viewWorkItem(item, project.key), 201);
+    // Where it is planned is a patch on the way out, so one door owns the rules about parents,
+    // cycles and estimates rather than two.
+    const planned =
+      body.cycle_id !== undefined ||
+      body.module_id !== undefined ||
+      body.parent_id !== undefined ||
+      body.estimate !== undefined ||
+      body.due_at !== undefined
+        ? await deps.work.update(
+            item,
+            {
+              ...(body.cycle_id !== undefined ? { cycleId: body.cycle_id } : {}),
+              ...(body.module_id !== undefined ? { moduleId: body.module_id } : {}),
+              ...(body.parent_id !== undefined ? { parentId: body.parent_id } : {}),
+              ...(body.estimate !== undefined ? { estimate: body.estimate } : {}),
+              ...(body.due_at !== undefined
+                ? { dueAt: body.due_at === null ? null : new Date(body.due_at) }
+                : {}),
+            },
+            actorOf(c),
+          )
+        : item;
+    return c.json(viewWorkItem(planned, project.key), 201);
   });
 
   app.openapi(getRouteDef, async (c) => {
@@ -305,11 +456,73 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         ...(body.assignee !== undefined ? { assignee: body.assignee } : {}),
         ...(body.labels !== undefined ? { labels: body.labels } : {}),
         ...(body.pr_url !== undefined ? { prUrl: body.pr_url } : {}),
+        ...(body.description_doc !== undefined ? { descriptionDoc: body.description_doc } : {}),
+        ...(body.cycle_id !== undefined ? { cycleId: body.cycle_id } : {}),
+        ...(body.module_id !== undefined ? { moduleId: body.module_id } : {}),
+        ...(body.parent_id !== undefined ? { parentId: body.parent_id } : {}),
+        ...(body.estimate !== undefined ? { estimate: body.estimate } : {}),
+        ...(body.due_at !== undefined
+          ? { dueAt: body.due_at === null ? null : new Date(body.due_at) }
+          : {}),
       },
       actorOf(c),
     );
     return c.json(viewWorkItem(updated, key), 200);
   });
+  app.openapi(relationsRoute, async (c) => {
+    const { item, key } = await reach(c, c.req.valid("param").id, "work.read");
+    const [relations, children] = await Promise.all([
+      deps.planning.relations(item.id),
+      deps.planning.children(item.id),
+    ]);
+    return c.json(
+      {
+        relations: relations.map((one) => ({
+          kind: one.relation.kind,
+          related_id: one.relation.relatedId,
+          item: one.item ? viewWorkItem(one.item, key) : null,
+        })),
+        children: children.map((child) => viewWorkItem(child, key)),
+      },
+      200,
+    );
+  });
+
+  app.openapi(relateRoute, async (c) => {
+    const { item, key } = await reach(c, c.req.valid("param").id, "work.write");
+    const body = c.req.valid("json");
+    const relation = await deps.planning.relate({
+      workspaceId: item.workspaceId,
+      item,
+      relatedId: body.related_id,
+      kind: body.kind,
+      by: actorOf(c),
+    });
+    const other = await deps.work.item(relation.relatedId);
+    return c.json(
+      {
+        kind: relation.kind,
+        related_id: relation.relatedId,
+        item: other ? viewWorkItem(other, key) : null,
+      },
+      201,
+    );
+  });
+
+  app.openapi(unrelateRoute, async (c) => {
+    const { kind, related } = c.req.valid("param");
+    const { item } = await reach(c, c.req.valid("param").id, "work.write");
+    const gone = await deps.planning.unrelate({
+      workspaceId: item.workspaceId,
+      item,
+      relatedId: related,
+      kind,
+      by: actorOf(c),
+    });
+    if (!gone) throw PerchError.notFound("relation");
+    return c.body(null, 204);
+  });
+
   app.openapi(costRouteDef, async (c) => {
     const { item } = await reach(c, c.req.valid("param").id, "work.read");
     const rolled = await deps.work.cost(item.id);

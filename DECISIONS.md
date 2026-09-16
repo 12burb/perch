@@ -5701,3 +5701,43 @@ redirect a person's authorization code somewhere else.
 Sixteen of the seventeen connectors now verify what they receive (Railway posts unsigned, and says
 so). The harness exercises every scheme, including the asymmetric one, by generating a keypair per
 check — so a manifest that describes Ed25519 wrongly fails in CI rather than on the first delivery.
+
+## ADR-0144: A burndown asks about the past, so an item records when it was finished
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.26
+
+### Context
+§4 asks for "cycles with burndown and agent throughput". A burndown is a question about days that
+have already happened — how much was left last Tuesday — and §6's `work_items` has no column that
+answers it. `updated_at` is the nearest thing and is wrong: fixing a typo in a finished item's title
+would move the line, and an item that came back out of `done` would never have been in it.
+
+§4 also asks for sub-items, relations, and saved views, and §6 gives tables for the last two. None of
+it says what a sub-item of a sub-item is, or who owns a view.
+
+### Decision
+**`work_items.completed_at`**, set when an item reaches `done` or `cancelled` and cleared when it
+leaves. The burndown is then counted from the items themselves — no snapshot job, no daily rows,
+nothing to backfill — by asking, for each day, which items existed by then and which had been
+finished by then. Agent throughput comes from the same pass: an item counts as an agent's when it
+was assigned to a bot or had a session, which is the difference this tracker exists to show.
+
+**Closing a cycle moves work rather than finishing it.** `POST /api/cycles/{id}/close` carries
+everything unfinished into the cycle you name, or back to no cycle, and hands back the burndown the
+cycle ended on. `PATCH` refuses `status: closed` precisely because closing has consequences: a
+status somebody can type would quietly leave the work behind.
+
+**Sub-items are one level deep.** A parent may not itself have a parent. §4 draws "parent/sub-items"
+and an epic type; an arbitrary tree is not readable at 390 px and turns every list into a question
+about depth.
+
+**A view belongs to a workspace and may name a project**, because "everything assigned to me" is not
+one repository's question. It has an owner: their own views are theirs to change, and `shared` is
+what makes one the team's. Others can read a shared view and not edit it.
+
+**Seven additive bus events** — `cycle.created`, `cycle.updated`, `cycle.closed`, `module.created`,
+`module.updated`, `view.saved`, `view.removed` — for the same reason as the merge queue's and race
+mode's (ADR-0131, ADR-0132): §4 names the features and not their events, and a board watching a
+project needs to know when its cycles move, not only its cards.

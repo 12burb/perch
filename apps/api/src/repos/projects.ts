@@ -53,6 +53,15 @@ export async function findProject(
   return row ?? null;
 }
 
+/**
+ * By its id alone, for a route that reaches a project through something on it — a cycle, a module
+ * (task 3.26). The workspace is then checked against the row rather than the path.
+ */
+export async function projectById(db: Db, id: string): Promise<Project | null> {
+  const [row] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function findProjectByKey(
   db: Db,
   workspaceId: string,

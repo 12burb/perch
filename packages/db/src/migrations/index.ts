@@ -36,6 +36,7 @@ import m32 from "../../drizzle/0032_races.sql" with { type: "text" };
 import m33 from "../../drizzle/0033_background_card.sql" with { type: "text" };
 import m34 from "../../drizzle/0034_fix_attempts.sql" with { type: "text" };
 import m35 from "../../drizzle/0035_runner_local_mcp_servers.sql" with { type: "text" };
+import m36 from "../../drizzle/0036_work_views_and_relations.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -93,5 +94,12 @@ export const migrationSources: MigrationSource[] = [
     when: 1789580646907,
     breakpoints: true,
     sql: m35,
+  },
+  {
+    idx: 36,
+    tag: "0036_work_views_and_relations",
+    when: 1789585602551,
+    breakpoints: true,
+    sql: m36,
   },
 ];

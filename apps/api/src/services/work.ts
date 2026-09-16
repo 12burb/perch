@@ -30,6 +30,7 @@ import {
   type BoardOptions,
   getWorkItem,
   insertWorkItem,
+  listIntake,
   listWorkItems,
   updateWorkItem,
   workItemByNumber,
@@ -62,12 +63,20 @@ export type CreateWorkItem = {
 export type PatchWorkItem = {
   title?: string;
   description?: string;
+  /** §4's Tiptap document, kept beside the text so search and a plain client still work. */
+  descriptionDoc?: unknown;
   type?: WorkItemType;
   state?: WorkItemState;
   priority?: number;
   assignee?: { type: WorkAssignee; id: string } | null;
   labels?: string[];
   prUrl?: string | null;
+  /** Where it is planned (task 3.26): a cycle, a module, a parent, an estimate, a date. */
+  cycleId?: string | null;
+  moduleId?: string | null;
+  parentId?: string | null;
+  estimate?: number | null;
+  dueAt?: Date | null;
 };
 
 /**
@@ -133,6 +142,8 @@ export class WorkService {
       priority: input.priority ?? 0,
       labels: input.labels ?? [],
       source: input.source ?? "manual",
+      // Anything that arrived rather than being typed waits in the triage queue (task 3.26).
+      ...(input.source === "intake" ? { intakeStatus: "pending" } : {}),
       createdBy: input.userId,
       ...(input.assignee
         ? { assigneeType: input.assignee.type, assigneeId: input.assignee.id }
@@ -170,6 +181,19 @@ export class WorkService {
       values.description = { ...item.description, text: patch.description };
       changes.push("description");
     }
+    if (patch.descriptionDoc !== undefined) {
+      // The rich document and the plain text are one column: a description edited in the editor
+      // and one typed into a bot's `update` are the same field, and the last writer wins.
+      values.description = {
+        ...(values.description ?? item.description),
+        ...(patch.descriptionDoc === null ? {} : { doc: patch.descriptionDoc }),
+      };
+      if (patch.descriptionDoc === null && values.description.doc !== undefined) {
+        const { doc: _dropped, ...rest } = values.description;
+        values.description = rest;
+      }
+      if (!changes.includes("description")) changes.push("description");
+    }
     if (patch.type !== undefined && patch.type !== item.type) {
       values.type = patch.type;
       changes.push("type");
@@ -189,10 +213,48 @@ export class WorkService {
       values.prUrl = patch.prUrl;
       changes.push("pr_url");
     }
+    if (patch.cycleId !== undefined && patch.cycleId !== item.cycleId) {
+      values.cycleId = patch.cycleId;
+      changes.push("cycle");
+    }
+    if (patch.moduleId !== undefined && patch.moduleId !== item.moduleId) {
+      values.moduleId = patch.moduleId;
+      changes.push("module");
+    }
+    if (patch.parentId !== undefined && patch.parentId !== item.parentId) {
+      if (patch.parentId === item.id)
+        throw PerchError.validation("an item cannot be its own parent");
+      if (patch.parentId) {
+        const parent = await getWorkItem(this.db, patch.parentId);
+        if (!parent || parent.projectId !== item.projectId) throw PerchError.notFound("parent");
+        // One level, the way §4 draws it: sub-items of sub-items is a tree nobody can read on a
+        // phone, and an epic is the thing that holds the rest.
+        if (parent.parentId) throw PerchError.validation("a sub-item cannot have sub-items");
+      }
+      values.parentId = patch.parentId;
+      changes.push("parent");
+    }
+    if (patch.estimate !== undefined) {
+      const was = item.estimate === null ? null : Number(item.estimate);
+      if (patch.estimate !== was) {
+        if (patch.estimate !== null && (patch.estimate < 0 || patch.estimate > 1000)) {
+          throw PerchError.validation("an estimate is between 0 and 1000");
+        }
+        values.estimate = patch.estimate === null ? null : String(patch.estimate);
+        changes.push("estimate");
+      }
+    }
+    if (patch.dueAt !== undefined && patch.dueAt?.getTime() !== item.dueAt?.getTime()) {
+      values.dueAt = patch.dueAt;
+      changes.push("due");
+    }
     const movedTo = patch.state !== undefined && patch.state !== item.state ? patch.state : null;
     if (movedTo) {
       values.state = movedTo;
       changes.push("state");
+      // When it was finished, so a burndown can ask what was left on Tuesday (task 3.26).
+      const over = movedTo === "done" || movedTo === "cancelled";
+      values.completedAt = over ? (item.completedAt ?? new Date()) : null;
     }
     const reassigned =
       patch.assignee !== undefined &&
@@ -233,6 +295,59 @@ export class WorkService {
     // Closed means nobody is working in it: the worktree goes back (task 3.14). The branch and its
     // commits stay — a checkout is a place to work, not the work.
     if (movedTo === "done" || movedTo === "cancelled") await this.releaseWorktrees(updated);
+    return updated;
+  }
+
+  /** What is waiting to be triaged (spec §4 "Intake triage queue"; task 3.26). */
+  intake(projectId: string): Promise<WorkItem[]> {
+    return listIntake(this.db, projectId);
+  }
+
+  /**
+   * Triage (spec §4 "accept/decline/convert"). Accepting is what turns something that arrived into
+   * work this team has: it can change the type and land it in a cycle on the way in, which is what
+   * "convert" means. Declining cancels it and says so — the row stays, because what was asked for
+   * and turned down is worth being able to find.
+   */
+  async triage(
+    item: WorkItem,
+    verdict: { decision: "accept" | "decline"; type?: WorkItemType; cycleId?: string | null },
+    by: ActorContext,
+  ): Promise<WorkItem> {
+    if (item.intakeStatus !== "pending") {
+      throw PerchError.validation("that item is not waiting in intake");
+    }
+    const accepted = verdict.decision === "accept";
+    const updated = await updateWorkItem(this.db, item.id, {
+      intakeStatus: accepted ? "accepted" : "declined",
+      ...(accepted ? {} : { state: "cancelled", completedAt: new Date() }),
+      ...(verdict.type ? { type: verdict.type } : {}),
+      ...(verdict.cycleId === undefined ? {} : { cycleId: verdict.cycleId }),
+    });
+    if (!updated) throw PerchError.notFound("work item");
+    await this.deps.bus.publish(
+      "work_item.updated",
+      {
+        workspaceId: updated.workspaceId,
+        projectId: updated.projectId,
+        workItemId: updated.id,
+        changes: ["intake"],
+      },
+      by,
+    );
+    if (!accepted) {
+      await this.deps.bus.publish(
+        "work_item.state_changed",
+        {
+          workspaceId: updated.workspaceId,
+          projectId: updated.projectId,
+          workItemId: updated.id,
+          state: "cancelled",
+          previousState: item.state,
+        },
+        by,
+      );
+    }
     return updated;
   }
 
@@ -448,6 +563,15 @@ export function viewWorkItem(item: WorkItem, projectKey: string) {
     assignee_type: item.assigneeType,
     assignee_id: item.assigneeId,
     labels: item.labels,
+    /** §4's Tiptap document, when one has been written (task 3.26). */
+    description_doc: item.description.doc ?? null,
+    cycle_id: item.cycleId,
+    module_id: item.moduleId,
+    parent_id: item.parentId,
+    estimate: item.estimate === null ? null : Number(item.estimate),
+    due_at: item.dueAt?.toISOString() ?? null,
+    intake_status: item.intakeStatus,
+    completed_at: item.completedAt?.toISOString() ?? null,
     thread_root_id: item.threadRootId,
     session_id: item.sessionId,
     pr_url: item.prUrl,

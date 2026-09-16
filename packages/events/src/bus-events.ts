@@ -286,6 +286,30 @@ export const busEventPayloads = {
     assigneeId: uuid.optional(),
   }),
   /**
+   * The planning around the items (spec §4 "cycles… modules… saved views"; task 3.26). Additive to
+   * §7.7's catalog for the same reason as the rest: §4 names the features and not their events.
+   * A board that is watching a project wants to know when its cycles move, not only its cards.
+   */
+  "cycle.created": z.object({ ...ws, projectId: uuid, cycleId: uuid }),
+  "cycle.updated": z.object({ ...ws, projectId: uuid, cycleId: uuid, status: z.string() }),
+  "cycle.closed": z.object({
+    ...ws,
+    projectId: uuid,
+    cycleId: uuid,
+    /** What was still open when it closed, and therefore rolled over. */
+    carriedOver: z.number().int(),
+  }),
+  "module.created": z.object({ ...ws, projectId: uuid, moduleId: uuid }),
+  "module.updated": z.object({ ...ws, projectId: uuid, moduleId: uuid }),
+  "view.saved": z.object({
+    ...ws,
+    projectId: uuid.optional(),
+    viewId: uuid,
+    layout: z.string(),
+    shared: z.boolean(),
+  }),
+  "view.removed": z.object({ ...ws, viewId: uuid }),
+  /**
    * Race mode (spec §5.7; task 3.16). Additive to §7.7's catalog (ADR-0132), for the same reason
    * the queue's are: §5.7 names the feature and not its events.
    */
