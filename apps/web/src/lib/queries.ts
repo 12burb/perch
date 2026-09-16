@@ -12,6 +12,11 @@ export type MyWorkspace = components["schemas"]["MyWorkspace"];
 export type Me = components["schemas"]["Me"];
 export type Member = components["schemas"]["Member"];
 export type AuditRow = components["schemas"]["AuditRow"];
+/** Work mode's rows (task 3.26), named once so every layout agrees on what an item is. */
+export type WorkItemRow = components["schemas"]["WorkItem"];
+export type CycleRow = components["schemas"]["Cycle"];
+export type ModuleRow = components["schemas"]["Module"];
+export type SavedViewRow = components["schemas"]["SavedView"];
 export type RunnerRow = components["schemas"]["Runner"];
 export type ProjectRow = components["schemas"]["Project"];
 export type DeployKeyRow = components["schemas"]["DeployKey"];
@@ -101,18 +106,96 @@ export function workItemCostQuery(workItemId: string) {
   });
 }
 
-export function workItemsQuery(workspaceId: string, projectId: string) {
+export function workItemsQuery(workspaceId: string, projectId: string, viewId?: string) {
   return queryOptions({
-    queryKey: ["workspace", workspaceId, "work", projectId],
+    // A view is part of the key: two views of one project are two lists, and switching between
+    // them should not show the other's rows for a frame (task 3.26).
+    queryKey: ["workspace", workspaceId, "work", projectId, viewId ?? ""],
     queryFn: async () =>
       unwrap(
         await api.GET("/api/workspaces/{ws}/projects/{project}/work-items", {
           // A board shows what is in front of you, urgent and oldest first. Past 200 the answer
           // is a filter, not more cards, so the columns stay a size a browser can draw.
-          params: { path: { ws: workspaceId, project: projectId }, query: { limit: 200 } },
+          params: {
+            path: { ws: workspaceId, project: projectId },
+            query: { limit: 200, ...(viewId ? { view: viewId } : {}) },
+          },
         }),
       ),
     enabled: Boolean(projectId),
+  });
+}
+
+/**
+ * The planning around the items (task 3.26): the cycles and modules of a project, the views this
+ * person can see, what is waiting in intake, and one item's relations.
+ */
+export function cyclesQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "cycles", projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/cycles", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function modulesQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "modules", projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/modules", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function viewsQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "views", projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/views", {
+          params: { path: { ws: workspaceId }, query: projectId ? { project: projectId } : {} },
+        }),
+      ),
+  });
+}
+
+export function intakeQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "intake", projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/intake", {
+          params: { path: { ws: workspaceId, project: projectId } },
+        }),
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function relationsQuery(itemId: string) {
+  return queryOptions({
+    queryKey: ["work-item", itemId, "relations"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/work-items/{id}/relations", { params: { path: { id: itemId } } })),
+    enabled: Boolean(itemId),
+  });
+}
+
+export function burndownQuery(cycleId: string) {
+  return queryOptions({
+    queryKey: ["cycle", cycleId, "burndown"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/cycles/{id}/burndown", { params: { path: { id: cycleId } } })),
+    enabled: Boolean(cycleId),
   });
 }
 

@@ -8,6 +8,10 @@
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import {
+  type SavedView,
+  VIEW_LAYOUTS,
+  viewDisplaySchema,
+  viewFiltersSchema,
   WORK_ASSIGNEES,
   WORK_ITEM_STATES,
   WORK_ITEM_TYPES,
@@ -22,7 +26,6 @@ import { PerchError } from "../errors.ts";
 import { findProject } from "../repos/projects.ts";
 import { optionsFrom } from "../repos/work.ts";
 import { viewWorkItem } from "../services/work.ts";
-import { savedViewSchema, viewSaved } from "./planning.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
@@ -69,12 +72,46 @@ const itemSchema = z
   })
   .openapi("WorkItem");
 
+export const savedViewSchema = z
+  .object({
+    id: z.uuid(),
+    project_id: z.uuid().nullable(),
+    owner_id: z.uuid().nullable(),
+    name: z.string(),
+    layout: z.enum(VIEW_LAYOUTS),
+    filters: viewFiltersSchema,
+    display: viewDisplaySchema,
+    shared: z.boolean(),
+    created_at: z.string(),
+  })
+  .openapi("SavedView");
+
+export function viewSaved(row: SavedView) {
+  return {
+    id: row.id,
+    project_id: row.projectId,
+    owner_id: row.ownerId,
+    name: row.name,
+    layout: row.layout,
+    filters: row.filters,
+    display: row.display,
+    shared: row.shared,
+    created_at: row.createdAt.toISOString(),
+  };
+}
+
+/** A work item on the wire, exported so the intake routes answer with the same shape. */
+export const workItemSchema = itemSchema;
+
 const boardSchema = z
   .object({
     items: z.array(itemSchema),
     states: z.array(z.enum(WORK_ITEM_STATES)),
-    /** The saved view this list came from, when one was asked for (task 3.26). */
-    view: savedViewSchema.nullable(),
+    /**
+     * The saved view this list came from, when one was asked for (task 3.26). Absent rather than
+     * null: a nullable `$ref` would make `SavedView` itself nullable everywhere it is used.
+     */
+    view: savedViewSchema.optional(),
   })
   .openapi("WorkBoard");
 
@@ -384,7 +421,7 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         items: items.map((item) => viewWorkItem(item, project.key)),
         // The columns a board draws, in order, so the client does not keep its own copy.
         states: [...WORK_ITEM_STATES],
-        view: view ? viewSaved(view) : null,
+        ...(view ? { view: viewSaved(view) } : {}),
       },
       200,
     );

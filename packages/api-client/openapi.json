@@ -5943,8 +5943,7 @@
         },
         "required": [
           "items",
-          "states",
-          "view"
+          "states"
         ]
       },
       "WorkItem": {
@@ -6119,10 +6118,7 @@
         ]
       },
       "SavedView": {
-        "type": [
-          "object",
-          "null"
-        ],
+        "type": "object",
         "properties": {
           "id": {
             "type": "string",
@@ -7238,7 +7234,9 @@
         "properties": {
           "items": {
             "type": "array",
-            "items": {}
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            }
           },
           "states": {
             "type": "array",
@@ -23440,7 +23438,9 @@
             "description": "The item",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItem"
+                }
               }
             }
           },
@@ -23507,7 +23507,9 @@
             "description": "The item",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItem"
+                }
               }
             }
           },

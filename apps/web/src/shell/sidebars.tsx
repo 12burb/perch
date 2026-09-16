@@ -11,6 +11,13 @@ import { FileTree } from "../code/file-tree.tsx";
 import { SessionsSection } from "../code/sessions-list.tsx";
 import { askFor, type InboxFilter, isFilter } from "../inbox/inbox.tsx";
 import { inboxQuery, type MyWorkspace, previewsQuery, projectsQuery } from "../lib/queries.ts";
+import {
+  CyclesSection,
+  IntakeSection,
+  ModulesSection,
+  ViewsSection,
+  WorkProjectsSection,
+} from "../work/planning.tsx";
 import { AgentsSection } from "./agents.tsx";
 import { useAppShell } from "./app-shell.tsx";
 
@@ -50,6 +57,35 @@ const SECTIONS: Record<RailMode, Section[]> = {
   ],
   search: [{ title: "shell.search.filters", empty: "shell.search.filtersEmpty" }],
 };
+
+/** Work mode's five sections (spec §4), each one drawn by its own component (task 3.26). */
+const WORK_SECTIONS: Partial<
+  Record<MessageKey, "projects" | "cycles" | "modules" | "views" | "intake">
+> = {
+  "shell.work.projects": "projects",
+  "shell.work.cycles": "cycles",
+  "shell.work.modules": "modules",
+  "shell.work.views": "views",
+  "shell.work.intake": "intake",
+};
+
+function WorkSection(props: {
+  workspace: MyWorkspace;
+  which: "projects" | "cycles" | "modules" | "views" | "intake";
+}) {
+  switch (props.which) {
+    case "cycles":
+      return <CyclesSection workspace={props.workspace} />;
+    case "modules":
+      return <ModulesSection workspace={props.workspace} />;
+    case "views":
+      return <ViewsSection workspace={props.workspace} />;
+    case "intake":
+      return <IntakeSection workspace={props.workspace} />;
+    default:
+      return <WorkProjectsSection workspace={props.workspace} />;
+  }
+}
 
 /** Inbox's four sections (spec §4), each one the queue asked for differently (task 2.10). */
 const INBOX_SECTIONS: Partial<Record<MessageKey, InboxFilter>> = {
@@ -120,6 +156,14 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
             key={section.title}
             workspace={props.workspace}
             empty={section.empty}
+          />
+        ) : WORK_SECTIONS[section.title] && props.workspace ? (
+          // Work mode's five sections, each one a link that changes what the board is about
+          // (task 3.26).
+          <WorkSection
+            key={section.title}
+            workspace={props.workspace}
+            which={WORK_SECTIONS[section.title] ?? "projects"}
           />
         ) : section.title === "shell.code.previews" && props.workspace ? (
           <OpenProjectPreviews

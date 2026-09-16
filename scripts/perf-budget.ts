@@ -21,9 +21,10 @@ export const BUDGETS = {
    * app itself splits off (ADR-0072). Since the editor (task 1.6) it carries CodeMirror's core and
    * since the terminal (task 1.7, ADR-0073) xterm.js, loaded with the drawer. Raised to 600 in
    * task 2.14 (ADR-0104): this number grows with the number of screens, which is the wrong thing
-   * for a budget to fight; `initialGzipKb` is the one that guards the first paint.
+   * for a budget to fight; `initialGzipKb` is the one that guards the first paint. Raised to 700 in
+   * task 3.26 (ADR-0145) for Tiptap, which arrives with a work item's panel and with nothing else.
    */
-  appJsGzipKb: 600,
+  appJsGzipKb: 700,
   /**
    * On-demand library packs (gzip): chunks a library loads lazily on its own, one per file type
    * (CodeMirror's ~40 language grammars behind @codemirror/language-data); a user downloads only
@@ -248,6 +249,24 @@ export const LIST_SURFACES = [
     file: "apps/web/src/work/board.tsx",
     list: "a project's work items, one scrolling column per state",
     how: { capped: 200, in: "apps/web/src/lib/queries.ts", proof: "limit: 200" },
+  },
+  {
+    file: "apps/web/src/work/layouts.tsx",
+    list: "the list and spreadsheet layouts of a project's work items",
+    how: "virtualized",
+  },
+  {
+    file: "apps/web/src/work/planning.tsx",
+    list: "a cycle's burndown, day by day, in the sidebar's cycle",
+    how: { capped: 90, in: "apps/api/src/services/planning.ts", proof: "MAX_DAYS = 90" },
+  },
+  {
+    file: "apps/web/src/work/item-panel.tsx",
+    list: "one item's sub-items and relations",
+    how: {
+      bounded:
+        "an item's own relations and its sub-items, which are one level deep and put there one at a time",
+    },
   },
   {
     file: "apps/web/src/inbox/inbox.tsx",

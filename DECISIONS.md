@@ -5741,3 +5741,28 @@ what makes one the team's. Others can read a shared view and not edit it.
 `module.updated`, `view.saved`, `view.removed` — for the same reason as the merge queue's and race
 mode's (ADR-0131, ADR-0132): §4 names the features and not their events, and a board watching a
 project needs to know when its cycles move, not only its cards.
+
+## ADR-0145: The description editor arrives with the panel, not with the app
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.26
+
+### Context
+§4 asks for "a Tiptap description" on a work item's detail page. Tiptap and the ProseMirror
+packages under it are about 118 KB gzipped — a fifth of everything the app ships — and the first
+paint budget (`initialGzipKb`, 180 KB) is the one that matters for how Perch feels.
+
+### Decision
+`apps/web/src/work/description.tsx` is loaded with `React.lazy`, from the work item panel, and from
+nowhere else. Opening a board does not download an editor; opening an item does, once.
+
+The app-JavaScript budget goes from 600 KB to 700 KB to hold it, and the first-paint budget does
+not move (it is at 177 of 180 KB with this change in). That is the same reasoning as ADR-0104: the
+app number grows with the number of screens, which is the wrong thing for a budget to fight, while
+`initialGzipKb` is what guards the first render.
+
+The document is stored in `work_items.description.doc` beside the plain text in
+`description.text`, and both are written on every save. A bot reading a description over the Bot
+API, a search index, and a person in the editor then see the same words — and an item whose
+description was typed by a bot still opens in the editor.

@@ -12,7 +12,6 @@ import {
   CYCLE_STATUSES,
   type Cycle,
   type Module,
-  type SavedView,
   VIEW_LAYOUTS,
   viewDisplaySchema,
   viewFiltersSchema,
@@ -26,6 +25,8 @@ import { PerchError } from "../errors.ts";
 import { findProject, projectById } from "../repos/projects.ts";
 import { viewWorkItem } from "../services/work.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
+// One direction only: the board's own schemas live beside the board (task 3.26).
+import { savedViewSchema, viewSaved, workItemSchema } from "./work.ts";
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
 const wsParam = z.object({ ws: z.uuid() });
@@ -54,20 +55,6 @@ export const moduleSchema = z
     created_at: z.string(),
   })
   .openapi("Module");
-
-export const savedViewSchema = z
-  .object({
-    id: z.uuid(),
-    project_id: z.uuid().nullable(),
-    owner_id: z.uuid().nullable(),
-    name: z.string(),
-    layout: z.enum(VIEW_LAYOUTS),
-    filters: viewFiltersSchema,
-    display: viewDisplaySchema,
-    shared: z.boolean(),
-    created_at: z.string(),
-  })
-  .openapi("SavedView");
 
 const burndownSchema = z
   .object({
@@ -115,20 +102,6 @@ export function viewModule(row: Module) {
     description: row.description,
     starts_at: row.startsAt?.toISOString() ?? null,
     ends_at: row.endsAt?.toISOString() ?? null,
-    created_at: row.createdAt.toISOString(),
-  };
-}
-
-export function viewSaved(row: SavedView) {
-  return {
-    id: row.id,
-    project_id: row.projectId,
-    owner_id: row.ownerId,
-    name: row.name,
-    layout: row.layout,
-    filters: row.filters,
-    display: row.display,
-    shared: row.shared,
     created_at: row.createdAt.toISOString(),
   };
 }
@@ -444,7 +417,7 @@ const intakeRoute = createRoute({
       content: {
         "application/json": {
           schema: z
-            .object({ items: z.array(z.unknown()), states: z.array(z.enum(WORK_ITEM_STATES)) })
+            .object({ items: z.array(workItemSchema), states: z.array(z.enum(WORK_ITEM_STATES)) })
             .openapi("IntakeQueue"),
         },
       },
@@ -462,7 +435,7 @@ const acceptRoute = createRoute({
   security: SESSION_OR_BEARER,
   request: { params: idParam, body: { content: { "application/json": { schema: triageBody } } } },
   responses: {
-    200: { description: "The item", content: { "application/json": { schema: z.unknown() } } },
+    200: { description: "The item", content: { "application/json": { schema: workItemSchema } } },
     ...errorResponses(403, 404, 422),
   },
 });
@@ -476,7 +449,7 @@ const declineRoute = createRoute({
   security: SESSION_OR_BEARER,
   request: { params: idParam },
   responses: {
-    200: { description: "The item", content: { "application/json": { schema: z.unknown() } } },
+    200: { description: "The item", content: { "application/json": { schema: workItemSchema } } },
     ...errorResponses(403, 404, 422),
   },
 });

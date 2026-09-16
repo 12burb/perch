@@ -188,9 +188,93 @@ A bot that cares reads the item; a bot that does not should not be handed it.
 A board is what a team does together, so every member writes to it. Somebody who is not in the
 workspace gets a `404` rather than a `403`: they do not learn the item is there either.
 
-## Not here yet
+## The other four layouts
 
-Cycles and modules have their tables and their columns on an item, and nothing built on them yet.
-Saved views, the other four layouts (list, calendar, timeline, spreadsheet), the Intake triage
-queue, sub-items and relations, and a Tiptap description are §4's and arrive with their own tasks.
+The board is one of five ways to look at the same rows (spec §4), and which one you are in is in
+the URL, so a link carries it:
+
+| Layout | What it is for |
+|---|---|
+| **Board** | one column per state; where the agents are |
+| **List** | one line per item, top to bottom, windowed so a long backlog stays fast |
+| **Calendar** | a month of due dates; items with no date are not in it |
+| **Timeline** | a bar per item from when it was made to when it is due |
+| **Spreadsheet** | the rows with their properties beside them, columns chosen by the view |
+
+## Cycles
+
+A cycle is a stretch of time with work in it. Make one in the sidebar, put items in it from an
+item's panel, and the cycle's **burndown** shows what was left each day — in items and in estimate
+points — against the straight line, with **who finished it**: an agent or a person.
+
+Nothing about that is a snapshot somebody remembered to take. Each item records when it reached
+`done` or `cancelled`, so the line is counted from the items themselves and stays right when one
+comes back out of Done.
+
+**Closing a cycle moves work, it does not finish it.** `POST /api/cycles/{id}/close` puts
+everything unfinished into the cycle you name (or back to no cycle) and hands back the burndown the
+cycle ended on. That is why `PATCH` refuses `status: closed`: a status you can type would quietly
+leave the work behind.
+
+```
+GET  /api/workspaces/{ws}/projects/{p}/cycles
+POST /api/workspaces/{ws}/projects/{p}/cycles   {name, starts_at?, ends_at?}
+GET  /api/cycles/{id}/burndown
+POST /api/cycles/{id}/close                     {into?}
+```
+
+## Modules
+
+A module is a part of the product rather than a stretch of time — "Perching", "Billing". An item
+belongs to one, the sidebar lists them, and choosing one narrows the board to it.
+
+## Saved views
+
+A view is a layout, what to filter by, and what to show:
+
+```
+POST /api/workspaces/{ws}/views
+{name, project_id?, layout, filters: {states?, types?, priorities?, labels?, assignees?, cycleId?, moduleId?, search?},
+ display: {groupBy?, orderBy?, direction?, properties?, showSubItems?}, shared}
+```
+
+`GET .../work-items?view={id}` answers with exactly what the view is about, in the order it says,
+and hands the view back with the rows so the client draws the right layout. A view belongs to the
+person who made it; `shared: true` makes it the team's. A view with no `project_id` is the
+workspace's and shows up whichever project is open.
+
+## Intake
+
+Anything that arrives rather than being typed — a bot raising it, a form, a webhook — is created
+with `source: intake` and waits in the triage queue:
+
+```
+GET  /api/workspaces/{ws}/projects/{p}/intake
+POST /api/work-items/{id}/intake/accept    {type?, cycle_id?}
+POST /api/work-items/{id}/intake/decline
+```
+
+Accepting can change the type and land it in a cycle on the way in, which is §4's "convert".
+Declining cancels the item and keeps the row: what was asked for and turned down is worth being
+able to find.
+
+## Sub-items and relations
+
+An item can have a parent, one level deep — an epic and the things in it, rather than a tree nobody
+can read on a phone. Beside that, two items can be related:
+
+```
+POST   /api/work-items/{id}/relations           {related_id, kind}
+DELETE /api/work-items/{id}/relations/{kind}/{related}
+```
+
+`kind` is `blocks`, `blocked_by`, `relates` or `duplicates`, and Perch writes both ends: an item
+that is blocked says so without anybody having entered it from that side.
+
+## The description
+
+An item's description is a document — headings, lists, bold — written in the panel and stored
+beside the plain text, so a bot reading `description` over the Bot API and a person reading it in
+Work mode see the same words. The editor is loaded when a panel is opened and never with the first
+paint (ADR-0145).
 

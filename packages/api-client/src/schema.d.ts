@@ -11277,7 +11277,7 @@ export type paths = {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["WorkItem"];
                     };
                 };
                 /** @description Forbidden (including unauthenticated) */
@@ -11342,7 +11342,7 @@ export type paths = {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["WorkItem"];
                     };
                 };
                 /** @description Forbidden (including unauthenticated) */
@@ -15120,7 +15120,7 @@ export type components = {
         WorkBoard: {
             items: components["schemas"]["WorkItem"][];
             states: ("backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled")[];
-            view: components["schemas"]["SavedView"];
+            view?: components["schemas"]["SavedView"];
         };
         WorkItem: {
             /** Format: uuid */
@@ -15194,7 +15194,7 @@ export type components = {
             };
             shared: boolean;
             created_at: string;
-        } | null;
+        };
         CreateWorkItem: {
             title: string;
             /** @enum {string} */
@@ -15427,7 +15427,7 @@ export type components = {
             shared?: boolean;
         };
         IntakeQueue: {
-            items: unknown[];
+            items: components["schemas"]["WorkItem"][];
             states: ("backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled")[];
         };
         TriageWorkItem: {

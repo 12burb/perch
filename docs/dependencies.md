@@ -52,6 +52,9 @@ only the packages it declares.
 | `@codemirror/lang-markdown` | 6.5.2 | apps/web | markdown editing (task 1.6) |
 | `@lezer/markdown` | 1.7.2 | apps/web | the markdown parser behind the preview renderer (task 1.6; no HTML pass-through) |
 | `@lezer/common` | 1.5.2 | apps/web | syntax-tree types for the markdown renderer |
+| `@tiptap/react` | 3.31.3 | apps/web | the work item description (task 3.26); loaded with the panel, never with the first paint |
+| `@tiptap/starter-kit` | 3.31.3 | apps/web | the marks and nodes that description uses |
+| `@tiptap/pm` | 3.31.3 | apps/web | ProseMirror, as Tiptap packages it |
 | `@xterm/xterm` | 6.0.0 | apps/web | terminal |
 | `@xterm/addon-fit` | 0.11.0 | apps/web | |
 | `@xterm/addon-web-links` | 0.12.0 | apps/web | |
