@@ -1,5 +1,83 @@
 # @perch/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- de84546: Local runners: the Environments page lists a workspace's runners with live status, "Connect a machine"
+  mints a connect token shown once inside the `perch runner connect` command, owners and admins remove
+  runners, and `perch runner connect <url> --token …` joins a machine as one of your environments.
+- fe9fbdd: Watch a project run. Every port a project's runner is serving now appears in Code mode's Previews
+  sidebar and opens in a Preview tab beside the editor (⌘⇧P): an address bar, back and forward,
+  reload, viewport presets with rotate, and a link out to a real tab. HMR passes straight through, so
+  a Vite app hot-reloads inside the tab with no configuration when the instance has a preview domain.
+  Share mints an expiring, revocable link that opens the preview for someone with no Perch account,
+  and shows the dev server's own page — never an injected inspector.
+
+### Patch Changes
+
+- 2285bef: Laptop mode is held to the same standard as the server. A new test drives a real `perch dev` through
+  everything Phase 1 built — projects, files, git and a written commit message, a session with a
+  permission and its diff, ⌘K, a brain, a connection, the MCP gateway, a preview with a share link,
+  and a terminal — on Linux, macOS, and Windows, so a feature cannot quietly work only with Docker.
+- f3aefb9: Projects: create one empty, upload files into one, or clone a repository (public, with an access
+  token, or with the workspace's SSH deploy key) from Code mode or the API; the directory is set up on
+  a runner, `.perch/project.json` is validated and applied, `devcontainer.json` is read and its
+  `postCreateCommand` runs, and the row's status updates live.
+- 0d33a89: Runners answer the fs (list, read, write, stat, ripgrep-backed search), git (status, diff, commit,
+  push, branch, worktrees), ports, and exec methods, every call through a policy hook with built-in
+  rules (destructive commands, publishes, force pushes, git internals, exec confined to the projects
+  root); the Environments list shows each runner's listening ports and the api answers them live.
+- Updated dependencies [378589c]
+- Updated dependencies [9246f90]
+- Updated dependencies [ea3b91b]
+- Updated dependencies [ed9f649]
+- Updated dependencies [347ce60]
+- Updated dependencies [d11b588]
+- Updated dependencies [d711cbc]
+- Updated dependencies [1647095]
+- Updated dependencies [3af96e8]
+- Updated dependencies [9c29082]
+- Updated dependencies [d02fde9]
+- Updated dependencies [d6528a4]
+- Updated dependencies [3318f0e]
+- Updated dependencies [b144df4]
+- Updated dependencies [df9ec50]
+- Updated dependencies [7ffcb04]
+- Updated dependencies [fa24434]
+- Updated dependencies [2918dc6]
+- Updated dependencies [e5c8bd7]
+- Updated dependencies [a837eea]
+- Updated dependencies [a451282]
+- Updated dependencies [3417ea3]
+- Updated dependencies [de84546]
+- Updated dependencies [fb30b24]
+- Updated dependencies [7fd4a59]
+- Updated dependencies [f39b87d]
+- Updated dependencies [76ae435]
+- Updated dependencies [e940d4f]
+- Updated dependencies [0985050]
+- Updated dependencies [fe9fbdd]
+- Updated dependencies [5f61320]
+- Updated dependencies [c4e921c]
+- Updated dependencies [f3aefb9]
+- Updated dependencies [eb5cdaa]
+- Updated dependencies [52af50e]
+- Updated dependencies [8d7d282]
+- Updated dependencies [ea81bde]
+- Updated dependencies [0d33a89]
+- Updated dependencies [9b25388]
+- Updated dependencies [bb1f0e5]
+- Updated dependencies [3764521]
+- Updated dependencies [cc5c90d]
+- Updated dependencies [365bdc5]
+- Updated dependencies [a438fc6]
+- Updated dependencies [f0ff645]
+- Updated dependencies [6cc4171]
+  - @perch/runner@0.1.0
+  - @perch/api@0.2.0
+  - @perch/db@0.1.0
+
 ## 0.1.0
 
 ### Minor Changes

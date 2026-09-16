@@ -1,4 +1,4 @@
-# @perch/connect
+# @perch/connectors
 
 ## 0.1.0
 
@@ -32,23 +32,3 @@
   through Perch's MCP gateway on the connection's own token, so nothing new touches a credential, and
   it is read-only: a statement that writes is refused before the provider is asked, with the rule that
   said so. Which tools a provider's database is browsed with comes from its connector manifest.
-- fb30b24: Agents can use a connection's tools without ever holding its credential. Every connection whose
-  provider has an MCP server is now one itself, at `/mcp/{connectionId}`: a session is handed that
-  URL and a token Perch minted for it, and Perch attaches the provider's real credential on the way
-  out. A grant's allow-list decides which tools a session may call — a refusal never reaches the
-  provider — and every call is audited with the tool, the caller, and a hash of its arguments. A
-  connection may override its provider's MCP URL for a self-hosted host, the way it already can for
-  the REST API.
-
-### Patch Changes
-
-- Updated dependencies [9c29082]
-- Updated dependencies [d6528a4]
-- Updated dependencies [3318f0e]
-  - @perch/connectors@0.1.0
-
-## 0.0.1
-
-### Patch Changes
-
-- e05fb7a: Resolve and pin every dependency named in the spec (docs/dependencies.md), with ADR-0019..0028 for the non-obvious picks; commit the lockfile.

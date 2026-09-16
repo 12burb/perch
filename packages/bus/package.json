@@ -1,6 +1,6 @@
 {
   "name": "@perch/bus",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Bus interface, in-process implementation with per-topic replay buffers (Redis adapter in Phase 5).",
   "license": "AGPL-3.0-only",

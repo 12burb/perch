@@ -1,6 +1,6 @@
 {
   "name": "@perch/repo",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Chunking a repository into what an index can hold, and the prompts that read it (spec §5.7).",
   "license": "AGPL-3.0-only",

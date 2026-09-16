@@ -1,5 +1,18 @@
 # @perch/desktop
 
+## 0.1.1
+
+### Patch Changes
+
+- d003f3b: The desktop test suite no longer fails on Windows because the operating system was still holding a
+  temp directory it had finished with.
+- Updated dependencies [2285bef]
+- Updated dependencies [de84546]
+- Updated dependencies [fe9fbdd]
+- Updated dependencies [f3aefb9]
+- Updated dependencies [0d33a89]
+  - @perch/cli@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

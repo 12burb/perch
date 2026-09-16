@@ -1,5 +1,28 @@
 # @perch/bus
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [378589c]
+- Updated dependencies [347ce60]
+- Updated dependencies [3318f0e]
+- Updated dependencies [b144df4]
+- Updated dependencies [a837eea]
+- Updated dependencies [a451282]
+- Updated dependencies [de84546]
+- Updated dependencies [fb30b24]
+- Updated dependencies [5f61320]
+- Updated dependencies [c4e921c]
+- Updated dependencies [f3aefb9]
+- Updated dependencies [eb5cdaa]
+- Updated dependencies [ea81bde]
+- Updated dependencies [0d33a89]
+- Updated dependencies [cc5c90d]
+- Updated dependencies [a438fc6]
+- Updated dependencies [f0ff645]
+  - @perch/events@0.1.0
+
 ## 0.0.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@perch/connect",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Provider manifests, OAuth flows (CIMD, DCR, pre-registered, token), MCP gateway, GitHub App (spec \u00a73.5).",
   "license": "AGPL-3.0-only",
