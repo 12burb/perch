@@ -131,6 +131,22 @@ function parsed<T>(result: unknown): T {
   return JSON.parse(said(result)) as T;
 }
 
+/** Waits for a project to finish being set up; `sessions.open` refuses one that has not. */
+async function ready(id: string, ms = 30_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  let status = "";
+  while (Date.now() < deadline) {
+    const got = (await call(`/api/workspaces/${ws}/projects/${id}`)) as {
+      body: { status?: string };
+    };
+    status = got.body.status ?? "";
+    if (status === "ready") return;
+    if (status === "error") break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`the project never became ready (status: ${status || "unknown"})`);
+}
+
 async function tokenWith(scopes: string[]): Promise<string> {
   const made = (await call("/api/me/tokens", {
     method: "POST",
@@ -170,6 +186,9 @@ describe("Perch as an MCP server (task 3.12)", () => {
     })) as { status: number; text: string; body: { id: string } };
     expect(repo.status, repo.text).toBe(201);
     project = repo.body.id;
+    // A project is provisioned after the request returns, and a session refuses one that is still
+    // being set up — on a slow machine that is a real wait, not an instant.
+    await ready(project);
 
     expect(
       (
