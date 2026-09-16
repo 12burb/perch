@@ -73,7 +73,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun run --filter @perch/web build
-      - name: The runner's browser (task 3.21: a picture, the console, the failed requests)
+      - name: The runner's browser — a picture, the console, the failed requests (task 3.21)
         # It lives here rather than with the unit tests because it needs a real browser, and this
         # is the job that has one. `bun test` skips it where there is none.
         run: |
