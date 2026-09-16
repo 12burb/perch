@@ -87,7 +87,34 @@ the phase, ADR-0018); each line names the commit that carries its evidence.
 
 ## Phase 3 — Bot platform + the loop
 
-Written at the Phase 2 gate (spec §10) and reviewed by the human before starting.
+Written at the Phase 2 gate from spec §2's Phase 3 line, in the §11 format. Reviewed by the human
+before starting. Exit: `@dawn fix X` from chat ships a diff card and a PR; three agents work one
+repo in parallel without conflicts; a race picks a winner; a Nest agent posts via the Bot API using
+a granted Supabase connection; the agent screenshots its own change before reporting done.
+
+- [ ] **3.1** Spec bots: `bots/<handle>/bot.yaml` + `SYSTEM.md` + `skills/` in the Agent Skills format, read from a project's repository and hot-reloaded on push (a bot defined in a repository answers in a channel, and editing its SYSTEM.md changes the next answer without a restart)
+- [ ] **3.2** Code bots: `export default bot({ onMessage, onSchedule, onWebhook })` with `@perch/bot-sdk` in a QuickJS sandbox — no network but `http_fetch`, no filesystem, a time and memory ceiling per run (a code bot in a repository answers a mention, and one that loops is stopped by its ceiling)
+- [ ] **3.3** Bot grants and interactions: a connection granted to a bot with `obo` rules enforced at call time, `tools.call` audited per grant, and `interaction.received` delivered to external bots over the socket with `chat.update` closing the loop (a bot's button press reaches an external script and the message is rewritten in place)
+- [ ] **3.4** Inbound webhooks: `/hooks/:provider/:id` with per-connector signature verification, replay protection, and a channel card per delivery (a signed GitHub push posts a card in the channel it was wired to; an unsigned one is refused)
+- [ ] **3.5** Schedules: cron triggers on the Postgres queue with a per-bot timezone, catch-up policy, and a run ledger (a bot posts a morning digest at 09:00 on weekdays and says when it last ran)
+- [ ] **3.6** MCP attach for bots: any MCP server — a connection's, a runner-local stdio one, or a URL an admin pasted — becomes a bot's tools behind the allow-list and the permission prompt (a bot calls a tool on an attached MCP server and the credential never reaches its context)
+- [ ] **3.7** Agent bots from chat: `engine` + `projects` on a bot, so `@dawn add a dark-mode toggle` opens a session on that project, posts a session card in the thread, asks permissions in-thread, and finishes with a diff card, Open in IDE, and a PR link (the acceptance is the exit criterion's first half)
+- [ ] **3.8** The hermes adapter: Hermes Agent as an engine on the runner, mapped onto the §7.6 protocol like ACP and OpenCode (a Hermes session completes a two-turn task with one permission prompt)
+- [ ] **3.9** Nest agents as members: Birbus, Dawn, Julius, Paige and Kimi as installable bots with personas, brains and scopes, joining over the Bot API or the hermes adapter (a Nest agent posts via the Bot API using a granted Supabase connection)
+- [ ] **3.10** Orchestrators: `orchestrator: true` bots that hand off and fan out with a plan card, per-child budgets, and a result the orchestrator folds back (an orchestrator splits a task across three specialists and posts one answer)
+- [ ] **3.11** Connector manifests v2: the remaining §3.5 providers as `connectors/<provider>/manifest.yaml` with webhook signature schemes and MCP urls, plus a manifest test harness (a connector added as a file alone connects, refreshes, and receives a webhook)
+- [ ] **3.12** Perch as an MCP server: `/mcp/perch` exposing `channels.list`, `messages.search`, `messages.post`, `work.create`, `work.update`, `sessions.open`, `connections.call` behind a virtual key with grants (an outside agent reads a channel and opens a session through it)
+- [ ] **3.13** Work items and the tasks board: `KEY-123` identifiers, states, assignees to people and bots, a board per workspace, and `work_item.updated` on the Bot API (a work item is made from a message, assigned to a bot, and closed by the session that finished it)
+- [ ] **3.14** A worktree per task: one git worktree and one runner directory per work item, created on assignment and removed on close, so two agents on one repository never share a checkout (two sessions edit the same repository at once and neither sees the other's changes)
+- [ ] **3.15** Merge queue: branches land in order behind the project's checks, with a queue card in the thread and the agent asked to fix what it broke (three branches merge in sequence; the one whose checks fail is sent back with the failure)
+- [ ] **3.16** Race mode: the same task on two or more engines in parallel worktrees, diffs compared side by side, and a winner chosen by a person or by the checks (a race finishes with one diff applied and the rest discarded)
+- [ ] **3.17** Background sessions: a session that runs unattended to a finish line, reports as a card, and wakes a person only when the policy says to (a background session finishes overnight and its card is the whole story)
+- [ ] **3.18** The testing loop: the project's own test command run after a turn, failures fed back as a turn, and a bounded number of attempts before a person is asked (an agent breaks a test, is told, and fixes it without anybody typing)
+- [ ] **3.19** Agent presence: what every session and bot is doing right now, on the workspace topic and in the shell, with a kill switch beside it (three agents working show three rows, and stopping one stops it)
+- [ ] **3.20** Pull Requests page: the connection's PRs with inline comments, request changes, checks, and "ask the agent to address review" opening a session on that branch (a review comment becomes a turn and the push answers it)
+- [ ] **3.21** Inspector v2: direct tweaks in the panel written to source through a deterministic `apply_element_edit` tool with a diff card, `@playwright/mcp` attached to sessions while a preview is open, and Preflight before push (an agent screenshots its own change before reporting done)
+- [ ] **3.22** OTel traces and cost per task: one trace per session and per bot run, spans for model calls, tool calls and runner RPCs, cost rolled up to the work item (a finished work item says what it cost and where the time went)
+- [ ] **3.23** Phase 3 e2e: the exit criterion as Playwright specs; axe sweep on the board, the PR page, and a thread with a session card (all green)
 
 ## Phase 4 — Gateway, hardening, launch
 
