@@ -9,7 +9,20 @@ import { ModePage } from "../../../shell/mode-page.tsx";
 
 export const Route = createFileRoute("/_app/settings/security")({ component: SecuritySettings });
 
-const SCOPES = ["read", "write", "admin"] as const;
+/**
+ * Every scope an api token can carry (spec §7.1). The narrow ones are what an agent on the MCP
+ * server is held to, one per tool (task 3.12), so this is where somebody gives one its doors.
+ */
+const SCOPES = [
+  "read",
+  "write",
+  "admin",
+  "chat:read",
+  "chat:write",
+  "sessions:open",
+  "work:write",
+  "tools:call",
+] as const;
 type Scope = (typeof SCOPES)[number];
 
 function SecuritySettings() {
@@ -19,8 +32,25 @@ function SecuritySettings() {
       <div className="flex flex-col gap-8 p-4">
         <Passkeys />
         <Tokens />
+        <ConnectAnAgent />
       </div>
     </ModePage>
+  );
+}
+
+/** Where an agent outside Perch connects (spec §7.5 `/mcp/perch`; task 3.12). */
+function ConnectAnAgent() {
+  const url = `${window.location.origin}/mcp/perch`;
+  return (
+    <section aria-labelledby="mcp-heading" className="flex max-w-lg flex-col gap-2">
+      <h2 id="mcp-heading" className="text-md font-semibold">
+        {t("security.mcpTitle")}
+      </h2>
+      <p className="text-sm text-fg-muted">{t("security.mcpHint")}</p>
+      <output className="block break-all rounded border border-border px-3 py-2 font-mono text-sm">
+        {url}
+      </output>
+    </section>
   );
 }
 
@@ -189,7 +219,7 @@ function Tokens() {
           <legend className="mb-1 text-sm font-medium">{t("security.scopes")}</legend>
           {SCOPES.map((scope) => (
             <label key={scope} className="flex min-h-touch items-center gap-2 text-sm">
-              <input type="checkbox" name={`scope-${scope}`} defaultChecked={scope !== "admin"} />
+              <input type="checkbox" name={`scope-${scope}`} defaultChecked={scope === "read"} />
               {t(`security.scope.${scope}`)}
             </label>
           ))}

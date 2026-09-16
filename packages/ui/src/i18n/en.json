@@ -260,6 +260,11 @@
   "security.scope.read": "Read",
   "security.scope.write": "Write",
   "security.scope.admin": "Admin",
+  "security.scope.sessions:open": "Open sessions",
+  "security.scope.chat:read": "Read chat",
+  "security.scope.chat:write": "Post to chat",
+  "security.scope.work:write": "Write work items",
+  "security.scope.tools:call": "Call connection tools",
   "security.scopes": "Scopes",
   "security.defaultPasskeyName": "This device",
   "push.arrived": "Notifications",
@@ -271,5 +276,7 @@
   "settings.notificationsOff": "Stop notifying this device",
   "settings.notificationsDenied": "This browser is set to block notifications. Allow them in its site settings, then come back.",
   "settings.notificationsUnsupported": "This browser cannot do web push.",
-  "settings.notificationsIsOn": "This device is being notified."
+  "settings.notificationsIsOn": "This device is being notified.",
+  "security.mcpTitle": "Connect an agent",
+  "security.mcpHint": "Point any MCP client at this URL with a token above as its bearer, and it can read your channels, search, post, and open sessions — whatever its scopes allow."
 }

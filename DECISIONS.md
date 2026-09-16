@@ -4872,3 +4872,57 @@ verifies each provider's endpoints and signature scheme against its documentatio
 
 Ed25519 webhook signatures are not supported. Adding them is a `webhook_signature` variant and a
 verify branch, and Discord is the reason it will happen; it is not this task.
+
+## ADR-0128: An api token's scopes are the grant on Perch's own MCP server
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.12
+
+### Context
+§7.5 asks for "Perch's own MCP server at /mcp/perch (channels.list, messages.search,
+messages.post, work.create, work.update, sessions.open, connections.call)" and §7.1 puts its auth
+as "session, api token, or virtual key with a grant". Two of those three do not exist yet: virtual
+keys are Phase 4, and a session's tool token is minted for a session rather than for a person.
+What does exist is the api token of task 0.8, and it already carries exactly the scopes this
+needs — `chat:read`, `chat:write`, `sessions:open`, `work:write`, `tools:call` — which were
+written into `API_TOKEN_SCOPES` before there was anything to spend them on.
+
+### Decision
+**The scopes are the grant.** Each tool names one, and a token without it does not see that tool
+at all: `tools/list` is filtered, not just `tools/call` guarded. An agent that cannot post should
+not plan a post and discover at the end that it could not — the menu it is given is the menu it
+has. `read` and `write` carry the narrower scopes and `admin` carries everything, the same
+widening REST already does.
+
+**A tool that will not run answers, rather than failing the call.** MCP has both: a JSON-RPC error
+and a result with `isError`. A refusal an agent could do something about — a scope it lacks, a
+channel that is not there — comes back as a result carrying Perch's own message (§7.8 writes those
+for people), because an agent can read it and try something else. A JSON-RPC error would only tell
+it the call broke.
+
+**No workspace in the path.** `/mcp/perch` is one URL, as the spec writes it. A token made for a
+workspace acts in that one; a token made for none acts in every workspace the person belongs to.
+That is why `channels.list` spans workspaces and stamps each row with its own: it is the first
+call an agent that was told nothing can make, and the ids it answers with are what every other
+tool takes. A tool that genuinely needs one workspace and cannot pick — `messages.search` — says
+so and lists the choices, rather than guessing.
+
+**`connections.call` is gated by visibility, not by a per-subject grant.** The grants of §3.5 are
+for bots and sessions, which act on somebody's behalf and must be told whose. An api token *is*
+the person: it reaches the connections they could already use from the product — their own, and
+the workspace's — and the gateway attaches the credential upstream exactly as it does for a
+session, with the same audit row. Narrowing further would mean a person's own token could do less
+through MCP than their browser can, for no gain.
+
+### Consequences
+Five of the seven tools §7.5 names ship. `work.create` and `work.update` are about work items,
+which task 3.13 builds; `PERCH_TOOLS` is a list so that adding them there is an entry and a case,
+and 3.13's line says so. Shipping a work tool now would mean designing work items inside 3.12,
+which is the batching AGENTS.md §1.2 forbids.
+
+`/mcp/perch` is registered before `/mcp/:connectionId`, which is safe because a connection id is
+a uuid and `perch` is not one.
+
+Virtual keys will be a third `callerOf` beside the session token and the api token, for every MCP
+route at once, when Phase 4 builds them. Nothing here has to change to admit them.

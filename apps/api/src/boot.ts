@@ -34,6 +34,7 @@ import { DbBrowser } from "./services/db-browser.ts";
 import { DeployService } from "./services/deploys.ts";
 import { McpGateway } from "./services/mcp.ts";
 import { NestService } from "./services/nest.ts";
+import { PerchMcpService } from "./services/perch-mcp.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
@@ -215,6 +216,17 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     log,
   });
+  // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
+  // token's scopes.
+  const perchMcp = new PerchMcpService({
+    db,
+    log,
+    sessions,
+    connections,
+    mcp,
+    bus,
+    env: { publicUrl: env.publicUrl },
+  });
   const deps: Deps = {
     env,
     db,
@@ -232,6 +244,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     policy,
     connections,
     mcp,
+    perchMcp,
     previews,
     deploys,
     dbBrowser,

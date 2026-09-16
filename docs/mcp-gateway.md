@@ -50,11 +50,54 @@ A connector's manifest names the public MCP server for its provider. An enterpri
 install runs its own, so a connection can override it with `mcp_url` when it is created, the same
 way `api_base` overrides where REST calls go.
 
+## Perch itself, at `/mcp/perch`
+
+The other direction. Everywhere above, Perch is the proxy; here it is the provider — an agent
+running somewhere else reads the chat, searches it, answers in it, and opens a coding session,
+all over MCP (spec §7.5; task 3.12).
+
+Point any MCP client at `https://<your perch>/mcp/perch` with an api token from
+**Settings → Security** as its bearer:
+
+```json
+{
+  "mcpServers": {
+    "perch": {
+      "url": "https://perch.example.com/mcp/perch",
+      "headers": { "Authorization": "Bearer pat_…" }
+    }
+  }
+}
+```
+
+| Tool | Does | Needs |
+|---|---|---|
+| `channels.list` | The channels you can see, with their ids | `chat:read` |
+| `messages.search` | Search the chat you can see | `chat:read` |
+| `messages.post` | Say something, as you | `chat:write` |
+| `sessions.open` | Open a coding session on a project | `sessions:open` |
+| `connections.call` | Call a tool on a connection, through the gateway above | `tools:call` |
+
+**The token's scopes are the grant.** A tool a token has no scope for is not refused at the end of
+an argument round-trip — it is not in `tools/list` at all, so an agent plans with the doors it
+actually has. `read` and `write` carry the narrower scopes, and `admin` carries everything, the
+same way they do over REST.
+
+A token made for one workspace acts in that one. A token made for none acts in every workspace you
+are a member of, which is why `channels.list` is the sensible first call: it answers with ids the
+other tools take. Everything goes through the same service the REST handler for it goes through,
+so a channel you cannot see is as invisible here as it is there, and a message you post is a
+message from you — not from a bot, not from Perch.
+
+A tool that will not run says so in its result rather than failing the call, because an agent can
+read a reason and try something else. `work.create` and `work.update` are the two §7.5 names not
+here yet; they arrive with work items themselves (task 3.13).
+
 ## Not here yet
 
 Tools marked `requires_permission` return pending with a card in the thread and an inbox item for
 bots that attach a connection (see [Tools from an MCP server](bots.md#tools-from-an-mcp-server));
 sessions still call straight through.
 
-Still to come: runner-local stdio servers exposed through the same shape, rate limits, Perch's own
-`/mcp/perch` server (channels, messages, work, sessions), and the grants UI.
+Still to come: runner-local stdio servers exposed through the same shape, rate limits, virtual
+keys (`pk_…`) as a third way in beside sessions and api tokens, and the grants UI.

@@ -6,8 +6,11 @@
  * provider's credential; the provider's credential is attached on the upstream call inside
  * `McpGateway` and goes nowhere else (AGENTS.md §1.6).
  *
- * This route is outside the OpenAPI document on purpose: its contract is MCP's, not Perch's, and
- * describing JSON-RPC-over-POST as REST would describe it wrongly.
+ * `/mcp/perch` is the other half (spec §7.5 "Perch's own MCP server"; task 3.12): there Perch is
+ * the provider rather than the proxy, and the caller is an agent outside holding an api token.
+ *
+ * These routes are outside the OpenAPI document on purpose: their contract is MCP's, not Perch's,
+ * and describing JSON-RPC-over-POST as REST would describe it wrongly.
  */
 
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -15,28 +18,49 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Connection } from "@perch/db";
+import type { Context } from "hono";
 import type { ActorContext } from "../auth/authorize.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { verifyToolToken } from "../services/mcp.ts";
+import type { PerchCaller } from "../services/perch-mcp.ts";
+import { resolveApiToken } from "../services/tokens.ts";
 
 /** Who is calling, once their token has been read. */
 type Caller = { workspaceId: string; userId: string; sessionId: string };
 
+/** The challenge an MCP client needs in order to know it should go and get a token. */
+function unauthorized(c: Context<AppEnv>, message: string) {
+  return c.json({ error: { code: "unauthorized", message } }, 401, {
+    "www-authenticate": 'Bearer realm="perch"',
+  });
+}
+
 export function registerMcp(app: OpenAPIHono<AppEnv>, deps: Deps): void {
+  // Perch's own server. It is registered before `/mcp/:connectionId` because `perch` is not a
+  // connection id and never will be — an id is a uuid.
+  app.all("/mcp/perch", async (c) => {
+    const caller = await apiTokenCaller(c.req.header("authorization"), deps);
+    if (!caller) return unauthorized(c, "an api token is required");
+    const by: ActorContext = {
+      actor: { type: "user", id: caller.userId },
+      meta: { requestId: c.get("requestId") },
+    };
+    const server = perchServerFor(deps, caller, by);
+    const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+    await server.connect(transport);
+    try {
+      return await transport.handleRequest(c.req.raw);
+    } finally {
+      await server.close().catch(() => undefined);
+    }
+  });
+
   app.all("/mcp/:connectionId", async (c) => {
     const connectionId = c.req.param("connectionId");
     const caller = await callerOf(c.req.header("authorization"), deps);
-    if (!caller) {
-      // MCP clients expect the challenge, so they know to go and get a token.
-      return c.json(
-        { error: { code: "unauthorized", message: "a gateway token is required" } },
-        401,
-        {
-          "www-authenticate": 'Bearer realm="perch"',
-        },
-      );
-    }
+    // MCP clients expect the challenge, so they know to go and get a token.
+    if (!caller) return unauthorized(c, "a gateway token is required");
     const connection = await deps.connections.connectionFor(
       caller.workspaceId,
       caller.userId,
@@ -96,6 +120,50 @@ function mcpServerFor(
     return result as { content: { type: "text"; text: string }[] };
   });
   return server;
+}
+
+/**
+ * Perch's own tools, filtered to what this token may do. A tool the caller has no scope for is
+ * never listed, so an agent plans with the doors it actually has (spec §7.5).
+ */
+function perchServerFor(deps: Deps, caller: PerchCaller, by: ActorContext): Server {
+  const server = new Server({ name: "perch", version: "1" }, { capabilities: { tools: {} } });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: deps.perchMcp.tools(caller).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    })),
+  }));
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    try {
+      return await deps.perchMcp.call(
+        caller,
+        request.params.name,
+        request.params.arguments ?? {},
+        by,
+      );
+    } catch (error) {
+      // MCP's own convention: a tool that would not run says so in its result, so the agent can
+      // read the reason and try something else. A JSON-RPC error would only tell it the call
+      // broke. Perch's errors are already written for a person (spec §7.8), so they say enough.
+      const message = error instanceof PerchError ? error.message : "that did not work";
+      if (!(error instanceof PerchError)) {
+        deps.log.error({ err: error, tool: request.params.name }, "a perch mcp tool failed");
+      }
+      return { isError: true, content: [{ type: "text" as const, text: message }] };
+    }
+  });
+  return server;
+}
+
+/** The api token a caller arrived with (spec §7.1: "Bearer api token (SDKs, MCP server)"). */
+async function apiTokenCaller(header: string | undefined, deps: Deps): Promise<PerchCaller | null> {
+  const token = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token.startsWith("pat_")) return null;
+  const resolved = await resolveApiToken(deps.db.db, token);
+  if (!resolved) return null;
+  return { userId: resolved.userId, workspaceId: resolved.workspaceId, scopes: resolved.scopes };
 }
 
 /** The bearer token a caller arrived with, if Perch minted it and it is still good. */

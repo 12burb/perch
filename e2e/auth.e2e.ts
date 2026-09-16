@@ -65,6 +65,10 @@ test("an api token is shown once and lists without its secret", async ({ page })
   });
   expect(me.ok()).toBe(true);
   expect(((await me.json()) as { auth_kind: string }).auth_kind).toBe("token");
+
+  // And the page says where an agent outside Perch takes that token (task 3.12).
+  await expect(page.getByRole("heading", { name: "Connect an agent" })).toBeVisible();
+  await expect(page.getByText("/mcp/perch")).toBeVisible();
 });
 
 test("an invite is accepted by the invited email in a second browser", async ({
