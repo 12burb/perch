@@ -16,6 +16,7 @@ import type { ConnectionsService } from "./services/connections.ts";
 import type { DbBrowser } from "./services/db-browser.ts";
 import type { DeployService } from "./services/deploys.ts";
 import type { McpGateway } from "./services/mcp.ts";
+import type { MergeQueueService } from "./services/merge-queue.ts";
 import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
@@ -63,6 +64,8 @@ export type Deps = {
   perchMcp: PerchMcpService;
   /** Work items and the board, moved by the sessions doing them (task 3.13). */
   work: WorkService;
+  /** Branches landing one at a time, behind the project's own checks (task 3.15). */
+  mergeQueue: MergeQueueService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

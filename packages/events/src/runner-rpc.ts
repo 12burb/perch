@@ -220,6 +220,21 @@ export const apiToRunnerParams = {
     name: z.string().optional(),
     create: z.boolean().optional(),
   }),
+  /**
+   * Land a branch on another one (spec §5.7 "merge queue with rebase, conflict detection"; task
+   * 3.15). Additive to §7.6's git.* list (ADR-0131): a queue has to rebase and fast-forward as one
+   * operation on the runner, because two of them racing from the api side is the thing a queue
+   * exists to prevent.
+   */
+  "git.merge": z.object({
+    ...ctx,
+    project: z.uuid(),
+    branch: z.string(),
+    /** The branch it lands on; the project's default branch when absent. */
+    into: z.string().optional(),
+    /** Rebase the branch onto `into` first. On by default: a queue lands in order. */
+    rebase: z.boolean().optional(),
+  }),
   // Additive (ADR-0069): a project's directory on the runner, created from nothing, a clone, or an
   // upload, with .perch/project.json and devcontainer.json read back.
   "project.setup": z.object({
@@ -443,6 +458,21 @@ export const worktreeCreateResultSchema = z
   .object({ path: z.string(), branch: z.string() })
   .strict();
 export const worktreeRemoveResultSchema = z.object({ removed: z.boolean() }).strict();
+
+/** What landing a branch did, or why it could not (task 3.15). */
+export const gitMergeResultSchema = z
+  .object({
+    merged: z.boolean(),
+    /** The commit `into` now points at, when it moved. */
+    head: z.string().optional(),
+    /** True when git refused because the two sides disagree, rather than because of a mistake. */
+    conflict: z.boolean().optional(),
+    /** git's own words, for the card and for the agent that has to fix it. */
+    reason: z.string().optional(),
+  })
+  .strict();
+
+export type GitMergeResult = z.infer<typeof gitMergeResultSchema>;
 export const portsListResultSchema = z
   .object({
     ports: z.array(
@@ -459,6 +489,7 @@ export const execResultSchema = z
     durationMs: z.number().nonnegative(),
   })
   .strict();
+export type ExecResult = z.infer<typeof execResultSchema>;
 
 /** session.create's answer (task 1.9, ADR-0075): the engine's own session id, the agent, and its modes. */
 export const sessionCreateResultSchema = z

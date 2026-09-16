@@ -199,6 +199,9 @@ export async function worktreeCreate(
   });
   const git = gitAt(dir);
   const path = worktreePath(options.root, params.workspace_id, params.project, params.branch);
+  // Asking twice is asking where it is (task 3.15): the merge queue needs the directory a branch
+  // is checked out in, and making a second one for the same branch is what git would refuse.
+  if (existsSync(path)) return { path, branch: params.branch };
   const existing = (await git.branchLocal()).all.includes(params.branch);
   const args = existing
     ? ["worktree", "add", path, params.branch]
@@ -226,4 +229,65 @@ export async function worktreeRemove(
     await gitAt(dir).raw(["worktree", "prune"]);
   }
   return { removed: true };
+}
+
+/** The directory a branch is checked out in, when one of this project's worktrees has it. */
+async function worktreeFor(git: SimpleGit, branch: string): Promise<string | null> {
+  const raw = await git.raw(["worktree", "list", "--porcelain"]);
+  let path: string | null = null;
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim();
+    if (line.trim() === `branch refs/heads/${branch}`) return path;
+  }
+  return null;
+}
+
+/**
+ * Land a branch on another one (spec §5.7 "merge queue with rebase, conflict detection"; task
+ * 3.15, ADR-0131).
+ *
+ * Rebase then fast-forward, both here, because a queue landing two branches has to do this as one
+ * operation or the second one is racing the first. The rebase runs in the branch's own worktree
+ * when it has one — git will not rebase a branch that is checked out somewhere else, and after
+ * task 3.14 it usually is.
+ *
+ * A conflict is not an error: it is the answer, and the queue turns it into something the agent is
+ * asked to fix.
+ */
+export async function gitMerge(options: GitOptions, params: RunnerRequestParams<"git.merge">) {
+  const dir = dirOf(options, params);
+  const git = gitAt(dir);
+  enforce(options.policy, { kind: "git.branch", project: params.project, branch: params.branch });
+  const into = params.into ?? (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
+  if (params.branch === into) return { merged: false, reason: "a branch cannot land on itself" };
+
+  if (params.rebase !== false) {
+    const where = (await worktreeFor(git, params.branch)) ?? dir;
+    const rebase = gitAt(where);
+    const onSpot = where === dir;
+    try {
+      // In the project directory the branch is not checked out, so say which one to rebase.
+      await rebase.raw(onSpot ? ["rebase", into, params.branch] : ["rebase", into]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await rebase.raw(["rebase", "--abort"]).catch(() => undefined);
+      // Put the project directory back on `into` if the on-the-spot rebase left it detached.
+      if (onSpot) await git.raw(["checkout", into]).catch(() => undefined);
+      return { merged: false, conflict: true, reason };
+    }
+    if (onSpot) await git.raw(["checkout", into]).catch(() => undefined);
+  }
+
+  try {
+    const head = await git.revparse(["--abbrev-ref", "HEAD"]);
+    if (head.trim() !== into) await git.raw(["checkout", into]);
+    await git.raw(["merge", "--ff-only", params.branch]);
+  } catch (error) {
+    return {
+      merged: false,
+      conflict: true,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return { merged: true, head: (await git.revparse(["HEAD"])).trim() };
 }

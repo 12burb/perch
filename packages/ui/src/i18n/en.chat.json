@@ -125,5 +125,13 @@
   "chat.diff": "Change",
   "chat.diffPr": "Pull request #{number}",
   "chat.more": "{count} more",
-  "chat.seeAll": "See all {count}"
+  "chat.seeAll": "See all {count}",
+  "chat.queue": "Merge queue",
+  "chat.queue.waiting": "Waiting",
+  "chat.queue.landing": "Landing",
+  "chat.queue.landed": "Landed",
+  "chat.queue.failed": "Did not land",
+  "chat.queue.cancelled": "Taken out",
+  "chat.queueOnto": "onto {base}",
+  "chat.queueChecks": "checks: {command}"
 }

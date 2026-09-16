@@ -24,6 +24,7 @@ import { registerInbox } from "./routes/inbox.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMe } from "./routes/me.ts";
+import { registerMergeQueue } from "./routes/merge-queue.ts";
 import { registerMessages } from "./routes/messages.ts";
 import { registerPolicy } from "./routes/policy.ts";
 import { isPreviewRequest, registerPreview } from "./routes/preview.ts";
@@ -148,6 +149,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerUnfurl(app, deps);
   registerInbox(app, deps);
   registerWork(app, deps);
+  registerMergeQueue(app, deps);
   registerPolicy(app, deps);
   registerProjectEnv(app, deps);
   registerDeploys(app, deps);

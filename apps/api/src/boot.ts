@@ -33,6 +33,7 @@ import { ConnectionsService } from "./services/connections.ts";
 import { DbBrowser } from "./services/db-browser.ts";
 import { DeployService } from "./services/deploys.ts";
 import { McpGateway } from "./services/mcp.ts";
+import { MergeQueueService } from "./services/merge-queue.ts";
 import { NestService } from "./services/nest.ts";
 import { PerchMcpService } from "./services/perch-mcp.ts";
 import { PolicyService } from "./services/policy.ts";
@@ -219,6 +220,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   });
   // Work items, and the board that follows the sessions doing them (task 3.13).
   const work = new WorkService({ db, bus, log, sessions });
+  // And the queue those branches land through, one at a time (task 3.15).
+  const mergeQueue = new MergeQueueService({ db, bus, log, sessions, registry: runners });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -250,6 +253,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     mcp,
     perchMcp,
     work,
+    mergeQueue,
     previews,
     deploys,
     dbBrowser,

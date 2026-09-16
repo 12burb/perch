@@ -218,6 +218,13 @@
       "when": 1789550060158,
       "tag": "0030_work_items",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789552974684,
+      "tag": "0031_merge_queue",
+      "breakpoints": true
     }
   ]
 }

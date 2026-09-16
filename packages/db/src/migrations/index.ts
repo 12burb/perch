@@ -31,6 +31,7 @@ import m27 from "../../drizzle/0027_job_timezone.sql" with { type: "text" };
 import m28 from "../../drizzle/0028_bot_mcp.sql" with { type: "text" };
 import m29 from "../../drizzle/0029_agent_bots.sql" with { type: "text" };
 import m30 from "../../drizzle/0030_work_items.sql" with { type: "text" };
+import m31 from "../../drizzle/0031_merge_queue.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -78,4 +79,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 28, tag: "0028_bot_mcp", when: 1789538828212, breakpoints: true, sql: m28 },
   { idx: 29, tag: "0029_agent_bots", when: 1789540488390, breakpoints: true, sql: m29 },
   { idx: 30, tag: "0030_work_items", when: 1789550060158, breakpoints: true, sql: m30 },
+  { idx: 31, tag: "0031_merge_queue", when: 1789552974684, breakpoints: true, sql: m31 },
 ];

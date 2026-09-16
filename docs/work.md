@@ -74,6 +74,38 @@ the work, and a branch with commits on it is still there when somebody wants it.
 not yet a repository — an empty one with no commit to branch from — has no worktree to give, and
 the session works in the project directory instead rather than refusing to start.
 
+## Landing what the agents wrote
+
+Three agents finishing three branches at once is only half an answer — three branches written
+against yesterday's `main` do not all apply to it. So they land through a **merge queue**, one at a
+time, in the order they joined (spec §5.7; task 3.15).
+
+```
+POST /api/workspaces/{ws}/projects/{p}/merge-queue  {branch} | {work_item_id}
+GET  /api/workspaces/{ws}/projects/{p}/merge-queue
+```
+
+For each branch, in turn:
+
+1. **The project's checks**, run in the branch's own worktree — the first of `check`, `test`, `ci`
+   or `verify` in `.perch/project.json`'s `run` map. A project that names none has no checks, and
+   its branches land on git alone.
+2. **Rebase onto the base**, so what landed before it is underneath it.
+3. **Fast-forward the base onto it.** Both of those happen as one operation on the runner: two of
+   them racing is what a queue exists to prevent.
+
+A branch that will not rebase, or whose checks go red, **does not stop the queue**. It is marked
+with git's own words or the tail of the command's output, its item goes to **Needs you**, and the
+session that wrote it is sent a turn saying what broke. The next branch lands meanwhile. A queue
+that stops at the first red branch is one that a single agent can hold hostage.
+
+The thread gets one **queue card** per branch, rewritten in place as it moves. A branch that lands
+takes its item to **In review** — not to Done, for the same reason a finished session does not.
+
+The queue lands on the runner's checkout and does not push: getting that to a remote is what Open
+PR is for. And a branch whose agent has fixed it goes back in the queue when somebody puts it
+there; doing that automatically is the testing loop.
+
 ## The board
 
 Work mode shows one column per state, urgent first and then oldest first, with a card per item.

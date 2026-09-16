@@ -5030,3 +5030,60 @@ writing before there was a caller.
 
 Two items on one project can now run at once. What they cannot yet do is land in order — that is
 the merge queue, task 3.15.
+
+## ADR-0131: The queue lands one branch at a time, and hands a failure back to its author
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.15
+
+### Context
+Task 3.14 gave every work item its own worktree so three agents can write three branches at once.
+That is only half an answer: three branches that were each written against yesterday's `main` do
+not all apply to it. §5.7 asks for "merge queue with rebase, conflict detection, 'ask the agent to
+resolve'", and §11's line for 3.15 for "three branches merge in sequence; the one whose checks fail
+is sent back with the failure".
+
+### Decision
+**Serial per project, and the claim is the lock.** `claimNext` moves a row from `waiting` to
+`landing` in one guarded update, so two api processes cannot both be landing on one project. The
+loop runs while there is anything to land and stops when there is not, so an idle project costs
+nothing — no worker, no timer, no queue table to poll.
+
+**Checks before the merge, in the branch's own worktree.** A branch that is already broken should
+not move the base at all, and rebasing it first would only tell us about the merge. "The project's
+checks" is the first of `check`, `test`, `ci` or `verify` in `.perch/project.json`'s `run` map — a
+project that names none is a project with no checks, and its branches land on git alone.
+
+**`exec` was already in §7.6.** It was declared with the rest of the protocol in task 1.5 and
+implemented there too; what was missing was a caller. The merge queue is the first thing that
+needed to run a command and wait for its exit code, and it uses `exec` exactly as §7.6 writes it.
+
+**`git.merge` is the one new method.** Rebase and fast-forward have to happen as one operation on
+the runner: two of them racing from the api side is precisely what a queue exists to prevent. The
+rebase runs in the branch's own worktree, because git will not rebase a branch that is checked out
+somewhere else and after 3.14 it usually is. `worktree.create` became idempotent in the same
+change — asking twice is now asking where a branch is, which is how the queue finds the directory
+to run checks in.
+
+**A failure is the author's, not the queue's.** A branch that conflicts or fails its checks is
+marked `failed` with git's own words or the tail of the command's output, its work item goes to
+`needs_you`, and the session that wrote it is sent a turn saying what broke. Then the queue moves
+on to the next branch. A queue that stops at the first red branch is a queue that one agent can
+hold hostage.
+
+**`merge.*` are four additive bus events** (ADR register in `packages/events/test/events.test.ts`):
+§5.7 names the queue and not its events, and a queue nobody can watch is a queue you have to poll.
+
+### Consequences
+`queue_card` joins §5.2's blocks: one card per entry in the work item's thread, rewritten in place
+through the same `updateMessageBlocks` path a streaming reply uses, with no edit history — the
+queue is rewriting its own status line, not editing somebody's message.
+
+A branch that lands takes its work item to `in_review`, not to `done`. That is the same rule
+ADR-0129 set: an agent finishing, or a merge succeeding, is not a person agreeing.
+
+What is not here: the queue does not push. It lands on the runner's checkout, and getting that to
+a remote is the Pull Requests page's business (3.20) and `ship()`'s. Nor does it re-queue a branch
+whose agent has fixed it — the agent is asked, and somebody puts it back in the queue. Doing that
+automatically is the testing loop, task 3.18.

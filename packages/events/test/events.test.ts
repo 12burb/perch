@@ -48,11 +48,15 @@ const ADDITIVE_API_TO_RUNNER = [
   "project.remove",
   "project.config",
   "git.apply",
+  // The merge queue's one new method: rebase and fast-forward as one operation, because two of
+  // them racing from the api side is what a queue exists to prevent (task 3.15, ADR-0131).
+  "git.merge",
   "preview.screenshot",
 ];
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
- * deploy.started (ADR-0106), bot.permission_requested / bot.permission_answered (ADR-0121).
+ * deploy.started (ADR-0106), bot.permission_requested / bot.permission_answered (ADR-0121),
+ * merge.* (ADR-0131).
  */
 const ADDITIVE_BUS_EVENTS = [
   "session.turn",
@@ -60,6 +64,11 @@ const ADDITIVE_BUS_EVENTS = [
   "deploy.started",
   "bot.permission_requested",
   "bot.permission_answered",
+  // The merge queue (spec §5.7 names the queue and not its events; task 3.15, ADR-0131).
+  "merge.queued",
+  "merge.landing",
+  "merge.landed",
+  "merge.failed",
 ];
 
 describe("bus event catalog (spec §7.7)", () => {

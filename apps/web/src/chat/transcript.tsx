@@ -173,6 +173,9 @@ function Blocks(props: {
         if (block.type === "webhook_card") {
           return <WebhookCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "queue_card") {
+          return <QueueCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "plan_card") {
           return <PlanCard key={key} block={block as Record<string, unknown>} />;
         }
@@ -1068,6 +1071,49 @@ function WorkCard(props: { kind: "session_card" | "diff_card"; block: Record<str
  * rewritten in place as their answers land — so the thread shows the shape of the work, and a
  * person can see who is still out.
  */
+/** The merge queue, one entry, rewritten in place as it moves (spec §5.7; task 3.15). */
+function QueueCard(props: { block: Record<string, unknown> }) {
+  const state = String(props.block.state ?? "waiting");
+  const branch = String(props.block.branch ?? "");
+  const detail = String(props.block.detail ?? "");
+  const tone =
+    state === "landed"
+      ? "success"
+      : state === "failed"
+        ? "danger"
+        : state === "landing"
+          ? "warning"
+          : "neutral";
+  return (
+    <div
+      data-testid="queue-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{t("chat.queue")}</span>
+        <Badge tone={tone}>{t(`chat.queue.${state}` as "chat.queue.waiting")}</Badge>
+        <span className="font-mono text-sm">{branch}</span>
+        <span className="text-sm text-fg-muted">
+          {t("chat.queueOnto", { base: String(props.block.base ?? "") })}
+        </span>
+        {props.block.identifier ? (
+          <span className="font-mono text-sm text-fg-muted">{String(props.block.identifier)}</span>
+        ) : null}
+      </span>
+      {props.block.checks ? (
+        <span className="text-sm text-fg-muted">
+          {t("chat.queueChecks", { command: String(props.block.checks) })}
+        </span>
+      ) : null}
+      {detail ? (
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-sm text-fg-subtle">
+          {detail}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 function PlanCard(props: { block: Record<string, unknown> }) {
   const steps = Array.isArray(props.block.steps)
     ? (props.block.steps as Record<string, unknown>[])

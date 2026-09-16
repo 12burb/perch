@@ -273,6 +273,33 @@ export const busEventPayloads = {
     assigneeType: z.string().optional(),
     assigneeId: uuid.optional(),
   }),
+  /**
+   * The merge queue (spec §5.7; task 3.15). Additive to §7.7's catalog (ADR-0131): the queue is
+   * named in §5.7 and its events are not, and a queue nobody can watch is a queue you have to
+   * poll.
+   */
+  "merge.queued": z.object({
+    ...ws,
+    projectId: uuid,
+    entryId: uuid,
+    branch: z.string(),
+    position: z.number().int(),
+  }),
+  "merge.landing": z.object({ ...ws, projectId: uuid, entryId: uuid, branch: z.string() }),
+  "merge.landed": z.object({
+    ...ws,
+    projectId: uuid,
+    entryId: uuid,
+    branch: z.string(),
+    head: z.string(),
+  }),
+  "merge.failed": z.object({
+    ...ws,
+    projectId: uuid,
+    entryId: uuid,
+    branch: z.string(),
+    failure: z.string(),
+  }),
   "intake.received": z.object({ ...ws, projectId: uuid, workItemId: uuid, source: z.string() }),
   "intake.accepted": z.object({ ...ws, projectId: uuid, workItemId: uuid }),
   "intake.declined": z.object({ ...ws, projectId: uuid, workItemId: uuid }),

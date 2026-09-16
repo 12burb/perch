@@ -325,6 +325,29 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
    * task 3.10). One row per specialist, rewritten in place as their answers land, so a thread
    * shows the shape of the work rather than five loose messages.
    */
+  /**
+   * The merge queue, as one card in the item's thread (spec §5.7; task 3.15). Rewritten in place
+   * as the entry moves, so a thread reads as one queue rather than four notifications.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("queue_card"),
+      branch: z.string().max(300),
+      base: z.string().max(300),
+      state: z.enum(["waiting", "landing", "landed", "failed", "cancelled"]),
+      position: z.number().int(),
+      /** `KEY-123`, when the branch belongs to a work item. */
+      identifier: z.string().max(64).optional(),
+      failure: z.enum(["conflict", "checks", "runner"]).optional(),
+      /** git's words, or the tail of the check command's output. Never a credential. */
+      detail: z.string().max(4000).optional(),
+      /** The commit the base moved to. */
+      head: z.string().max(64).optional(),
+      /** The command that was run, so the card says what "checks" meant here. */
+      checks: z.string().max(300).optional(),
+    })
+    .strict(),
   z
     .object({
       ...blockBase,
