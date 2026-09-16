@@ -49,7 +49,7 @@ test("click a button in Preview, ask for a change, and the edit lands in the rig
   expect(seeded).toBe(200);
 
   await page.goto(`/${slug}/code/site?view=preview&port=${VITE_PORT}`);
-  const preview = page.getByRole("region", { name: "Preview" });
+  const preview = page.getByRole("region", { name: "Preview", exact: true });
   await expect(preview).toBeVisible({ timeout: 30_000 });
   const cta = page.frameLocator("iframe").locator("#cta");
   await expect(cta).toBeVisible({ timeout: 60_000 });

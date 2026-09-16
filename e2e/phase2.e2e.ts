@@ -309,7 +309,7 @@ test("a team of three uses Perch for an afternoon", async ({ page, browser }) =>
   expect(seeded).toBe(200);
 
   await linus.goto(`/${slug}/code/site?view=preview&port=${VITE_PORT}`);
-  const preview = linus.getByRole("region", { name: "Preview" });
+  const preview = linus.getByRole("region", { name: "Preview", exact: true });
   await expect(preview).toBeVisible({ timeout: 60_000 });
   const cta = linus.frameLocator("iframe").locator("#cta");
   await expect(cta).toBeVisible({ timeout: 90_000 });

@@ -225,7 +225,7 @@ test("clone, ask, watch from a phone, review, commit, pull request", async ({ pa
 
   // ── Watch it in Preview, from a phone ────────────────────────────────────────────────────────
   await page.goto(`${projectPath}?view=preview&port=${world.vite.port}`);
-  const preview = page.getByRole("region", { name: "Preview" });
+  const preview = page.getByRole("region", { name: "Preview", exact: true });
   await expect(preview).toBeVisible({ timeout: 60_000 });
   await expect(preview.locator("iframe")).toHaveAttribute(
     "src",

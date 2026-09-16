@@ -46,7 +46,7 @@ test("a dev server runs in the Preview tab, hot-reloads, and shares by link", as
 
   // The Preview tab, by URL: ⌘⇧P does the same from the keyboard.
   await page.goto(`/${slug}/code/site?view=preview&port=${VITE_PORT}`);
-  const preview = page.getByRole("region", { name: "Preview" });
+  const preview = page.getByRole("region", { name: "Preview", exact: true });
   await expect(preview).toBeVisible({ timeout: 30_000 });
 
   // Wildcard mode: the iframe is on the preview's own hostname, and the dev server answers.
