@@ -27,6 +27,7 @@ import m23 from "../../drizzle/0023_bot_tokens.sql" with { type: "text" };
 import m24 from "../../drizzle/0024_spec_bots.sql" with { type: "text" };
 import m25 from "../../drizzle/0025_code_bots.sql" with { type: "text" };
 import m26 from "../../drizzle/0026_webhooks.sql" with { type: "text" };
+import m27 from "../../drizzle/0027_job_timezone.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -70,4 +71,5 @@ export const migrationSources: MigrationSource[] = [
   { idx: 24, tag: "0024_spec_bots", when: 1789529692495, breakpoints: true, sql: m24 },
   { idx: 25, tag: "0025_code_bots", when: 1789531254847, breakpoints: true, sql: m25 },
   { idx: 26, tag: "0026_webhooks", when: 1789533435313, breakpoints: true, sql: m26 },
+  { idx: 27, tag: "0027_job_timezone", when: 1789537358518, breakpoints: true, sql: m27 },
 ];

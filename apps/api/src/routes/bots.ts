@@ -14,10 +14,11 @@ import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { insertBotToken, listBotTokens, revokeBotToken } from "../repos/bot-tokens.ts";
-import { listBots, listRuns } from "../repos/bots.ts";
+import { lastScheduledRuns, listBots, listRuns } from "../repos/bots.ts";
+import { scheduledJobsFor } from "../repos/jobs.ts";
 import { getMessage } from "../repos/messages.ts";
 import { botTokenHint, botTokenValue } from "../services/bot-api.ts";
-import { botFor } from "../services/bots.ts";
+import { botFor, DEFAULT_CATCH_UP_MINUTES } from "../services/bots.ts";
 import { channelFor } from "../services/channels.ts";
 import { hashToken } from "../services/tokens.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
@@ -295,6 +296,44 @@ const chainRoute = createRoute({
   request: { params: z.object({ ws: z.uuid(), message: z.uuid() }) },
   responses: {
     200: { description: "The chain", content: { "application/json": { schema: chainSchema } } },
+    ...errorResponses(403, 404),
+  },
+});
+
+const scheduleSchema = z
+  .object({
+    /** Which of the bot's `schedule` triggers this is. */
+    index: z.number().int(),
+    cron: z.string(),
+    /** The zone the expression is read in; UTC when the bot did not say (task 3.5). */
+    timezone: z.string(),
+    channel: z.string().nullable(),
+    prompt: z.string().nullable(),
+    /** Whether a firing Perch was down for still runs, and how late is still worth it. */
+    catch_up: z.boolean(),
+    catch_up_grace_minutes: z.number().int(),
+    next_run_at: z.string().nullable(),
+    last_run_at: z.string().nullable(),
+    last_status: z.string().nullable(),
+    last_error: z.string().nullable(),
+  })
+  .openapi("BotSchedule");
+
+const schedulesRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/bots/{bot}/schedules",
+  tags: ["bots"],
+  summary: "This bot's schedules: when each next fires, and when it last did",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: botParam },
+  responses: {
+    200: {
+      description: "The schedules",
+      content: {
+        "application/json": { schema: z.object({ schedules: z.array(scheduleSchema) }) },
+      },
+    },
     ...errorResponses(403, 404),
   },
 });
@@ -614,6 +653,40 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       },
       200,
     );
+  });
+
+  app.openapi(schedulesRoute, async (c) => {
+    const { ws, bot: id } = c.req.valid("param");
+    await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
+    const bot = await visible(ws, id, currentUser(c).id);
+    const [jobs, runs] = await Promise.all([
+      scheduledJobsFor(deps.db.db, bot.id),
+      lastScheduledRuns(deps.db.db, bot.id),
+    ]);
+    const byKey = new Map(jobs.map((job) => [job.key, job]));
+    const schedules = (bot.spec.triggers ?? [])
+      .map((trigger, index) => ({ trigger, index }))
+      .filter(({ trigger }) => trigger.on === "schedule" && typeof trigger.cron === "string")
+      // The queue's keys count the schedules, not every trigger, so the index is the position
+      // among the scheduled ones — the same one `reschedule` used.
+      .map(({ trigger }, at) => {
+        const job = byKey.get(`bot:${bot.id}:${at}`);
+        const last = runs.get(trigger.cron ?? "");
+        return {
+          index: at,
+          cron: trigger.cron ?? "",
+          timezone: job?.timezone ?? bot.spec.timezone ?? "UTC",
+          channel: trigger.channel ?? null,
+          prompt: trigger.prompt ?? null,
+          catch_up: trigger.catchUp !== false,
+          catch_up_grace_minutes: trigger.catchUpGraceMinutes ?? DEFAULT_CATCH_UP_MINUTES,
+          next_run_at: job?.runAt.toISOString() ?? null,
+          last_run_at: last?.at.toISOString() ?? null,
+          last_status: last?.status ?? null,
+          last_error: last?.error ?? null,
+        };
+      });
+    return c.json({ schedules }, 200);
   });
 
   app.openapi(runsRoute, async (c) => {

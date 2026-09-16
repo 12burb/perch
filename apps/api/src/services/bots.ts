@@ -132,6 +132,8 @@ export type RunInput = {
 export type RunOutcome = { run: BotRun; text: string };
 
 const DEFAULT_WINDOW = 20;
+/** How late a missed firing may be and still run, when the trigger does not say (task 3.5). */
+export const DEFAULT_CATCH_UP_MINUTES = 60;
 const PLACEHOLDER = "…";
 /** The queue a bot's scheduled triggers run on. */
 export const BOT_QUEUE = "bots";
@@ -235,6 +237,8 @@ export class BotsService {
         key,
         queue: BOT_QUEUE,
         cron: trigger.cron,
+        // Nine in the morning where the person who wrote it lives (task 3.5).
+        ...(bot.spec.timezone ? { timezone: bot.spec.timezone } : {}),
         payload: { botId: bot.id, index },
       });
     }
@@ -246,18 +250,35 @@ export class BotsService {
   }
 
   /** The queue's side of a scheduled trigger; the worker hands the job over. */
-  jobHandlers(): Record<string, (job: { payload: Record<string, unknown> }) => Promise<void>> {
-    return { [BOT_QUEUE]: (job) => this.runScheduled(job.payload) };
+  jobHandlers(): Record<
+    string,
+    (job: { payload: Record<string, unknown>; runAt?: Date }) => Promise<void>
+  > {
+    return {
+      [BOT_QUEUE]: (job) => this.runScheduled(job.payload, job.runAt ? { due: job.runAt } : {}),
+    };
   }
 
   /** One firing of a cron trigger: the prompt it carries, in the channel it names. */
-  async runScheduled(payload: Record<string, unknown>): Promise<void> {
+  async runScheduled(
+    payload: Record<string, unknown>,
+    options: { due?: Date; now?: Date } = {},
+  ): Promise<void> {
     const botId = typeof payload.botId === "string" ? payload.botId : "";
     const index = typeof payload.index === "number" ? payload.index : -1;
     const bot = botId ? await getBot(this.deps.db, botId) : null;
     if (bot?.status !== "active") return;
     const trigger = schedules(bot.spec)[index];
     if (!trigger) return;
+    // A firing Perch was not up for (task 3.5). Running it late is right for a digest somebody
+    // still wants and wrong for "good morning", so the trigger says which.
+    if (options.due && !worthRunning(trigger, options.due, options.now ?? new Date())) {
+      this.deps.log.info(
+        { botId: bot.id, cron: trigger.cron, due: options.due.toISOString() },
+        "a scheduled trigger was missed and is not worth catching up",
+      );
+      return;
+    }
     // The channel the trigger names, or — when it names none — the first one the bot is in.
     const named = trigger.channel
       ? await channelForBot(this.deps.db, bot.id, trigger.channel)
@@ -1503,4 +1524,23 @@ export async function botFor(db: Db, workspaceId: string, id: string): Promise<B
   const bot = await getBot(db, id);
   if (!bot || bot.workspaceId !== workspaceId) throw PerchError.notFound("bot");
   return bot;
+}
+
+/**
+ * Whether a firing that should have happened at `due` is still worth running now (task 3.5).
+ *
+ * A schedule catches up by default: Perch being down at nine is not a reason for the digest never
+ * to arrive. `catchUp: false` says the opposite — a greeting that arrives at noon is worse than no
+ * greeting — and `catchUpGraceMinutes` is the line between "late" and "too late".
+ */
+export function worthRunning(
+  trigger: { catchUp?: boolean | undefined; catchUpGraceMinutes?: number | undefined },
+  due: Date,
+  now: Date,
+): boolean {
+  const lateMinutes = (now.getTime() - due.getTime()) / 60_000;
+  // A minute either way is not late; clocks and pollers are not that precise.
+  if (lateMinutes <= 1) return true;
+  if (trigger.catchUp === false) return false;
+  return lateMinutes <= (trigger.catchUpGraceMinutes ?? DEFAULT_CATCH_UP_MINUTES);
 }

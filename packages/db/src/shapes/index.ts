@@ -320,6 +320,19 @@ export type MessageBlock = z.infer<typeof messageBlockSchema>;
 
 // bots.spec, bots.budget, bot_installs.scopes, bot_memories.metadata (spec §5.3, §6; task 2.6)
 
+/**
+ * Whether a zone name is one this runtime knows (task 3.5). A typo in a `bot.yaml` should be a 422
+ * where it was written, not a 500 the first time the schedule is saved.
+ */
+function knownTimezone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The native tools a bot may be given (spec §5.3). Anything not on this list does not exist. */
 export const BOT_TOOLS = [
   "web_search",
@@ -359,6 +372,14 @@ const botTriggerSchema = z
     prompt: z.string().min(1).max(4000).optional(),
     /** `schedule`: the channel the answer is posted in. */
     channel: z.string().min(1).optional(),
+    /**
+     * `schedule`: what to do about a firing Perch was not up for (task 3.5). `true` runs it late,
+     * which is right for a digest somebody still wants; `false` skips to the next one, which is
+     * right for "good morning". Default `true`, and `catchUpGraceMinutes` says how late is still
+     * worth running.
+     */
+    catchUp: z.boolean().optional(),
+    catchUpGraceMinutes: z.number().int().min(1).max(1_440).optional(),
   })
   .strict();
 export type BotTrigger = z.infer<typeof botTriggerSchema>;
@@ -414,6 +435,17 @@ export const botSpecSchema = z
       .optional(),
     tools: z.array(z.enum(BOT_TOOLS)).optional(),
     triggers: z.array(botTriggerSchema).max(20).optional(),
+    /**
+     * The zone this bot's schedules are read in (spec §5.3's `schedule (cron)`; task 3.5). "0 9 *
+     * * 1-5" means nine in the morning where the person who wrote it lives. An IANA name —
+     * `Europe/London`, `America/New_York`; UTC when nobody said.
+     */
+    timezone: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine(knownTimezone, "that is not a time zone this machine knows")
+      .optional(),
     /** Where it works: channel names or ids. Empty means wherever it has been installed. */
     scope: z
       .object({ channels: z.array(z.string().min(1)).optional() })

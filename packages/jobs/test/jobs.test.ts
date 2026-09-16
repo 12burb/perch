@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { DbHandle } from "@perch/db";
 import { createPostgresTestDb, createTestDb } from "@perch/db/testing";
-import { backoffMs, createQueue, nextCronRun, type Queue } from "../src/index.ts";
+import { backoffMs, createQueue, knownTimezone, nextCronRun, type Queue } from "../src/index.ts";
 
 /**
  * Task 0.6 acceptance for the queue: it survives a worker crash (an abandoned lock is reclaimed by another
@@ -160,5 +160,37 @@ describe("@perch/jobs helpers", () => {
       "2026-09-13T10:00:15.000Z",
     );
     expect(() => nextCronRun("not a cron", new Date())).toThrow();
+  });
+});
+
+/**
+ * Task 3.5: a cron expression means an hour somewhere. "0 9 * * *" is nine in the morning where
+ * whoever wrote it lives, which is a different instant in January than in July.
+ */
+describe("a cron expression with a zone", () => {
+  const from = new Date("2026-01-15T00:00:00Z");
+
+  test("is read in the zone it was given, not the machine's", () => {
+    const london = nextCronRun("0 9 * * *", from, "Europe/London");
+    const newYork = nextCronRun("0 9 * * *", from, "America/New_York");
+    // Nine in London is 09:00 UTC in January; nine in New York is 14:00 UTC.
+    expect(london.toISOString()).toBe("2026-01-15T09:00:00.000Z");
+    expect(newYork.toISOString()).toBe("2026-01-15T14:00:00.000Z");
+  });
+
+  test("follows the zone across a daylight-saving change", () => {
+    const winter = nextCronRun("0 9 * * *", new Date("2026-01-15T00:00:00Z"), "Europe/London");
+    const summer = nextCronRun("0 9 * * *", new Date("2026-07-15T00:00:00Z"), "Europe/London");
+    expect(winter.getUTCHours()).toBe(9);
+    // The same nine o'clock, an hour earlier in UTC, because London moved and the schedule did not.
+    expect(summer.getUTCHours()).toBe(8);
+  });
+
+  test("falls back to UTC rather than throwing, and the queue refuses the typo up front", () => {
+    expect(nextCronRun("0 9 * * *", from, "Mars/Olympus_Mons").toISOString()).toBe(
+      "2026-01-15T09:00:00.000Z",
+    );
+    expect(knownTimezone("Europe/London")).toBe(true);
+    expect(knownTimezone("Mars/Olympus_Mons")).toBe(false);
   });
 });

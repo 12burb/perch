@@ -3810,6 +3810,14 @@
                     "channel": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "catchUp": {
+                      "type": "boolean"
+                    },
+                    "catchUpGraceMinutes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1440
                     }
                   },
                   "required": [
@@ -3818,6 +3826,11 @@
                   "additionalProperties": false
                 },
                 "maxItems": 20
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "scope": {
                 "type": "object",
@@ -4059,6 +4072,14 @@
                     "channel": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "catchUp": {
+                      "type": "boolean"
+                    },
+                    "catchUpGraceMinutes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1440
                     }
                   },
                   "required": [
@@ -4067,6 +4088,11 @@
                   "additionalProperties": false
                 },
                 "maxItems": 20
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "scope": {
                 "type": "object",
@@ -4270,6 +4296,14 @@
                     "channel": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "catchUp": {
+                      "type": "boolean"
+                    },
+                    "catchUpGraceMinutes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1440
                     }
                   },
                   "required": [
@@ -4278,6 +4312,11 @@
                   "additionalProperties": false
                 },
                 "maxItems": 20
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "scope": {
                 "type": "object",
@@ -4647,6 +4686,75 @@
           "cost_usd",
           "stopped",
           "breaker"
+        ]
+      },
+      "BotSchedule": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "catch_up": {
+            "type": "boolean"
+          },
+          "catch_up_grace_minutes": {
+            "type": "integer"
+          },
+          "next_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_run_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "cron",
+          "timezone",
+          "channel",
+          "prompt",
+          "catch_up",
+          "catch_up_grace_minutes",
+          "next_run_at",
+          "last_run_at",
+          "last_status",
+          "last_error"
         ]
       },
       "BotTokenRow": {
@@ -15956,6 +16064,85 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BotChain"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/bots/{bot}/schedules": {
+      "get": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "This bot's schedules: when each next fires, and when it last did",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "bot",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The schedules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schedules": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BotSchedule"
+                      }
+                    }
+                  },
+                  "required": [
+                    "schedules"
+                  ]
                 }
               }
             }

@@ -183,6 +183,39 @@ A directory Perch cannot read does not stop the rest. Its bot is **paused**, the
 the row and shown in the panel, and every other bot in the repository still syncs. A handle another
 bot already has is refused the same way, because a handle is a name people type.
 
+## Schedules
+
+A `schedule` trigger wakes a bot on a timer:
+
+```yaml
+timezone: Europe/London        # the whole bot's zone; UTC when nobody says
+triggers:
+  - on: schedule
+    cron: "0 9 * * 1-5"        # nine in the morning, weekdays, in that zone
+    prompt: Post today's headlines
+    channel: newsroom          # or the first channel it is in
+    catch_up: true             # the default
+    catch_up_grace_minutes: 60
+```
+
+**The zone matters.** `0 9 * * 1-5` is nine o'clock where the person who wrote it lives, which is a
+different instant in January than in July. Perch reads the expression in the bot's `timezone` and
+follows it across a daylight-saving change. A zone name this machine has never heard of is refused
+when the bot is saved, not the first time it should have fired.
+
+**Catching up.** Perch is not always up at nine. By default a firing it missed runs late — a digest
+somebody still wants is still worth having — up to `catch_up_grace_minutes` (an hour). A bot whose
+message only makes sense on time says `catch_up: false`, and a missed firing is skipped rather than
+arriving at noon saying good morning.
+
+**What it did.** Every firing is a `bot_runs` row like any other, and the schedules endpoint reads
+them back:
+
+```
+GET /api/workspaces/{ws}/bots/{bot}/schedules
+→ {schedules: [{cron, timezone, channel, next_run_at, last_run_at, last_status, …}]}
+```
+
 ## Budgets and rate limits
 
 ```jsonc

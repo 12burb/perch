@@ -188,6 +188,7 @@ export function parseSpecBot(dir: string, files: SpecBotFiles): SpecBot {
     ...(doc.scope === undefined ? {} : { scope: camelKeys(object(doc.scope, file, "scope")) }),
     ...(doc.memory === undefined ? {} : { memory: camelKeys(object(doc.memory, file, "memory")) }),
     ...(doc.maxSteps === undefined ? {} : { maxSteps: doc.maxSteps }),
+    ...(doc.timezone === undefined ? {} : { timezone: doc.timezone }),
     ...(skills.length > 0 ? { skills } : {}),
   });
   if (!spec.success) {

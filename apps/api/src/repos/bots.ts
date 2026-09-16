@@ -372,3 +372,28 @@ export async function findBotByHandle(
     .limit(1);
   return row ?? null;
 }
+
+/** The last scheduled run of each cron this bot has, so a list can say when it last fired. */
+export async function lastScheduledRuns(
+  db: Db,
+  botId: string,
+): Promise<Map<string, { at: Date; status: string; error: string | null }>> {
+  const rows = await db
+    .select({
+      ref: botRuns.triggerRef,
+      startedAt: botRuns.startedAt,
+      status: botRuns.status,
+      error: botRuns.error,
+    })
+    .from(botRuns)
+    .where(and(eq(botRuns.botId, botId), eq(botRuns.trigger, "schedule")))
+    .orderBy(desc(botRuns.startedAt))
+    .limit(200);
+  const out = new Map<string, { at: Date; status: string; error: string | null }>();
+  for (const row of rows) {
+    const ref = row.ref ?? "";
+    if (out.has(ref)) continue;
+    out.set(ref, { at: row.startedAt, status: row.status, error: row.error });
+  }
+  return out;
+}

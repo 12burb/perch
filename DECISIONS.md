@@ -4451,3 +4451,45 @@ a megabyte, and does nothing at all before the signature checks out.
 `webhook_card` is a new message block. It renders in the transcript beside `deploy_card`, and every
 string in it is the provider's — clipped, never executed, and wrapped as untrusted before any model
 sees it, like every other tool output.
+
+## ADR-0120: A cron expression means an hour somewhere
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.5
+
+### Context
+Task 2.6 put a bot's `schedule` triggers on the Postgres queue, which read every expression in UTC.
+Spec §5.3's own example is `schedule "0 9 * * 1-5"` with the prompt "Post today's gaming + crypto
+headlines" — a morning digest, which is nine o'clock *somewhere*, and in UTC it drifts an hour twice
+a year for most of the world. §11's task 3.5 asks for a per-bot timezone, a catch-up policy, and a
+run ledger.
+
+### Decision
+**The zone lives on the bot and travels with the job.** `spec.timezone` is an IANA name; `jobs`
+gains a `timezone` column (migration 0027) so a scheduled row carries the zone it was written in and
+`complete()` computes the next run in it. Every schedule made before this one meant UTC, and a null
+column still means UTC, so nothing moves under anybody.
+
+**A typo is refused where it was written.** `botSpecSchema` checks the name with `Intl`, so a bot
+with `Mars/Olympus_Mons` is a 422 when it is saved rather than a 500 the first time it is scheduled.
+`nextCronRun` falls back to UTC rather than throwing, because a job already in the table must still
+fire.
+
+**Catching up is the default, and the bot may say otherwise.** Perch is not always up at nine. A
+missed firing runs late for up to `catchUpGraceMinutes` (an hour); `catchUp: false` skips it instead,
+which is what a greeting wants — arriving at noon saying good morning is worse than not arriving.
+The policy is read in the bots service from the job's own `runAt`, not in the queue, because it is a
+question about what the bot is for and the queue has no opinion about that.
+
+**The ledger is `bot_runs`, read back per cron.** A scheduled run already records its trigger and
+its `triggerRef` (the expression), so "when did it last fire" is a query rather than a new table.
+`GET .../bots/{bot}/schedules` joins that to the queue's own rows for `next_run_at`.
+
+### Consequences
+A minute either side of the due time is not "late": clocks and pollers are not that precise, and a
+worker that claims a job forty seconds after it was due should run it whatever the policy says.
+
+The schedules endpoint indexes by position among the *scheduled* triggers, which is the same index
+`reschedule` uses for its `bot:<id>:<n>` keys. Reordering a bot's triggers reshuffles those keys,
+which is already true and is why `reschedule` unschedules every key beyond the current count.

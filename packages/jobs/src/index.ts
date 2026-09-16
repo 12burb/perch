@@ -24,6 +24,12 @@ export type ScheduleOptions = {
   queue: string;
   /** croner expression; 5 fields or 6 with seconds. */
   cron: string;
+  /**
+   * The zone the expression is read in (task 3.5). "0 9 * * 1-5" means nine in the morning where
+   * whoever wrote it lives, and that is a different instant in March than in July. UTC by default,
+   * which is what every schedule made before this one meant.
+   */
+  timezone?: string;
   payload?: JobPayload;
   maxAttempts?: number;
 };
@@ -76,8 +82,19 @@ export function backoffMs(attempt: number, random: () => number = Math.random): 
   return Math.round(base * (0.8 + random() * 0.4));
 }
 
-export function nextCronRun(expression: string, from: Date): Date {
-  const next = new Cron(expression, { timezone: "UTC" }).nextRun(from);
+/** Whether a zone name is one this runtime knows, so a typo is caught where it was written. */
+export function knownTimezone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function nextCronRun(expression: string, from: Date, timezone = "UTC"): Date {
+  const zone = knownTimezone(timezone) ? timezone : "UTC";
+  const next = new Cron(expression, { timezone: zone }).nextRun(from);
   if (!next) throw new Error(`cron expression "${expression}" has no future run`);
   return next;
 }
@@ -103,7 +120,11 @@ export function createQueue(options: QueueOptions): Queue {
     },
 
     async schedule(o) {
-      const runAt = nextCronRun(o.cron, now());
+      if (o.timezone && !knownTimezone(o.timezone)) {
+        throw new Error(`"${o.timezone}" is not a time zone this machine knows`);
+      }
+      const timezone = o.timezone ?? "UTC";
+      const runAt = nextCronRun(o.cron, now(), timezone);
       const [row] = await db
         .insert(jobs)
         .values({
@@ -111,6 +132,7 @@ export function createQueue(options: QueueOptions): Queue {
           key: o.key,
           queue: o.queue,
           cron: o.cron,
+          timezone,
           payload: o.payload ?? {},
           runAt,
           maxAttempts: o.maxAttempts ?? 5,
@@ -121,6 +143,7 @@ export function createQueue(options: QueueOptions): Queue {
           set: {
             queue: o.queue,
             cron: o.cron,
+            timezone,
             payload: o.payload ?? {},
             runAt,
             attempts: 0,
@@ -177,7 +200,7 @@ export function createQueue(options: QueueOptions): Queue {
 
     async complete(job) {
       if (job.cron) {
-        const runAt = nextCronRun(job.cron, now());
+        const runAt = nextCronRun(job.cron, now(), job.timezone ?? "UTC");
         await db
           .update(jobs)
           .set({

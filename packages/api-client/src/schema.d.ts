@@ -7610,6 +7610,65 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/bots/{bot}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This bot's schedules: when each next fires, and when it last did */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    bot: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The schedules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            schedules: components["schemas"]["BotSchedule"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/bots/{bot}/runs": {
         parameters: {
             query?: never;
@@ -11564,7 +11623,10 @@ export type components = {
                     cron?: string;
                     prompt?: string;
                     channel?: string;
+                    catchUp?: boolean;
+                    catchUpGraceMinutes?: number;
                 }[];
+                timezone?: string;
                 scope?: {
                     channels?: string[];
                 };
@@ -11618,7 +11680,10 @@ export type components = {
                     cron?: string;
                     prompt?: string;
                     channel?: string;
+                    catchUp?: boolean;
+                    catchUpGraceMinutes?: number;
                 }[];
+                timezone?: string;
                 scope?: {
                     channels?: string[];
                 };
@@ -11664,7 +11729,10 @@ export type components = {
                     cron?: string;
                     prompt?: string;
                     channel?: string;
+                    catchUp?: boolean;
+                    catchUpGraceMinutes?: number;
                 }[];
+                timezone?: string;
                 scope?: {
                     channels?: string[];
                 };
@@ -11753,6 +11821,19 @@ export type components = {
             cost_usd: number;
             stopped: boolean;
             breaker: string | null;
+        };
+        BotSchedule: {
+            index: number;
+            cron: string;
+            timezone: string;
+            channel: string | null;
+            prompt: string | null;
+            catch_up: boolean;
+            catch_up_grace_minutes: number;
+            next_run_at: string | null;
+            last_run_at: string | null;
+            last_status: string | null;
+            last_error: string | null;
         };
         BotTokenRow: {
             /** Format: uuid */

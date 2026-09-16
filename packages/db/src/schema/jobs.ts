@@ -21,6 +21,8 @@ export const jobs = pgTable(
     lockedAt: timestamptz("locked_at"),
     lastError: text("last_error"),
     cron: text("cron"),
+    /** The zone `cron` is read in (task 3.5); UTC when nobody said. */
+    timezone: text("timezone"),
     ...timestamps(),
   },
   (t) => [
