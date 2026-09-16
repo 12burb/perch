@@ -4123,3 +4123,62 @@ identity so a script does not have to ask.
 `channel.joined` is emitted off the existing `bot.installed` bus event: being put in a channel is
 the one thing a bot cannot learn by listening, because until it is installed it hears nothing from
 there at all.
+
+## ADR-0113: A register of long lists, because virtualization is a decision and not a number
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 2.20
+
+### Context
+Spec §8 asks CI for a "perf audit" and §11's task 2.20 names three gates: the WS payload budget, the
+bundle size budget, and a "list virtualization check". The first two were built in task 0.15 and are
+numbers with budgets. The third is not: ground rule 7 says "every long list is virtualized", which
+is a property of each screen, and nothing in a bundle or an envelope can measure it.
+
+### Decision
+**`LIST_SURFACES` in `scripts/perf-budget.ts` is the register.** Every list Perch renders from
+server data has a line saying how it is kept short, and the audit checks the claim:
+
+- `virtualized` — the file must render through `VirtualList` or its own `useVirtualizer`.
+- `capped: n, in, proof` — the named file must still contain that string. Delete `SIDEBAR_ROWS = 30`
+  or `limit: 100` and the audit says which cap went and where it was.
+- `bounded: why` — a reasoned exemption, written down where a reviewer sees it. Three qualify: the
+  editor's open tabs, the drawer's four tabs, a preview's ports and share links. Each grows with
+  what one person did, not with the size of the workspace.
+
+**And a net, which is the part that matters.** Any `.tsx` under `apps/web/src` or `packages/ui/src`
+with its own scroll container and a `.map(` that is not in the register fails the audit. A new
+screen cannot ship a long list without somebody writing down how it stays fast.
+
+**One `VirtualList`, not five.** Perch had four virtualized lists and each had built its own
+scroller. `packages/ui/src/components/virtual-list.tsx` is that scroller once: a labelled `<ul>`
+whose rows carry `aria-setsize` and `aria-posinset`, so a screen reader is told how long the list
+really is rather than how much of it is in the DOM.
+
+**`VirtualList` is behind `@perch/ui/virtual-list`, not the barrel.** On the barrel it put
+`@tanstack/react-virtual` in the entry chunk and the initial-paint budget went from 179.8 KB to
+187.6 KB — over 180. It is off it for the reason ADR-0085 keeps i18n fragments off it, with a
+library instead of strings: the virtualizer belongs to the screens that have long lists, not to the
+first paint.
+
+**Two lists that were not virtualized now are**: Home's every-channel list and the Git panel's
+changed files. A workspace's channels have no ceiling and a refactor can touch thousands of files.
+
+**The sidebar is capped rather than virtualized.** `Sidebar` is one scroll container for every
+section, so a section cannot own a virtual window without nesting scrollers inside it, which is
+worse to use than the problem. Channels, DMs and Bots show the first `SIDEBAR_ROWS` (30) by weight
+and a last row saying how many more there are; on Channels that row links to Home, where the whole
+list is virtualized.
+
+### Consequences
+`bun run perf` gains a `long lists` line and the CI step is renamed to say so. `scripts/perf-budget.test.ts`
+covers the gate itself: this repository passes, a surface that stops virtualizing is named, a cap
+that disappears is named, and an unregistered scrolling list is named.
+
+The register is a maintenance cost by design. Renaming a file or moving a cap breaks the audit,
+which is the point: the alternative is a rule in a document that nothing enforces.
+
+`PALETTE_SHOWN = 50` caps ⌘K's commands per group, which is new. Nothing reaches it today; the
+palette takes commands from whatever screen is open (ADR-0111), so it is the one list whose length
+is decided by code rather than by data.

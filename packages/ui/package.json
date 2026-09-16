@@ -17,6 +17,7 @@
     "./inbox": "./src/components/inbox-list.tsx",
     "./session": "./src/components/session-transcript.tsx",
     "./diff": "./src/components/diff-view.tsx",
+    "./virtual-list": "./src/components/virtual-list.tsx",
     "./tokens.css": "./src/tokens/tokens.css",
     "./styles.css": "./src/styles.css"
   },

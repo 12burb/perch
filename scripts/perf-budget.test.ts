@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { audit, BUDGETS, measureBundle, sampleEnvelopes } from "./perf-budget.ts";
+import { dirname, join, resolve } from "node:path";
+import {
+  audit,
+  BUDGETS,
+  LIST_SURFACES,
+  listVirtualization,
+  measureBundle,
+  sampleEnvelopes,
+} from "./perf-budget.ts";
 
 describe("perf budgets (task 0.15)", () => {
   test("measures the initial chunk from index.html and every chunk in assets", () => {
@@ -104,5 +111,62 @@ describe("perf budgets (task 0.15)", () => {
   test("the sample WS envelopes fit the budget", () => {
     for (const sample of sampleEnvelopes())
       expect(sample.bytes).toBeLessThanOrEqual(BUDGETS.wsEnvelopeBytes);
+  });
+});
+
+/**
+ * Ground rule 7 as a gate (task 2.20): every long list is virtualized, or capped where the check
+ * can read the cap. These tests are about the gate itself — that it passes on this repository, and
+ * that it notices the two ways the rule gets broken.
+ */
+describe("the long-list check (task 2.20)", () => {
+  const root = resolve(import.meta.dir, "..");
+
+  test("every list surface in this repository is accounted for", () => {
+    expect(listVirtualization(root)).toEqual([]);
+    expect(LIST_SURFACES.length).toBeGreaterThan(10);
+  });
+
+  test("a surface that stops virtualizing is reported", () => {
+    const fake = mkdtempSync(join(tmpdir(), "perch-lists-"));
+    try {
+      for (const surface of LIST_SURFACES) {
+        const file = surface.file.split("#")[0] ?? surface.file;
+        mkdirSync(join(fake, dirname(file)), { recursive: true });
+        // Every file exists and says nothing: virtualized surfaces lose their window, and the
+        // files a cap was proved in lose the cap.
+        writeFileSync(join(fake, file), "export const nothing = 1;\n");
+      }
+      const findings = listVirtualization(fake);
+      const virtualized = LIST_SURFACES.filter((one) => one.how === "virtualized");
+      for (const surface of virtualized) {
+        expect(findings.some((f) => f.file === surface.file)).toBe(true);
+      }
+      expect(findings.some((f) => f.problem.includes("renders every row"))).toBe(true);
+      expect(findings.some((f) => f.problem.includes("the cap of"))).toBe(true);
+    } finally {
+      rmSync(fake, { recursive: true, force: true });
+    }
+  });
+
+  test("a new scrolling list that nobody registered is reported", () => {
+    const added = join(root, "apps/web/src/perf-budget-fixture.tsx");
+    try {
+      writeFileSync(
+        added,
+        [
+          "export function Fixture(props: { rows: string[] }) {",
+          '  return <div className="overflow-y-auto">{props.rows.map((row) => row)}</div>;',
+          "}",
+          "",
+        ].join("\n"),
+      );
+      const findings = listVirtualization(root);
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.file).toBe("apps/web/src/perf-budget-fixture.tsx");
+      expect(findings[0]?.problem).toContain("not a registered surface");
+    } finally {
+      rmSync(added, { force: true });
+    }
   });
 });

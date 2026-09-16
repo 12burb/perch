@@ -7,6 +7,7 @@
  */
 import "@perch/ui/i18n/code";
 import { Button, EmptyState, Field, Input, t } from "@perch/ui";
+import { VirtualList } from "@perch/ui/virtual-list";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
@@ -239,9 +240,16 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
             {t("git.clean")}
           </p>
         ) : (
-          <ul aria-label={t("git.changes")} className="flex flex-col">
-            {files.map((file) => (
-              <li key={file.path} className="flex items-center gap-2 py-0.5 text-sm">
+          // A refactor can touch thousands of files; the panel renders the window (ADR-0113).
+          <VirtualList
+            rows={files}
+            label={t("git.changes")}
+            keyOf={(file) => file.path}
+            estimateSize={24}
+            className="max-h-[40vh]"
+          >
+            {(file) => (
+              <div className="flex items-center gap-2 py-0.5 text-sm">
                 <input
                   type="checkbox"
                   aria-label={file.path}
@@ -256,9 +264,9 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
                 />
                 <span className="w-20 shrink-0 text-fg-muted">{statusLabel(file)}</span>
                 <span className="truncate font-mono">{file.path}</span>
-              </li>
-            ))}
-          </ul>
+              </div>
+            )}
+          </VirtualList>
         )}
       </div>
 

@@ -19,6 +19,12 @@ export type PaletteCommand = {
   run: () => void;
 };
 
+/**
+ * How many commands a group shows (ADR-0113). A screen contributes its own commands, so the list
+ * grows with what is open; cmdk filters as you type, and past fifty rows you are typing anyway.
+ */
+export const PALETTE_SHOWN = 50;
+
 export function CommandPalette(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,7 +34,7 @@ export function CommandPalette(props: {
   const groups = new Map<string, PaletteCommand[]>();
   for (const command of props.commands) {
     const list = groups.get(command.group) ?? [];
-    list.push(command);
+    if (list.length < PALETTE_SHOWN) list.push(command);
     groups.set(command.group, list);
   }
   return (

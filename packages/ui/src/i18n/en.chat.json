@@ -115,5 +115,7 @@
   "chat.deployState.error": "Failed",
   "chat.deployState.canceled": "Cancelled",
   "chat.deployLogs": "Build log",
-  "chat.deployWaiting": "No URL yet."
+  "chat.deployWaiting": "No URL yet.",
+  "chat.more": "{count} more",
+  "chat.seeAll": "See all {count}"
 }

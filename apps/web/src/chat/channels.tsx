@@ -18,6 +18,7 @@ import {
   SidebarSection,
   t,
 } from "@perch/ui";
+import { VirtualList } from "@perch/ui/virtual-list";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useState } from "react";
@@ -71,6 +72,41 @@ function ChannelLink(props: { workspaceSlug: string; channel: ChannelRow; active
   );
 }
 
+/**
+ * How many rows a sidebar section renders (spec §4 "every long list is virtualized"; ADR-0113).
+ * The sidebar is one scroll container for every section, so a section cannot own a virtual window
+ * without nesting scrollers. It shows the most relevant rows instead, and says how many it is not
+ * showing — the whole list is a click away in Home, virtualized.
+ */
+export const SIDEBAR_ROWS = 30;
+
+/** The rows a section shows, and how many it left out. */
+export function sidebarWindow<T>(rows: readonly T[]): { shown: readonly T[]; more: number } {
+  return rows.length <= SIDEBAR_ROWS
+    ? { shown: rows, more: 0 }
+    : { shown: rows.slice(0, SIDEBAR_ROWS), more: rows.length - SIDEBAR_ROWS };
+}
+
+/** The last row of a capped section: what is not shown, and where the rest of it is. */
+function MoreRow(props: { more: number; workspaceSlug?: string }) {
+  if (props.more === 0) return null;
+  return (
+    <li className="px-2 py-1 text-sm text-fg-subtle" data-testid="sidebar-more">
+      {props.workspaceSlug ? (
+        <Link
+          to="/$workspace/$mode"
+          params={{ workspace: props.workspaceSlug, mode: "home" }}
+          className="underline"
+        >
+          {t("chat.seeAll", { count: props.more + SIDEBAR_ROWS })}
+        </Link>
+      ) : (
+        t("chat.more", { count: props.more })
+      )}
+    </li>
+  );
+}
+
 /** Home's Channels section: the named rooms this member is in. */
 export function ChannelsSection(props: { workspace: MyWorkspace }) {
   useLiveChannels(props.workspace.id);
@@ -79,12 +115,13 @@ export function ChannelsSection(props: { workspace: MyWorkspace }) {
   const mine = channels
     .filter((c) => c.member && !c.archived && (c.type === "public" || c.type === "private"))
     .sort(byWeight);
+  const { shown, more } = sidebarWindow(mine);
   return (
     <SidebarSection title={t("shell.home.channels")}>
       {mine.length === 0 ? (
         <li className="px-2 py-1 text-sm text-fg-subtle">{t("chat.channelsEmpty")}</li>
       ) : (
-        mine.map((channel) => (
+        shown.map((channel) => (
           <ChannelLink
             key={channel.id}
             workspaceSlug={props.workspace.slug}
@@ -93,6 +130,7 @@ export function ChannelsSection(props: { workspace: MyWorkspace }) {
           />
         ))
       )}
+      <MoreRow more={more} workspaceSlug={props.workspace.slug} />
     </SidebarSection>
   );
 }
@@ -110,12 +148,13 @@ export function DirectMessagesSection(props: { workspace: MyWorkspace }) {
         c.member && !c.archived && (c.type === "dm" || c.type === "group") && !withBots.has(c.id),
     )
     .sort(byWeight);
+  const { shown, more } = sidebarWindow(mine);
   return (
     <SidebarSection title={t("shell.home.dms")}>
       {mine.length === 0 ? (
         <li className="px-2 py-1 text-sm text-fg-subtle">{t("chat.dmsEmpty")}</li>
       ) : (
-        mine.map((channel) => (
+        shown.map((channel) => (
           <ChannelLink
             key={channel.id}
             workspaceSlug={props.workspace.slug}
@@ -124,6 +163,7 @@ export function DirectMessagesSection(props: { workspace: MyWorkspace }) {
           />
         ))
       )}
+      <MoreRow more={more} />
     </SidebarSection>
   );
 }
@@ -159,7 +199,7 @@ export function BotsSection(props: { workspace: MyWorkspace; empty: MessageKey }
       {talkable.length === 0 ? (
         <li className="px-2 py-1 text-sm text-fg-subtle">{t(props.empty)}</li>
       ) : (
-        talkable.map((bot) => {
+        sidebarWindow(talkable).shown.map((bot) => {
           // Once the chat exists it is a room like any other, with what is waiting for you in it.
           const chat = chats.get(bot.id);
           return (
@@ -177,6 +217,7 @@ export function BotsSection(props: { workspace: MyWorkspace; empty: MessageKey }
           );
         })
       )}
+      <MoreRow more={sidebarWindow(talkable).more} />
     </SidebarSection>
   );
 }
@@ -255,10 +296,16 @@ export function ChannelsMain(props: { workspaceId: string; workspaceSlug: string
             {t("chat.channelsEmpty")}
           </p>
         ) : (
-          <ul aria-label={t("chat.allChannels")} className="flex flex-col gap-1">
-            {open.sort(byWeight).map((channel) => (
-              <li
-                key={channel.id}
+          // A workspace's channels have no ceiling, so the list renders its window (ADR-0113).
+          <VirtualList
+            rows={open.sort(byWeight)}
+            label={t("chat.allChannels")}
+            keyOf={(channel) => channel.id}
+            estimateSize={40}
+            className="max-h-[60vh]"
+          >
+            {(channel) => (
+              <div
                 data-testid="channel-row"
                 className="flex items-center gap-2 rounded border border-border px-2 py-1"
               >
@@ -287,9 +334,9 @@ export function ChannelsMain(props: { workspaceId: string; workspaceSlug: string
                     {join.isPending ? t("chat.joining") : t("chat.join")}
                   </Button>
                 )}
-              </li>
-            ))}
-          </ul>
+              </div>
+            )}
+          </VirtualList>
         )}
       </div>
 

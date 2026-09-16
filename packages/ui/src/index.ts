@@ -2,7 +2,9 @@
 //
 // A component that carries an i18n fragment stays off this barrel and behind its own subpath
 // (`@perch/ui/blocks`, `/session`, `/diff`), so the fragment's strings load with the chunk that
-// needs them rather than with the first paint (ADR-0085).
+// needs them rather than with the first paint (ADR-0085). `@perch/ui/virtual-list` is off it for
+// the same reason with a library instead of strings: the virtualizer belongs to the screens that
+// have long lists, not to the first paint (ADR-0113).
 export const packageName = "@perch/ui";
 
 export { EditorGroup, type EditorGroupProps, type EditorTab } from "./components/editor-group.tsx";

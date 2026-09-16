@@ -1,8 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Performance budgets (spec §4 "Performance", §8 CI "perf audit"): the web bundle and the WebSocket
- * envelope must stay under the budgets below. `bun run perf` fails the build when one is exceeded.
- * The full audit (list virtualization, per-frame batching) is task 2.20; these are its first two gates.
+ * Performance budgets (spec §4 "Performance", §8 CI "perf audit"; task 2.20): the web bundle, the
+ * WebSocket envelope, and every long list. `bun run perf` fails the build when one is exceeded.
+ *
+ * The list check is the third gate and works differently from the other two. There is no number to
+ * measure: ground rule 7 says "every long list is virtualized", and what makes that true is a
+ * decision per surface. So every list surface is registered below with how it is kept short —
+ * virtualized, or capped somewhere the check can read — and a net catches a new scrolling list that
+ * nobody registered.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -194,6 +199,184 @@ export function sampleEnvelopes(): Array<{ type: string; bytes: number }> {
   }));
 }
 
+/**
+ * Every list of rows Perch renders from server data, and what keeps it short. A surface is either
+ * `virtualized` (it renders a window) or `capped` (something the check can read limits the rows).
+ *
+ * Adding a screen with a long list means adding a line here. The net below makes that hard to
+ * forget: a file with a scroll container and a `.map(` that is not registered fails the audit.
+ */
+export const LIST_SURFACES = [
+  { file: "apps/web/src/chat/transcript.tsx", list: "a channel's messages", how: "virtualized" },
+  {
+    file: "apps/web/src/chat/search.tsx",
+    list: "search results, in every lane",
+    how: "virtualized",
+  },
+  {
+    file: "apps/web/src/chat/channels.tsx",
+    list: "every channel in the workspace, in Home",
+    how: "virtualized",
+  },
+  { file: "apps/web/src/code/file-tree.tsx", list: "a project's files", how: "virtualized" },
+  {
+    file: "apps/web/src/code/git-panel.tsx",
+    list: "what changed, before a commit",
+    how: "virtualized",
+  },
+  {
+    file: "packages/ui/src/components/diff-view.tsx",
+    list: "a diff's files, hunks and lines",
+    how: "virtualized",
+  },
+  {
+    file: "packages/ui/src/components/session-transcript.tsx",
+    list: "a session's turns and tool calls",
+    how: "virtualized",
+  },
+  {
+    file: "packages/ui/src/components/virtual-list.tsx",
+    list: "the window the lists above render through",
+    how: "virtualized",
+  },
+  {
+    file: "packages/ui/src/components/inbox-list.tsx",
+    list: "what needs you",
+    how: { capped: 100, in: "apps/web/src/lib/queries.ts", proof: "limit: 100" },
+  },
+  {
+    file: "apps/web/src/inbox/inbox.tsx",
+    list: "the inbox's own scroller around that list",
+    how: { capped: 100, in: "apps/web/src/lib/queries.ts", proof: "limit: 100" },
+  },
+  {
+    file: "apps/web/src/code/sessions-list.tsx",
+    list: "a project's sessions, in the sidebar",
+    how: { capped: 100, in: "apps/api/src/repos/sessions.ts", proof: "limit = 100" },
+  },
+  {
+    file: "apps/web/src/code/inspector.tsx",
+    list: "the console strip and the elements tree",
+    how: { capped: 10, in: "apps/web/src/code/inspector.tsx", proof: "slice(-10)" },
+  },
+  {
+    file: "packages/ui/src/shell/composer.tsx",
+    list: "the mention autocomplete",
+    how: { capped: 8, in: "packages/ui/src/shell/composer.tsx", proof: "slice(0, 8)" },
+  },
+  {
+    file: "packages/ui/src/shell/command-palette.tsx",
+    list: "⌘K's commands, per group",
+    how: {
+      capped: 50,
+      in: "packages/ui/src/shell/command-palette.tsx",
+      proof: "PALETTE_SHOWN = 50",
+    },
+  },
+  {
+    file: "apps/web/src/chat/channels.tsx#sidebar",
+    list: "the sidebar's channels, DMs and bots",
+    how: { capped: 30, in: "apps/web/src/chat/channels.tsx", proof: "SIDEBAR_ROWS = 30" },
+  },
+  {
+    file: "apps/web/src/code/preview-pane.tsx",
+    list: "a preview's ports and share links",
+    how: {
+      bounded:
+        "the ports a dev server opened, and the share links a person made one at a time — neither grows with the workspace",
+    },
+  },
+  {
+    file: "packages/ui/src/components/editor-group.tsx",
+    list: "the editor's open tabs",
+    how: { bounded: "one per file the person opened; nothing but a click adds to it" },
+  },
+  {
+    file: "packages/ui/src/shell/drawer.tsx",
+    list: "the drawer's tabs",
+    how: { bounded: "the fixed set Code mode passes in: terminal, console, git, problems" },
+  },
+] as const;
+
+type Surface = (typeof LIST_SURFACES)[number];
+
+/** Where a component that renders rows can live. */
+const UI_ROOTS = ["apps/web/src", "packages/ui/src"] as const;
+
+/** A file that scrolls. Anything with its own scroll container can hold an unbounded list. */
+const SCROLLS = /overflow-y-auto|overflow-auto/;
+
+function tsxFiles(dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      tsxFiles(path, out);
+    } else if (entry.endsWith(".tsx") && !entry.includes(".ct.") && !entry.includes(".demo.")) {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
+export type ListFinding = { file: string; problem: string };
+
+/**
+ * Ground rule 7, as a check. Every registered surface must still do what it says, and no
+ * unregistered file may render a list inside its own scroll container.
+ */
+export function listVirtualization(root: string): ListFinding[] {
+  const findings: ListFinding[] = [];
+  // A file may hold two surfaces (Home's channel list and the sidebar's); `file.tsx#sidebar` names
+  // the second one without pretending there are two files.
+  const read = (relative: string): string | null => {
+    const path = join(root, relative.split("#")[0] ?? relative);
+    return existsSync(path) ? readFileSync(path, "utf8") : null;
+  };
+  for (const surface of LIST_SURFACES as readonly Surface[]) {
+    const source = read(surface.file);
+    if (source === null) {
+      findings.push({ file: surface.file, problem: "registered but not in the repository" });
+      continue;
+    }
+    if (surface.how === "virtualized") {
+      const virtual = source.includes("useVirtualizer(") || source.includes("<VirtualList");
+      if (!virtual) {
+        findings.push({
+          file: surface.file,
+          problem: `${surface.list}: registered as virtualized but renders every row`,
+        });
+      }
+      continue;
+    }
+    // A reasoned exemption: the list grows with what one person did, not with the workspace.
+    if ("bounded" in surface.how) continue;
+    const proof = read(surface.how.in);
+    if (proof === null || !proof.includes(surface.how.proof)) {
+      findings.push({
+        file: surface.file,
+        problem: `${surface.list}: the cap of ${surface.how.capped} is gone from ${surface.how.in} (looked for \`${surface.how.proof}\`)`,
+      });
+    }
+  }
+  const registered = new Set<string>(
+    LIST_SURFACES.map((one) => one.file.split("#")[0] ?? one.file),
+  );
+  for (const dir of UI_ROOTS) {
+    for (const path of tsxFiles(join(root, dir))) {
+      const relative = path.slice(root.length + 1);
+      if (registered.has(relative)) continue;
+      const source = readFileSync(path, "utf8");
+      if (!SCROLLS.test(source) || !source.includes(".map(")) continue;
+      findings.push({
+        file: relative,
+        problem: "renders a list inside its own scroll container but is not a registered surface",
+      });
+    }
+  }
+  return findings;
+}
+
 export type PerfResult = { ok: boolean; lines: string[] };
 
 export function audit(dist: string): PerfResult {
@@ -230,6 +413,13 @@ export function audit(dist: string): PerfResult {
   for (const sample of sampleEnvelopes()) {
     check(`ws envelope ${sample.type}`, sample.bytes, BUDGETS.wsEnvelopeBytes, "B");
   }
+  const root = resolve(import.meta.dir, "..");
+  const listFindings = listVirtualization(root);
+  ok &&= listFindings.length === 0;
+  lines.push(
+    `${listFindings.length === 0 ? "ok  " : "FAIL"}  ${"long lists".padEnd(28)} ${LIST_SURFACES.length} surfaces, ${listFindings.length} unbounded (budget 0)`,
+  );
+  for (const finding of listFindings) lines.push(`        ${finding.file}: ${finding.problem}`);
   lines.push("", "largest chunks:");
   for (const f of bundle.files.slice(0, 5))
     lines.push(`  ${f.gzipKb.toString().padStart(7)} KB  ${f.file}`);

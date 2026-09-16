@@ -73,7 +73,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun run --filter @perch/web build
-      - name: Perf budgets (bundle and WS envelope)
+      - name: Perf budgets (bundle, WS envelope, long lists)
         run: bun run perf
       - name: Component tests with axe (packages/ui)
         run: bun run ct
