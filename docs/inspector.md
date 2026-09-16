@@ -58,7 +58,9 @@ rule.
   either way: attached to the next turn as a chip, or posted straight into a channel you pick.
 
 A screenshot needs a browser on the runner. The hosted runner image ships one; a local runner uses
-whatever is installed, and `PERCH_CHROMIUM` names one explicitly.
+whatever is installed — including a Chromium that Playwright downloaded, which is why a machine that
+has run `playwright install chromium` already has everything preflight and the agent's eyes need.
+`PERCH_CHROMIUM` names one explicitly.
 
 ## Direct tweaks (task 3.21)
 

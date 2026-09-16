@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   browserCandidates,
   collect,
@@ -31,6 +34,64 @@ describe("the runner's screenshot", () => {
     expect(findBrowser({ PERCH_CHROMIUM: "/nowhere/chrome" })).not.toBe("/nowhere/chrome");
   });
 
+  test("what Playwright downloaded counts as installed, newest first", () => {
+    // Playwright's layout is per platform: linux-x64 gets a Chrome-for-Testing build under
+    // `chrome-linux64`, linux-arm64 its own under `chrome-linux`. Looking for one of those and not
+    // the other is what turned CI red on 591dca0, so every platform is checked here.
+    const root = mkdtempSync(join(tmpdir(), "perch-browsers-"));
+    try {
+      for (const dir of ["chromium-1194", "chromium-1100", "chromium_headless_shell-1194"])
+        mkdirSync(join(root, dir));
+      const env = { PLAYWRIGHT_BROWSERS_PATH: root };
+
+      const linux = browserCandidates(env, "linux");
+      expect(linux[0]).toBe(join(root, "chromium-1194", "chrome-linux64", "chrome"));
+      expect(linux).toContain(join(root, "chromium-1194", "chrome-linux", "chrome"));
+      // The older revision is a candidate, but after the newest one.
+      expect(
+        linux.indexOf(join(root, "chromium-1100", "chrome-linux64", "chrome")),
+      ).toBeGreaterThan(linux.indexOf(join(root, "chromium-1194", "chrome-linux", "chrome")));
+      // What the machine has installed comes before a headless shell, which is a browser only in
+      // the sense that it speaks the same protocol.
+      expect(linux.indexOf("/usr/bin/chromium")).toBeGreaterThan(
+        linux.indexOf(join(root, "chromium-1194", "chrome-linux64", "chrome")),
+      );
+      expect(linux.indexOf("/usr/bin/chromium")).toBeLessThan(
+        linux.indexOf(join(root, "chromium_headless_shell-1194", "chrome-linux", "headless_shell")),
+      );
+
+      expect(browserCandidates(env, "darwin")[0]).toBe(
+        join(
+          root,
+          "chromium-1194",
+          "chrome-mac-arm64",
+          "Google Chrome for Testing.app",
+          "Contents",
+          "MacOS",
+          "Google Chrome for Testing",
+        ),
+      );
+      expect(browserCandidates(env, "win32")[0]).toBe(
+        join(root, "chromium-1194", "chrome-win64", "chrome.exe"),
+      );
+
+      // And the operator still wins.
+      expect(browserCandidates({ ...env, PERCH_CHROMIUM: "/opt/mine/chrome" }, "linux")[0]).toBe(
+        "/opt/mine/chrome",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a machine Playwright has never run on is not an error", () => {
+    const candidates = browserCandidates(
+      { HOME: join(tmpdir(), "perch-no-such-home"), PLAYWRIGHT_BROWSERS_PATH: undefined },
+      "linux",
+    );
+    expect(candidates).toContain("/usr/bin/chromium");
+  });
+
   test("a runner with no browser says what to do about it", () => {
     // Not by calling `screenshot`: whether this machine has a browser is the machine's business,
     // and on one that does the call would really start Chromium and wait for it.
@@ -44,6 +105,15 @@ describe("the runner's screenshot", () => {
  * so it runs where there is one — which is the hosted image, a developer's laptop, and CI.
  */
 const browser = findBrowser();
+
+/**
+ * CI installs a browser before running this file and says so. A machine without one skips the
+ * visit; a CI job that skipped it would be a green step that tested nothing, which is worse than a
+ * red one.
+ */
+test.skipIf(!process.env.PERCH_REQUIRE_BROWSER)("the browser CI installed is found", () => {
+  expect(browser).not.toBeNull();
+});
 
 describe.skipIf(!browser)("visiting a page (task 3.21)", () => {
   test("a picture, what the page logged, and what it failed to fetch", async () => {

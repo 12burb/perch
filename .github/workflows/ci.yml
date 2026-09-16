@@ -75,13 +75,11 @@ jobs:
       - run: bun run --filter @perch/web build
       - name: The runner's browser — a picture, the console, the failed requests (task 3.21)
         # It lives here rather than with the unit tests because it needs a real browser, and this
-        # is the job that has one. `bun test` skips it where there is none.
-        run: |
-          set -euo pipefail
-          PERCH_CHROMIUM="$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome | head -1)"
-          export PERCH_CHROMIUM
-          echo "browser: $PERCH_CHROMIUM"
-          bun test apps/runner/test/screenshot.test.ts
+        # is the job that has one: the runner finds what `playwright install` put in the cache
+        # above. `bun test` skips it where there is none, so the job says there must be one.
+        run: bun test apps/runner/test/screenshot.test.ts
+        env:
+          PERCH_REQUIRE_BROWSER: "1"
       - name: Perf budgets (bundle, WS envelope, long lists)
         run: bun run perf
       - name: Component tests with axe (packages/ui)

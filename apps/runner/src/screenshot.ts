@@ -7,8 +7,8 @@
  * also ship a second way of asking it for a picture (ADR-0108). Which browser is found in the
  * environment, so a laptop runner uses whatever Playwright already installed there.
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 export class NoBrowser extends Error {
@@ -18,8 +18,93 @@ export class NoBrowser extends Error {
   }
 }
 
-/** The candidates, nearest first: what the operator named, what Playwright put there, the PATH. */
-export function browserCandidates(env: Record<string, string | undefined>): string[] {
+/**
+ * Where Playwright keeps the browsers it downloads. Its own rule: `PLAYWRIGHT_BROWSERS_PATH` wins,
+ * otherwise a per-platform cache directory. (`0` means "inside node_modules", which is a layout
+ * this does not go looking through.)
+ */
+function playwrightRoot(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform,
+): string | null {
+  const named = env.PLAYWRIGHT_BROWSERS_PATH;
+  if (named) return named === "0" ? null : named;
+  const home = env.HOME ?? env.USERPROFILE ?? homedir();
+  if (platform === "win32")
+    return join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "ms-playwright");
+  if (platform === "darwin") return join(home, "Library", "Caches", "ms-playwright");
+  return join(home, ".cache", "ms-playwright");
+}
+
+/**
+ * Where the executable sits inside one of those directories. Playwright's layout is per platform
+ * and has moved before — linux-x64 is a Chrome-for-Testing build under `chrome-linux64` while
+ * linux-arm64 is its own build under `chrome-linux` — so every layout it has used is a candidate
+ * and the one that exists wins. Guessing a single path is what broke CI once already.
+ */
+function insideBrowserDir(platform: NodeJS.Platform): string[] {
+  if (platform === "win32") return ["chrome-win64/chrome.exe", "chrome-win/chrome.exe"];
+  if (platform === "darwin")
+    return [
+      "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    ];
+  return ["chrome-linux64/chrome", "chrome-linux/chrome"];
+}
+
+/** And where the headless shell sits, which Playwright lays out differently again. */
+function shellInside(platform: NodeJS.Platform): string[] {
+  if (platform === "win32") return ["chrome-headless-shell-win64/chrome-headless-shell.exe"];
+  if (platform === "darwin")
+    return [
+      "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+      "chrome-headless-shell-mac-x64/chrome-headless-shell",
+    ];
+  return ["chrome-headless-shell-linux64/chrome-headless-shell", "chrome-linux/headless_shell"];
+}
+
+/** The `chromium-1194`-style directories under a root, newest revision first. */
+function browserDirs(root: string, prefix: string): string[] {
+  let names: string[] = [];
+  try {
+    names = readdirSync(root);
+  } catch {
+    // No cache directory is the ordinary case on a machine that has never run Playwright.
+    return [];
+  }
+  return names
+    .filter((one) => one.startsWith(`${prefix}-`))
+    .map((one) => ({ name: one, revision: Number(one.slice(prefix.length + 1)) }))
+    .filter((one) => Number.isFinite(one.revision))
+    .sort((a, b) => b.revision - a.revision)
+    .map((one) => join(root, one.name));
+}
+
+/** Every browser Playwright has downloaded here, the full ones before the headless shells. */
+function playwrightBrowsers(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform,
+): { full: string[]; shells: string[] } {
+  const root = playwrightRoot(env, platform);
+  if (!root) return { full: [], shells: [] };
+  const paths = (dirs: string[], insides: string[]): string[] =>
+    dirs.flatMap((dir) => insides.map((inside) => join(dir, ...inside.split("/"))));
+  return {
+    full: paths(browserDirs(root, "chromium"), insideBrowserDir(platform)),
+    shells: paths(browserDirs(root, "chromium_headless_shell"), shellInside(platform)),
+  };
+}
+
+/**
+ * The candidates, nearest first: what the operator named, what Playwright put there, what the
+ * machine has installed, and last the headless shell — which speaks the same protocol but is not
+ * what anyone means by "the browser on this machine".
+ */
+export function browserCandidates(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   const named = [env.PERCH_CHROMIUM, env.PLAYWRIGHT_CHROMIUM_EXECUTABLE].filter(
     (one): one is string => Boolean(one),
   );
@@ -30,7 +115,8 @@ export function browserCandidates(env: Record<string, string | undefined>): stri
     "/usr/bin/google-chrome-stable",
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ];
-  return [...named, ...known];
+  const downloaded = playwrightBrowsers(env, platform);
+  return [...named, ...downloaded.full, ...known, ...downloaded.shells];
 }
 
 export function findBrowser(env: Record<string, string | undefined> = process.env): string | null {
