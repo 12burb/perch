@@ -7,8 +7,8 @@ The `perch` binary (spec §2): laptop mode and the deployment helpers. Built per
 |---|---|
 | `perch dev [--port 3000] [--host 127.0.0.1] [--data-dir ~/.perch]` | api + web + the in-process runner on PGlite; the master key is generated on first run; open the URL to finish the setup wizard |
 | `perch doctor [--json]` | checks Bun, the data dir, the PGlite database and migrations, the master key, the port, the web build, git, docker; exit 1 when a required check fails |
-| `perch backup [<dir>]` | writes a backup directory: `pglite.tar.gz` (PGlite's own dump), `files/`, `master.key`, `manifest.json`; stop `perch dev` first |
-| `perch restore <dir> [--force]` | restores a backup into the data dir (refuses to overwrite without `--force`) |
+| `perch backup [<dir>]` | writes a backup directory: `pglite.tar.gz` (this data directory exactly), `database.jsonl.gz` (the portable dump, which restores into a team instance too), `files/`, `master.key`, `manifest.json`; stop `perch dev` first |
+| `perch restore <dir> [--force] [--portable]` | restores a backup into the data dir (refuses to overwrite without `--force`; `--portable` loads the logical dump rather than the exact copy) |
 | `perch init --public-url https://… [--preview-domain …]` | writes `.env`, `docker-compose.yml`, and a Caddyfile for docker compose (team mode) |
 | `perch runner connect <api-url> --token prt_…` | joins this machine to a Perch as one of your environments |
 | `perch connectors check <dir>` | puts connector manifests through the harness before an instance loads them |

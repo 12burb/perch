@@ -32,8 +32,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://perch:${POSTGRES_PASSWORD}@postgres:5432/perch}
       PERCH_FILES_DIR: /data/files
+      # Backups (task 4.4): a nightly one at PERCH_BACKUP_CRON, PERCH_BACKUP_KEEP of them kept.
+      PERCH_BACKUP_DIR: ${PERCH_BACKUP_DIR:-/data/backups}
     volumes:
       - files:/data/files
+      - backups:/data/backups
       # Connector manifests of your own (task 3.11). Drop <id>/manifest.yaml files in ./connectors
       # and set PERCH_CONNECTORS_DIR=/data/connectors in .env; unset, nothing is read.
       - ./connectors:/data/connectors:ro
@@ -65,6 +68,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - runner_homes:/data/homes
       - projects:/data/projects
+      # The project volumes are the supervisor's to add to a backup (task 4.4).
+      - backups:/data/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,6 +111,7 @@ services:
 
 volumes:
   files:
+  backups:
   runner_homes:
   projects:
   pgdata:

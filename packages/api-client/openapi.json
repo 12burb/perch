@@ -163,20 +163,82 @@
           "auth"
         ]
       },
-      "SetupResult": {
+      "Backups": {
         "type": "object",
         "properties": {
-          "user_id": {
-            "type": "string",
-            "format": "uuid"
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
-          "workspace_slug": {
-            "type": "string"
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keep": {
+            "type": "integer"
+          },
+          "backups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Backup"
+            }
           }
         },
         "required": [
-          "user_id",
-          "workspace_slug"
+          "directory",
+          "cron",
+          "keep",
+          "backups"
+        ]
+      },
+      "Backup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "tables": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "master_key_included": {
+            "type": "boolean"
+          },
+          "master_key_fingerprint": {
+            "type": "string"
+          },
+          "projects": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "bytes",
+          "rows",
+          "tables",
+          "files",
+          "master_key_included",
+          "master_key_fingerprint",
+          "projects"
         ]
       },
       "Error": {
@@ -219,6 +281,22 @@
         "required": [
           "error",
           "request_id"
+        ]
+      },
+      "SetupResult": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspace_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_slug"
         ]
       },
       "SetupRequest": {
@@ -9340,6 +9418,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Instance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/backup": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The backups this instance has taken, newest first",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backups, and the schedule that takes them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Take a backup now",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The backup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backup"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

@@ -189,6 +189,23 @@ jobs:
           curl -fsS http://localhost/api/health
       - name: The setup wizard, then sign in
         run: bun scripts/compose-smoke.ts http://localhost
+      - name: The restore drill (task 4.4) — back this instance up, restore it into an empty database
+        working-directory: /tmp/perch
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          password=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
+          id=$(docker compose exec -T api bun apps/api/src/index.ts backup | sed -n 's/^backup \([^ ]*\) written.*/\1/p')
+          test -n "$id"
+          docker compose exec -T postgres psql -U perch -d perch -c "create database perch_restore"
+          docker compose exec -T \
+            -e DATABASE_URL="postgres://perch:$password@postgres:5432/perch_restore" \
+            api bun apps/api/src/index.ts restore "/data/backups/$id"
+          workspaces=$(docker compose exec -T postgres psql -U perch -d perch_restore -tAc "select count(*) from workspaces")
+          users=$(docker compose exec -T postgres psql -U perch -d perch_restore -tAc "select count(*) from users")
+          echo "restored $workspaces workspaces and $users users into an empty database"
+          test "$(echo "$workspaces" | tr -d '[:space:]')" -ge 1
+          test "$(echo "$users" | tr -d '[:space:]')" -ge 1
       - name: Logs and teardown
         if: always()
         run: |

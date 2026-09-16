@@ -43,6 +43,16 @@ export async function isSetupComplete(db: Db): Promise<boolean> {
   return (await getSetting<boolean>(db, SETTING_KEYS.setupCompleted)) === true;
 }
 
+/**
+ * Whoever the setup wizard made (task 4.4). Workspace roles say nothing about the instance itself,
+ * so the one thing that does — "this is the account this Perch was set up with" — is what guards
+ * `/api/admin/*` until task 4.5 gives the instance a roster of its own.
+ */
+export async function isInstanceAdmin(db: Db, userId: string): Promise<boolean> {
+  const admin = await getSetting<string>(db, SETTING_KEYS.adminUserId);
+  return admin !== undefined && admin === userId;
+}
+
 /** The random instance id (telemetry.md): created on first read, never derived from anything. */
 export async function instanceId(db: Db): Promise<string> {
   const existing = await getSetting<string>(db, SETTING_KEYS.instanceId);

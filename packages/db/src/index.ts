@@ -1,4 +1,17 @@
 export {
+  BACKUP_FORMAT,
+  BACKUP_VERSION,
+  type BackupCounts,
+  type BackupHeader,
+  backupTables,
+  databaseIsEmpty,
+  dumpDatabase,
+  linesOf,
+  parseHeader,
+  restoreDatabase,
+  SKIPPED_TABLES,
+} from "./backup.ts";
+export {
   type CreateDbOptions,
   createDb,
   type Db,

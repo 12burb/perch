@@ -53,4 +53,23 @@ if (workspaces.workspaces[0]?.slug !== "smoke" || workspaces.workspaces[0]?.role
 }
 const web = await fetch(`${base}/`);
 if (!(await web.text()).includes('<div id="root">')) throw new Error("the web app is not served");
-console.log("compose smoke: setup, sign-in, /api/me, workspace, and the web app all answer");
+
+// A backup, taken through the endpoint the instance's admin uses (task 4.4). The workflow then
+// restores it into an empty database, which is the half no request can prove.
+const taken = await fetch(`${base}/api/admin/backup`, {
+  method: "POST",
+  headers: { cookie, origin: base },
+});
+if (taken.status !== 201) throw new Error(`backup failed: ${taken.status} ${await taken.text()}`);
+const backup = await json<{ id: string; rows: number; tables: number }>(taken);
+if (backup.rows < 1) throw new Error(`a backup with no rows: ${JSON.stringify(backup)}`);
+const backups = await json<{ directory: string; backups: Array<{ id: string }> }>(
+  await fetch(`${base}/api/admin/backup`, { headers: { cookie } }),
+);
+if (!backups.backups.some((one) => one.id === backup.id)) {
+  throw new Error(`the backup is not listed: ${JSON.stringify(backups)}`);
+}
+
+console.log(
+  `compose smoke: setup, sign-in, /api/me, workspace, the web app, and a backup (${backup.id}, ${backup.rows} rows in ${backups.directory}) all answer`,
+);

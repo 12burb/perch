@@ -63,6 +63,15 @@ const rawEnvSchema = z.object({
   PERCH_SEARCH_KEY: z.string().optional(),
   PERCH_DATA_DIR: z.string().min(1).optional(),
   /**
+   * Backups (task 4.4). A directory turns the nightly backup on; the cron is read in UTC, `KEEP`
+   * is how many to keep, and `INCLUDE_KEY` decides whether the vault's master key is written into
+   * the backup or only fingerprinted in its manifest.
+   */
+  PERCH_BACKUP_DIR: z.string().min(1).optional(),
+  PERCH_BACKUP_CRON: z.string().min(1).default("0 3 * * *"),
+  PERCH_BACKUP_KEEP: z.coerce.number().int().min(1).max(365).default(7),
+  PERCH_BACKUP_INCLUDE_KEY: onOff.default(false),
+  /**
    * A directory of connector manifests (`<id>/manifest.yaml`) read at boot, on top of the ones
    * this build ships (spec §5.5 "Everything else via manifests"; task 3.11). A provider added
    * here needs no rebuild, and one whose id matches a built-in replaces it.
@@ -107,6 +116,17 @@ export type Env = {
   search: { url: string; key: string | undefined } | undefined;
   /** Where to read extra connector manifests from, when this instance has any (task 3.11). */
   connectorsDir: string | undefined;
+  /**
+   * Scheduled backups (task 4.4). `dir` unset means no schedule: a backup can still be taken by
+   * hand, but nothing takes one on its own.
+   */
+  backup: {
+    dir: string | undefined;
+    cron: string;
+    keep: number;
+    /** Whether the master key travels with the backup, or only its fingerprint. */
+    includeKey: boolean;
+  };
   /** Flags PERCH_FLAGS turned on. */
   flags: string[];
   otlpEndpoint: string | undefined;
@@ -217,6 +237,12 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
       .map((url) => url.trim())
       .filter(Boolean),
     connectorsDir: raw.PERCH_CONNECTORS_DIR,
+    backup: {
+      dir: raw.PERCH_BACKUP_DIR ? resolve(expandHome(raw.PERCH_BACKUP_DIR)) : undefined,
+      cron: raw.PERCH_BACKUP_CRON,
+      keep: raw.PERCH_BACKUP_KEEP,
+      includeKey: raw.PERCH_BACKUP_INCLUDE_KEY,
+    },
     search: raw.PERCH_SEARCH_URL
       ? { url: raw.PERCH_SEARCH_URL, key: raw.PERCH_SEARCH_KEY }
       : undefined,

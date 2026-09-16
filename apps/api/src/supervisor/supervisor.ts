@@ -20,9 +20,15 @@ import {
   RUNNER_ROLE,
   type RunnerLimits,
 } from "./docker.ts";
-import { SUPERVISOR_QUEUE } from "./queue.ts";
+import { SUPERVISOR_BACKUP_QUEUE, SUPERVISOR_QUEUE } from "./queue.ts";
+import { backupVolumes } from "./volumes.ts";
 
-export { requestRunner, SUPERVISOR_QUEUE } from "./queue.ts";
+export {
+  requestRunner,
+  requestVolumeBackup,
+  SUPERVISOR_BACKUP_QUEUE,
+  SUPERVISOR_QUEUE,
+} from "./queue.ts";
 
 const { runners } = schema;
 
@@ -246,11 +252,17 @@ export function createSupervisor(deps: SupervisorDeps) {
       await docker.ping();
       await reconcile();
       worker = deps.queue.worker({
-        queues: [SUPERVISOR_QUEUE],
+        queues: [SUPERVISOR_QUEUE, SUPERVISOR_BACKUP_QUEUE],
         handlers: {
           [SUPERVISOR_QUEUE]: async (job) => {
             const workspaceId = job.payload.workspaceId;
             await ensure(typeof workspaceId === "string" ? workspaceId : null);
+          },
+          [SUPERVISOR_BACKUP_QUEUE]: async (job) => {
+            const dir = job.payload.dir;
+            if (typeof dir !== "string") return;
+            const result = await backupVolumes(dir, log);
+            log.info({ dir, ...result }, "added the project volumes to a backup");
           },
         },
         onError: (error, job) => log.error({ err: error, job: job.id }, "supervisor job failed"),

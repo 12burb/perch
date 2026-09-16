@@ -112,16 +112,19 @@ describe("laptop mode (task 0.14)", () => {
     const manifest = await createBackup(dataDir, out);
     expect(manifest).toMatchObject({
       format: "perch-backup",
-      version: 1,
+      version: 2,
       files: true,
       masterKey: true,
     });
+    // A backup carries both copies: the exact one, and the one that restores anywhere (task 4.4).
     expect(readdirSync(out).sort()).toEqual([
+      "database.jsonl.gz",
       "files",
       "manifest.json",
       "master.key",
       "pglite.tar.gz",
     ]);
+    expect(manifest.database?.tables ?? 0).toBeGreaterThan(50);
     await expect(createBackup(dataDir, out)).rejects.toThrow(/not empty/);
 
     const restored = mkdtempSync(join(tmpdir(), "perch-restore-"));
@@ -134,6 +137,13 @@ describe("laptop mode (task 0.14)", () => {
       expect(checks.find((c) => c.name === "database (PGlite)")?.detail).toContain("0 applied now");
       await expect(restoreBackup(out, restored)).rejects.toThrow(/--force/);
       await restoreBackup(out, restored, { force: true });
+      // And the portable dump restores into an empty data directory on its own: migrations first,
+      // then the rows, which is exactly what a team instance does with the same file.
+      await restoreBackup(out, restored, { force: true, portable: true });
+      const portableChecks = await collectChecks({ dataDir: restored, port: 0, host: "127.0.0.1" });
+      expect(portableChecks.find((c) => c.name === "database (PGlite)")?.detail).toContain(
+        "0 applied now",
+      );
     } finally {
       rmSync(restored, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }

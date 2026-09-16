@@ -5917,3 +5917,60 @@ repository and nothing else, which is the right blast radius for a workflow that
 beside the old one, renames the running one to `perch.old`, moves the new one in, and rolls back if
 that fails. A running executable cannot be overwritten on Windows but can be moved, so this is the
 one shape that works on all three platforms; it also means a failed upgrade leaves a working Perch.
+
+## ADR-0150: A backup is Perch's own rows, and the key is not in it
+
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Task:** 4.4 (backups you can trust)
+
+### Context
+Two databases, two obvious backup tools: `pg_dump` for team mode, PGlite's own `dumpDataDir` for a
+laptop. Neither restores into the other, so a laptop that grew into a team would find that out on
+the day it mattered — and `pg_dump` would mean shipping a Postgres client in the api image, pinned
+to the server's major version, for the one job it does.
+
+The rest of the question was where a backup runs and what it carries. `apps/api` never mounts the
+Docker socket and never sees the project volumes (spec §1.6, ADR-0067); the supervisor does. And a
+backup that includes `PERCH_MASTER_KEY` is a file that decrypts every credential in the instance,
+while a backup without it restores every message and leaves every credential shut.
+
+### Decision
+**A logical dump, in Perch's own format.** `@perch/db` writes the database as gzipped JSON lines: a
+header, then one row per line, table by table, timestamps as ISO strings and `bytea` as base64. The
+schema comes back from the migrations the binary already carries, so a restore is "migrate, then
+load" — which means a backup restores into a *later* Perch, and a laptop backup restores into
+Postgres. `perch backup` writes this beside `pglite.tar.gz` rather than instead of it: the exact
+copy is the fastest laptop restore, and the portable one is the one that travels.
+
+**Foreign keys are off for the load** (`session_replication_role = 'replica'`, inside the
+transaction). A backup is a set of rows that was already consistent, and some of them — a message
+that is its own thread root, a work item that is its own parent's child — cannot be inserted in any
+order with the keys on. Ordering the tables would still not fix those.
+
+**The queue is not data.** `jobs` is the one table a backup leaves out: restoring a week-old
+`supervisor.ensure` would start work nobody asked for.
+
+**The directory is the record.** No `backups` table: what exists on disk is what can be restored,
+and a row claiming otherwise is a second source of truth about the one thing that must be true when
+everything else is gone. A half-written backup is deleted rather than left to be the one somebody
+restores from.
+
+**Two halves, because of the socket.** The api writes the database, the files and the manifest,
+then asks the supervisor — through the queue, over a `backups` volume both mount — for the project
+volumes, which it tars and records in the same manifest. Nothing about the api's blast radius
+changes.
+
+**The key is fingerprinted, not included.** The manifest carries `sha256("perch-key:" + key)`
+truncated to 16 hex characters, so a restore can say plainly whether the key it has is the key
+those rows were encrypted with. `PERCH_BACKUP_INCLUDE_KEY=on` puts the key in for operators who
+want the backup to be sufficient on its own, and the documentation says what that means. A restore
+never replaces the running key: a process that booted with one and quietly decrypted nothing would
+look like an empty vault rather than the wrong key.
+
+**A restore refuses a database that has rows** unless it is forced, because a restore on top of
+live data is a merge nobody asked for.
+
+**`/api/admin/*` is guarded by the instance's admin account** — the one the setup wizard made —
+rather than by a workspace role, because a backup is every workspace at once. Task 4.5 gives the
+instance a roster; this is the smallest true rule until then.

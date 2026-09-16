@@ -18,7 +18,7 @@ OpenAI-shaped provider, a real Vite dev server, and a stand-in `opencode serve`;
 ended up is written to `E2E_MANIFEST` (ADR-0089). Run one with
 `bunx playwright test --project=phase1-opencode`.
 | `laptop-smoke` | Linux, macOS, Windows: `bun test apps/cli apps/runner` — `perch dev` on PGlite with the in-process runner, doctor, backup, restore, and the compiled binary serving the embedded web app; then `bun test apps/desktop` (a real window on laptop mode, under xvfb on Linux, `PERCH_DESKTOP_NATIVE=1`) and the desktop binary's `--check` |
-| `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
+| `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), the backup and restore drill (a backup through `/api/admin/backup`, restored into an empty Postgres database beside the live one, task 4.4), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
 | `dco.yml` | `Signed-off-by` on every commit |
 | `codeql.yml` | weekly CodeQL (security-and-quality) |
 | `changesets.yml` | manual: opens or refreshes a "Version Packages" pull request from the pending changesets (needs the "Allow GitHub Actions to create and approve pull requests" repository setting); the usual flow is `bun run version` on main and a Release run |

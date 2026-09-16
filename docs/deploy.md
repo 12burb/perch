@@ -53,8 +53,12 @@ invite link.
 
 - Upgrade: change `PERCH_IMAGE_TAG` in `.env`, `docker compose pull && docker compose up -d`; migrations run
   on boot under an advisory lock (ADR-0039).
-- Backups: `perch backup` / `perch restore` arrive with task 0.14; until then `pg_dump` the `postgres`
-  service and copy the `files` volume.
+- Backups: set `PERCH_BACKUP_DIR=/data/backups` (the compose file already mounts the volume for the
+  api and the supervisor) and a nightly one is taken at `PERCH_BACKUP_CRON`, keeping
+  `PERCH_BACKUP_KEEP` of them. `docker compose exec api bun apps/api/src/index.ts backup` takes one
+  now; the same entrypoint's `restore <dir>` loads one into an empty database. The vault key is
+  fingerprinted rather than included unless `PERCH_BACKUP_INCLUDE_KEY=on`, so keep
+  `PERCH_MASTER_KEY` somewhere else — [`backups.md`](backups.md) has the rest.
 - Previews without a wildcard domain use path mode (`/p/<workspace>/<port>/`, ADR-0036).
 - Local models: `docker compose --profile local up -d` starts Ollama at `http://ollama:11434`.
 - Cloudflare tunnel: set `TUNNEL_TOKEN` and `docker compose --profile tunnel up -d`.

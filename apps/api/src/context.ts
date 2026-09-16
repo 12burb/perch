@@ -11,6 +11,7 @@ import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
 import type { AgentsService } from "./services/agents.ts";
 import type { BackgroundService } from "./services/background.ts";
+import type { BackupsService } from "./services/backups.ts";
 import type { BotApiService } from "./services/bot-api.ts";
 import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
@@ -80,6 +81,8 @@ export type Deps = {
   virtualKeys: VirtualKeysService;
   /** The ceilings, and the ledger they are counted from (task 4.2). */
   budgets: BudgetsService;
+  /** The instance's backups: taken on a schedule, restored into an empty Perch (task 4.4). */
+  backups: BackupsService;
   /** Cycles, modules, saved views and relations (task 3.26). */
   planning: PlanningService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */

@@ -115,6 +115,89 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The backups this instance has taken, newest first */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Backups, and the schedule that takes them */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Backups"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Take a backup now */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The backup */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Backup"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup": {
         parameters: {
             query?: never;
@@ -14116,10 +14199,22 @@ export type components = {
                 oidc: boolean;
             };
         };
-        SetupResult: {
-            /** Format: uuid */
-            user_id: string;
-            workspace_slug: string;
+        Backups: {
+            directory: string | null;
+            cron: string | null;
+            keep: number;
+            backups: components["schemas"]["Backup"][];
+        };
+        Backup: {
+            id: string;
+            created_at: string;
+            bytes: number;
+            rows: number;
+            tables: number;
+            files: number;
+            master_key_included: boolean;
+            master_key_fingerprint: string;
+            projects: number | null;
         };
         Error: {
             error: {
@@ -14131,6 +14226,11 @@ export type components = {
                 };
             };
             request_id: string;
+        };
+        SetupResult: {
+            /** Format: uuid */
+            user_id: string;
+            workspace_slug: string;
         };
         SetupRequest: {
             admin: {

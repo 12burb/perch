@@ -28,6 +28,7 @@ import { RunnerRegistry } from "./runners/registry.ts";
 import { AgentBotsService } from "./services/agent-bots.ts";
 import { AgentsService } from "./services/agents.ts";
 import { BackgroundService } from "./services/background.ts";
+import { BackupsService } from "./services/backups.ts";
 import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
@@ -54,6 +55,7 @@ import { TestingLoopService } from "./services/testing-loop.ts";
 import { VirtualKeysService } from "./services/virtual-keys.ts";
 import { WebhooksService } from "./services/webhooks.ts";
 import { WorkService } from "./services/work.ts";
+import { requestVolumeBackup } from "./supervisor/queue.ts";
 import { startTracing } from "./telemetry/tracing.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
@@ -218,6 +220,19 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const virtualKeys = new VirtualKeysService({ db, bus, log });
   // What may be spent, counted from the same ledger the gateway writes (task 4.2).
   const budgets = new BudgetsService({ db, bus, log });
+  // The instance's own backups (task 4.4): the database, the files beside it, and the vault key's
+  // fingerprint, in a directory that can be carried somewhere else.
+  const backups = new BackupsService({
+    env,
+    db,
+    log,
+    version: { version: versionInfo(env).version },
+    // Only a docker-mode instance has a supervisor to ask for the project volumes; in laptop mode
+    // the projects live beside the data directory and are the person's own files.
+    ...(env.runner.mode === "inprocess"
+      ? {}
+      : { requestVolumes: (dir: string) => requestVolumeBackup(queue, dir) }),
+  });
   const bots = new BotsService({
     db: db.db,
     bus,
@@ -321,6 +336,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     modelGateway,
     virtualKeys,
     budgets,
+    backups,
     mergeQueue,
     races,
     background,

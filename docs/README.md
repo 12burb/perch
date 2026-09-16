@@ -9,6 +9,7 @@
 | [`install.md`](install.md) | Installing Perch: the one-liners, what is checked before anything is written, package managers, `perch upgrade` |
 | [`deploy.md`](deploy.md) | Team mode with docker compose: `perch init`, the images, the setup wizard |
 | [`ci.md`](ci.md) | The pull-request pipeline, the release workflow, the perf budgets |
+| [`backups.md`](backups.md) | Backups: what one is, the schedule, the vault key, restoring into an empty instance, and the drill CI runs |
 | [`runners.md`](runners.md) | The runner control channel, hosted and local runners, the supervisor |
 | [`desktop.md`](desktop.md) | The desktop app: laptop mode in a native window |
 | [`projects.md`](projects.md) | Projects: empty, upload, clone with a token or the deploy key; project.json and devcontainer.json |
