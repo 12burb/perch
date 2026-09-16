@@ -16,13 +16,18 @@ import { bootTestApp } from "../src/testing.ts";
 let booted: Booted;
 let running: RunningServer;
 let base = "";
+let provider: ReturnType<typeof Bun.serve> | null = null;
 let ws = "";
 let cookie = "";
 let botId = "";
 let channelId = "";
 let token = "";
+let toolToken = "";
 
 beforeAll(async () => {
+  // The provider a workspace connection is checked against when it is made. What this file is
+  // about is the grant in front of it, so it only has to answer.
+  provider = Bun.serve({ port: 0, fetch: () => Response.json({ user: { username: "nest" } }) });
   booted = await bootTestApp({});
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
   base = running.url;
@@ -30,6 +35,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await running.stop();
+  provider?.stop(true);
 });
 
 function cookiesFrom(res: Response): string {
@@ -103,12 +109,19 @@ describe("the Bot API (task 2.19)", () => {
     expect(token.startsWith("pbot_")).toBe(true);
     expect(minted.body.row.hint).toContain("…");
 
+    // A second token for the tool tests, so the first keeps exactly the scopes it was minted with.
+    const forTools = (await call(`/api/workspaces/${ws}/bots/${botId}/tokens`, {
+      method: "POST",
+      json: { name: "Tools", scopes: ["tools:call"] },
+    })) as { body: { token: string } };
+    toolToken = forTools.body.token;
+
     // The token is shown once: the list has the hint and nothing else.
     const listed = (await call(`/api/workspaces/${ws}/bots/${botId}/tokens`)) as {
       text: string;
       body: { tokens: { hint: string; scopes: string[] }[] };
     };
-    expect(listed.body.tokens).toHaveLength(1);
+    expect(listed.body.tokens).toHaveLength(2);
     expect(listed.text).not.toContain(token);
     expect(listed.body.tokens[0]?.scopes).toEqual([
       "chat:write",
@@ -230,6 +243,114 @@ describe("the Bot API (task 2.19)", () => {
     const fetched = await fetch(`${base}${uploaded.url}`, { headers: { cookie } });
     expect(fetched.status).toBe(200);
     expect(await fetched.text()).toBe("colophon\n");
+  }, 60_000);
+
+  test("a button press reaches the script, and it rewrites the message in place", async () => {
+    const bot = new PerchBot({ url: base, token });
+    const presses: { action: string; values: Record<string, string>; message_id: string }[] = [];
+    bot.on<{ action: string; values: Record<string, string>; message_id: string }>(
+      "interaction.received",
+      (payload) => {
+        presses.push({
+          action: payload.action,
+          values: payload.values,
+          message_id: payload.message_id,
+        });
+      },
+    );
+    await bot.connect();
+
+    // The bot asks, in blocks, the way a bot asks anything a person has to answer.
+    const asked = await bot.chat.postMessage({
+      channel: channelId,
+      blocks: [{ type: "approve_deny", id: "ship", action: "deploy.ship", text: "Ship it?" }],
+    });
+    expect(asked.ok).toBe(true);
+
+    // A person presses it.
+    const pressed = await call(`/api/workspaces/${ws}/messages/${asked.message_id}/interactions`, {
+      method: "POST",
+      json: { block_id: "ship", values: { decision: "approved" } },
+    });
+    expect(pressed.status).toBe(200);
+
+    // The script is told, over its own socket.
+    const deadline = Date.now() + 15_000;
+    while (presses.length === 0 && Date.now() < deadline) await Bun.sleep(25);
+    expect(presses).toHaveLength(1);
+    expect(presses[0]?.action).toBe("deploy.ship");
+    expect(presses[0]?.values).toEqual({ decision: "approved" });
+    expect(presses[0]?.message_id).toBe(asked.message_id);
+
+    // And it closes the loop by rewriting what it said, rather than saying it twice.
+    const rewritten = await bot.chat.update({
+      ts: asked.message_id,
+      text: "Shipping, because you said so.",
+    });
+    expect(rewritten.message_id).toBe(asked.message_id);
+    const history = await bot.conversations.history({ channel: channelId });
+    const now = history.find((one) => one.message_id === asked.message_id);
+    expect(now?.text).toContain("Shipping, because you said so.");
+    expect(history.filter((one) => one.text.includes("Shipping"))).toHaveLength(1);
+
+    bot.disconnect();
+  }, 60_000);
+
+  test("a connection is a bot's only when somebody granted it, and only its listed tools", async () => {
+    const bot = new PerchBot({ url: base, token: toolToken });
+    const made = (await call(`/api/workspaces/${ws}/connections`, {
+      method: "POST",
+      json: {
+        kind: "token",
+        provider: "vercel",
+        token: "stand-in",
+        owner_type: "workspace",
+        api_base: provider?.url.origin ?? "",
+      },
+    })) as { status: number; body: Id };
+    expect(made.status).toBe(201);
+
+    // Ungranted: refused before anything upstream is asked (spec §3.5).
+    const refused = await bot.tools
+      .call({ connection_id: made.body.id, tool: "list_projects" })
+      .catch((error: unknown) => error as PerchBotError);
+    expect((refused as PerchBotError).status).toBe(403);
+    expect((refused as PerchBotError).message).toContain("granted");
+
+    // Granted, but only for what the grant lists.
+    const granted = await call(`/api/workspaces/${ws}/connections/${made.body.id}/grants`, {
+      method: "POST",
+      json: { subject_type: "bot", subject_id: botId, allowed_tools: ["list_projects"] },
+    });
+    expect(granted.status).toBe(201);
+
+    const offList = await bot.tools
+      .call({ connection_id: made.body.id, tool: "delete_project" })
+      .catch((error: unknown) => error as PerchBotError);
+    expect((offList as PerchBotError).status).toBe(403);
+    expect((offList as PerchBotError).message).toContain("delete_project");
+
+    // The listed one gets past the grant; what happens at the far end is the provider's business,
+    // and the stand-in is not an MCP server — what matters here is that it was not the grant.
+    const allowed = await bot.tools
+      .call({ connection_id: made.body.id, tool: "list_projects" })
+      .catch((error: unknown) => error as PerchBotError);
+    expect((allowed as PerchBotError).message ?? "").not.toContain("granted");
+    expect((allowed as PerchBotError).message ?? "").not.toContain("may not call");
+
+    // And the audit says a bot called it, in both places it says who: the row's actor, and the
+    // event's own `callerType`, which used to be written as "user" whoever called (task 3.3).
+    const audit = (await call(`/api/workspaces/${ws}/audit?limit=200&action=tools.called`)) as {
+      body: { rows: { action: string; actor_type: string; details: { callerType?: string } }[] };
+    };
+    const calls = audit.body.rows.filter((one) => one.action === "tools.called");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((one) => one.actor_type === "bot")).toBe(true);
+    expect(calls.every((one) => one.details.callerType === "bot")).toBe(true);
+    // The refusal is audited too: a denied call is a thing that happened.
+    expect(calls.some((one) => (one.details as { outcome?: string }).outcome === "denied")).toBe(
+      true,
+    );
   }, 60_000);
 
   test("sixty calls a minute, and the sixty-first says how long to wait", async () => {

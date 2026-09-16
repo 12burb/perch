@@ -226,7 +226,9 @@ export class McpGateway {
           workspaceId: input.connection.workspaceId,
           connectionId: input.connection.id,
           tool: input.tool,
-          callerType: "user",
+          // Who actually called it. A bot's tool call audited as a person's is a lie in the one
+          // record that is supposed to settle arguments (task 3.3).
+          callerType: input.by.actor.type,
           callerId: input.callerId,
           argsHash: hash,
           outcome,
@@ -235,7 +237,10 @@ export class McpGateway {
       );
     if (!permits(input.allowList, input.tool)) {
       await audit("denied");
-      throw PerchError.forbidden(`this session may not call ${input.tool}`);
+      throw PerchError.forbidden(`this caller may not call ${input.tool}`, {
+        rule: "connection.grant",
+        tool: input.tool,
+      });
     }
     const client = await this.upstream(input.connection);
     try {

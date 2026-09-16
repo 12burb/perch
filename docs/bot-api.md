@@ -137,6 +137,19 @@ try {
 }
 ```
 
+## Calling a connection's tools
+
+`tools.call` needs three things to line up, and says which one did not:
+
+1. the token was minted with `tools:call`;
+2. the connection is a **workspace** connection — a personal one is somebody's and never a bot's;
+3. somebody **granted** it to this bot, in Settings → Connections or over
+   `POST /api/workspaces/{ws}/connections/{id}/grants`. A grant may name the tools it covers, and a
+   tool outside that list is refused by name before the provider is asked.
+
+Every call is audited — the tool, a hash of the arguments, the outcome, and that a **bot** made it —
+including the ones that were refused.
+
 ## What a bot never gets
 
 A connection's credential. `tools.call` goes through the MCP gateway, which attaches the

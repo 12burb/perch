@@ -174,7 +174,15 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     options.sessions ?? {},
   );
   // The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told.
-  const botApi = new BotApiService({ db: db.db, bus, botEvents, mcp, sessions, log });
+  const botApi = new BotApiService({
+    db: db.db,
+    bus,
+    botEvents,
+    mcp,
+    connections,
+    sessions,
+    log,
+  });
   const deps: Deps = {
     env,
     db,

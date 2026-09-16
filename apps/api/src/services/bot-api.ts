@@ -30,6 +30,7 @@ import {
 } from "../repos/messages.ts";
 import { getSession } from "../repos/sessions.ts";
 import { findUserById } from "../repos/users.ts";
+import type { ConnectionsService } from "./connections.ts";
 import type { McpGateway } from "./mcp.ts";
 import { getProject } from "./projects.ts";
 import type { SessionService } from "./sessions.ts";
@@ -56,6 +57,8 @@ export type BotApiDeps = {
   botEvents: BotEvents;
   /** The gateway a bot's `tools.call` goes through; the credential stays in the vault. */
   mcp: McpGateway;
+  /** Whether a connection was granted to this bot, and which of its tools (spec §3.5; task 3.3). */
+  connections: Pick<ConnectionsService, "mayUse">;
   /** Where `sessions.open` lands (spec §7.3). */
   sessions: SessionService;
   log: Logger;
@@ -293,9 +296,19 @@ export class BotApiService {
     if (connection.ownerType === "user") {
       throw PerchError.forbidden("that connection is personal", { rule: "connection.personal" });
     }
+    // And a workspace connection is only this bot's if somebody granted it (spec §3.5 "workspace
+    // connections are admin-created with explicit grants (bots, channels, tools)"; task 3.3). An
+    // external bot is nobody's turn, so an `obo` grant refuses it here.
+    const may = await this.deps.connections.mayUse({
+      connection,
+      subjectType: "bot",
+      subjectId: caller.bot.id,
+      invokedBy: null,
+    });
+    if (!may.ok) throw PerchError.forbidden(may.reason, { rule: "connection.grant" });
     return this.deps.mcp.call({
       connection,
-      allowList: null,
+      allowList: may.allowedTools,
       tool: input.tool,
       args: input.args,
       by: { actor: { type: "bot", id: caller.bot.id }, meta: {} },

@@ -655,8 +655,12 @@ export class ConnectionsService {
     connection: Connection;
     subjectType: GrantSubject;
     subjectId: string;
-    /** Who set this off: the person whose turn it is. */
-    invokedBy: string;
+    /**
+     * Who set this off: the person whose turn it is, or `null` when nobody's — an external bot
+     * with a token of its own is a program, not somebody's turn, and an `obo` grant is exactly
+     * the grant that needs a somebody (task 3.3).
+     */
+    invokedBy: string | null;
   }): Promise<{ ok: true; allowedTools: string[] | null } | { ok: false; reason: string }> {
     const grants = await listGrants(this.deps.db, input.connection.id);
     const granted = grants.find(

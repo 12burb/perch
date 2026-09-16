@@ -4364,3 +4364,41 @@ apply to the runs-per-hour ceiling, which is the one that matters for something 
 The QuickJS runtime is created per run and disposed after it. That is a few milliseconds of setup
 per event, which is far below what a model call costs and buys a bot that cannot keep anything
 between runs except what it `remember`s through a tool.
+
+## ADR-0118: A grant is checked where the tool is called, and the audit says who called it
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.3
+
+### Context
+Spec §3.5: "workspace connections are admin-created with explicit grants (bots, channels, tools)".
+Task 2.14 built `connection_grants`, the grants UI, and `ConnectionsService.mayUse` — and nothing
+called it. The Bot API's `tools.call` (task 2.19) refused a personal connection and then handed the
+gateway `allowList: null`, so any bot token with `tools:call` could call any tool on any workspace
+connection. The gateway's audit line, meanwhile, wrote `callerType: "user"` whoever was calling.
+
+### Decision
+**`mayUse` is called where the tool is.** A bot's `tools.call` fails with 403 and a reason when the
+connection was not granted to it, and the grant's `allowed_tools` becomes the gateway's allow-list,
+so a tool outside the grant is refused by name before the upstream is contacted. Refusals are
+audited, because a denied call is a thing that happened.
+
+**`callerType` is who actually called.** It comes from the actor on the event rather than a literal.
+A bot's tool call audited as a person's is a lie in the one record meant to settle arguments.
+
+**`mayUse` takes an invoker that may be nobody.** An external bot with a token of its own is a
+program, not somebody's turn, so it passes `invokedBy: null` and an `obo` grant refuses it. In
+practice a workspace connection already refuses `obo` when the grant is made, and a personal
+connection is refused before this; the null case is the belt to that pair of braces, and it is what
+makes the rule true at the call rather than only at the form.
+
+### Consequences
+A bot that could call a workspace connection's tools before this can no longer do so until somebody
+grants it — which is the rule §3.5 states and a change in behaviour worth saying out loud. The grants
+UI from task 2.14 is where that is done.
+
+`interaction.received` needed nothing: task 2.5 emits it on the bot-events seam addressed to the
+message's bot author, and task 2.19's socket forwards it. What was missing was a test that a button
+press crosses all of it — the person's press, the socket, and `chat.update` rewriting the message in
+place rather than saying it twice.
