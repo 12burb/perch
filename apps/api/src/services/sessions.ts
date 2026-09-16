@@ -130,6 +130,12 @@ export type CreateSessionInput = {
   /** The work item this session is doing, when the board started it (task 3.13). */
   workItemId?: string | undefined;
   /**
+   * Nobody is waiting at a keyboard for this one, so it settles when its round goes quiet rather
+   * than holding a runner open (ADR-0133). A session started from a work item is unattended
+   * whether or not it says so; a race entrant says so (task 3.16).
+   */
+  unattended?: boolean | undefined;
+  /**
    * Work in a git worktree of this name rather than in the project checkout (spec §6
    * `coding_sessions.worktree`; task 3.14). The branch is made from the project's default branch
    * if it is not already there, and two sessions on two worktrees never see each other's files.
@@ -347,6 +353,7 @@ export class SessionService {
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
       ...(input.botId ? { botId: input.botId } : {}),
       ...(input.workItemId ? { workItemId: input.workItemId } : {}),
+      unattended: input.unattended ?? input.workItemId !== undefined,
       ...(worktree ? { worktree: worktree.branch, branch: worktree.branch } : {}),
     });
     await this.grantConnections(session);
@@ -1104,10 +1111,11 @@ export class SessionService {
       // Auto-settle: a background run that finished with nothing waiting on a person lets its
       // session go, so a runner is not held open by a conversation nobody is having.
       //
-      // A session opened from a work item always settles (task 3.13). It belongs to the card
-      // rather than to a person at a keyboard, and its ending is what moves the card to review —
-      // a session that never ends is a card that never moves.
-      const settles = background.autoSettle || session.workItemId !== null;
+      // An unattended session always settles (ADR-0133). A session the board opened belongs to
+      // the card rather than to a person at a keyboard, and its ending is what moves the card to
+      // review — a session that never ends is a card that never moves. A race entrant is the same
+      // thing: its ending is what gets it measured and compared (task 3.16).
+      const settles = background.autoSettle || session.unattended;
       if (settles && !this.pending.has(session.id)) {
         const fresh = await getSession(this.deps.db, session.id);
         if (fresh?.status === "idle") await this.setStatus(fresh, "ended");

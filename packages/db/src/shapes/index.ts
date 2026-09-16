@@ -326,6 +326,41 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
    * shows the shape of the work rather than five loose messages.
    */
   /**
+   * A race, as one card (spec §5.7 "compare diffs, cost, preflight; pick a winner"; task 3.16).
+   * One row per engine with what it cost, what its diff came to, and what the checks said — which
+   * is the comparison a person is being asked to make.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("race_card"),
+      raceId: z.uuid(),
+      state: z.enum(["running", "decided", "cancelled"]),
+      /** `KEY-123`, when the race is about a work item. */
+      identifier: z.string().max(64).optional(),
+      decidedBy: z.enum(["person", "checks"]).optional(),
+      entrants: z
+        .array(
+          z
+            .object({
+              id: z.uuid(),
+              engine: z.string().max(64),
+              branch: z.string().max(300),
+              state: z.enum(["running", "finished", "failed", "discarded", "won"]),
+              costUsd: z.number().nonnegative().optional(),
+              filesChanged: z.number().int().optional(),
+              additions: z.number().int().optional(),
+              deletions: z.number().int().optional(),
+              /** null when the project has no checks; 0 is a pass. */
+              checks: z.number().int().nullable().optional(),
+              detail: z.string().max(2000).optional(),
+            })
+            .strict(),
+        )
+        .max(8),
+    })
+    .strict(),
+  /**
    * The merge queue, as one card in the item's thread (spec §5.7; task 3.15). Rewritten in place
    * as the entry moves, so a thread reads as one queue rather than four notifications.
    */

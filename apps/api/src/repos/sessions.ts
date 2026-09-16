@@ -45,6 +45,8 @@ export async function insertSession(
     botId?: string;
     /** The work item it is doing, when it was started from the board (task 3.13). */
     workItemId?: string;
+    /** Nobody is at a keyboard for it, so it settles when it goes quiet (ADR-0133). */
+    unattended?: boolean;
     /** The git worktree it works in, rather than the project checkout (task 3.14). */
     worktree?: string;
     branch?: string;
@@ -71,6 +73,7 @@ export async function insertSession(
       ...(values.threadRootId ? { threadRootId: values.threadRootId } : {}),
       ...(values.botId ? { botId: values.botId } : {}),
       ...(values.workItemId ? { workItemId: values.workItemId } : {}),
+      ...(values.unattended === undefined ? {} : { unattended: values.unattended }),
       ...(values.worktree ? { worktree: values.worktree, branch: values.branch ?? null } : {}),
       ...(values.turns === undefined ? {} : { turns: values.turns }),
     })

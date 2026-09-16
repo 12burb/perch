@@ -21,6 +21,7 @@ import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
+import type { RaceService } from "./services/races.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 import type { SpecBotsService } from "./services/spec-bots.ts";
@@ -66,6 +67,8 @@ export type Deps = {
   work: WorkService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */
   mergeQueue: MergeQueueService;
+  /** The same task on several engines at once, and the choice between them (task 3.16). */
+  races: RaceService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

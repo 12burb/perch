@@ -8,6 +8,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   check,
   index,
   integer,
@@ -83,6 +84,12 @@ export const codingSessions = pgTable(
     worktree: text("worktree"),
     branch: text("branch"),
     workItemId: uuid("work_item_id"),
+    /**
+     * Nobody is sitting in front of this one. A session the board or a race opened is machinery
+     * rather than a conversation, so it settles when its round goes quiet instead of holding a
+     * runner open for a next turn that is never coming (ADR-0133; tasks 3.13, 3.16).
+     */
+    unattended: boolean("unattended").notNull().default(false),
     threadRootId: uuid("thread_root_id"),
     /**
      * The chat this session is answering in, when a bot opened it from one (spec §5.3 "agent

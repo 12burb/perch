@@ -33,6 +33,7 @@ import { registerProjectEnv } from "./routes/project-env.ts";
 import { registerProjectFs } from "./routes/project-fs.ts";
 import { registerProjects } from "./routes/projects.ts";
 import { registerPush } from "./routes/push.ts";
+import { registerRaces } from "./routes/races.ts";
 import { registerRepoIndex } from "./routes/repo-index.ts";
 import { registerRunners } from "./routes/runners.ts";
 import { registerSearch } from "./routes/search.ts";
@@ -150,6 +151,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerInbox(app, deps);
   registerWork(app, deps);
   registerMergeQueue(app, deps);
+  registerRaces(app, deps);
   registerPolicy(app, deps);
   registerProjectEnv(app, deps);
   registerDeploys(app, deps);

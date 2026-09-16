@@ -5087,3 +5087,92 @@ What is not here: the queue does not push. It lands on the runner's checkout, an
 a remote is the Pull Requests page's business (3.20) and `ship()`'s. Nor does it re-queue a branch
 whose agent has fixed it — the agent is asked, and somebody puts it back in the queue. Doing that
 automatically is the testing loop, task 3.18.
+
+## ADR-0132: A race is several ordinary sessions and one decision
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.16
+
+### Context
+§5.7 asks for "the same task on two engines/models side by side; compare diffs, cost, preflight;
+pick a winner", and §11's line for 3.16 for "a race finishes with one diff applied and the rest
+discarded". The question is how much of that is new machinery.
+
+### Decision
+**Almost none of it is.** An entrant is an ordinary coding session in an ordinary worktree (task
+3.14), the checks are the merge queue's checks (task 3.15), and the winner lands through the queue
+like any other branch. What race mode adds is two tables, a comparison, and a decision. The
+alternative — a parallel path that runs engines outside the session lifecycle — would have had to
+re-earn permissions, budgets, transcripts and cancellation, all of which sessions already have.
+
+**Every entrant's row goes in before any of them is asked anything.** A round can finish inside
+`sendTurn` — a fast engine, a cached answer, a fake one in a test — and two things break if the
+bookkeeping is written afterwards. An entrant with no row yet cannot be found when its session
+ends, so it never finishes; and a race whose other entrants do not exist yet looks over after the
+first one comes back, and gets decided on a field of one. So the rows are written first, then each
+session is created, given its id, and only then asked.
+
+**Two to eight.** One engine is a session, not a race, and `POST …/races` says so with a `422`.
+Eight is a number rather than a principle: a race is a comparison somebody reads, and past eight
+rows nobody is comparing.
+
+**The checks decide when nobody has.** When every entrant has finished and the project has checks,
+the cheapest entrant whose checks pass wins, with the smallest diff breaking a tie: a race is won
+by the answer that works, and among those by the one that asked for the least. A project with no
+checks never decides by itself — there is nothing to prefer one diff over another, and guessing
+would be worse than waiting for a person. `decided_by` records which it was.
+
+**The winner's diff is applied by landing it, not by copying it.** `decide()` puts the winning
+branch in the merge queue, which rebases and fast-forwards it exactly as it would any other branch,
+so a race winner meets the same checks and the same serialization as everything else. Every other
+entrant is `discarded`: its worktree is given back, its branch stays. A branch with commits on it
+is still there when somebody wants to look at what the engine that lost was thinking.
+
+**`race.*` are three additive bus events** (ADR register in `packages/events/test/events.test.ts`),
+for the same reason `merge.*` were: §5.7 names the feature and not its events, and a race nobody
+can watch is a race you have to poll.
+
+### Consequences
+`race_card` joins §5.2's blocks: one card per race in the item's thread, rewritten in place, with
+a row per engine carrying what it changed, what it cost and what the checks made of it — and a
+**Pick** on each row while the race is open. The comparison is the card, because the decision is
+one glance across four numbers rather than four cards to hold in your head.
+
+A race that is about a work item takes it to `in_review` when it is decided, the same rule
+ADR-0129 and ADR-0131 set: an engine winning is not a person agreeing.
+
+What is not here: a race cannot be re-run, and a person cannot edit a winner's branch before it
+lands — they pick, and then it is an ordinary branch in an ordinary queue. Cost comes from the
+session's own usage, so an engine that does not report usage races with a cost of zero and wins
+ties it should not; that is the engine's gap rather than the race's, and it shows on the card as
+`$0.00` rather than being hidden.
+
+## ADR-0133: A session that nobody is sitting in front of says so
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.16
+
+### Context
+Task 3.13 made a session opened from a work item settle when its round goes quiet: it belongs to
+the card rather than to a person at a keyboard, and its ending is what moves the card to review.
+That rule was written as `session.workItemId !== null`. Task 3.16 needs the same behaviour for a
+race entrant, which may have no work item at all — a race can be started from a bare prompt.
+
+### Decision
+**`coding_sessions.unattended`, a boolean, replaces the inference.** The rule was never really
+about work items; it was about whether anybody is waiting at a keyboard for the next turn. A
+session that the board or a race opened is machinery, and machinery lets go of its runner when it
+is done. `create()` defaults it to `true` when a work item is given, so 3.13's behaviour is
+unchanged without any caller having to know about the column, and the migration backfills existing
+rows the same way.
+
+An entrant that never ends is worse than a held runner: its ending is what gets it measured and
+compared, so a race of idle sessions is a race that never finishes.
+
+### Consequences
+Auto-settle now reads `background.autoSettle || session.unattended`. A project's own auto-settle
+policy (task 2.18) still applies to everything, including sessions a person opened. Anything that
+starts a session on somebody's behalf in a later task — the testing loop, a scheduled run — says
+`unattended: true` and gets the same lifecycle for free rather than growing another special case.

@@ -176,6 +176,9 @@ function Blocks(props: {
         if (block.type === "queue_card") {
           return <QueueCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "race_card") {
+          return <RaceCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "plan_card") {
           return <PlanCard key={key} block={block as Record<string, unknown>} />;
         }
@@ -1109,6 +1112,126 @@ function QueueCard(props: { block: Record<string, unknown> }) {
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-sm text-fg-subtle">
           {detail}
         </pre>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A race, as the comparison a person is being asked to make (spec §5.7; task 3.16): a row per
+ * engine with what it changed, what it cost, and what the checks made of it, and a Pick on each
+ * while the race is still open. The winner's diff is applied and the rest are discarded, so the
+ * row is the whole decision — which is why the numbers are next to each other rather than in
+ * four separate cards.
+ */
+function RaceCard(props: { block: Record<string, unknown> }) {
+  const client = useQueryClient();
+  const raceId = String(props.block.raceId ?? "");
+  const state = String(props.block.state ?? "running");
+  const entrants = Array.isArray(props.block.entrants)
+    ? (props.block.entrants as Record<string, unknown>[])
+    : [];
+  const [failed, setFailed] = useState("");
+  const pick = useMutation({
+    mutationFn: async (entrant: string) => {
+      unwrap(
+        await api.POST("/api/races/{id}/pick/{entrant}", {
+          params: { path: { id: raceId, entrant } },
+        }),
+      );
+    },
+    onSuccess: () => {
+      setFailed("");
+      void client.invalidateQueries();
+    },
+    onError: (error: unknown) => setFailed(message(error)),
+  });
+  const tone = (one: string) =>
+    one === "won"
+      ? "success"
+      : one === "failed"
+        ? "danger"
+        : one === "discarded"
+          ? "neutral"
+          : "warning";
+  const number = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  return (
+    <div
+      data-testid="race-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{t("chat.race")}</span>
+        <Badge
+          tone={state === "decided" ? "success" : state === "cancelled" ? "neutral" : "warning"}
+        >
+          {t(`chat.race.${state}` as "chat.race.running")}
+        </Badge>
+        {props.block.identifier ? (
+          <span className="font-mono text-sm text-fg-muted">{String(props.block.identifier)}</span>
+        ) : null}
+        {props.block.decidedBy ? (
+          <span className="text-sm text-fg-muted">
+            {t(`chat.raceBy.${String(props.block.decidedBy)}` as "chat.raceBy.checks")}
+          </span>
+        ) : null}
+      </span>
+      <ul aria-label={t("chat.raceEntrants")} className="flex flex-col gap-1">
+        {entrants.map((one) => {
+          const entrantState = String(one.state ?? "running");
+          const checks = number(one.checks);
+          const cost = number(one.costUsd);
+          const additions = number(one.additions);
+          const deletions = number(one.deletions);
+          return (
+            <li
+              key={String(one.id ?? one.engine ?? "")}
+              data-testid="race-entrant"
+              className="flex flex-wrap items-center gap-2 text-sm"
+            >
+              <span className="font-medium">{String(one.engine ?? "")}</span>
+              <Badge tone={tone(entrantState)}>
+                {t(`chat.raceEntrant.${entrantState}` as "chat.raceEntrant.running")}
+              </Badge>
+              {additions !== null || deletions !== null ? (
+                <span className="font-mono text-fg-muted">
+                  {t("chat.raceDiff", {
+                    additions: String(additions ?? 0),
+                    deletions: String(deletions ?? 0),
+                  })}
+                </span>
+              ) : null}
+              {cost !== null ? (
+                <span className="text-fg-muted">
+                  {t("chat.raceCost", { cost: cost.toFixed(2) })}
+                </span>
+              ) : null}
+              {checks !== null ? (
+                <span className={checks === 0 ? "text-success" : "text-danger"}>
+                  {checks === 0 ? t("chat.raceChecksPass") : t("chat.raceChecksFail")}
+                </span>
+              ) : null}
+              {state === "running" && entrantState !== "failed" ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={t("chat.racePickOne", { engine: String(one.engine ?? "") })}
+                  disabled={pick.isPending}
+                  onClick={() => pick.mutate(String(one.id ?? ""))}
+                >
+                  {t("chat.racePick")}
+                </Button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {failed ? (
+        <span role="alert" className="text-sm text-danger">
+          {failed}
+        </span>
       ) : null}
     </div>
   );

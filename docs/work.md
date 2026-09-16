@@ -106,6 +106,45 @@ The queue lands on the runner's checkout and does not push: getting that to a re
 PR is for. And a branch whose agent has fixed it goes back in the queue when somebody puts it
 there; doing that automatically is the testing loop.
 
+## Racing two engines at the same thing
+
+Sometimes the honest answer to "which engine should do this" is to ask both (spec §5.7; task
+3.16). A race asks every entrant the same words, each in its own worktree, and comes back with a
+comparison rather than an answer.
+
+```
+POST /api/workspaces/{ws}/projects/{p}/races  {prompt, runners:[{engine,agent?}], work_item_id?}
+GET  /api/workspaces/{ws}/projects/{p}/races
+GET  /api/races/{id}
+POST /api/races/{id}/pick/{entrant}
+```
+
+Two engines at least — one is a session, not a race — and eight at most, because past that nobody
+is comparing. Each entrant is an ordinary coding session on a branch of its own, so a race costs
+nothing new to cancel, to watch, or to read the transcript of.
+
+When an entrant's session ends, Perch measures what it did: the diff against the branch it came
+off, what the session cost, and what the project's checks made of it — the same checks the merge
+queue would have held it to.
+
+| Decided by | When |
+|---|---|
+| **A person** | Somebody presses **Pick** on a row |
+| **The checks** | Every entrant has finished, and the project has checks |
+
+The checks pick the cheapest entrant that passes them, and the smallest diff breaks a tie: a race
+is won by the answer that works, and among those by the one that asked for the least. A project
+with no checks waits for a person — without them there is nothing to prefer one diff over another,
+and guessing would be worse than asking.
+
+Then one diff is applied and the rest are discarded. The winner's branch goes into the merge queue
+like any other branch, so it meets the same checks and the same one-at-a-time landing. Every other
+entrant gives its directory back and **keeps its branch**: what the engine that lost was thinking
+is still there to look at.
+
+The thread gets one **race card**, rewritten in place — a row per engine with its diff, its cost
+and its checks, and a Pick on each while the race is open.
+
 ## The board
 
 Work mode shows one column per state, urgent first and then oldest first, with a card per item.

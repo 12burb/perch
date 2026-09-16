@@ -274,6 +274,31 @@ export const busEventPayloads = {
     assigneeId: uuid.optional(),
   }),
   /**
+   * Race mode (spec §5.7; task 3.16). Additive to §7.7's catalog (ADR-0132), for the same reason
+   * the queue's are: §5.7 names the feature and not its events.
+   */
+  "race.started": z.object({
+    ...ws,
+    projectId: uuid,
+    raceId: uuid,
+    entrants: z.number().int(),
+  }),
+  "race.entrant_finished": z.object({
+    ...ws,
+    projectId: uuid,
+    raceId: uuid,
+    entrantId: uuid,
+    engine: z.string(),
+    state: z.string(),
+  }),
+  "race.decided": z.object({
+    ...ws,
+    projectId: uuid,
+    raceId: uuid,
+    winnerId: uuid,
+    decidedBy: z.string(),
+  }),
+  /**
    * The merge queue (spec §5.7; task 3.15). Additive to §7.7's catalog (ADR-0131): the queue is
    * named in §5.7 and its events are not, and a queue nobody can watch is a queue you have to
    * poll.
