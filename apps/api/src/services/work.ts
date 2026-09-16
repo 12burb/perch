@@ -25,6 +25,7 @@ import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import { findProject, findProjectByKey } from "../repos/projects.ts";
+import { sessionsForWorkItem } from "../repos/sessions.ts";
 import {
   type BoardOptions,
   getWorkItem,
@@ -83,6 +84,15 @@ const FOLLOWS: Record<string, WorkItemState | undefined> = {
 /** `KEY-123`: the project's key and the item's number (spec §7.8). */
 export function identifierOf(projectKey: string, number: number): string {
   return `${projectKey.toUpperCase()}-${number}`;
+}
+
+/**
+ * The branch, and the worktree named for it, that this item's agent works in (task 3.14).
+ * `perch/key-123` — lowercase because git refs are case-sensitive and `KEY-123` and `key-123`
+ * being two branches on a case-insensitive filesystem is a bad afternoon.
+ */
+export function branchOf(projectKey: string, number: number): string {
+  return `perch/${projectKey.toLowerCase()}-${number}`;
 }
 
 export class WorkService {
@@ -202,7 +212,17 @@ export class WorkService {
       );
     }
     if (reassigned) await this.announceAssignee(updated, by);
+    // Closed means nobody is working in it: the worktree goes back (task 3.14). The branch and its
+    // commits stay — a checkout is a place to work, not the work.
+    if (movedTo === "done" || movedTo === "cancelled") await this.releaseWorktrees(updated);
     return updated;
+  }
+
+  /** The directories this item's sessions worked in, given back to the runner (task 3.14). */
+  private async releaseWorktrees(item: WorkItem): Promise<void> {
+    for (const session of await sessionsForWorkItem(this.db, item.id)) {
+      if (session.worktree) await this.deps.sessions.dropWorktree(session, session.userId);
+    }
   }
 
   /**
@@ -216,14 +236,31 @@ export class WorkService {
   ): Promise<{ item: WorkItem; sessionId: string }> {
     if (item.sessionId) throw PerchError.conflict("this item already has a session");
     const project = await this.projectOf(item);
-    const session = await this.deps.sessions.create({
+    const open = {
       project,
       userId: input.userId,
       by: input.by,
       workItemId: item.id,
       title: `${identifierOf(project.key, item.number)} ${item.title}`,
       ...(input.engine ? { engine: input.engine } : {}),
-    });
+    };
+    // Its own checkout (task 3.14). Two items on one repository are two directories, so two
+    // agents never see each other's half-finished edits — and the branch is already the one a
+    // pull request wants. A project that is not a repository has no worktree to give; that is a
+    // reason to work in the project directory, not a reason the item cannot be started.
+    let session: Awaited<ReturnType<SessionService["create"]>>;
+    try {
+      session = await this.deps.sessions.create({
+        ...open,
+        worktree: branchOf(project.key, item.number),
+      });
+    } catch (error) {
+      this.deps.log.warn(
+        { err: error, workItemId: item.id, projectId: project.id },
+        "no worktree for this item; the session works in the project directory",
+      );
+      session = await this.deps.sessions.create(open);
+    }
     const updated = await updateWorkItem(this.db, item.id, {
       sessionId: session.id,
       state: "running",

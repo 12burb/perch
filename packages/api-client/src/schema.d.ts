@@ -11604,6 +11604,10 @@ export type components = {
             title: string | null;
             /** Format: uuid */
             forked_from_id: string | null;
+            /** Format: uuid */
+            work_item_id: string | null;
+            worktree: string | null;
+            branch: string | null;
             cost_usd: number;
             turns: number;
             last_seq: number;

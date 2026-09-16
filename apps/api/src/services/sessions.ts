@@ -32,6 +32,8 @@ import {
   sessionCheckpointResultSchema,
   sessionRestoreResultSchema,
   type UserTurn,
+  worktreeCreateResultSchema,
+  worktreeRemoveResultSchema,
 } from "@perch/events";
 import { proposedCode } from "@perch/events/code-blocks";
 import { type Redaction, redactDeep } from "@perch/policy";
@@ -127,6 +129,12 @@ export type CreateSessionInput = {
   botId?: string | undefined;
   /** The work item this session is doing, when the board started it (task 3.13). */
   workItemId?: string | undefined;
+  /**
+   * Work in a git worktree of this name rather than in the project checkout (spec §6
+   * `coding_sessions.worktree`; task 3.14). The branch is made from the project's default branch
+   * if it is not already there, and two sessions on two worktrees never see each other's files.
+   */
+  worktree?: string | undefined;
   by: ActorContext;
 };
 
@@ -316,6 +324,11 @@ export class SessionService {
       });
     }
     const link = await projectRunnerLink(this.deps, input.project, input.userId);
+    // A worktree of its own, before the row exists: a session that cannot get one has not started
+    // (task 3.14). A project that is not a repository has none to give, and says so.
+    const worktree = input.worktree
+      ? await this.worktree(link, input.project, input.userId, input.worktree)
+      : null;
     const model = input.model ?? (await this.brainFor(input));
     const session = await insertSession(this.deps.db, {
       workspaceId: input.project.workspaceId,
@@ -334,6 +347,7 @@ export class SessionService {
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
       ...(input.botId ? { botId: input.botId } : {}),
       ...(input.workItemId ? { workItemId: input.workItemId } : {}),
+      ...(worktree ? { worktree: worktree.branch, branch: worktree.branch } : {}),
     });
     await this.grantConnections(session);
     await this.deps.bus.publish(
@@ -891,6 +905,52 @@ export class SessionService {
     return secrets;
   }
 
+  /**
+   * A git worktree for one session (spec §7.6 `worktree.create`; task 3.14). The runner puts it
+   * beside the project at `<project>.worktrees/<branch>`, on a branch made from the default one,
+   * so two agents on the same repository are editing two different directories.
+   */
+  private async worktree(
+    link: RunnerLink,
+    project: Project,
+    userId: string,
+    branch: string,
+  ): Promise<{ path: string; branch: string }> {
+    try {
+      const raw = await runnerCall(link, "worktree.create", {
+        workspace_id: project.workspaceId,
+        user_id: userId,
+        project: project.id,
+        branch,
+        base: project.defaultBranch,
+      });
+      return worktreeCreateResultSchema.parse(raw);
+    } catch (error) {
+      throw runnerError(error);
+    }
+  }
+
+  /** Give a worktree back once nobody is working in it (task 3.14). Best effort, and quiet. */
+  async dropWorktree(session: CodingSession, userId: string): Promise<boolean> {
+    if (!session.worktree) return false;
+    try {
+      const { project, link } = await this.linkFor(session, userId);
+      const raw = await runnerCall(link, "worktree.remove", {
+        workspace_id: project.workspaceId,
+        user_id: userId,
+        project: project.id,
+        branch: session.worktree,
+      });
+      return worktreeRemoveResultSchema.parse(raw).removed;
+    } catch (error) {
+      this.deps.log.warn(
+        { err: error, sessionId: session.id, worktree: session.worktree },
+        "a worktree could not be removed",
+      );
+      return false;
+    }
+  }
+
   private async linkFor(
     session: CodingSession,
     userId: string,
@@ -954,6 +1014,8 @@ export class SessionService {
             ...(session.modelProfileId ? { profileId: session.modelProfileId } : {}),
           },
           mode: session.mode,
+          // Its own checkout, when it has one (task 3.14).
+          ...(session.worktree ? { worktree: session.worktree } : {}),
           // The credential goes into the engine's environment and nowhere else (AGENTS.md §1.6).
           ...(await this.engineEnv(session, userId)),
           // Tools, without tokens: each server is Perch's gateway, each bearer Perch's own.

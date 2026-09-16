@@ -1533,6 +1533,25 @@
             ],
             "format": "uuid"
           },
+          "work_item_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "cost_usd": {
             "type": "number"
           },
@@ -1568,6 +1587,9 @@
           "status_message",
           "title",
           "forked_from_id",
+          "work_item_id",
+          "worktree",
+          "branch",
           "cost_usd",
           "turns",
           "last_seq",

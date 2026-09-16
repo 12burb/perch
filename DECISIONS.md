@@ -4981,3 +4981,52 @@ handed it.
 The board caps at 200 items and scrolls per column rather than virtualizing seven independent
 lists. Past 200 the useful answer is a filter, not more cards; the cap is registered in
 `scripts/perf-budget.ts` like the inbox's, so it cannot quietly go away.
+
+## ADR-0130: A worktree belongs to a work item, and outlives no part of it
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.14
+
+### Context
+§11's line for 3.14 asks for "one git worktree and one runner directory per work item, created on
+assignment and removed on close, so two agents on one repository never share a checkout". Task 1.5
+already built `worktree.create` and `worktree.remove` on the runner, and §7.6's `session.create`
+already takes a `worktree` that decides the agent's cwd. What was missing was anybody asking.
+
+### Decision
+**A worktree is asked for by the session, not by the item.** `CreateSessionInput.worktree` names a
+branch; `SessionService.create` makes the worktree on the runner *before* the row exists, so a
+session that cannot get the directory it asked for has not started rather than started in the
+wrong one. That puts the capability where race mode (3.16) will also want it, instead of inside
+the board.
+
+**"On assignment" means when an agent starts.** An item assigned to a person needs no worktree —
+they work in their own checkout — and a directory with nobody in it is a directory for nothing. So
+`startSession` is what asks, which is the moment an item is actually handed to an agent.
+
+**`perch/key-123`, lowercased.** The branch is the identifier, and the worktree is named for the
+branch. Lowercase because git refs are case-sensitive while a lot of filesystems are not, and
+`KEY-123` and `key-123` being two branches that are one directory is a bad afternoon.
+
+**A project with nothing to branch from still takes work.** An empty project is a repository with
+no commits, and git cannot branch from a ref that does not exist. Rather than refusing to start the
+item, `startSession` catches the refusal, says so in the log, and opens the session in the project
+directory. The isolation is the point, but a board that cannot start an item on a fresh project is
+worse than a board that occasionally shares a checkout.
+
+**Closing gives the directory back; the branch stays.** `done` and `cancelled` remove every
+worktree the item's sessions had. Removing the branch too would throw away commits nobody has
+merged — a checkout is a place to work, not the work.
+
+### Consequences
+A session's row now reports `worktree`, `branch` and `work_item_id` over REST, which the session
+pane and the Pull Requests page (3.20) both want: "which branch is this agent on" stops being a
+question you answer by reading a diff.
+
+Nothing changed on the runner. `worktree.create` and `worktree.remove` were built in 1.5 and are
+used here exactly as §7.6 describes them, which is the first evidence that the protocol was worth
+writing before there was a caller.
+
+Two items on one project can now run at once. What they cannot yet do is land in order — that is
+the merge queue, task 3.15.

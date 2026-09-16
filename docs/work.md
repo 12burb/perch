@@ -57,6 +57,23 @@ different from a session you opened yourself, which waits for your next turn (AD
 An item that a person has already marked **Done** or **Cancelled** is never dragged back by
 anything on the bus. A person's word is the last one.
 
+## A directory of its own
+
+Each item's session works in its **own git worktree**, on a branch named `perch/key-123`, made
+from the project's default branch and sitting beside the project checkout at
+`<project>.worktrees/perch-key-123` (spec §6 `coding_sessions.worktree`, §7.6 `worktree.*`; task
+3.14).
+
+This is the difference between two agents on one repository and two agents in one checkout. Three
+items can run at once and none of them sees another's half-finished edits, because each is looking
+at a different directory — the isolation is git's, not Perch's. And the branch each one is on is
+already the branch a pull request wants.
+
+Closing an item gives the directory back. The **branch stays**: a checkout is a place to work, not
+the work, and a branch with commits on it is still there when somebody wants it. A project that is
+not yet a repository — an empty one with no commit to branch from — has no worktree to give, and
+the session works in the project directory instead rather than refusing to start.
+
 ## The board
 
 Work mode shows one column per state, urgent first and then oldest first, with a card per item.
@@ -105,4 +122,4 @@ workspace gets a `404` rather than a `403`: they do not learn the item is there 
 Cycles and modules have their tables and their columns on an item, and nothing built on them yet.
 Saved views, the other four layouts (list, calendar, timeline, spreadsheet), the Intake triage
 queue, sub-items and relations, and a Tiptap description are §4's and arrive with their own tasks.
-A worktree per item is task 3.14.
+

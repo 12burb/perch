@@ -45,6 +45,9 @@ export async function insertSession(
     botId?: string;
     /** The work item it is doing, when it was started from the board (task 3.13). */
     workItemId?: string;
+    /** The git worktree it works in, rather than the project checkout (task 3.14). */
+    worktree?: string;
+    branch?: string;
   },
 ): Promise<CodingSession> {
   const [row] = await db
@@ -68,6 +71,7 @@ export async function insertSession(
       ...(values.threadRootId ? { threadRootId: values.threadRootId } : {}),
       ...(values.botId ? { botId: values.botId } : {}),
       ...(values.workItemId ? { workItemId: values.workItemId } : {}),
+      ...(values.worktree ? { worktree: values.worktree, branch: values.branch ?? null } : {}),
       ...(values.turns === undefined ? {} : { turns: values.turns }),
     })
     .returning();
@@ -268,4 +272,13 @@ export async function findInlineSession(
     .orderBy(desc(codingSessions.startedAt))
     .limit(1);
   return row ?? null;
+}
+
+/** Every session that has worked on this item, newest first (task 3.14). */
+export async function sessionsForWorkItem(db: Db, workItemId: string): Promise<CodingSession[]> {
+  return db
+    .select()
+    .from(codingSessions)
+    .where(eq(codingSessions.workItemId, workItemId))
+    .orderBy(desc(codingSessions.createdAt));
 }

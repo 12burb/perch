@@ -51,6 +51,11 @@ export const sessionSchema = z
     status_message: z.string().nullable(),
     title: z.string().nullable(),
     forked_from_id: z.uuid().nullable(),
+    /** The work item this session is doing, when the board started it (task 3.13). */
+    work_item_id: z.uuid().nullable(),
+    /** The git worktree it works in, and its branch, when it has one of its own (task 3.14). */
+    worktree: z.string().nullable(),
+    branch: z.string().nullable(),
     cost_usd: z.number(),
     turns: z.number().int(),
     last_seq: z.number().int(),
@@ -80,6 +85,9 @@ export function sessionBody(row: CodingSession): z.infer<typeof sessionSchema> {
     status_message: row.statusMessage,
     title: row.title,
     forked_from_id: row.forkedFromId,
+    work_item_id: row.workItemId,
+    worktree: row.worktree,
+    branch: row.branch,
     cost_usd: row.costUsd,
     turns: row.turns,
     last_seq: row.lastSeq,
