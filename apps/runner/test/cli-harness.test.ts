@@ -1,9 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
-import { CLI_HARNESS, type CliHarnessSpec, parseClaude, parseCodex } from "../src/cli-harness.ts";
+import {
+  CLI_HARNESS,
+  type CliHarnessSpec,
+  finished,
+  parseClaude,
+  parseCodex,
+} from "../src/cli-harness.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -94,6 +101,38 @@ afterAll(async () => {
   await manager.closeAll();
   delete process.env.FAKE_CLI_LOG;
   rmSync(root, { recursive: true, force: true });
+});
+
+describe("the end of a turn", () => {
+  test("the output is read to the end, not until the process exits", async () => {
+    // Windows loses a whole turn to this: the CLI exits, its last JSONL lines are still in the
+    // pipe, and a reader that stops at `exit` emits a bare `done`.
+    const proc = new EventEmitter();
+    const ending = finished(proc as never, 5_000);
+    let settled = false;
+    void ending.then(() => {
+      settled = true;
+    });
+    proc.emit("exit", 0, null);
+    await Bun.sleep(20);
+    expect(settled).toBe(false);
+    proc.emit("close", 0, null);
+    expect(await ending).toEqual({ code: 0, signal: null });
+  });
+
+  test("a child that leaves its pipe open does not hang the turn", async () => {
+    const proc = new EventEmitter();
+    const ending = finished(proc as never, 30);
+    proc.emit("exit", 3, null);
+    expect(await ending).toEqual({ code: 3, signal: null });
+  });
+
+  test("a process that would not start ends the turn too", async () => {
+    const proc = new EventEmitter();
+    const ending = finished(proc as never, 5_000);
+    proc.emit("error", new Error("ENOENT"));
+    expect(await ending).toEqual({ code: null, signal: null });
+  });
 });
 
 describe("the cli-harness adapter (task 1.11)", () => {

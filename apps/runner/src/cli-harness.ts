@@ -314,6 +314,48 @@ export type CliHarnessSessionOptions = {
   log?: (line: string) => void;
 };
 
+/** How long a finished process gets to close its pipes before the turn stops waiting for them. */
+const DRAIN_MS = 2_000;
+
+/** What a process was when it ended. */
+export type Ended = { code: number | null; signal: NodeJS.Signals | null };
+
+type Ending = {
+  on(
+    event: "exit" | "close",
+    handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
+  on(event: "error", handler: (error: Error) => void): unknown;
+};
+
+/**
+ * A turn is over when the process has gone **and** its output has been read to the end.
+ *
+ * `exit` says only the first. The last lines of a JSONL stream routinely arrive after it — on
+ * Windows wide enough to lose a whole turn — and a reader that stops at `exit` emits a `done` with
+ * nothing in front of it. `close` is the event that means both. The grace period is for the child
+ * that left a grandchild holding the pipe: waiting forever on one of those would hang the session
+ * rather than lose a line.
+ */
+export function finished(proc: Ending, graceMs = DRAIN_MS): Promise<Ended> {
+  return new Promise<Ended>((resolve) => {
+    let exited: Ended | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settle = (answer: Ended) => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      resolve(answer);
+    };
+    proc.on("close", (code, signal) => settle(exited ?? { code, signal }));
+    proc.on("exit", (code, signal) => {
+      exited = { code, signal };
+      timer = setTimeout(() => settle(exited ?? { code, signal }), graceMs);
+      timer.unref?.();
+    });
+    proc.on("error", () => settle({ code: null, signal: null }));
+  });
+}
+
 /** One process and its stream: a turn is over when the stream said done or error, even if the process lingers. */
 interface Turn {
   proc: ChildProcess;
@@ -400,15 +442,11 @@ export class CliHarnessSession {
     proc.stderr?.on("data", (chunk: string) => {
       for (const line of chunk.split("\n")) if (line.trim()) this.options.log?.(line);
     });
-    const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-      proc.on("exit", (code, signal) => resolve({ code, signal }));
-      proc.on("error", (error) => {
-        this.options.log?.(`could not start ${spec.command}: ${error.message}`);
-        resolve({ code: null, signal: null });
-      });
+    proc.on("error", (error) => {
+      this.options.log?.(`could not start ${spec.command}: ${error.message}`);
     });
     try {
-      const { code, signal } = await exit;
+      const { code, signal } = await finished(proc);
       if (buffered.trim()) handleLine(buffered);
       if (!turn.ended) {
         turn.ended = true;
