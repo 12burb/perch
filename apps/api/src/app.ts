@@ -24,6 +24,7 @@ import { registerHealth } from "./routes/health.ts";
 import { registerInbox } from "./routes/inbox.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
+import { registerMcpServers } from "./routes/mcp-servers.ts";
 import { registerMe } from "./routes/me.ts";
 import { registerMergeQueue } from "./routes/merge-queue.ts";
 import { registerMessages } from "./routes/messages.ts";
@@ -143,6 +144,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerBrains(app, deps);
   registerConnections(app, deps);
   registerMcp(app, deps);
+  registerMcpServers(app, deps);
   registerPreviews(app, deps);
   registerChannels(app, deps);
   registerMessages(app, deps);

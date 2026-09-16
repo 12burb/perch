@@ -1,9 +1,9 @@
 /**
  * The in-process runner (spec §3.1 PERCH_RUNNER_MODE=inprocess, task 0.14): laptop mode attaches this
  * RunnerLink directly to the api instead of opening /api/runner. It registers, heartbeats, and answers
- * every method the default handlers implement (projects, fs, git, ports, exec); PTY, sessions, the
- * preview tunnel, and MCP spawning are refused with "method not found" until their tasks land
- * (ADR-0059).
+ * every method the default handlers implement, which since task 3.24 is all of §7.6: projects, fs,
+ * git, ports, exec, PTY, sessions, the preview tunnel, and MCP spawning. Anything outside the
+ * protocol is still refused with "method not found" (ADR-0059).
  */
 import { hostname } from "node:os";
 import type { RunnerCapabilities } from "@perch/db";
@@ -117,13 +117,7 @@ export function createInProcessRunner(options: InProcessRunnerOptions = {}): InP
       const parsed = apiToRunnerParams[method].parse({ ...params, cap: "inprocess" });
       const handler = methods[method] as ((p: typeof parsed) => Promise<unknown>) | undefined;
       if (!handler) {
-        throw new RunnerRpcError(
-          -32601,
-          `${method} is not available on the in-process runner yet`,
-          {
-            arrives: "Phase 1 (tasks 1.4–1.21)",
-          },
-        );
+        throw new RunnerRpcError(-32601, `${method} is not available on the in-process runner`);
       }
       try {
         return await handler(parsed);

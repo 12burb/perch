@@ -17,6 +17,7 @@ import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
 import type { DbBrowser } from "./services/db-browser.ts";
 import type { DeployService } from "./services/deploys.ts";
+import type { LocalMcpService } from "./services/local-mcp.ts";
 import type { McpGateway } from "./services/mcp.ts";
 import type { MergeQueueService } from "./services/merge-queue.ts";
 import type { NestService } from "./services/nest.ts";
@@ -90,6 +91,8 @@ export type Deps = {
   policy: PolicyService;
   connections: ConnectionsService;
   mcp: McpGateway;
+  /** The MCP servers a runner hosts itself (task 3.24). */
+  localMcp: LocalMcpService;
   previews: PreviewService;
   /** The Deploy button: a provider builds the project, and the card in a thread says so (2.15). */
   deploys: DeployService;

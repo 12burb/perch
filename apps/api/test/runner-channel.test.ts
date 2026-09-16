@@ -109,10 +109,10 @@ describe("runner control channel (task 1.1)", () => {
         expect.objectContaining({ port: Number(new URL(running.url).port) }),
       ]),
     });
-    // A method a later task brings is refused as "method not found"; an implemented one (fs.read,
+    // A method outside §7.6 is refused as "method not found"; an implemented one (fs.read,
     // task 1.5) runs and reports its own failure (no such project on this runner).
     const refused = await link
-      .call("mcp.spawn", { workspace_id: workspaceId, user_id: userId, command: "x", args: [] })
+      .call("mcp.levitate" as "ports.list", { workspace_id: workspaceId, user_id: userId })
       .catch((e: unknown) => e);
     expect((refused as { code: number }).code).toBe(-32601);
     const missing = await link

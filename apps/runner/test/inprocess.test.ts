@@ -19,10 +19,9 @@ describe("in-process runner (task 0.14)", () => {
     expect(seen).toEqual(["runner.heartbeat"]);
     const ports = (await runner.call("ports.list", ctx)) as { ports: unknown[] };
     expect(Array.isArray(ports.ports)).toBe(true);
-    // Methods of later tasks are refused with "method not found"…
-    const err = await runner
-      .call("mcp.spawn", { ...ctx, command: "x", args: [] })
-      .catch((e: unknown) => e);
+    // Every §7.6 method is implemented now (task 3.24 brought the last one), so only a method
+    // that is not in the protocol at all is refused with "method not found"…
+    const err = await runner.call("mcp.levitate" as "ports.list", ctx).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RunnerRpcError);
     expect((err as RunnerRpcError).code).toBe(-32601);
     // …and the policy hook answers with the policy code (task 1.5): exec outside the projects root.

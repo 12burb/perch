@@ -17,11 +17,12 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Connection } from "@perch/db";
+import type { Connection, McpServer } from "@perch/db";
 import type { Context } from "hono";
 import type { ActorContext } from "../auth/authorize.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { getMcpServer } from "../repos/mcp-servers.ts";
 import { verifyToolToken } from "../services/mcp.ts";
 import type { PerchCaller } from "../services/perch-mcp.ts";
 import { resolveApiToken } from "../services/tokens.ts";
@@ -58,9 +59,35 @@ export function registerMcp(app: OpenAPIHono<AppEnv>, deps: Deps): void {
 
   app.all("/mcp/:connectionId", async (c) => {
     const connectionId = c.req.param("connectionId");
-    const caller = await callerOf(c.req.header("authorization"), deps);
+    const header = c.req.header("authorization");
+    // A gateway token is a session's; an api token is a person's. The first is how an agent Perch
+    // started reaches a connection; the second is how anything else reaches a server that has no
+    // credential to hand out (task 3.24).
+    const outside = await apiTokenCaller(header, deps);
+    const caller: Caller | null =
+      (await callerOf(header, deps)) ??
+      (outside?.workspaceId
+        ? { workspaceId: outside.workspaceId, userId: outside.userId, sessionId: "" }
+        : null);
     // MCP clients expect the challenge, so they know to go and get a token.
     if (!caller) return unauthorized(c, "a gateway token is required");
+    // A runner-local server is reached at the same shape and answers the same protocol; which of
+    // the two an id names is Perch's business, not the caller's (spec §3.5; task 3.24).
+    const local = await getMcpServer(deps.db.db, connectionId);
+    if (local && local.workspaceId === caller.workspaceId) {
+      const by: ActorContext = {
+        actor: { type: "user", id: caller.userId },
+        meta: { requestId: c.get("requestId") },
+      };
+      const server = localServerFor(deps, local, caller, by);
+      const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+      await server.connect(transport);
+      try {
+        return await transport.handleRequest(c.req.raw);
+      } finally {
+        await server.close().catch(() => undefined);
+      }
+    }
     const connection = await deps.connections.connectionFor(
       caller.workspaceId,
       caller.userId,
@@ -84,6 +111,41 @@ export function registerMcp(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       await server.close().catch(() => undefined);
     }
   });
+}
+
+/**
+ * A server the runner hosts, as an MCP server of Perch's (task 3.24). There is no allow-list here
+ * because there is no grant: a local server carries no credential of anybody's, so what gates it
+ * is the workspace it belongs to and the runner's policy on its command (ADR-0142).
+ */
+function localServerFor(deps: Deps, row: McpServer, caller: Caller, by: ActorContext): Server {
+  const server = new Server(
+    { name: `perch-${row.name}`, version: "1" },
+    { capabilities: { tools: {} } },
+  );
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = await deps.localMcp.tools(row, null, caller.userId);
+    return {
+      tools: tools.map((tool) => ({
+        name: tool.name,
+        ...(tool.description ? { description: tool.description } : {}),
+        inputSchema: (tool.inputSchema ?? { type: "object" }) as { type: "object" },
+      })),
+    };
+  });
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const result = await deps.localMcp.call({
+      server: row,
+      allowList: null,
+      tool: request.params.name,
+      args: request.params.arguments ?? {},
+      by,
+      callerId: caller.userId,
+      userId: caller.userId,
+    });
+    return result as { content: { type: "text"; text: string }[] };
+  });
+  return server;
 }
 
 function mcpServerFor(

@@ -101,6 +101,9 @@
         "simple-git": "3.36.0",
         "zod": "4.6.3",
       },
+      "devDependencies": {
+        "@perch/connect": "workspace:*",
+      },
     },
     "apps/web": {
       "name": "@perch/web",

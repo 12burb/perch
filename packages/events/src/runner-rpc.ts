@@ -314,7 +314,17 @@ export const apiToRunnerParams = {
     width: z.number().int().min(200).max(4000).optional(),
     height: z.number().int().min(200).max(4000).optional(),
   }),
-  "mcp.spawn": z.object({ ...ctx, command: z.string(), args: z.array(z.string()) }),
+  /**
+   * An MCP server that runs inside the runner (spec §7.6 "mcp.spawn {command, args} → stream
+   * token"; task 3.24). `project` is the same optional shape `exec` takes (ADR-0135): named, the
+   * server runs in that project's directory, which is where a project's own tools expect to be.
+   */
+  "mcp.spawn": z.object({
+    ...ctx,
+    command: z.string(),
+    args: z.array(z.string()),
+    project: z.uuid().optional(),
+  }),
   exec: z.object({
     ...ctx,
     command: z.string(),

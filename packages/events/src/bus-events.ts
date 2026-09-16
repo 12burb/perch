@@ -243,6 +243,8 @@ export const busEventPayloads = {
   "tools.called": z.object({
     ...ws,
     connectionId: uuid.optional(),
+    /** A runner-local server instead of a connection (task 3.24): one of the two, never both. */
+    mcpServerId: uuid.optional(),
     tool: z.string(),
     callerType: actorType,
     callerId: uuid.optional(),

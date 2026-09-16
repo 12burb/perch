@@ -14,6 +14,7 @@ import {
   worktreeRemove,
 } from "./git.ts";
 import { HttpTunnel } from "./http-tunnel.ts";
+import { McpHost } from "./mcp.ts";
 import type { Notify } from "./notify.ts";
 import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
@@ -55,13 +56,15 @@ export type RunnerServices = {
   sessions: SessionManager;
   /** The preview tunnel (task 1.19); the stream client hands it the sockets for its tokens. */
   tunnel: HttpTunnel;
+  /** The MCP servers this runner hosts (task 3.24), on their own streams. */
+  mcp: McpHost;
   close(): void;
 };
 
 /**
- * What every runner answers today (tasks 1.4, 1.5, 1.7, 1.9, and 1.19): projects, the fs, git,
- * worktree, ports, exec, pty, session methods (ACP agents), and the preview tunnel. MCP spawning
- * arrives with its task.
+ * What every runner answers today (tasks 1.4, 1.5, 1.7, 1.9, 1.19 and 3.24): projects, the fs,
+ * git, worktree, ports, exec, pty, session methods (ACP agents), the preview tunnel, and the MCP
+ * servers it hosts itself.
  */
 export function defaultHandlers(options: HandlerOptions = {}): RunnerHandlers {
   return createServices(options).handlers;
@@ -97,9 +100,17 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
   const tunnel = new HttpTunnel({
     ...(options.streams ? { streams: options.streams } : {}),
   });
+  const mcp = new McpHost({
+    root: projects.root,
+    policy,
+    ...(options.streams ? { streams: options.streams } : {}),
+  });
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
     "http.open": (params) => tunnel.open(params),
+    // An MCP server inside the runner (task 3.24): the api opens the stream it answers with and
+    // speaks MCP down it, the same protocol it speaks to a URL.
+    "mcp.spawn": async (params) => mcp.spawn(params),
     // The visit rather than the picture (task 3.21): the caller gets both, and preflight is the
     // one that reads the console. A panel asking for a screenshot ignores the rest.
     "preview.screenshot": (params) =>
@@ -145,9 +156,11 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     ptys,
     sessions,
     tunnel,
+    mcp,
     close: () => {
       ptys.closeAll();
       tunnel.close();
+      mcp.closeAll();
       void sessions.closeAll();
     },
   };

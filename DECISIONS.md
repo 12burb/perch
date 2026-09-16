@@ -5608,3 +5608,47 @@ A collector sees what an agent spent its time on, per round and per tool, on any
 operator points it somewhere. A board shows what a finished item cost without one. The cost of the
 computed rollup is a query per finished card, which is why the board asks only for the cards whose
 work is over.
+
+## ADR-0142: A runner-local MCP server has no credential, so it has no grant
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.24
+
+### Context
+§3.5 ends its paragraph on the MCP gateway with "runner-local stdio MCP servers are exposed through
+the same shape", and §7.6 gives the runner method: `mcp.spawn {command, args} → stream token`. §6
+keeps a row for one in `mcp_servers` with `runner_id`, `transport`, and `command`.
+
+What the spec does not say is how such a server is gated. A connection's server is gated by a
+grant: the gateway holds a token that belongs to somebody, and a grant is how that somebody lends
+it. A server the runner spawns holds nothing.
+
+### Decision
+**No grant, and no vault entry.** What gates a runner-local server is the workspace its row belongs
+to, the bot spec (or caller) that names it, and the runner's own policy on the command — the same
+`exec` policy that decides whether a command may run at all (ADR-0070). Writing the row is an
+admin's act (`connections.admin`), because the command runs on the workspace's own machines; a
+member with `connections.read` can see that it exists.
+
+**The row carries a project, not only a runner.** §6 lists `runner_id`; which runner a project is on
+changes with the day, and the api already works that out for sessions and previews. What does not
+change is which repository the server is part of, and that is the directory its command runs in. So
+the row keeps `project_id` as well, and `mcp.spawn` takes the same optional `project` that `exec`
+does (ADR-0135).
+
+**A process per call.** The server is spawned when a call arrives and stopped when the stream
+closes. A pool would mean processes holding a checkout open between calls, on a machine that is
+somebody's laptop as often as not; starting one is cheap where it runs.
+
+**The transport is MCP's own.** stdio framing is newline-delimited JSON and a runner stream is text
+frames, so nothing is translated: the runner carries lines, the api parses them, and the gateway
+above cannot tell a local server from one behind a URL. The one rule is that a sender frames whole
+messages, newline included — the api buffers frames and a message without its terminator is a
+message it waits for (which cost an afternoon to find).
+
+### Consequences
+A project can ship its own tools and every agent that can already reach its repository can use them,
+with nothing to configure beyond a row. The audit says `mcpServerId` where a connection's says
+`connectionId`, so "what did this bot call" is answerable across both. And because there is no
+token, there is nothing for this lane to leak — which is the only reason it can skip the grant.

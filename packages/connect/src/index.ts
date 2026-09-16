@@ -48,8 +48,10 @@ export {
 export {
   allowed,
   argsHash,
+  type LineStream,
   listUpstreamTools,
   McpError,
+  openLocal,
   openUpstream,
   permits,
   type UpstreamOptions,

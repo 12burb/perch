@@ -90,6 +90,7 @@ import {
 } from "../repos/bots.ts";
 import { addMember, findBotDm, getChannel, insertChannel } from "../repos/channels.ts";
 import { getConnection, workspaceConnections } from "../repos/connections.ts";
+import { listMcpServers } from "../repos/mcp-servers.ts";
 import {
   getMessage,
   getMessageRow,
@@ -103,6 +104,7 @@ import { handleTaken } from "../repos/users.ts";
 import { ids, spanUnder, tracer } from "../telemetry/tracing.ts";
 import type { BrainsService } from "./brains.ts";
 import type { ConnectionsService } from "./connections.ts";
+import type { LocalMcpService } from "./local-mcp.ts";
 import type { McpGateway } from "./mcp.ts";
 import type { PolicyService } from "./policy.ts";
 
@@ -122,6 +124,8 @@ export type BotsDeps = {
   connections?: Pick<ConnectionsService, "mayUse"> | undefined;
   /** The gateway an attached MCP server is reached through; the credential stays in the vault. */
   mcp?: Pick<McpGateway, "tools" | "call"> | undefined;
+  /** The MCP servers a runner hosts itself, which a bot attaches like any other (task 3.24). */
+  localMcp?: Pick<LocalMcpService, "tools" | "call"> | undefined;
   /** What an agent bot opens a session with (spec §5.3 "Agent bots"; task 3.7). */
   agents?: AgentSessions | undefined;
 };
@@ -545,9 +549,55 @@ export class BotsService {
     if (wanted.length === 0 || !this.deps.connections || !this.deps.mcp) return {};
     const rows = await workspaceConnections(this.deps.db, bot.workspaceId);
     const servers: AttachedServer[] = [];
+    // The runner-local ones, which a spec names by id like anything else (task 3.24).
+    const local = this.deps.localMcp ? await listMcpServers(this.deps.db, bot.workspaceId) : [];
     // Whose turn this is: an `obo` grant is only good for the person the connection belongs to.
     const invokedBy = input.by.actor.type === "user" ? (input.by.actor.id ?? null) : null;
     for (const entry of wanted) {
+      const hosted = local.find(
+        (row) => row.id === entry.connection || row.name === entry.connection,
+      );
+      const localMcp = this.deps.localMcp;
+      if (hosted && localMcp) {
+        // No grant and no credential: what gates a local server is the workspace it belongs to,
+        // this spec naming it, and the runner's own policy on the command (ADR-0142).
+        const narrowed = entry.tools ?? null;
+        const owner = bot.ownerId;
+        const upstream = await localMcp.tools(hosted, narrowed, owner).catch((error: unknown) => {
+          this.deps.log.warn(
+            { err: error, mcpServerId: hosted.id },
+            "a runner-local MCP server would not list its tools",
+          );
+          return [];
+        });
+        servers.push({
+          provider: hosted.name,
+          tools: upstream.map((one) => ({ name: one.name, description: one.description })),
+          needsPerson: () => false,
+          call: async (name: string, args: Record<string, unknown>) =>
+            await spanUnder(
+              run,
+              `tool.${name}`,
+              {
+                "perch.tool": name,
+                "perch.provider": hosted.name,
+                ...ids({ workspaceId: channel.workspaceId, botId: bot.id }),
+              },
+              async () =>
+                await localMcp.call({
+                  server: hosted,
+                  allowList: narrowed,
+                  tool: name,
+                  args,
+                  by: input.by,
+                  callerId: bot.id,
+                  userId: owner,
+                }),
+            ),
+          ask: async () => "a runner-local server has nothing to ask a person about",
+        });
+        continue;
+      }
       const connection =
         rows.find((row) => row.id === entry.connection) ??
         rows.find((row) => row.provider === entry.connection);

@@ -57,6 +57,109 @@ export async function openUpstream(options: UpstreamOptions): Promise<Client> {
   return client;
 }
 
+/**
+ * The two ends of a text stream, as much of one as a transport needs. `RunnerStream` is one
+ * (spec §7.6); this package does not know that, and does not need to.
+ */
+export type LineStream = {
+  send(data: string): void;
+  onMessage(handler: (data: string) => void): () => void;
+  onClose(handler: () => void): () => void;
+  close(): void;
+  readonly closed: boolean;
+};
+
+/**
+ * MCP over a runner's data stream (spec §7.6 `mcp.spawn`; task 3.24).
+ *
+ * MCP's stdio transport is newline-delimited JSON and a runner stream carries text frames, so a
+ * server the runner spawned speaks the same protocol as one behind a URL — this is the adapter
+ * between the two, and the gateway above it cannot tell the difference.
+ */
+class StreamTransport {
+  onmessage?: (message: unknown) => void;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  private rest = "";
+  private stop: (() => void) | null = null;
+
+  constructor(private readonly stream: LineStream) {}
+
+  async start(): Promise<void> {
+    const unsubscribe = this.stream.onMessage((data) => this.take(data));
+    const unclose = this.stream.onClose(() => this.onclose?.());
+    this.stop = () => {
+      unsubscribe();
+      unclose();
+    };
+  }
+
+  async send(message: unknown): Promise<void> {
+    if (this.stream.closed) throw new McpError("the server's stream has closed");
+    this.stream.send(`${JSON.stringify(message)}\n`);
+  }
+
+  async close(): Promise<void> {
+    this.stop?.();
+    this.stop = null;
+    this.stream.close();
+  }
+
+  /**
+   * Frames are not lines: one frame can carry several, or half of one. A frame that ends without
+   * a newline is kept until the rest of it arrives — except that a whole message with nothing
+   * after it is a whole message, which is what a sender that frames per message produces.
+   */
+  private take(data: string): void {
+    this.rest += data;
+    const lines = this.rest.split("\n");
+    this.rest = lines.pop() ?? "";
+    if (lines.length === 0 && whole(this.rest)) {
+      lines.push(this.rest);
+      this.rest = "";
+    }
+    for (const line of lines) {
+      const text = line.trim();
+      if (!text) continue;
+      try {
+        this.onmessage?.(JSON.parse(text));
+      } catch (error) {
+        this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+}
+
+/** Whether a buffer is a complete JSON message rather than the first half of one. */
+function whole(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A client on a server the runner is hosting, already initialised. The caller closes it, which
+ * closes the stream, which is what stops the process.
+ */
+export async function openLocal(stream: LineStream): Promise<Client> {
+  const client = new Client({ name: "perch", version: "1" }, { capabilities: {} });
+  try {
+    // The SDK types its transports nominally; this is one structurally, which is the whole of
+    // what it uses.
+    await client.connect(new StreamTransport(stream) as never);
+  } catch (error) {
+    throw new McpError(
+      `could not reach the runner's MCP server: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return client;
+}
+
 /** What the upstream says it can do, as plain data. */
 export async function listUpstreamTools(client: Client): Promise<UpstreamTool[]> {
   const answer = await client.listTools();

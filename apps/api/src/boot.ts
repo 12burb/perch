@@ -34,6 +34,7 @@ import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
 import { DbBrowser } from "./services/db-browser.ts";
 import { DeployService } from "./services/deploys.ts";
+import { LocalMcpService } from "./services/local-mcp.ts";
 import { McpGateway } from "./services/mcp.ts";
 import { MergeQueueService } from "./services/merge-queue.ts";
 import { NestService } from "./services/nest.ts";
@@ -160,6 +161,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     secret: env.sessionSecret,
     publicUrl: env.publicUrl,
   });
+  // The MCP servers a runner hosts itself (task 3.24): no credential, so no vault and no grant —
+  // the project's runner spawns the command and the api speaks MCP down the stream.
+  const localMcp = new LocalMcpService({ db: db.db, bus, log, registry: runners });
   const previews = new PreviewService({
     db: db.db,
     bus,
@@ -217,6 +221,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     // carries the connection's own token, and the bot's context never sees either.
     connections,
     mcp,
+    localMcp,
     // A mention that opens a coding session (spec §5.3 "Agent bots"; task 3.7).
     agents: agentBots,
     ...(env.search ? { search: env.search } : {}),
@@ -295,6 +300,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     policy,
     connections,
     mcp,
+    localMcp,
     perchMcp,
     work,
     mergeQueue,

@@ -93,11 +93,43 @@ A tool that will not run says so in its result rather than failing the call, bec
 read a reason and try something else. `work.create` and `work.update` are the two §7.5 names not
 here yet; they arrive with work items themselves (task 3.13).
 
+## A server your project ships (task 3.24)
+
+A repository often knows things no provider does: the schema, the fixtures, the deploy. Perch runs
+those tools where the project is rather than hosting them:
+
+```
+POST /api/workspaces/{ws}/mcp-servers
+  {name: "project-tools", project_id, command: "bun", args: ["tools/mcp.ts"]}
+```
+
+The runner spawns that command beside the checkout when somebody calls it (`mcp.spawn`, spec §7.6),
+and the api speaks MCP down the stream it answers with — MCP's stdio framing and a runner stream are
+the same shape. Nothing is listening on a port, and the process lives only as long as the call.
+
+From the outside it is the same server as any other: `/mcp/{id}` lists and calls it, and a bot
+attaches it by naming it in its spec —
+
+```yaml
+mcp:
+  - connection: project-tools   # the row's name, or its id
+```
+
+— which becomes `mcp__project-tools__<tool>` in the bot's tool list, like a connection's.
+
+Two things are different, and both follow from there being **no credential**: there is no grant to
+write, because a grant exists to lend somebody else's token; and the gate is the workspace the row
+belongs to, the bot spec that names it, and the runner's own policy on what may be run at all — a
+command nobody may run by hand is not one somebody may run by writing a row (ADR-0142).
+
+A workspace admin writes the row. The command runs on the workspace's own machines, which is
+exactly as much trust as `exec` already needs.
+
 ## Not here yet
 
 Tools marked `requires_permission` return pending with a card in the thread and an inbox item for
 bots that attach a connection (see [Tools from an MCP server](bots.md#tools-from-an-mcp-server));
 sessions still call straight through.
 
-Still to come: runner-local stdio servers exposed through the same shape, rate limits, virtual
-keys (`pk_…`) as a third way in beside sessions and api tokens, and the grants UI.
+Still to come: rate limits, virtual keys (`pk_…`) as a third way in beside sessions and api tokens,
+and the grants UI.
