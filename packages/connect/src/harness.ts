@@ -11,7 +11,7 @@
  * from the same function.
  */
 import { type Manifest, ManifestError, parseManifest } from "./manifest.ts";
-import { signDelivery, verifyDelivery } from "./webhooks.ts";
+import { ed25519Keypair, signDelivery, verifyDelivery } from "./webhooks.ts";
 
 export type Finding = {
   /** `error` means Perch would not work with this provider; `warning` means somebody should look. */
@@ -48,6 +48,27 @@ function https(url: string): boolean {
  * scheme — and then the endpoint's only protection is that its URL is unguessable. That is worth
  * saying out loud, so it is a warning rather than silence.
  */
+/**
+ * The three keys a scheme is exercised with: what the provider signs with, what Perch verifies
+ * with, and somebody else's. They are the same string for every symmetric scheme; Ed25519 is the
+ * one where they are not, because the provider's private key never reaches Perch (task 3.25).
+ */
+async function keysFor(
+  kind: Manifest["webhook_signature"],
+): Promise<{ sign: string; verify: string; other: string }> {
+  if (kind === "ed25519") {
+    const provider = await ed25519Keypair();
+    const somebodyElse = await ed25519Keypair();
+    return {
+      sign: provider.privateKey,
+      verify: provider.publicKey,
+      other: somebodyElse.publicKey,
+    };
+  }
+  const secret = "whsec_a_secret_only_the_provider_has";
+  return { sign: secret, verify: secret, other: `${secret}-else` };
+}
+
 async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
   const scheme = manifest.webhook;
   const findings: Finding[] = [];
@@ -61,7 +82,7 @@ async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
       },
     ];
   }
-  const secret = "whsec_a_secret_only_the_provider_has";
+  const keys = await keysFor(manifest.webhook_signature);
   const body = '{"hello":"there"}';
   const at = new Date();
   const headers = new Headers({
@@ -72,7 +93,7 @@ async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
   if (scheme.timestamp_header) {
     headers.set(scheme.timestamp_header, `${scheme.timestamp_prefix ?? ""}${seconds}`);
   }
-  const signature = await signDelivery({ manifest, headers, body, secret });
+  const signature = await signDelivery({ manifest, headers, body, secret: keys.sign });
   // A provider whose timestamp rides in the signature header sends one header, not two.
   headers.set(
     scheme.header,
@@ -85,7 +106,7 @@ async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
     manifest,
     headers,
     body,
-    secret,
+    secret: keys.verify,
     now: at.getTime(),
   });
   if (!good.ok) {
@@ -100,10 +121,26 @@ async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
     manifest,
     headers,
     body: `${body} `,
-    secret,
+    secret: keys.verify,
     now: at.getTime(),
   });
-  if (tampered.ok) {
+  // A shared secret in a header says who sent the delivery and nothing about what they sent. That
+  // is what those providers do, so it is not an error — but it is never left unsaid (task 3.25).
+  if (manifest.webhook_signature === "shared_secret") {
+    findings.push({
+      level: "warning",
+      field: "webhook_signature",
+      message:
+        "this provider sends the secret back rather than signing: a delivery proves who sent it, not what they sent",
+    });
+    if (!tampered.ok) {
+      findings.push({
+        level: "error",
+        field: "webhook",
+        message: "a changed body was refused, so this scheme is not a shared secret after all",
+      });
+    }
+  } else if (tampered.ok) {
     findings.push({
       level: "error",
       field: "webhook",
@@ -114,7 +151,7 @@ async function checkWebhook(manifest: Manifest): Promise<Finding[]> {
     manifest,
     headers,
     body,
-    secret: `${secret}-else`,
+    secret: keys.other,
     now: at.getTime(),
   });
   if (wrongSecret.ok) {

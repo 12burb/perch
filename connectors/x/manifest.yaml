@@ -1,0 +1,33 @@
+# X (spec §5.5 seed list; task 3.25).
+#
+# OAuth 2.0 with PKCE, which is what Perch does anyway; `offline.access` is the scope that earns a
+# refresh token. `/2/users/me` is the call that proves a token works, and the handle it answers with
+# is inside X's `data` envelope.
+#
+# Deliveries from the Account Activity API are signed HMAC-SHA256 over the raw body with the app's
+# consumer secret, base64, behind `sha256=` in `x-twitter-webhooks-signature`.
+id: x
+name: X
+summary: Post, read timelines, and hear about activity on an account.
+docs_url: https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token
+auth:
+  - oauth2
+  - token
+api_base: https://api.x.com
+test_path: /2/users/me
+account_field: data.username
+oauth:
+  authorize_url: https://x.com/i/oauth2/authorize
+  token_url: https://api.x.com/2/oauth2/token
+  scopes:
+    - tweet.read
+    - users.read
+    - offline.access
+  scope_separator: " "
+  refresh: true
+webhook_signature: hmac_sha256
+webhook:
+  header: x-twitter-webhooks-signature
+  prefix: "sha256="
+  encoding: base64
+  signed: "{body}"

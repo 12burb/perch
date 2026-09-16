@@ -1,0 +1,21 @@
+# Cloudflare (spec §5.5 seed list; task 3.25).
+#
+# A scoped API token, checked against the endpoint whose whole job is checking one: a wrong token
+# is a 400 with `Invalid API Token`, not a 200 with an empty list. The account the token speaks as
+# is the token's own id, which is inside Cloudflare's `result` envelope.
+#
+# Cloudflare's notification webhooks put the secret you gave it in `cf-webhook-auth` rather than
+# signing the body, so that is what Perch checks: the delivery proves who sent it, not what.
+id: cloudflare
+name: Cloudflare
+summary: Zones, DNS records, Workers and notifications from your account.
+docs_url: https://developers.cloudflare.com/fundamentals/api/
+auth:
+  - token
+api_base: https://api.cloudflare.com/client/v4
+test_path: /user/tokens/verify
+token_prefix: []
+account_field: result.id
+webhook_signature: shared_secret
+webhook:
+  header: cf-webhook-auth

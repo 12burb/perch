@@ -149,7 +149,7 @@ A connector is a directory with a `manifest.yaml`: the lanes it offers, its API 
 prefixes a paste should have, the call that proves a connection works, its MCP server, its OAuth
 endpoints, and how it signs a webhook. Nothing about it is code.
 
-Ten ship today:
+Seventeen ship today — the whole §5.5 seed list:
 
 | Connector | Lanes | MCP server |
 |---|---|---|
@@ -163,6 +163,17 @@ Ten ship today:
 | **Notion** | Sign in, Paste a token | — |
 | **Sentry** | Paste an org auth token | — |
 | **Discord** | Sign in, Paste a bot token | — |
+| **Google Workspace** | Sign in, Paste a token | — |
+| **Jira** | Sign in, Paste a token | — |
+| **Cloudflare** | Paste a scoped API token | — |
+| **Railway** | Paste a token | — |
+| **Netlify** | Sign in, Paste a token | — |
+| **HeyGen** | Paste an API key | — |
+| **X** | Sign in, Paste a token | — |
+
+Two of them have no Test connection: Linear and Railway are GraphQL over POST, so there is no call
+that proves a token without making a request that does something. Their manifests say so by having
+no `test_path`, and `perch connectors check` says it out loud.
 
 ### Adding one
 
@@ -195,10 +206,12 @@ Beyond the obvious fields:
 | Field | For |
 |---|---|
 | `token_scheme: raw` | a provider that wants the token by itself rather than behind `Bearer` — Linear |
+| `token_header` | a provider that wants it somewhere else entirely — HeyGen's `X-Api-Key` |
 | `headers:` | headers every call needs — Notion refuses a request without `Notion-Version` |
+| `oauth.authorize_params` | what a provider needs on its authorize URL beyond the standard parameters — Google's `access_type=offline`, Atlassian's `audience`. The flow's own parameters (`state`, `redirect_uri`, `code_challenge`, …) are ignored here, so a manifest cannot redirect a person's code somewhere else |
 | `webhook.timestamp_prefix` | a provider whose timestamp rides inside the signature header — Stripe's `t=<ts>,v1=<hex>` |
 | `webhook.id_header` | absent when the provider puts the delivery id in the body rather than a header — Slack, Stripe |
-| `account_field` | where the test call's answer says who the connection speaks as |
+| `account_field` | where the test call's answer says who the connection speaks as; a dotted path, for a provider that wraps it — Cloudflare's `result.id`, X's `data.username` |
 
 `api_base` and `mcp_url` can be overridden per connection, which is how a self-hosted Sentry or
 GitLab uses the same manifest as the hosted one.
@@ -226,13 +239,35 @@ provider's scheme, taken from its manifest (ADR-0119):
 | Stripe | `stripe-signature: t=<ts>,v1=<hex>` | `<timestamp>.<body>`, within five minutes |
 | Linear | `linear-signature: <hex>` | the raw body |
 | Sentry | `sentry-hook-signature: <hex>` | the raw body |
+| Jira | `x-hub-signature: sha256=<hex>` | the raw body |
+| HeyGen | `signature: <hex>` | the raw body |
+| X | `x-twitter-webhooks-signature: sha256=<base64>` | the raw body |
+| Netlify | `x-webhook-signature: <JWS>` | an HS256 JWT carrying the body's SHA-256 |
+| Discord | `x-signature-ed25519: <hex>` | `<timestamp><body>`, with Discord's own key, within five minutes |
 
-Three providers in the list above are not in this table. Notion verifies a webhook with a token you
-copy when the subscription is made rather than with an HMAC; Discord signs its interactions with
-Ed25519; Supabase's webhooks are Postgres triggers with whatever headers you give them. Their
-manifests say `webhook_signature: none`, which Perch takes literally: **the endpoint's only
-protection is that its URL is unguessable**, so treat it like a password, and prefer a connector
-that signs where you have the choice.
+**Discord is set up the other way round.** Ed25519 is asymmetric: Discord signs with a private key
+nobody else has and publishes the public half on the application's page. So there is no Perch secret
+to paste into Discord — you paste Discord's public key into Perch instead, and the answer has no
+secret in it:
+
+```
+POST /api/workspaces/{ws}/webhooks  {provider: "discord", …, key: "<64 hex characters>"}
+→ {webhook: {…, url}, secret: null}
+```
+
+A key sent for a provider Perch generates a secret for is refused rather than ignored, and so is a
+missing one for Discord.
+
+**Two providers send the secret back rather than signing.** Cloudflare puts it in `cf-webhook-auth`
+and Google's push notifications put it in `X-Goog-Channel-Token`. Perch checks it in constant time,
+so a delivery proves **who sent it and not what they sent** — `perch connectors check` warns about
+exactly that, and it is why a Cloudflare endpoint's URL still deserves to be treated as a secret.
+
+Three providers sign nothing at all: Notion verifies with a token you copy when the subscription is
+made rather than with an HMAC, Railway posts its webhooks unsigned, and Supabase's webhooks are
+Postgres triggers with whatever headers you give them. Their manifests say `webhook_signature: none`,
+which Perch takes literally: **the endpoint's only protection is that its URL is unguessable**, so
+treat it like a password, and prefer a connector that signs where you have the choice.
 
 `POST /hooks/{provider}/{id}` is the only unauthenticated write in Perch: the signature is the
 authentication. A delivery that is unsigned, signed with something else, signed over a different

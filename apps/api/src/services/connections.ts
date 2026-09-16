@@ -11,6 +11,7 @@ import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Bus } from "@perch/bus";
 import {
+  accountFrom,
   apiBaseOf,
   authorizationServer,
   CIMD_PATH,
@@ -30,6 +31,7 @@ import {
   refreshTokens,
   startAuthorization,
   startAuthorizationAt,
+  tokenHeaders,
 } from "@perch/connect";
 import { MANIFESTS } from "@perch/connectors";
 import type {
@@ -820,10 +822,9 @@ export class ConnectionsService {
       response = await call(`${base}${manifest.test_path}`, {
         headers: {
           accept: "application/json",
-          // A provider that wants the token by itself says so in its manifest (task 3.11).
-          authorization: manifest.token_scheme === "raw" ? token : `Bearer ${token}`,
           "user-agent": "perch",
-          ...manifest.headers,
+          // Which header, and behind which word, is the manifest's to say (task 3.11, task 3.25).
+          ...tokenHeaders(manifest, token),
         },
         signal: AbortSignal.timeout(15_000),
       });
@@ -843,9 +844,8 @@ export class ConnectionsService {
         502,
       );
     }
-    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    const field = manifest.account_field;
-    const account = field && typeof body?.[field] === "string" ? (body[field] as string) : null;
+    const body = (await response.json().catch(() => null)) as unknown;
+    const account = accountFrom(manifest, body);
     // GitHub reports a token's scopes in a header; providers that do not simply have none to show.
     const scopes = (response.headers.get("x-oauth-scopes") ?? "")
       .split(",")

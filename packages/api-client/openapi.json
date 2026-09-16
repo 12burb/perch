@@ -7710,6 +7710,11 @@
           "connection_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           }
         },
         "required": [
@@ -23625,7 +23630,7 @@
         },
         "responses": {
           "201": {
-            "description": "The endpoint, and its secret",
+            "description": "The endpoint, and its secret — null when the key was the provider's own",
             "content": {
               "application/json": {
                 "schema": {
@@ -23635,7 +23640,10 @@
                       "$ref": "#/components/schemas/Webhook"
                     },
                     "secret": {
-                      "type": "string"
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [

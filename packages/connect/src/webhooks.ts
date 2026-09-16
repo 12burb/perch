@@ -54,7 +54,58 @@ function same(a: string, b: string): boolean {
 function encode(mac: ArrayBuffer, encoding: WebhookScheme["encoding"]): string {
   const bytes = new Uint8Array(mac);
   if (encoding === "base64") return btoa(String.fromCharCode(...bytes));
+  return hex(bytes);
+}
+
+function hex(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Bytes out of a hex string, or null when it is not one — a pasted key is often not one. */
+function unhex(value: string): Uint8Array | null {
+  const clean = value.trim().toLowerCase();
+  if (clean.length === 0 || clean.length % 2 !== 0 || !/^[0-9a-f]+$/.test(clean)) return null;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let at = 0; at < bytes.length; at += 1) {
+    bytes[at] = Number.parseInt(clean.slice(at * 2, at * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function base64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function unbase64url(value: string): Uint8Array | null {
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    return Uint8Array.from(binary, (one) => one.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+async function sha256Hex(body: string): Promise<string> {
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body))));
+}
+
+/**
+ * A keypair for an Ed25519 scheme, hex both halves: the public key is what somebody pastes into
+ * Perch, the private key is the provider's own and only a test ever holds one (task 3.25).
+ */
+export async function ed25519Keypair(): Promise<{ publicKey: string; privateKey: string }> {
+  const pair = (await crypto.subtle.generateKey("Ed25519", true, [
+    "sign",
+    "verify",
+  ])) as CryptoKeyPair;
+  return {
+    publicKey: hex(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))),
+    privateKey: hex(new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey))),
+  };
 }
 
 /**
@@ -85,11 +136,31 @@ async function mac(scheme: WebhookScheme, signed: string, secret: string): Promi
   );
 }
 
+/** What this scheme says is signed, with the delivery's own headers filled in. */
+function signedText(
+  scheme: WebhookScheme,
+  headers: Headers | Record<string, string>,
+  body: string,
+): string {
+  return scheme.signed
+    .replaceAll("{body}", body)
+    .replaceAll("{id}", scheme.id_header ? (header(headers, scheme.id_header) ?? "") : "")
+    .replaceAll(
+      "{timestamp}",
+      scheme.timestamp_header
+        ? timeOf(header(headers, scheme.timestamp_header) ?? "", scheme.timestamp_prefix)
+        : "",
+    );
+}
+
 /**
  * The header value this provider would have sent, for a delivery Perch is making up — which is
  * what a test needs, and what the manifest harness checks a scheme with (task 3.11). It is the
  * same bytes `verifyDelivery` recomputes, from the same manifest, so a scheme that signs nothing
  * cannot pass both.
+ *
+ * `secret` is whatever that scheme signs with, which is not always what it verifies with: an
+ * Ed25519 provider signs with a private key and Perch holds only the public half (task 3.25).
  */
 export async function signDelivery(input: {
   manifest: Pick<Manifest, "webhook_signature" | "webhook">;
@@ -98,16 +169,37 @@ export async function signDelivery(input: {
   secret: string;
 }): Promise<string> {
   const scheme = input.manifest.webhook;
-  const signed = scheme.signed
-    .replaceAll("{body}", input.body)
-    .replaceAll("{id}", scheme.id_header ? (header(input.headers, scheme.id_header) ?? "") : "")
-    .replaceAll(
-      "{timestamp}",
-      scheme.timestamp_header
-        ? timeOf(header(input.headers, scheme.timestamp_header) ?? "", scheme.timestamp_prefix)
-        : "",
-    );
+  const signed = signedText(scheme, input.headers, input.body);
+  if (input.manifest.webhook_signature === "shared_secret") return input.secret;
+  if (input.manifest.webhook_signature === "ed25519") {
+    const key = unhex(input.secret);
+    if (!key) throw new Error("an ed25519 scheme signs with a hex private key");
+    const signer = await crypto.subtle.importKey("pkcs8", key, "Ed25519", false, ["sign"]);
+    const signature = await crypto.subtle.sign("Ed25519", signer, new TextEncoder().encode(signed));
+    return `${scheme.prefix}${hex(new Uint8Array(signature))}`;
+  }
+  if (input.manifest.webhook_signature === "jws_hs256") {
+    return `${scheme.prefix}${await jws(input.body, input.secret)}`;
+  }
   return `${scheme.prefix}${await mac(scheme, signed, input.secret)}`;
+}
+
+/** Netlify's compact JWS: `{alg: HS256}` over `{iss, sha256}`, where the sha256 is the body's. */
+async function jws(body: string, secret: string): Promise<string> {
+  const text = new TextEncoder();
+  const head = base64url(text.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
+  const claims = base64url(
+    text.encode(JSON.stringify({ iss: "netlify", sha256: await sha256Hex(body) })),
+  );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    text.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, text.encode(`${head}.${claims}`));
+  return `${head}.${claims}.${base64url(new Uint8Array(signature))}`;
 }
 
 /**
@@ -148,12 +240,81 @@ export async function verifyDelivery(input: {
     .replaceAll("{body}", input.body)
     .replaceAll("{id}", delivery.id ?? "")
     .replaceAll("{timestamp}", timestamp);
-  const mine = await mac(scheme, signed, input.secret);
   const candidates = offered(raw, scheme.prefix);
+
+  // The secret is sent back as it is: this says who sent it and nothing about what they sent.
+  if (input.manifest.webhook_signature === "shared_secret") {
+    if (!candidates.some((one) => same(one, input.secret))) {
+      return { ok: false, reason: "that secret is not this endpoint's" };
+    }
+    return { ok: true, delivery };
+  }
+
+  // Asymmetric: the key is the provider's public half, so a forgery needs their private one.
+  if (input.manifest.webhook_signature === "ed25519") {
+    const key = unhex(input.secret);
+    if (key?.length !== 32) {
+      return { ok: false, reason: "this endpoint has no usable public key" };
+    }
+    const verifier = await crypto.subtle
+      .importKey("raw", key, "Ed25519", false, ["verify"])
+      .catch(() => null);
+    if (!verifier) return { ok: false, reason: "this endpoint has no usable public key" };
+    const message = new TextEncoder().encode(signed);
+    for (const candidate of candidates) {
+      const bytes = unhex(candidate);
+      if (bytes?.length !== 64) continue;
+      if (await crypto.subtle.verify("Ed25519", verifier, bytes, message)) {
+        return { ok: true, delivery };
+      }
+    }
+    return { ok: false, reason: "that signature is not this provider's" };
+  }
+
+  // Netlify's JWS: verify the token, then check it is about this body.
+  if (input.manifest.webhook_signature === "jws_hs256") {
+    for (const candidate of candidates) {
+      if (await jwsHolds(candidate, input.body, input.secret)) return { ok: true, delivery };
+    }
+    return { ok: false, reason: "that signature is not this instance's" };
+  }
+
+  const mine = await mac(scheme, signed, input.secret);
   if (!candidates.some((one) => same(one.toLowerCase(), mine.toLowerCase()))) {
     return { ok: false, reason: "that signature is not this instance's" };
   }
   return { ok: true, delivery };
+}
+
+/** Whether this compact JWS was signed with the secret and is about this body. */
+async function jwsHolds(token: string, body: string, secret: string): Promise<boolean> {
+  const parts = token.split(".");
+  const [head, claims, signature] = parts;
+  if (parts.length !== 3 || !head || !claims || !signature) return false;
+  const offeredBytes = unbase64url(signature);
+  if (!offeredBytes) return false;
+  const text = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    text.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const signedOver = text.encode(`${head}.${claims}`);
+  if (!(await crypto.subtle.verify("HMAC", key, offeredBytes, signedOver))) return false;
+  const payload = unbase64url(claims);
+  if (!payload) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(payload));
+  } catch {
+    return false;
+  }
+  const digest = (parsed as { sha256?: unknown } | null)?.sha256;
+  // A token that says nothing about the body would let any body through with one real signature.
+  if (typeof digest !== "string") return false;
+  return same(digest.toLowerCase(), (await sha256Hex(body)).toLowerCase());
 }
 
 /** What Perch hands somebody to paste into the provider: 32 bytes, hex. */

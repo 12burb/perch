@@ -36,13 +36,18 @@ export {
 export {
   AUTH_KINDS,
   type AuthKind,
+  accountFrom,
   apiBaseOf,
   type DbManifest,
+  keyIsTheProviders,
   lanesOf,
   type Manifest,
   ManifestError,
   mcpUrlOf,
   parseManifest,
+  SIGNATURE_KINDS,
+  type SignatureKind,
+  tokenHeaders,
   type WebhookScheme,
 } from "./manifest.ts";
 export {
@@ -69,6 +74,7 @@ export {
 } from "./oauth.ts";
 export {
   type Delivery,
+  ed25519Keypair,
   signDelivery,
   type Verdict,
   verifyDelivery,

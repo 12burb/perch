@@ -12,7 +12,7 @@
  */
 
 import type { Bus } from "@perch/bus";
-import { verifyDelivery, webhookSecret } from "@perch/connect";
+import { keyIsTheProviders, verifyDelivery, webhookSecret } from "@perch/connect";
 import type { Db, MessageBlock, Webhook } from "@perch/db";
 import type { Vault } from "@perch/vault";
 import type { ActorContext } from "../auth/authorize.ts";
@@ -43,7 +43,11 @@ export type WebhooksDeps = {
   log: Logger;
 };
 
-export type MadeWebhook = { webhook: Webhook; secret: string };
+/**
+ * `secret` is what somebody pastes into the provider, and is null for a provider whose key is its
+ * own: with Ed25519 the pasting goes the other way (task 3.25).
+ */
+export type MadeWebhook = { webhook: Webhook; secret: string | null };
 
 /** What a bot with an `on: webhook` trigger is handed (spec §5.3). */
 export type WebhookTrigger = {
@@ -73,16 +77,31 @@ export class WebhooksService {
     name: string;
     channelId: string;
     connectionId?: string | undefined;
+    /** The provider's own verifying key, for a scheme where the key is theirs (task 3.25). */
+    key?: string | undefined;
     createdBy: string;
     by: ActorContext;
   }): Promise<MadeWebhook> {
     // A provider Perch has no manifest for has no signature scheme either.
-    this.deps.connections.manifest(input.provider);
+    const manifest = this.deps.connections.manifest(input.provider);
     const channel = await getChannel(this.deps.db, input.channelId);
     if (!channel || channel.workspaceId !== input.workspaceId) {
       throw PerchError.notFound("channel");
     }
-    const secret = webhookSecret();
+    const theirs = keyIsTheProviders(manifest);
+    if (input.key !== undefined && !theirs) {
+      throw PerchError.validation(
+        `${manifest.name} is verified with a secret Perch generates, so there is no key to paste in`,
+      );
+    }
+    // Discord signs with a private key nobody else has; what Perch needs is the public half, which
+    // is on the application's own page. 32 bytes of hex, or it is not one.
+    if (theirs && !/^[0-9a-fA-F]{64}$/.test((input.key ?? "").trim())) {
+      throw PerchError.validation(
+        `${manifest.name} signs with a key of its own: paste its public key (64 hex characters)`,
+      );
+    }
+    const secret = theirs ? (input.key ?? "").trim().toLowerCase() : webhookSecret();
     const webhook = await insertWebhook(this.deps.db, {
       workspaceId: input.workspaceId,
       provider: input.provider,
@@ -92,7 +111,8 @@ export class WebhooksService {
       ciphertext: await this.deps.vault.encrypt(secret),
       createdBy: input.createdBy,
     });
-    return { webhook, secret };
+    // Nothing to show once for a key that was theirs to begin with.
+    return { webhook, secret: theirs ? null : secret };
   }
 
   list(workspaceId: string): Promise<Webhook[]> {

@@ -5652,3 +5652,52 @@ A project can ship its own tools and every agent that can already reach its repo
 with nothing to configure beyond a row. The audit says `mcpServerId` where a connection's says
 `connectionId`, so "what did this bot call" is answerable across both. And because there is no
 token, there is nothing for this lane to leak — which is the only reason it can skip the grant.
+
+## ADR-0143: Three more signature schemes, because that is what the seed list does
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.25
+
+### Context
+§5.5 names thirteen seed connectors and says nothing about how any of them signs a webhook. Task
+3.25 asks for Ed25519 "so Discord's deliveries can be verified". Reading the other six providers'
+own documentation turned up two more shapes that are not HMAC-SHA256 over a body either:
+
+- **Cloudflare** sends the secret you gave it back in `cf-webhook-auth`, and **Google**'s push
+  notifications send the channel token you chose in `X-Goog-Channel-Token`. Neither signs anything.
+- **Netlify** sends an HS256 JWT in `X-Webhook-Signature` whose claims carry `iss: netlify` and the
+  SHA-256 of the payload.
+
+The alternative was to write `webhook_signature: none` for all three and let Perch trust an
+unguessable URL. That would be a lie in the manifest — these providers do authenticate their
+deliveries — and `perch connectors check` would print the wrong warning about them forever.
+
+### Decision
+`webhook_signature` gains three variants beside `hmac_sha256` and `none`:
+
+- **`ed25519`** — the signature is hex, over whatever `signed` names, and the key is the
+  **provider's**. This is the one that changes a flow rather than a computation: an endpoint for
+  Discord is made by pasting Discord's public key into Perch (`POST /webhooks {key}`), and the
+  answer's `secret` is null because there is nothing to show once. A key sent for any other
+  provider is a 422, so nobody pastes one into a provider that would ignore it. A manifest whose
+  `encoding` is not `hex` is refused at parse time rather than being quietly unverifiable.
+- **`shared_secret`** — the header must equal the endpoint's secret, compared in constant time. The
+  body is **not** covered, so the harness always attaches a warning saying exactly that, and it is
+  an error for such a scheme to refuse a changed body (that would mean it was not this scheme).
+- **`jws_hs256`** — the header is a compact JWS; Perch verifies it with the secret and then checks
+  its `sha256` claim against the body it actually received. A token with no `sha256` claim is
+  refused, because one real delivery would otherwise let any body through.
+
+Two smaller manifest fields came out of the same reading, and both are ordinary rather than novel:
+`token_header`, because HeyGen wants its key in `X-Api-Key` and nothing else, and
+`oauth.authorize_params`, because Google will not issue a refresh token without
+`access_type=offline` and Atlassian will not issue a useful one without `audience`. The flow's own
+parameters — `state`, `redirect_uri`, `code_challenge`, `client_id`, `response_type`, `scope` — are
+ignored if a manifest names them: a connector file is content, and content must not be able to
+redirect a person's authorization code somewhere else.
+
+### Consequences
+Sixteen of the seventeen connectors now verify what they receive (Railway posts unsigned, and says
+so). The harness exercises every scheme, including the asymmetric one, by generating a keypair per
+check — so a manifest that describes Ed25519 wrongly fails in CI rather than on the first delivery.

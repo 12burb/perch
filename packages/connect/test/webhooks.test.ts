@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseManifest } from "../src/manifest.ts";
-import { verifyDelivery, webhookSecret } from "../src/webhooks.ts";
+import { ed25519Keypair, signDelivery, verifyDelivery, webhookSecret } from "../src/webhooks.ts";
 
 /**
  * Task 3.4 (spec §3.5): whether a delivery is really from the provider. The signatures here are
@@ -166,6 +166,198 @@ describe("a provider that signs nothing", () => {
       secret: SECRET,
     });
     expect(verdict.ok).toBe(true);
+  });
+});
+
+describe("a Discord delivery (task 3.25)", () => {
+  /** What Discord does: sign `<timestamp><body>` with the application's own private key. */
+  async function sign(privateKey: string, timestamp: string, body: string): Promise<string> {
+    return await signDelivery({
+      manifest: manifest("discord"),
+      headers: { "x-signature-timestamp": timestamp },
+      body,
+      secret: privateKey,
+    });
+  }
+
+  test("is taken when it carries this application's Ed25519 signature", async () => {
+    const discord = manifest("discord");
+    const keys = await ed25519Keypair();
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const verdict = await verifyDelivery({
+      manifest: discord,
+      headers: {
+        "x-signature-ed25519": await sign(keys.privateKey, timestamp, BODY),
+        "x-signature-timestamp": timestamp,
+      },
+      body: BODY,
+      // The key Perch holds is the public half: it can check a signature and never make one.
+      secret: keys.publicKey,
+    });
+    expect(verdict.ok).toBe(true);
+  });
+
+  test("is refused when it is signed by another application, or over another body", async () => {
+    const discord = manifest("discord");
+    const keys = await ed25519Keypair();
+    const somebodyElse = await ed25519Keypair();
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = await sign(keys.privateKey, timestamp, BODY);
+
+    const wrongKey = await verifyDelivery({
+      manifest: discord,
+      headers: { "x-signature-ed25519": signature, "x-signature-timestamp": timestamp },
+      body: BODY,
+      secret: somebodyElse.publicKey,
+    });
+    expect(wrongKey).toMatchObject({ ok: false });
+
+    const wrongBody = await verifyDelivery({
+      manifest: discord,
+      headers: { "x-signature-ed25519": signature, "x-signature-timestamp": timestamp },
+      body: `${BODY} `,
+      secret: keys.publicKey,
+    });
+    expect(wrongBody).toMatchObject({ ok: false });
+
+    // The timestamp is signed, so moving it invalidates the signature — and it is checked for age
+    // first, which is what stops a delivery being replayed tomorrow.
+    const old = String(Math.floor(Date.now() / 1000) - 3_600);
+    const replayed = await verifyDelivery({
+      manifest: discord,
+      headers: { "x-signature-ed25519": signature, "x-signature-timestamp": old },
+      body: BODY,
+      secret: keys.publicKey,
+    });
+    expect(replayed).toMatchObject({ ok: false, reason: "that delivery is too old" });
+  });
+
+  test("is refused when this endpoint's key is not a key", async () => {
+    const verdict = await verifyDelivery({
+      manifest: manifest("discord"),
+      headers: {
+        "x-signature-ed25519": "00".repeat(64),
+        "x-signature-timestamp": String(Math.floor(Date.now() / 1000)),
+      },
+      body: BODY,
+      secret: "not-hex-at-all",
+    });
+    expect(verdict).toMatchObject({ ok: false, reason: "this endpoint has no usable public key" });
+  });
+});
+
+describe("a provider that sends the secret back (task 3.25)", () => {
+  test("is taken when the header carries this endpoint's secret", async () => {
+    const verdict = await verifyDelivery({
+      manifest: manifest("cloudflare"),
+      headers: { "cf-webhook-auth": SECRET },
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(verdict.ok).toBe(true);
+  });
+
+  test("is refused when it carries somebody else's, or none", async () => {
+    const cloudflare = manifest("cloudflare");
+    const wrong = await verifyDelivery({
+      manifest: cloudflare,
+      headers: { "cf-webhook-auth": `${SECRET}-else` },
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(wrong).toMatchObject({ ok: false, reason: "that secret is not this endpoint's" });
+    const missing = await verifyDelivery({
+      manifest: cloudflare,
+      headers: {},
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(missing).toMatchObject({ ok: false });
+  });
+
+  test("says nothing about the body, which is the point of the warning on it", async () => {
+    // Not a bug: this is what Cloudflare and Google do. `perch connectors check` says so out loud.
+    const verdict = await verifyDelivery({
+      manifest: manifest("cloudflare"),
+      headers: { "cf-webhook-auth": SECRET },
+      body: '{"something":"else entirely"}',
+      secret: SECRET,
+    });
+    expect(verdict.ok).toBe(true);
+  });
+});
+
+describe("a Netlify delivery (task 3.25)", () => {
+  test("is a JWS whose claims carry the body's digest", async () => {
+    const netlify = manifest("netlify");
+    const signature = await signDelivery({
+      manifest: netlify,
+      headers: {},
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(signature.split(".")).toHaveLength(3);
+    const verdict = await verifyDelivery({
+      manifest: netlify,
+      headers: { "x-webhook-signature": signature },
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(verdict.ok).toBe(true);
+  });
+
+  test("is refused when the digest is not this body's, or the token is not signed with this secret", async () => {
+    const netlify = manifest("netlify");
+    const signature = await signDelivery({
+      manifest: netlify,
+      headers: {},
+      body: BODY,
+      secret: SECRET,
+    });
+    const otherBody = await verifyDelivery({
+      manifest: netlify,
+      headers: { "x-webhook-signature": signature },
+      body: `${BODY} `,
+      secret: SECRET,
+    });
+    expect(otherBody).toMatchObject({ ok: false });
+    const otherSecret = await verifyDelivery({
+      manifest: netlify,
+      headers: { "x-webhook-signature": signature },
+      body: BODY,
+      secret: `${SECRET}-else`,
+    });
+    expect(otherSecret).toMatchObject({ ok: false });
+  });
+
+  test("is refused when the token says nothing about the body at all", async () => {
+    // A JWS signed with the right secret but with no `sha256` claim would otherwise let any body
+    // through once somebody had seen one real delivery.
+    const text = new TextEncoder();
+    const b64 = (bytes: Uint8Array) =>
+      btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    const head = b64(text.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
+    const claims = b64(text.encode(JSON.stringify({ iss: "netlify" })));
+    const key = await crypto.subtle.importKey(
+      "raw",
+      text.encode(SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const mac = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, text.encode(`${head}.${claims}`)),
+    );
+    const verdict = await verifyDelivery({
+      manifest: manifest("netlify"),
+      headers: { "x-webhook-signature": `${head}.${claims}.${b64(mac)}` },
+      body: BODY,
+      secret: SECRET,
+    });
+    expect(verdict).toMatchObject({ ok: false });
   });
 });
 

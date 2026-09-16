@@ -1,0 +1,39 @@
+# Google Workspace (spec §5.5 seed list; task 3.25).
+#
+# One connector for the whole suite, because one OAuth consent covers it: Drive, Gmail and Calendar
+# are scopes on the same token. `access_type=offline` is what makes Google issue a refresh token at
+# all, and `prompt=consent` is what makes it issue one again after the first time — without both, a
+# connection quietly stops working when the access token expires.
+#
+# Google's push notifications carry a token you chose when the watch was created rather than a
+# signature over the body, so `shared_secret` is the honest description: the delivery proves it came
+# from the channel Perch set up, and says nothing about what is in it.
+id: google-workspace
+name: Google Workspace
+summary: Read Drive, Gmail and Calendar as the person who connected.
+docs_url: https://developers.google.com/identity/protocols/oauth2/web-server
+auth:
+  - oauth2
+  - token
+api_base: https://www.googleapis.com
+test_path: /oauth2/v3/userinfo
+account_field: email
+oauth:
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  scopes:
+    - openid
+    - https://www.googleapis.com/auth/userinfo.email
+    - https://www.googleapis.com/auth/drive.readonly
+    - https://www.googleapis.com/auth/gmail.readonly
+    - https://www.googleapis.com/auth/calendar.readonly
+  scope_separator: " "
+  refresh: true
+  authorize_params:
+    access_type: offline
+    prompt: consent
+webhook_signature: shared_secret
+webhook:
+  header: x-goog-channel-token
+  id_header: x-goog-message-number
+  event_header: x-goog-resource-state

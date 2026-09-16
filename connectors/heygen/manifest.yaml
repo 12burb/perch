@@ -1,0 +1,23 @@
+# HeyGen (spec §5.5 seed list; task 3.25).
+#
+# HeyGen wants its key in `X-Api-Key`, by itself, and refuses anything in `Authorization` — which is
+# why `token_header` exists at all. The quota endpoint is the cheapest call that needs a real key:
+# a wrong one is a 401 rather than an empty answer.
+#
+# Webhook deliveries are signed HMAC-SHA256 over the raw body with the endpoint's own secret, in a
+# header called `signature`.
+id: heygen
+name: HeyGen
+summary: Generate avatar videos and hear when they are done.
+docs_url: https://docs.heygen.com/reference/authentication
+auth:
+  - token
+api_base: https://api.heygen.com
+test_path: /v2/user/remaining_quota
+token_header: x-api-key
+token_scheme: raw
+webhook_signature: hmac_sha256
+webhook:
+  header: signature
+  encoding: hex
+  signed: "{body}"

@@ -1,0 +1,16 @@
+# Railway (spec §5.5 seed list; task 3.25).
+#
+# Railway's public API is GraphQL over POST at /graphql/v2, so — as with Linear — there is no GET
+# that proves a token works, and Test connection has nothing to call: a token is checked the first
+# time it is used, with `query { me { id name email } }`.
+#
+# Railway's own webhooks are posted unsigned, so an endpoint's only protection is that its URL is
+# unguessable. Treat the URL like a password.
+id: railway
+name: Railway
+summary: Projects, services and deployments, over Railway's GraphQL API.
+docs_url: https://docs.railway.com/reference/public-api
+auth:
+  - token
+api_base: https://backboard.railway.com
+webhook_signature: none

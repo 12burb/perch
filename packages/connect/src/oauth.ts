@@ -27,6 +27,21 @@ export type OAuthStart = {
   codeVerifier: string;
 };
 
+/**
+ * The parameters the flow itself owns. A manifest that names one of these is ignored rather than
+ * obeyed: an `authorize_params` that could change `redirect_uri` or `state` would be a manifest
+ * that could redirect a person's code somewhere else (task 3.25).
+ */
+const RESERVED = new Set([
+  "client_id",
+  "code_challenge",
+  "code_challenge_method",
+  "redirect_uri",
+  "response_type",
+  "scope",
+  "state",
+]);
+
 function clientFor(manifest: Manifest, clientId: string, redirectUri: string): OAuth2Client {
   if (!manifest.oauth) throw new OAuthError(`${manifest.name} has no OAuth2 lane`);
   return new OAuth2Client(clientId, null, redirectUri);
@@ -56,6 +71,12 @@ export function startAuthorization(options: {
   );
   if (manifest.oauth.scope_separator !== " " && scopes.length > 0) {
     url.searchParams.set("scope", scopes.join(manifest.oauth.scope_separator));
+  }
+  // What this provider needs beyond the standard parameters: Google's `access_type=offline`,
+  // Atlassian's `audience` (task 3.25). Last, so a manifest cannot quietly rewrite the flow.
+  for (const [name, value] of Object.entries(manifest.oauth.authorize_params)) {
+    if (RESERVED.has(name)) continue;
+    url.searchParams.set(name, value);
   }
   return { url: url.toString(), state, codeVerifier };
 }

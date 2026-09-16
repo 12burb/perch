@@ -1,0 +1,29 @@
+# Netlify (spec §5.5 seed list; task 3.25).
+#
+# Netlify's OAuth has no scopes: a token is as capable as the person who granted it. `/user` is the
+# call that proves one works.
+#
+# Outgoing notifications are signed with a JWS rather than a bare HMAC: `X-Webhook-Signature` holds
+# an HS256 JWT whose claims carry `iss: netlify` and the SHA-256 of the payload. Perch verifies the
+# token with the secret and then checks that digest against the body it actually received, so a
+# replayed signature over a different body is refused like any other forgery.
+id: netlify
+name: Netlify
+summary: Sites, deploys and build hooks.
+docs_url: https://docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api/
+auth:
+  - oauth2
+  - token
+api_base: https://api.netlify.com/api/v1
+test_path: /user
+account_field: email
+oauth:
+  authorize_url: https://app.netlify.com/authorize
+  token_url: https://api.netlify.com/oauth/token
+  scopes: []
+  scope_separator: " "
+  refresh: false
+webhook_signature: jws_hs256
+webhook:
+  header: x-webhook-signature
+  signed: "{body}"

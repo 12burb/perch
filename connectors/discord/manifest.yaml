@@ -1,9 +1,12 @@
 # Discord (spec §5.5 seed list; task 3.11).
 #
 # A bot token is pasted, and goes on the wire as `Bot <token>` rather than `Bearer` — which is why
-# this connector is REST-only for now and not wired to the gateway. Discord signs its interaction
-# requests with Ed25519 (`x-signature-ed25519` over `<timestamp><body>`), which is not the
-# HMAC-SHA256 shape this schema describes, so Perch cannot verify a delivery here yet.
+# this connector is REST-only for now and not wired to the gateway.
+#
+# Discord signs what it sends with Ed25519 over `<timestamp><body>`, and the key is its own: an
+# endpoint for Discord is made by pasting the application's public key into Perch rather than
+# pasting a Perch secret into Discord (task 3.25). The timestamp is signed too, so a delivery that
+# is replayed later than the tolerance is refused.
 id: discord
 name: Discord
 summary: Post to a Discord channel and read a guild's channels.
@@ -22,4 +25,9 @@ oauth:
     - identify
   scope_separator: " "
   refresh: true
-webhook_signature: none
+webhook_signature: ed25519
+webhook:
+  header: x-signature-ed25519
+  encoding: hex
+  signed: "{timestamp}{body}"
+  timestamp_header: x-signature-timestamp

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { MANIFESTS } from "@perch/connectors";
 import { checkManifest, reportLines } from "../src/harness.ts";
 
@@ -18,6 +20,19 @@ describe("the connector manifests (task 3.11)", () => {
       expect(report.manifest?.id).toBe(id);
     });
   }
+
+  test("the published index lists exactly what ships (task 3.25)", () => {
+    // connectors.json is the index §5.5 asks for: an admin reads it to see what a build has, so a
+    // connector added without a line here would be one nobody could find.
+    const index = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, "..", "..", "..", "connectors", "connectors.json"),
+        "utf8",
+      ),
+    ) as { connectors: { id: string; manifest: string }[] };
+    expect(index.connectors.map((one) => one.id).sort()).toEqual(Object.keys(MANIFESTS).sort());
+    for (const one of index.connectors) expect(one.manifest).toBe(`${one.id}/manifest.yaml`);
+  });
 
   test("a provider that signs nothing is said out loud, not waved through", async () => {
     const report = await checkManifest(`

@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { ed25519Keypair, parseManifest, signDelivery } from "@perch/connect";
+import { MANIFESTS } from "@perch/connectors";
 import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
@@ -205,6 +207,76 @@ describe("inbound webhooks (task 3.4)", () => {
       body: PUSH,
     });
     expect(res.status).toBe(404);
+  }, 60_000);
+
+  test("a provider that signs with its own key is set up the other way round (task 3.25)", async () => {
+    const discord = parseManifest(MANIFESTS.discord ?? "");
+    const keys = await ed25519Keypair();
+    const make = async (json: Record<string, unknown>) =>
+      await call(`/api/workspaces/${ws}/webhooks`, {
+        method: "POST",
+        json: { provider: "discord", name: "Guild", channel_id: channelId, ...json },
+      });
+
+    // Discord's key is Discord's: there is no secret for Perch to hand out, so it asks for theirs.
+    expect((await make({})).status).toBe(422);
+    expect((await make({ key: "not-a-key" })).status).toBe(422);
+    // And a provider Perch does generate a secret for has no key to paste in.
+    const confused = await call(`/api/workspaces/${ws}/webhooks`, {
+      method: "POST",
+      json: {
+        provider: "github",
+        name: "Confused",
+        channel_id: channelId,
+        key: keys.publicKey,
+      },
+    });
+    expect(confused.status).toBe(422);
+
+    const made = (await make({ key: keys.publicKey })) as {
+      status: number;
+      text: string;
+      body: { webhook: { id: string; url: string }; secret: string | null };
+    };
+    expect(made.status).toBe(201);
+    expect(made.body.secret).toBeNull();
+    const id = made.body.webhook.id;
+    expect(made.body.webhook.url).toContain(`/hooks/discord/${id}`);
+
+    const body = JSON.stringify({ type: 1, guild_id: "1", t: "MESSAGE_CREATE" });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const post = async (signature: string) =>
+      await fetch(`${base}/hooks/discord/${id}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-signature-ed25519": signature,
+          "x-signature-timestamp": timestamp,
+        },
+        body,
+      });
+
+    const real = await signDelivery({
+      manifest: discord,
+      headers: { "x-signature-timestamp": timestamp },
+      body,
+      secret: keys.privateKey,
+    });
+    expect((await post(real)).status).toBe(200);
+
+    // Somebody else's application, signing the same delivery, is not this one.
+    const impostor = await ed25519Keypair();
+    const forged = await signDelivery({
+      manifest: discord,
+      headers: { "x-signature-timestamp": timestamp },
+      body,
+      secret: impostor.privateKey,
+    });
+    expect((await post(forged)).status).toBe(403);
+
+    expect((await call(`/api/workspaces/${ws}/webhooks/${id}`, { method: "DELETE" })).status).toBe(
+      204,
+    );
   }, 60_000);
 
   test("the endpoint counts what it took, and stops when it is taken away", async () => {

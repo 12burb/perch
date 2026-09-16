@@ -25,6 +25,12 @@ const oauthSchema = z
     scope_separator: z.string().default(" "),
     /** Whether the provider issues refresh tokens, so the refresh job knows to run. */
     refresh: z.boolean().default(false),
+    /**
+     * Query parameters this provider's authorize URL needs beyond the standard ones: Google wants
+     * `access_type=offline` before it will ever issue a refresh token, and Atlassian wants the
+     * `audience` the token is for (task 3.25).
+     */
+    authorize_params: z.record(z.string(), z.string()).default({}),
   })
   .strict();
 
@@ -58,7 +64,27 @@ export type DbManifest = z.infer<typeof dbSchema>;
  *   the timestamp in their own headers and a tolerance either side of now.
  *
  * Writing them down here rather than in code is what keeps a connector a file (ADR-0119).
+ *
+ * Three more schemes arrived with the rest of the seed list (task 3.25, ADR-0143): `ed25519` for
+ * Discord, `shared_secret` for the providers that send the secret itself in a header, and
+ * `jws_hs256` for Netlify's signed JWT.
  */
+/**
+ * The signature schemes a manifest can name. `hmac_sha256` is the common one; `ed25519` is
+ * Discord's, where the key belongs to the provider rather than to Perch; `shared_secret` is the
+ * providers who simply send the secret back in a header (Cloudflare's `cf-webhook-auth`, Google's
+ * `X-Goog-Channel-Token`), which proves who sent it and says nothing about the body; `jws_hs256` is
+ * Netlify's signed JWT carrying the body's SHA-256.
+ */
+export const SIGNATURE_KINDS = [
+  "hmac_sha256",
+  "ed25519",
+  "shared_secret",
+  "jws_hs256",
+  "none",
+] as const;
+export type SignatureKind = (typeof SIGNATURE_KINDS)[number];
+
 const webhookSchema = z
   .object({
     /** The header carrying the signature. */
@@ -121,19 +147,28 @@ const manifestSchema = z
      */
     token_scheme: z.enum(["bearer", "raw"]).default("bearer"),
     /**
+     * The header the token rides in. `authorization` for almost everybody; HeyGen wants its key in
+     * `X-Api-Key` and nothing else (task 3.25).
+     */
+    token_header: z.string().min(1).default("authorization"),
+    /**
      * Headers the provider needs beyond the token, on the test call and on every REST call Perch
      * makes for it. Notion refuses a request without `Notion-Version` (task 3.11).
      */
     headers: z.record(z.string(), z.string()).default({}),
-    /** Where the account name is in the test call's answer, so a card can show who it speaks as. */
+    /**
+     * Where the account name is in the test call's answer, so a card can show who it speaks as. A
+     * dotted path, because a provider that wraps its answer — Cloudflare's `result`, X's `data` —
+     * still has a name in there somewhere (task 3.25).
+     */
     account_field: z.string().optional(),
     oauth: oauthSchema.optional(),
     /** The Streamable HTTP MCP server this provider exposes, when it has one (task 1.17). */
     mcp_url: z.url().optional(),
     /** How to browse this provider's database, when it has one (task 2.15). */
     db: dbSchema.optional(),
-    /** How inbound webhooks are signed, when this provider sends them (task 3.4). */
-    webhook_signature: z.enum(["hmac_sha256", "none"]).default("none"),
+    /** How inbound webhooks are signed, when this provider sends them (task 3.4, task 3.25). */
+    webhook_signature: z.enum(SIGNATURE_KINDS).default("none"),
     /** Where the signature and the delivery's own identity are, in this provider's headers. */
     webhook: webhookSchema,
   })
@@ -170,6 +205,13 @@ export function parseManifest(source: string): Manifest {
       "mcp_url: required when db is set",
     ]);
   }
+  // Ed25519 signatures are 64 bytes of hex on every provider that sends them; the verifier reads
+  // them that way, so a manifest that says otherwise would be quietly unverifiable (task 3.25).
+  if (data.webhook_signature === "ed25519" && data.webhook.encoding !== "hex") {
+    throw new ManifestError("an ed25519 signature is hex", [
+      "webhook.encoding: must be hex when webhook_signature is ed25519",
+    ]);
+  }
   if (data.auth.includes("oauth2") && !data.oauth) {
     throw new ManifestError("a manifest with the oauth2 lane needs an oauth block", [
       "oauth: required when auth includes oauth2",
@@ -200,4 +242,44 @@ export function apiBaseOf(manifest: Manifest, override?: string | null): string 
  */
 export function mcpUrlOf(manifest: Manifest, override?: string | null): string | null {
   return override?.trim() || manifest.mcp_url || null;
+}
+
+/**
+ * The headers a call to this provider carries the token in (task 3.25). One place, because the
+ * test call, the REST helpers, and the gateway must all put it in the same header the same way —
+ * and because a token that ends up in a second header is a token in a second log.
+ */
+export function tokenHeaders(
+  manifest: Pick<Manifest, "token_scheme" | "token_header" | "headers">,
+  token: string,
+): Record<string, string> {
+  const value = manifest.token_scheme === "raw" ? token : `Bearer ${token}`;
+  return { [manifest.token_header.toLowerCase()]: value, ...manifest.headers };
+}
+
+/**
+ * Who the test call says this connection speaks as. `account_field` is a dotted path, so a provider
+ * that wraps its answer is read the same way as one that does not (task 3.25).
+ */
+export function accountFrom(
+  manifest: Pick<Manifest, "account_field">,
+  body: unknown,
+): string | null {
+  const path = manifest.account_field;
+  if (!path) return null;
+  let at: unknown = body;
+  for (const step of path.split(".")) {
+    if (at === null || typeof at !== "object") return null;
+    at = (at as Record<string, unknown>)[step];
+  }
+  return typeof at === "string" ? at : null;
+}
+
+/**
+ * Whether the key that checks a delivery is the provider's rather than one Perch generates. Ed25519
+ * is asymmetric: Discord signs with a private key nobody else has and publishes the public half, so
+ * making an endpoint for it means pasting that half in rather than pasting a secret out (task 3.25).
+ */
+export function keyIsTheProviders(manifest: Pick<Manifest, "webhook_signature">): boolean {
+  return manifest.webhook_signature === "ed25519";
 }

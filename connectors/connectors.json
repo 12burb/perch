@@ -1,5 +1,5 @@
 {
-  "$comment": "The connectors that ship with Perch (spec \u00a75.5). Each id is a directory with a manifest.yaml.",
+  "$comment": "The connectors that ship with Perch (spec §5.5). Each id is a directory with a manifest.yaml.",
   "connectors": [
     {
       "id": "github",
@@ -24,6 +24,84 @@
       "name": "Clerk",
       "manifest": "clerk/manifest.yaml",
       "since": "2.14"
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "manifest": "slack/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "manifest": "linear/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "manifest": "notion/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "manifest": "sentry/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "manifest": "stripe/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "manifest": "discord/manifest.yaml",
+      "since": "3.11"
+    },
+    {
+      "id": "google-workspace",
+      "name": "Google Workspace",
+      "manifest": "google-workspace/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "jira",
+      "name": "Jira",
+      "manifest": "jira/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "manifest": "cloudflare/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "railway",
+      "name": "Railway",
+      "manifest": "railway/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "netlify",
+      "name": "Netlify",
+      "manifest": "netlify/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "heygen",
+      "name": "HeyGen",
+      "manifest": "heygen/manifest.yaml",
+      "since": "3.25"
+    },
+    {
+      "id": "x",
+      "name": "X",
+      "manifest": "x/manifest.yaml",
+      "since": "3.25"
     }
   ]
 }

@@ -42,6 +42,12 @@ const createBody = z
     name: z.string().min(1).max(120),
     channel_id: z.uuid(),
     connection_id: z.uuid().optional(),
+    /**
+     * The provider's own public key, for a provider that signs with one — Discord's Ed25519 key
+     * (task 3.25). Every other provider is verified with a secret Perch generates, and sending a
+     * key for one of those is refused rather than ignored.
+     */
+    key: z.string().min(1).max(200).optional(),
   })
   .openapi("CreateWebhook");
 
@@ -72,10 +78,10 @@ const createRouteDef = createRoute({
   request: { params: wsParam, body: { content: { "application/json": { schema: createBody } } } },
   responses: {
     201: {
-      description: "The endpoint, and its secret",
+      description: "The endpoint, and its secret — null when the key was the provider's own",
       content: {
         "application/json": {
-          schema: z.object({ webhook: webhookSchema, secret: z.string() }),
+          schema: z.object({ webhook: webhookSchema, secret: z.string().nullable() }),
         },
       },
     },
@@ -124,6 +130,7 @@ export function registerWebhooks(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       name: body.name,
       channelId: body.channel_id,
       ...(body.connection_id ? { connectionId: body.connection_id } : {}),
+      ...(body.key ? { key: body.key } : {}),
       createdBy: currentUser(c).id,
       by: actorOf(c),
     });

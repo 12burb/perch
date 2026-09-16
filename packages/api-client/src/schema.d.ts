@@ -12176,7 +12176,7 @@ export type paths = {
                 };
             };
             responses: {
-                /** @description The endpoint, and its secret */
+                /** @description The endpoint, and its secret — null when the key was the provider's own */
                 201: {
                     headers: {
                         [name: string]: unknown;
@@ -12184,7 +12184,7 @@ export type paths = {
                     content: {
                         "application/json": {
                             webhook: components["schemas"]["Webhook"];
-                            secret: string;
+                            secret: string | null;
                         };
                     };
                 };
@@ -14385,6 +14385,7 @@ export type components = {
             channel_id: string;
             /** Format: uuid */
             connection_id?: string;
+            key?: string;
         };
         PushKey: {
             /** @description The instance's VAPID public key */
