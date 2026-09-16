@@ -198,10 +198,14 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
   // connection. Both are the roster's own agents — this only says where they live.
   const bots = await page.evaluate(
     async (input) => {
-      const listed = (await (await fetch(`/api/workspaces/${input.ws}/bots`)).json()) as {
-        bots: { id: string; handle: string }[];
-      };
-      const idOf = (handle: string) => listed.bots.find((one) => one.handle === handle)?.id ?? "";
+      const roster = async () =>
+        (
+          (await (await fetch(`/api/workspaces/${input.ws}/bots`)).json()) as {
+            bots: { id: string; handle: string }[];
+          }
+        ).bots;
+      let listed = await roster();
+      const idOf = (handle: string) => listed.find((one) => one.handle === handle)?.id ?? "";
       const patch = async (id: string, body: unknown) =>
         (
           await fetch(`/api/workspaces/${input.ws}/bots/${id}`, {
@@ -218,6 +222,12 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
             body: JSON.stringify({ channel_id: input.ship }),
           })
         ).status;
+      // The button's install is a request of its own; a list read the instant it was clicked can
+      // be a list without them in it yet.
+      for (let i = 0; i < 120 && !(idOf("dawn") && idOf("kimi")); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        listed = await roster();
+      }
       const dawn = idOf("dawn");
       const kimi = idOf("kimi");
       await patch(dawn, {
