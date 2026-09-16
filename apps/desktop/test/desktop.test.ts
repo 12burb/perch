@@ -276,13 +276,19 @@ describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer
      * for a while after the process that opened it is gone, so this used to fail the suite with
      * EBUSY after every assertion in it had passed. Whether a temp directory was deleted is not
      * something this suite is testing, and the runner's temp is wiped either way.
+     *
+     * The retry budget is the point: 20 retries at 250 ms is five seconds, which is exactly Bun's
+     * default hook timeout, so a directory Windows would not release failed the suite again — this
+     * time as "a beforeEach/afterEach hook timed out" rather than as EBUSY. Three quick tries take
+     * a third of a second, and the hook gets its own generous timeout on top, so neither the
+     * waiting nor the failing can come back.
      */
     try {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch (error) {
       console.log(`left ${dir} behind: ${error instanceof Error ? error.message : String(error)}`);
     }
-  });
+  }, 30_000);
 
   test("--check loads the platform webview", async () => {
     expect(nativeError).toBe("");
