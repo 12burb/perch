@@ -256,6 +256,46 @@ no tokens, and `http_fetch` refuses anything that resolves inside the network Pe
 `web_search` goes to whatever endpoint `PERCH_SEARCH_URL` names (Brave-shaped) with
 `PERCH_SEARCH_KEY`; without one the tool says it is not configured rather than inventing an answer.
 
+## Tools from an MCP server
+
+A bot can reach any MCP server a connection stands for — a provider's own, or one an admin pasted
+the URL of — by naming the connection in its spec (spec §5.3 "MCP attach (any MCP server)"):
+
+```yaml
+mcp:
+  - connection: github          # the connection's id, or its provider
+    tools: [list_issues]        # optional: fewer than the grant allows, never more
+```
+
+The spec only ever *asks*. What the bot may actually reach is the grant an admin gave it on the
+Connections page — the connection, the tools, and whether each one needs a person. A connection
+nobody granted the bot contributes nothing and the run carries on without it.
+
+Attached tools arrive in the turn as `mcp__<provider>__<tool>`, so an upstream cannot publish a
+`remember` and have it mistaken for the native one, and every answer comes back inside the same
+`<untrusted>` wrapper as a fetched page. **The credential never enters the turn**: the call goes out
+through the MCP gateway, which attaches the connection's own token on the api's side of the proxy,
+and the bot's context holds the tool's name, its arguments and its answer — nothing else.
+
+### When a tool needs a person
+
+A grant can mark tools `requires_permission` (spec §3.5). When the model calls one, nothing goes
+upstream. The call is written down as pending, and the question is asked twice over: an Approve /
+Deny card in the thread it came from, and an item in the inbox of whoever set the bot running — or
+the bot's owner, when a schedule or a webhook did. The bot is told it has asked, and stops.
+
+Approving runs the call then, on the connection's own token, and posts what came back in the same
+thread. Whoever answers first is who it says; the grant is checked again at that moment, so a
+permission taken away while the question sat there is a refusal, not a call.
+
+```
+GET  /api/workspaces/{ws}/bot-tool-calls            what is still waiting
+POST /api/workspaces/{ws}/bot-tool-calls/{id}/decide  {"decision": "approved" | "denied"}
+```
+
+Deciding needs `connections.write` and membership of the channel the question was asked in: somebody
+who cannot see the thread cannot answer for it.
+
 ## Bots tagging bots
 
 A mention is how bots work together (spec §5.4), and it is the same mention a person writes: a bot

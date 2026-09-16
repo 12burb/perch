@@ -8,15 +8,26 @@ import type {
   BotInstall,
   BotMemory,
   BotRun,
+  BotToolCall,
   Db,
   NewBot,
   NewBotChain,
   NewBotRun,
+  NewBotToolCall,
 } from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 
-const { bots, botInstalls, botRuns, botMemories, botChains, channels, channelMembers } = schema;
+const {
+  bots,
+  botInstalls,
+  botRuns,
+  botMemories,
+  botChains,
+  botToolCalls,
+  channels,
+  channelMembers,
+} = schema;
 
 /** The bots this person can see: the workspace's own, plus their own private ones. */
 export async function listBots(db: Db, workspaceId: string, userId: string): Promise<Bot[]> {
@@ -396,4 +407,70 @@ export async function lastScheduledRuns(
     out.set(ref, { at: row.startedAt, status: row.status, error: row.error });
   }
   return out;
+}
+
+/** A tool call a bot wants to make and a person has to approve (task 3.6). */
+export async function insertBotToolCall(db: Db, values: NewBotToolCall): Promise<BotToolCall> {
+  const [row] = await db.insert(botToolCalls).values(values).returning();
+  if (!row) throw new Error("insert bot_tool_calls returned no row");
+  return row;
+}
+
+export async function getBotToolCall(db: Db, id: string): Promise<BotToolCall | null> {
+  const [row] = await db.select().from(botToolCalls).where(eq(botToolCalls.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function decideBotToolCall(
+  db: Db,
+  id: string,
+  values: { status: BotToolCall["status"]; decidedBy?: string | null; error?: string | null },
+): Promise<BotToolCall | null> {
+  const [row] = await db
+    .update(botToolCalls)
+    .set({
+      status: values.status,
+      decidedAt: new Date(),
+      ...(values.decidedBy === undefined ? {} : { decidedBy: values.decidedBy }),
+      ...(values.error === undefined ? {} : { error: values.error }),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(botToolCalls.id, id), eq(botToolCalls.status, "pending")))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * The outcome of a call that was already claimed, which `decideBotToolCall` cannot write: it only
+ * moves a row out of `pending`, and by the time the gateway answers the row has already moved.
+ */
+export async function markBotToolCall(
+  db: Db,
+  id: string,
+  values: { status: BotToolCall["status"]; error?: string | undefined },
+): Promise<BotToolCall | null> {
+  const [row] = await db
+    .update(botToolCalls)
+    .set({
+      status: values.status,
+      ...(values.error === undefined ? {} : { error: values.error }),
+      updatedAt: new Date(),
+    })
+    .where(eq(botToolCalls.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/** What is still waiting on somebody, newest first: the workspace's open permission prompts. */
+export async function pendingBotToolCalls(
+  db: Db,
+  workspaceId: string,
+  limit = 50,
+): Promise<BotToolCall[]> {
+  return await db
+    .select()
+    .from(botToolCalls)
+    .where(and(eq(botToolCalls.workspaceId, workspaceId), eq(botToolCalls.status, "pending")))
+    .orderBy(desc(botToolCalls.createdAt))
+    .limit(limit);
 }

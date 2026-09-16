@@ -11,6 +11,9 @@ import type { BotTool } from "@perch/db";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 
+/** The shape the model runtime wants a tool registry in. Re-exported so nothing else needs `ai`. */
+export type { ToolSet } from "ai";
+
 export type SearchHit = { title: string; url: string; snippet: string };
 /** What another bot said back, when one was tagged (spec §5.4). */
 export type BotReply = { handle: string; text: string; at: string };

@@ -118,6 +118,7 @@ export async function upsertGrant(
     subjectType: GrantSubject;
     subjectId: string;
     allowedTools: string[] | null;
+    requiresPermission: string[] | null;
     channels: string[] | null;
     obo: boolean;
     grantedBy: string;
@@ -134,6 +135,7 @@ export async function upsertGrant(
       ],
       set: {
         allowedTools: values.allowedTools,
+        requiresPermission: values.requiresPermission,
         channels: values.channels,
         obo: values.obo,
         updatedAt: new Date(),
@@ -204,4 +206,13 @@ export function listOauthClients(db: Db, workspaceId: string): Promise<OauthClie
     .from(oauthClients)
     .where(or(eq(oauthClients.workspaceId, workspaceId), isNull(oauthClients.workspaceId)))
     .orderBy(asc(oauthClients.provider));
+}
+
+/** Every workspace-owned connection here (task 3.6): what a bot may be granted. */
+export function workspaceConnections(db: Db, workspaceId: string): Promise<Connection[]> {
+  return db
+    .select()
+    .from(connections)
+    .where(and(eq(connections.workspaceId, workspaceId), eq(connections.ownerType, "workspace")))
+    .orderBy(asc(connections.provider));
 }

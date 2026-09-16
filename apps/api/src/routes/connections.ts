@@ -143,6 +143,8 @@ const grantSchema = z
     subject_id: z.uuid(),
     /** Null means every tool the connection exposes. */
     allowed_tools: z.array(z.string()).nullable(),
+    /** Tools a person has to say yes to, every time (spec §3.5; task 3.6). Null is none. */
+    requires_permission: z.array(z.string()).nullable(),
     channels: z.array(z.string()).nullable(),
     /** Whether it may use this connection only for the person it belongs to (spec §3.5). */
     obo: z.boolean(),
@@ -157,6 +159,7 @@ const grantBody = z
     subject_type: z.enum(GRANT_SUBJECTS),
     subject_id: z.uuid(),
     allowed_tools: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
+    requires_permission: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
     channels: z.array(z.string().min(1).max(200)).max(200).nullable().optional(),
     obo: z.boolean().optional(),
   })
@@ -606,6 +609,9 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
       subjectType: body.subject_type,
       subjectId: body.subject_id,
       ...(body.allowed_tools === undefined ? {} : { allowedTools: body.allowed_tools }),
+      ...(body.requires_permission === undefined
+        ? {}
+        : { requiresPermission: body.requires_permission }),
       ...(body.channels === undefined ? {} : { channels: body.channels }),
       ...(body.obo === undefined ? {} : { obo: body.obo }),
       grantedBy: user.id,
@@ -671,6 +677,7 @@ function grantBodyOf(row: ConnectionGrant) {
     subject_type: row.subjectType,
     subject_id: row.subjectId,
     allowed_tools: row.allowedTools ?? null,
+    requires_permission: row.requiresPermission ?? null,
     channels: row.channels ?? null,
     obo: row.obo,
     created_at: row.createdAt.toISOString(),

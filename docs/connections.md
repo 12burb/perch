@@ -86,6 +86,11 @@ refused outright, with a 403 that says so. A bot that is yours alone, or a conne
 owns, has no such restriction — this is the rule that stops "ask the shared bot to do it" from
 becoming a way to borrow somebody's login (spec §3.5, AGENTS.md §1.6).
 
+A grant can also mark some of its tools **requires_permission** (spec §3.5). Those stay in the
+bot's toolbox, but calling one parks the call and asks a person — a card in the thread and an item
+in their inbox — and it runs only once somebody says yes. See
+[Tools from an MCP server](bots.md#tools-from-an-mcp-server).
+
 Taking a grant away takes effect on the next call: nothing is cached past the request that used it.
 
 ## Scope

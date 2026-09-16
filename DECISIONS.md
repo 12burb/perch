@@ -4493,3 +4493,61 @@ worker that claims a job forty seconds after it was due should run it whatever t
 The schedules endpoint indexes by position among the *scheduled* triggers, which is the same index
 `reschedule` uses for its `bot:<id>:<n>` keys. Reordering a bot's triggers reshuffles those keys,
 which is already true and is why `reschedule` unschedules every key beyond the current count.
+
+## ADR-0121: A bot's MCP tools are its grant, not its spec
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.6
+
+### Context
+Spec §5.3 ends the native tool list with "MCP attach (any MCP server)", and §3.5 says a tool marked
+`requires_permission` "returns pending + inbox item, completes on approval". A bot's spec is a
+document its author writes; a connection is a credential an admin added. If the spec decided what a
+bot could reach, writing `mcp: [{connection: github}]` into a YAML file would be enough to spend
+somebody else's token.
+
+### Decision
+**The spec asks, the grant answers.** `spec.mcp` is a list of connections a bot would like, and it
+is only ever narrowing: `narrowTools(grant, asked)` intersects the two, so a spec can ask for fewer
+tools than it was granted and never for more. A connection with no grant for that bot contributes
+nothing and says so in the log rather than failing the turn — a hopeful spec should be quiet, not
+broken.
+
+**The tools are built where the model runtime lives.** `packages/bots/src/mcp.ts` turns a list of
+`AttachedServer` — a provider name, its tools, and two closures — into a `ToolSet`. The api closes
+those over the gateway; nothing in `packages/bots` can see a connection, a vault or a token, which
+is what keeps AGENTS.md §1.6 true by construction rather than by review. `apps/api` gained no
+dependency on `ai` for this: the `ToolSet` type is re-exported from `@perch/bots`.
+
+**A tool from an upstream is namespaced and wrapped.** `mcp__<provider>__<tool>`, so an upstream
+cannot publish a tool called `remember` and shadow a native one, and every answer comes back through
+`untrusted()` — an MCP server is somebody else's words, the same as a fetched page.
+
+**A permission is a row, not a held-open turn.** The bot's turn does not wait for a person: the call
+is written to `bot_tool_calls` as `pending`, the model is told it asked and should stop, and the
+question is put twice over — an `approve_deny` card in the thread, and an inbox item. Approving
+moves the row out of `pending` in one statement (so two people pressing Approve run the call once),
+re-checks the grant (it may have been revoked while it waited), runs it through the gateway, and
+posts the result in the thread. The alternative — blocking the turn on a human — holds a model
+connection open for as long as somebody takes to look at their phone.
+
+**Two events the spec's §7.7 list does not name.** `bot.permission_requested` and
+`bot.permission_answered` exist because the inbox subscribes to the bus and never to a feature
+(§9.1). Without them the bots service would have to write inbox rows itself, which is the coupling
+that rule exists to prevent. This is the deviation from §7.7 this task carries.
+
+**Runner-local stdio is a different job.** §11's line for this task names three sources: a
+connection's server, a pasted URL, and a runner-local stdio one. The first two are the same code
+path — a connection whose `mcp_url` points wherever an admin pasted — and ship here. The third is a
+runner protocol method (`mcp.spawn`, §7.6, shaped but not implemented) plus a JSON-RPC transport
+over a runner stream socket, with no credential and no grant in it at all. It is task 3.24.
+
+### Consequences
+A bot's permission card is posted by the bot, so it arrives in the thread under what was asked and
+answers through the interaction seam every other block uses (task 2.5). It carries the bot's *name*
+rather than its handle, because a card that says `@scout` would mention the bot that posted it.
+
+`requires_permission` is per grant, not per manifest: the same tool can need a person for a bot in
+a shared channel and not for a session its owner is watching. A manifest-level default would be a
+better answer for the common case, and can be added later without moving this.

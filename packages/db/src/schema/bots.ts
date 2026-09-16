@@ -270,3 +270,52 @@ export type BotMemory = typeof botMemories.$inferSelect;
 export type NewBotMemory = typeof botMemories.$inferInsert;
 export type BotChain = typeof botChains.$inferSelect;
 export type NewBotChain = typeof botChains.$inferInsert;
+
+/** pending: waiting for a person; the rest is what happened after they answered. */
+export const BOT_TOOL_CALL_STATUSES = ["pending", "denied", "done", "error"] as const;
+export type BotToolCallStatus = (typeof BOT_TOOL_CALL_STATUSES)[number];
+
+/**
+ * A tool call a bot wanted to make and a person has to say yes to (spec §3.5, §5.3; task 3.6).
+ *
+ * The row is the record and the queue: the bot's turn does not wait, the person answers in their
+ * inbox, and the call runs then — with the result posted where the bot was asked. Arguments are
+ * kept because a person cannot approve a call they cannot read.
+ */
+export const botToolCalls = pgTable(
+  "bot_tool_calls",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    botId: uuid("bot_id")
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** The message the bot was answering, so the result lands in that thread. */
+    threadRootId: uuid("thread_root_id"),
+    connectionId: uuid("connection_id").notNull(),
+    /** Whose turn set it off, when a person's did: the one who is asked to say yes. */
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    tool: text("tool").notNull(),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull().default({}),
+    status: text("status").$type<BotToolCallStatus>().notNull().default("pending"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamptz("decided_at"),
+    error: text("error"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("bot_tool_calls_bot_idx").on(t.botId),
+    index("bot_tool_calls_status_idx").on(t.status),
+    check(
+      "bot_tool_calls_status_check",
+      sql`${t.status} in ('pending', 'denied', 'done', 'error')`,
+    ),
+  ],
+);
+export type BotToolCall = typeof botToolCalls.$inferSelect;
+export type NewBotToolCall = typeof botToolCalls.$inferInsert;

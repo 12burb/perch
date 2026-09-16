@@ -52,9 +52,15 @@ const ADDITIVE_API_TO_RUNNER = [
 ];
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
- * deploy.started (ADR-0106).
+ * deploy.started (ADR-0106), bot.permission_requested / bot.permission_answered (ADR-0121).
  */
-const ADDITIVE_BUS_EVENTS = ["session.turn", "session.status", "deploy.started"];
+const ADDITIVE_BUS_EVENTS = [
+  "session.turn",
+  "session.status",
+  "deploy.started",
+  "bot.permission_requested",
+  "bot.permission_answered",
+];
 
 describe("bus event catalog (spec §7.7)", () => {
   test("every event in the spec catalog has a schema, and nothing else does", () => {

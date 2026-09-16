@@ -165,6 +165,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     policy,
     queue,
     log,
+    // MCP attach (spec §5.3; task 3.6): the grant decides what a bot may reach, the gateway
+    // carries the connection's own token, and the bot's context never sees either.
+    connections,
+    mcp,
     ...(env.search ? { search: env.search } : {}),
   });
   // Bots that live in a project's repository (spec §5.3; task 3.1): the sync needs the bot service

@@ -118,6 +118,12 @@ export const connectionGrants = pgTable(
     /** Null means every tool the connection exposes; a list narrows it (task 1.17). */
     allowedTools: jsonb("allowed_tools").$type<string[]>(),
     channels: jsonb("channels").$type<string[]>(),
+    /**
+     * Tools a person has to say yes to, every time (spec §3.5 "tool marked requires_permission
+     * returns pending + inbox item, completes on approval"; §5.3 "write-tools prompt for
+     * permission in shared channels"; task 3.6). Null is none.
+     */
+    requiresPermission: jsonb("requires_permission").$type<string[]>(),
     /** On behalf of: a shared bot may use a personal connection only for the person who invoked it. */
     obo: boolean("obo").notNull().default(false),
     grantedBy: uuid("granted_by")

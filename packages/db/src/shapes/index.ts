@@ -436,6 +436,23 @@ export const botSpecSchema = z
     tools: z.array(z.enum(BOT_TOOLS)).optional(),
     triggers: z.array(botTriggerSchema).max(20).optional(),
     /**
+     * MCP servers this bot may reach (spec §5.3 "MCP attach (any MCP server)"; task 3.6). Each is a
+     * connection this workspace has, granted to this bot; `tools` narrows further than the grant
+     * does, never wider. The credential stays in the vault: the gateway carries it (AGENTS.md §1.6).
+     */
+    mcp: z
+      .array(
+        z
+          .object({
+            /** The connection's id, or its provider when the workspace has one of them. */
+            connection: z.string().min(1).max(120),
+            tools: z.array(z.string().min(1).max(120)).max(50).optional(),
+          })
+          .strict(),
+      )
+      .max(10)
+      .optional(),
+    /**
      * The zone this bot's schedules are read in (spec §5.3's `schedule (cron)`; task 3.5). "0 9 *
      * * 1-5" means nine in the morning where the person who wrote it lives. An IANA name —
      * `Europe/London`, `America/New_York`; UTC when nobody said.

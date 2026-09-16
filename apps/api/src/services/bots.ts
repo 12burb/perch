@@ -11,6 +11,7 @@
  * as a message that fills in rather than a response somebody waited for.
  */
 import {
+  type AttachedServer,
   type BotEvents,
   type BotHost,
   type BotReply,
@@ -23,13 +24,16 @@ import {
   inScope,
   type MemoryHit,
   mayHop,
+  mcpTools,
   runBot,
   type SearchHit,
   schedules,
   summarize,
+  type ToolSet,
   type TriggerEvent,
   toolsFor,
   withinBudget,
+  wrapResult,
 } from "@perch/bots";
 import { type CodeBotEvent, runCodeBot } from "@perch/bots/sandbox";
 import type { Bus } from "@perch/bus";
@@ -40,8 +44,10 @@ import type {
   BotRun,
   BotSpec,
   BotTool,
+  BotToolCall,
   ChainMode,
   Channel,
+  Connection,
   Db,
   Message,
   MessageBlock,
@@ -59,15 +65,19 @@ import {
   botsInChannel,
   chainOf,
   channelForBot,
+  decideBotToolCall,
   deleteBot,
   findInstall,
   finishHop,
   finishRun,
   getBot,
+  getBotToolCall,
   insertBot,
+  insertBotToolCall,
   installBot,
   installsOf,
   keepMemory,
+  markBotToolCall,
   recallMemories,
   spending,
   startHop,
@@ -76,6 +86,7 @@ import {
   updateBot,
 } from "../repos/bots.ts";
 import { addMember, findBotDm, getChannel, insertChannel } from "../repos/channels.ts";
+import { getConnection, workspaceConnections } from "../repos/connections.ts";
 import {
   getMessage,
   getMessageRow,
@@ -87,6 +98,8 @@ import {
 import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
 import type { BrainsService } from "./brains.ts";
+import type { ConnectionsService } from "./connections.ts";
+import type { McpGateway } from "./mcp.ts";
 import type { PolicyService } from "./policy.ts";
 
 export type BotsDeps = {
@@ -101,6 +114,10 @@ export type BotsDeps = {
   log: Logger;
   /** The search endpoint a bot's web_search uses, when this Perch has one. */
   search?: { url: string; key: string | undefined } | undefined;
+  /** Whether an attached connection is this bot's to use (spec §3.5; task 3.6). */
+  connections?: Pick<ConnectionsService, "mayUse"> | undefined;
+  /** The gateway an attached MCP server is reached through; the credential stays in the vault. */
+  mcp?: Pick<McpGateway, "tools" | "call"> | undefined;
 };
 
 export type BotsOptions = {
@@ -132,6 +149,13 @@ export type RunInput = {
 export type RunOutcome = { run: BotRun; text: string };
 
 const DEFAULT_WINDOW = 20;
+/** Both lists, narrowed: the grant decides, and a bot's spec may only ask for less (task 3.6). */
+export function narrowTools(grant: string[] | null, asked: string[] | null): string[] | null {
+  if (!grant) return asked;
+  if (!asked) return grant;
+  return grant.filter((one) => asked.includes(one));
+}
+
 /** How late a missed firing may be and still run, when the trigger does not say (task 3.5). */
 export const DEFAULT_CATCH_UP_MINUTES = 60;
 const PLACEHOLDER = "…";
@@ -150,6 +174,8 @@ const BREAKER = "chain.breaker";
 const ALLOWANCE = "chain.allowance";
 /** What the intervene card asks (spec §5.4 "Continue/Stop"). */
 const INTERVENE_ACTION = "chain.intervene";
+/** What the permission card asks (spec §3.5 "pending + inbox item, completes on approval"). */
+export const TOOL_CALL_ACTION = "connection.tool_call";
 /** A spec may carry at most this many triggers (the shape caps it at 20). */
 const MAX_SCHEDULES = 20;
 
@@ -359,6 +385,10 @@ export class BotsService {
       this.deps.botEvents.subscribe((event) => {
         if (event.type !== "interaction.received") return;
         const payload = event.payload as InteractionReceived;
+        if (payload.action === TOOL_CALL_ACTION) {
+          this.track(this.decided(payload));
+          return;
+        }
         if (payload.action !== INTERVENE_ACTION) return;
         this.track(this.intervened(payload.block_id, payload.values.decision ?? ""));
       }),
@@ -427,6 +457,215 @@ export class BotsService {
       },
       message,
     );
+  }
+
+  /**
+   * The MCP servers this bot's spec names, narrowed by what it was granted (spec §5.3, §3.5; task
+   * 3.6). A connection nobody granted it contributes nothing, and says so in the log: a bot with a
+   * hopeful spec should be quiet rather than broken.
+   */
+  private async attachedTools(bot: Bot, channel: Channel, input: RunInput): Promise<ToolSet> {
+    const wanted = bot.spec.mcp ?? [];
+    if (wanted.length === 0 || !this.deps.connections || !this.deps.mcp) return {};
+    const rows = await workspaceConnections(this.deps.db, bot.workspaceId);
+    const servers: AttachedServer[] = [];
+    // Whose turn this is: an `obo` grant is only good for the person the connection belongs to.
+    const invokedBy = input.by.actor.type === "user" ? (input.by.actor.id ?? null) : null;
+    for (const entry of wanted) {
+      const connection =
+        rows.find((row) => row.id === entry.connection) ??
+        rows.find((row) => row.provider === entry.connection);
+      if (!connection) continue;
+      const may = await this.deps.connections.mayUse({
+        connection,
+        subjectType: "bot",
+        subjectId: bot.id,
+        invokedBy,
+      });
+      if (!may.ok) {
+        this.deps.log.info(
+          { botId: bot.id, connectionId: connection.id, reason: may.reason },
+          "a bot's attached connection is not its to use",
+        );
+        continue;
+      }
+      // The grant decides; the spec may ask for less and never for more.
+      const allowList = narrowTools(may.allowedTools, entry.tools ?? null);
+      const needs = new Set(may.requiresPermission ?? []);
+      const upstream = await this.deps.mcp.tools(connection, allowList).catch((error: unknown) => {
+        this.deps.log.warn(
+          { err: error, connectionId: connection.id },
+          "an attached MCP server would not list its tools",
+        );
+        return [];
+      });
+      servers.push({
+        provider: connection.provider,
+        tools: upstream.map((one) => ({ name: one.name, description: one.description })),
+        needsPerson: (name: string) => needs.has(name),
+        call: async (name: string, args: Record<string, unknown>) =>
+          await this.deps.mcp?.call({
+            connection,
+            allowList,
+            tool: name,
+            args,
+            by: input.by,
+            callerId: bot.id,
+          }),
+        ask: async (name: string, args: Record<string, unknown>) =>
+          await this.askPermission(bot, channel, input, connection, name, args),
+      });
+    }
+    return mcpTools(servers);
+  }
+
+  /**
+   * A tool a person has to say yes to (spec §3.5 "returns pending + inbox item, completes on
+   * approval"). The turn does not wait: the call is written down, the person finds it in their
+   * inbox, and the answer arrives in the thread when they have decided.
+   */
+  private async askPermission(
+    bot: Bot,
+    channel: Channel,
+    input: RunInput,
+    connection: Connection,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<string> {
+    const threadRootId = input.message?.threadRootId ?? input.message?.id ?? null;
+    const requestedBy = input.by.actor.type === "user" ? (input.by.actor.id ?? null) : null;
+    const row = await insertBotToolCall(this.deps.db, {
+      workspaceId: bot.workspaceId,
+      botId: bot.id,
+      channelId: channel.id,
+      threadRootId,
+      connectionId: connection.id,
+      requestedBy,
+      tool: name,
+      args,
+    });
+    // The card is where a person answers it (spec §5.3 "write-tools prompt for permission in
+    // shared channels"); the inbox item the event raises is the same question on their phone.
+    await this.post(channel, threadRootId, bot, [
+      {
+        type: "approve_deny",
+        id: `${TOOL_CALL_ACTION}:${row.id}`,
+        action: TOOL_CALL_ACTION,
+        text: `${bot.name} wants to call ${connection.provider}/${name}`,
+      },
+    ]);
+    await this.deps.bus.publish(
+      "bot.permission_requested",
+      {
+        workspaceId: bot.workspaceId,
+        botId: bot.id,
+        callId: row.id,
+        channelId: channel.id,
+        tool: `${connection.provider}/${name}`,
+        requestedBy,
+      },
+      input.by,
+    );
+    return `Asked a person to approve ${connection.provider}/${name}. Nothing has happened yet; say so and stop.`;
+  }
+
+  /**
+   * A person answered (spec §3.5 "completes on approval"). Approving runs the call the bot parked
+   * — through the gateway, so the credential is still the connection's and still in the vault —
+   * and posts what came back in the thread the bot was asked in. Denying says so and stops.
+   *
+   * Whoever answers first is who it says: the row moves out of `pending` in one statement, so two
+   * people pressing Approve run the call once.
+   */
+  async decideToolCall(input: {
+    callId: string;
+    decision: "approved" | "denied";
+    userId: string;
+    by: ActorContext;
+  }): Promise<BotToolCall> {
+    const call = await getBotToolCall(this.deps.db, input.callId);
+    if (!call) throw PerchError.notFound("tool call");
+    if (call.status !== "pending") throw PerchError.conflict("somebody has already answered that");
+    const claimed = await decideBotToolCall(this.deps.db, call.id, {
+      status: input.decision === "denied" ? "denied" : "done",
+      decidedBy: input.userId,
+    });
+    if (!claimed) throw PerchError.conflict("somebody has already answered that");
+    const bot = await getBot(this.deps.db, call.botId);
+    const channel = await getChannel(this.deps.db, call.channelId);
+    const answered = async (text: string, outcome: BotToolCall["status"], error?: string) => {
+      if (bot && channel)
+        await this.post(channel, call.threadRootId, bot, [{ type: "text", text }]);
+      await this.deps.bus.publish(
+        "bot.permission_answered",
+        {
+          workspaceId: call.workspaceId,
+          botId: call.botId,
+          callId: call.id,
+          decision: input.decision,
+        },
+        input.by,
+      );
+      return outcome === "done" && !error
+        ? claimed
+        : ((await markBotToolCall(this.deps.db, call.id, { status: outcome, error })) ?? claimed);
+    };
+    const connection = await getConnection(this.deps.db, call.connectionId);
+    if (input.decision === "denied" || !connection) {
+      return await answered(
+        input.decision === "denied"
+          ? `Not doing ${call.tool}: somebody said no.`
+          : `Could not do ${call.tool}: that connection is gone.`,
+        input.decision === "denied" ? "denied" : "error",
+        input.decision === "denied" ? undefined : "connection is gone",
+      );
+    }
+    if (!this.deps.connections || !this.deps.mcp) {
+      return await answered(
+        `Could not do ${call.tool}: nothing here can reach it.`,
+        "error",
+        "no gateway",
+      );
+    }
+    // The grant is checked again, not remembered: it may have been taken away while this waited.
+    const may = await this.deps.connections.mayUse({
+      connection,
+      subjectType: "bot",
+      subjectId: call.botId,
+      invokedBy: call.requestedBy,
+    });
+    if (!may.ok) {
+      return await answered(`Not doing ${call.tool}: ${may.reason}`, "error", may.reason);
+    }
+    try {
+      const result = await this.deps.mcp.call({
+        connection,
+        allowList: may.allowedTools,
+        tool: call.tool,
+        args: call.args,
+        by: input.by,
+        callerId: call.botId,
+      });
+      return await answered(wrapResult(connection.provider, call.tool, result), "done");
+    } catch (error) {
+      const said = error instanceof Error ? error.message : String(error);
+      return await answered(`${call.tool} failed: ${said}`, "error", said);
+    }
+  }
+
+  /** The card's answer, which arrives on the Bot API seam like every other block's (task 2.5). */
+  private async decided(payload: InteractionReceived): Promise<void> {
+    const callId = payload.block_id.startsWith(`${TOOL_CALL_ACTION}:`)
+      ? payload.block_id.slice(TOOL_CALL_ACTION.length + 1)
+      : "";
+    const decision = payload.values.decision === "denied" ? "denied" : "approved";
+    if (!callId || payload.user.type !== "user") return;
+    await this.decideToolCall({
+      callId,
+      decision,
+      userId: payload.user.id,
+      by: { actor: { type: "user", id: payload.user.id }, meta: {} },
+    });
   }
 
   /**
@@ -1036,7 +1275,11 @@ export class BotsService {
       const model = await this.deps.brains.languageModel(profile, bot.ownerId);
       const messages = await this.conversation(bot, channel, input);
       const allowed = this.toolsAllowed(bot.spec, input.install ?? null);
-      const tools = toolsFor(allowed, this.hostFor(bot, channel, input));
+      // Native tools, plus anything an attached MCP server contributes (spec §5.3; task 3.6).
+      const tools = {
+        ...toolsFor(allowed, this.hostFor(bot, channel, input)),
+        ...(await this.attachedTools(bot, channel, input)),
+      };
       placeholder = input.quiet ? null : await this.say(bot, channel, input.message, PLACEHOLDER);
 
       const result = await runBot({

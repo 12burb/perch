@@ -7899,6 +7899,139 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/bot-tool-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tool calls waiting on a person (spec §3.5) */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description What is still pending */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            calls: components["schemas"]["BotToolCall"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/bot-tool-calls/{call}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or deny a bot's tool call; approving runs it and posts the result */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    call: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        decision: "approved" | "denied";
+                    };
+                };
+            };
+            responses: {
+                /** @description The call, as it stands after the decision */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BotToolCall"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bot/chat.postMessage": {
         parameters: {
             query?: never;
@@ -11384,6 +11517,7 @@ export type components = {
             /** Format: uuid */
             subject_id: string;
             allowed_tools: string[] | null;
+            requires_permission: string[] | null;
             channels: string[] | null;
             obo: boolean;
             created_at: string;
@@ -11394,6 +11528,7 @@ export type components = {
             /** Format: uuid */
             subject_id: string;
             allowed_tools?: string[] | null;
+            requires_permission?: string[] | null;
             channels?: string[] | null;
             obo?: boolean;
         };
@@ -11626,6 +11761,10 @@ export type components = {
                     catchUp?: boolean;
                     catchUpGraceMinutes?: number;
                 }[];
+                mcp?: {
+                    connection: string;
+                    tools?: string[];
+                }[];
                 timezone?: string;
                 scope?: {
                     channels?: string[];
@@ -11683,6 +11822,10 @@ export type components = {
                     catchUp?: boolean;
                     catchUpGraceMinutes?: number;
                 }[];
+                mcp?: {
+                    connection: string;
+                    tools?: string[];
+                }[];
                 timezone?: string;
                 scope?: {
                     channels?: string[];
@@ -11731,6 +11874,10 @@ export type components = {
                     channel?: string;
                     catchUp?: boolean;
                     catchUpGraceMinutes?: number;
+                }[];
+                mcp?: {
+                    connection: string;
+                    tools?: string[];
                 }[];
                 timezone?: string;
                 scope?: {
@@ -11854,6 +12001,31 @@ export type components = {
             scopes: ("chat:write" | "chat:read" | "channels:read" | "files:write" | "tools:call" | "sessions:open" | "work:write")[];
             expires_in_days?: number;
         };
+        BotToolCall: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            bot_id: string;
+            /** Format: uuid */
+            channel_id: string;
+            /** Format: uuid */
+            thread_root_id: string | null;
+            /** Format: uuid */
+            connection_id: string;
+            tool: string;
+            args: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status: "pending" | "denied" | "done" | "error";
+            /** Format: uuid */
+            requested_by: string | null;
+            /** Format: uuid */
+            decided_by: string | null;
+            decided_at: string | null;
+            error: string | null;
+            created_at: string;
+        };
         BotMessage: {
             /** @enum {boolean} */
             ok: true;
@@ -11912,15 +12084,6 @@ export type components = {
             } & {
                 [key: string]: unknown;
             })[];
-        };
-        BotToolCall: {
-            /** Format: uuid */
-            connection_id: string;
-            tool: string;
-            /** @default {} */
-            args: {
-                [key: string]: unknown;
-            };
         };
         BotFile: {
             /** Format: uuid */

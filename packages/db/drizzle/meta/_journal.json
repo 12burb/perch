@@ -197,6 +197,13 @@
       "when": 1789537358518,
       "tag": "0027_job_timezone",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789538828212,
+      "tag": "0028_bot_mcp",
+      "breakpoints": true
     }
   ]
 }

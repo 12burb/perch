@@ -177,6 +177,7 @@ export class McpGateway {
         subjectType: "session",
         subjectId: input.sessionId,
         allowedTools: null,
+        requiresPermission: null,
         channels: null,
         obo: true,
         grantedBy: input.userId,

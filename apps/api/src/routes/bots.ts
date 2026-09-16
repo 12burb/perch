@@ -7,14 +7,20 @@
  * spends the workspace's money — is an admin's (ADR-0096).
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Bot, BotRun, BotToken } from "@perch/db";
-import { BOT_SCOPES, botBudgetSchema, botSpecSchema } from "@perch/db";
+import type { Bot, BotRun, BotToken, BotToolCall } from "@perch/db";
+import { BOT_SCOPES, BOT_TOOL_CALL_STATUSES, botBudgetSchema, botSpecSchema } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { insertBotToken, listBotTokens, revokeBotToken } from "../repos/bot-tokens.ts";
-import { lastScheduledRuns, listBots, listRuns } from "../repos/bots.ts";
+import {
+  getBotToolCall,
+  lastScheduledRuns,
+  listBots,
+  listRuns,
+  pendingBotToolCalls,
+} from "../repos/bots.ts";
 import { scheduledJobsFor } from "../repos/jobs.ts";
 import { getMessage } from "../repos/messages.ts";
 import { botTokenHint, botTokenValue } from "../services/bot-api.ts";
@@ -466,6 +472,90 @@ function runBody(row: BotRun) {
   };
 }
 
+const toolCallSchema = z
+  .object({
+    id: z.uuid(),
+    bot_id: z.uuid(),
+    channel_id: z.uuid(),
+    thread_root_id: z.uuid().nullable(),
+    connection_id: z.uuid(),
+    tool: z.string(),
+    args: z.record(z.string(), z.unknown()),
+    status: z.enum(BOT_TOOL_CALL_STATUSES),
+    requested_by: z.uuid().nullable(),
+    decided_by: z.uuid().nullable(),
+    decided_at: z.string().nullable(),
+    error: z.string().nullable(),
+    created_at: z.string(),
+  })
+  .openapi("BotToolCall");
+
+function toolCallBody(row: BotToolCall): z.infer<typeof toolCallSchema> {
+  return {
+    id: row.id,
+    bot_id: row.botId,
+    channel_id: row.channelId,
+    thread_root_id: row.threadRootId,
+    connection_id: row.connectionId,
+    tool: row.tool,
+    args: row.args,
+    status: row.status,
+    requested_by: row.requestedBy,
+    decided_by: row.decidedBy,
+    decided_at: row.decidedAt?.toISOString() ?? null,
+    error: row.error,
+    created_at: row.createdAt.toISOString(),
+  };
+}
+
+const toolCallsRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/bot-tool-calls",
+  tags: ["bots"],
+  summary: "Tool calls waiting on a person (spec §3.5)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: workspaceParam,
+    query: z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }),
+  },
+  responses: {
+    200: {
+      description: "What is still pending",
+      content: {
+        "application/json": { schema: z.object({ calls: z.array(toolCallSchema) }) },
+      },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
+const decideToolCallRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/bot-tool-calls/{call}/decide",
+  tags: ["bots"],
+  summary: "Approve or deny a bot's tool call; approving runs it and posts the result",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: z.object({ ws: z.uuid(), call: z.uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ decision: z.enum(["approved", "denied"]) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "The call, as it stands after the decision",
+      content: { "application/json": { schema: toolCallSchema } },
+    },
+    ...errorResponses(403, 404, 409),
+  },
+});
+
 export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   const body = async (bot: Bot) => ({
     id: bot.id,
@@ -733,5 +823,32 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const bot = await visible(ws, id, currentUser(c).id);
     if (!(await revokeBotToken(deps.db.db, bot.id, token))) throw PerchError.notFound("token");
     return c.body(null, 204);
+  });
+
+  app.openapi(toolCallsRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const { limit } = c.req.valid("query");
+    await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
+    const rows = await pendingBotToolCalls(deps.db.db, ws, limit ?? 50);
+    return c.json({ calls: rows.map(toolCallBody) }, 200);
+  });
+
+  app.openapi(decideToolCallRoute, async (c) => {
+    const { ws, call } = c.req.valid("param");
+    const { decision } = c.req.valid("json");
+    // Answering is using the connection, so it is the connection's permission, not the bot's.
+    await authorize(c, deps, "connections.write", { type: "workspace", id: ws });
+    const row = await getBotToolCall(deps.db.db, call);
+    if (!row || row.workspaceId !== ws) throw PerchError.notFound("tool call");
+    // Being in the channel is what allows it: the question was asked there, in front of everybody
+    // who can see it, and somebody who cannot see the thread cannot answer for it.
+    await channelFor(deps, ws, row.channelId, currentUser(c).id);
+    const answered = await deps.bots.decideToolCall({
+      callId: row.id,
+      decision,
+      userId: currentUser(c).id,
+      by: actorOf(c),
+    });
+    return c.json(toolCallBody(answered), 200);
   });
 }

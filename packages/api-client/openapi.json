@@ -2890,6 +2890,15 @@
               "type": "string"
             }
           },
+          "requires_permission": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
           "channels": {
             "type": [
               "array",
@@ -2911,6 +2920,7 @@
           "subject_type",
           "subject_id",
           "allowed_tools",
+          "requires_permission",
           "channels",
           "obo",
           "created_at"
@@ -2932,6 +2942,18 @@
             "format": "uuid"
           },
           "allowed_tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          },
+          "requires_permission": {
             "type": [
               "array",
               "null"
@@ -3827,6 +3849,33 @@
                 },
                 "maxItems": 20
               },
+              "mcp": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "maxItems": 50
+                    }
+                  },
+                  "required": [
+                    "connection"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 10
+              },
               "timezone": {
                 "type": "string",
                 "minLength": 1,
@@ -4089,6 +4138,33 @@
                 },
                 "maxItems": 20
               },
+              "mcp": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "maxItems": 50
+                    }
+                  },
+                  "required": [
+                    "connection"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 10
+              },
               "timezone": {
                 "type": "string",
                 "minLength": 1,
@@ -4312,6 +4388,33 @@
                   "additionalProperties": false
                 },
                 "maxItems": 20
+              },
+              "mcp": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "tools": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "maxItems": 50
+                    }
+                  },
+                  "required": [
+                    "connection"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 10
               },
               "timezone": {
                 "type": "string",
@@ -4861,6 +4964,94 @@
           "scopes"
         ]
       },
+      "BotToolCall": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channel_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "thread_root_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "denied",
+              "done",
+              "error"
+            ]
+          },
+          "requested_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "bot_id",
+          "channel_id",
+          "thread_root_id",
+          "connection_id",
+          "tool",
+          "args",
+          "status",
+          "requested_by",
+          "decided_by",
+          "decided_at",
+          "error",
+          "created_at"
+        ]
+      },
       "BotMessage": {
         "type": "object",
         "properties": {
@@ -5063,29 +5254,6 @@
           "author_id",
           "text",
           "blocks"
-        ]
-      },
-      "BotToolCall": {
-        "type": "object",
-        "properties": {
-          "connection_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "tool": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "args": {
-            "type": "object",
-            "additionalProperties": {},
-            "default": {}
-          }
-        },
-        "required": [
-          "connection_id",
-          "tool"
         ]
       },
       "BotFile": {
@@ -16482,6 +16650,185 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/bot-tool-calls": {
+      "get": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "Tool calls waiting on a person (spec §3.5)",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What is still pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "calls": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BotToolCall"
+                      }
+                    }
+                  },
+                  "required": [
+                    "calls"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/bot-tool-calls/{call}/decide": {
+      "post": {
+        "tags": [
+          "bots"
+        ],
+        "summary": "Approve or deny a bot's tool call; approving runs it and posts the result",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "call",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "denied"
+                    ]
+                  }
+                },
+                "required": [
+                  "decision"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The call, as it stands after the decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotToolCall"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {

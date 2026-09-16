@@ -314,6 +314,7 @@ describe("the MCP gateway (task 1.17)", () => {
       subjectType: "session",
       subjectId: sessionId,
       allowedTools: ["create_issue"],
+      requiresPermission: null,
       channels: null,
       obo: true,
       grantedBy: userId,

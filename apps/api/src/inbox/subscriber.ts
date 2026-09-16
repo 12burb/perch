@@ -114,6 +114,40 @@ export function startInboxSubscriber(deps: InboxSubscriberDeps): Unsubscribe {
         });
       }),
     ),
+    // A bot wants to use a connection a person has to say yes to (spec §3.5 "requires_permission
+    // tools return pending + inbox item"; task 3.6). The one who asked the bot is the one asked.
+    deps.bus.subscribe("bot.permission_requested", (event) =>
+      guard("a bot's permission", async () => {
+        const { workspaceId, botId, callId, channelId, tool, requestedBy } = event.payload;
+        const bot = await getBot(db, botId);
+        if (!bot) return;
+        const channel = await getChannel(db, channelId);
+        const slug = await slugOf(workspaceId);
+        await put({
+          workspaceId,
+          // A schedule or a webhook set it off: then it is the bot's owner who answers for it.
+          userId: requestedBy ?? bot.ownerId,
+          kind: "permission",
+          refType: "bot_tool_call",
+          refId: callId,
+          payload: {
+            title: `${bot.name} wants to use ${tool}`,
+            body: `in #${channel?.name ?? "a chat"}`,
+            url: `/${slug}/home/${channelId}`,
+          },
+        });
+      }),
+    ),
+    // Answered is done, wherever it was answered.
+    deps.bus.subscribe("bot.permission_answered", (event) =>
+      guard("answering a bot's permission", async () => {
+        await resolveRef(db, {
+          kind: "permission",
+          refType: "bot_tool_call",
+          refId: event.payload.callId,
+        });
+      }),
+    ),
     // The rails paused a thread and want somebody to say whether it carries on (spec §5.4).
     deps.bus.subscribe("bot.chain_breaker", (event) =>
       guard("a chain breaker", async () => {

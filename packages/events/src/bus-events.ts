@@ -92,6 +92,26 @@ export const busEventPayloads = {
   "bot.run_started": z.object({ ...ws, botId: uuid, runId: uuid, trigger: z.string() }),
   "bot.run_finished": z.object({ ...ws, botId: uuid, runId: uuid, costUsd: z.number().optional() }),
   "bot.run_failed": z.object({ ...ws, botId: uuid, runId: uuid, error: z.string() }),
+  /**
+   * A bot wants to call a tool a person has to say yes to (spec §3.5 "tool marked
+   * requires_permission returns pending + inbox item, completes on approval"; task 3.6).
+   */
+  "bot.permission_requested": z.object({
+    ...ws,
+    botId: uuid,
+    callId: uuid,
+    channelId: uuid,
+    /** `provider/tool`, which is what the person is being asked about. */
+    tool: z.string(),
+    /** Whose turn asked for it; null when a schedule or a webhook did, and the owner is asked. */
+    requestedBy: uuid.nullable(),
+  }),
+  "bot.permission_answered": z.object({
+    ...ws,
+    botId: uuid,
+    callId: uuid,
+    decision: z.enum(["approved", "denied"]),
+  }),
   "bot.chain_hop": z.object({
     ...ws,
     chainId: uuid,

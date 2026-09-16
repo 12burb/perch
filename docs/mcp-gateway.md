@@ -52,6 +52,9 @@ way `api_base` overrides where REST calls go.
 
 ## Not here yet
 
-Tools marked `requires_permission` returning pending with an inbox item, runner-local stdio servers
-exposed through the same shape, rate limits, Perch's own `/mcp/perch` server (channels, messages,
-work, sessions), and the grants UI — all Phase 2.
+Tools marked `requires_permission` return pending with a card in the thread and an inbox item for
+bots that attach a connection (see [Tools from an MCP server](bots.md#tools-from-an-mcp-server));
+sessions still call straight through.
+
+Still to come: runner-local stdio servers exposed through the same shape, rate limits, Perch's own
+`/mcp/perch` server (channels, messages, work, sessions), and the grants UI.

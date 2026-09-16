@@ -582,6 +582,8 @@ export class ConnectionsService {
     subjectType: GrantSubject;
     subjectId: string;
     allowedTools?: string[] | null;
+    /** Tools this subject may only use once a person has said yes (spec §3.5; task 3.6). */
+    requiresPermission?: string[] | null;
     channels?: string[] | null;
     obo?: boolean;
     grantedBy: string;
@@ -608,6 +610,7 @@ export class ConnectionsService {
       subjectType: input.subjectType,
       subjectId: input.subjectId,
       allowedTools: input.allowedTools ?? null,
+      requiresPermission: input.requiresPermission ?? null,
       channels: input.channels ?? null,
       obo,
       grantedBy: input.grantedBy,
@@ -661,7 +664,10 @@ export class ConnectionsService {
      * the grant that needs a somebody (task 3.3).
      */
     invokedBy: string | null;
-  }): Promise<{ ok: true; allowedTools: string[] | null } | { ok: false; reason: string }> {
+  }): Promise<
+    | { ok: true; allowedTools: string[] | null; requiresPermission: string[] | null }
+    | { ok: false; reason: string }
+  > {
     const grants = await listGrants(this.deps.db, input.connection.id);
     const granted = grants.find(
       (one) => one.subjectType === input.subjectType && one.subjectId === input.subjectId,
@@ -673,7 +679,11 @@ export class ConnectionsService {
         reason: "this connection is one person's, and they are not the one asking",
       };
     }
-    return { ok: true, allowedTools: granted.allowedTools ?? null };
+    return {
+      ok: true,
+      allowedTools: granted.allowedTools ?? null,
+      requiresPermission: granted.requiresPermission ?? null,
+    };
   }
 
   async remove(row: Connection, by: ActorContext): Promise<void> {

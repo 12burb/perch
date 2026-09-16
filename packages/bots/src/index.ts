@@ -39,6 +39,12 @@ export {
   type Unsubscribe,
 } from "./events.ts";
 export {
+  type AttachedServer,
+  mcpToolName,
+  mcpTools,
+  wrapResult,
+} from "./mcp.ts";
+export {
   type BotRunInput,
   type BotRunResult,
   type BudgetState,
@@ -55,6 +61,7 @@ export {
   type ChatLine,
   type MemoryHit,
   type SearchHit,
+  type ToolSet,
   toolsFor,
   untrusted,
 } from "./tools.ts";
