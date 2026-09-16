@@ -8,7 +8,7 @@
  * check `checkManifest` makes, one line each, exit 1 if any of them is an error.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { checkManifest, reportLines } from "@perch/connect";
 
@@ -24,7 +24,9 @@ Options:
 /** Every manifest under a path: one file, or a directory of `<id>/manifest.yaml`. */
 export function manifestsAt(path: string): { id: string; source: string }[] {
   if (statSync(path).isFile()) {
-    return [{ id: path.split("/").at(-2) ?? "", source: readFileSync(path, "utf8") }];
+    // A connector's id is the directory the manifest sits in, which `dirname` gets right whichever
+    // separator this machine writes paths with.
+    return [{ id: basename(dirname(path)), source: readFileSync(path, "utf8") }];
   }
   const found: { id: string; source: string }[] = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
