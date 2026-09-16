@@ -40,12 +40,24 @@ import { shellEnv } from "./pty.ts";
  * so it is never inherited by anything the agent spawns.
  */
 function acpMcpServers(servers: SessionMcpServer[]): AcpSessionOptions["mcpServers"] {
-  return servers.map((server) => ({
-    type: "http" as const,
-    name: server.name,
-    url: server.url,
-    headers: [{ name: "authorization", value: `Bearer ${server.token}` }],
-  }));
+  return servers.map((server) =>
+    "url" in server
+      ? {
+          type: "http" as const,
+          name: server.name,
+          url: server.url,
+          headers: [{ name: "authorization", value: `Bearer ${server.token}` }],
+        }
+      : {
+          // Spawned beside the agent (task 3.21): Playwright's browser has to be where the page
+          // is. Nothing here carries a credential — it is a command line on this machine.
+          type: "stdio" as const,
+          name: server.name,
+          command: server.command,
+          args: server.args ?? [],
+          env: Object.entries(server.env ?? {}).map(([name, value]) => ({ name, value })),
+        },
+  );
 }
 
 export type SessionsOptions = {

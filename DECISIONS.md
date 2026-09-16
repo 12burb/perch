@@ -5451,3 +5451,52 @@ from a session.
 What is not here: the same edit as an agent tool on `/mcp/perch`. The service is shaped for it
 (`editElement` takes a project and a link and nothing web-shaped), and the tool belongs with the
 rest of the agent's eyes rather than with the panel's hands.
+
+## ADR-0139: A session's MCP servers can be spawned, and the browser's command is the operator's
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.21
+
+### Context
+§5.6 asks for "Agent eyes: @playwright/mcp in the runner attached to sessions when a preview is
+open (navigate, accessibility snapshot, screenshot, click, console)". §7.6's `session.create` carries
+`mcp_servers`, and task 1.17 defined that as `{name, url, token}` — Perch's own gateway, reached over
+HTTP with a token minted for that session.
+
+### Decision
+**`mcp_servers` becomes a union: the HTTP shape, or a command.** Playwright's server drives a
+browser, and the browser has to be where the page is — on the runner, next to the dev server it is
+looking at. There is nothing for the api to serve over HTTP, and proxying a browser's control
+channel through Perch to reach a process on the same machine as the page would be an elaborate way
+to make it slower. ACP already has both transports (`McpServerHttp`, `McpServerStdio`), so the
+runner maps each onto the one it means.
+
+Spec deviation: §7.6 writes `mcp_servers` with the HTTP fields. The union is additive — every
+existing caller and every existing server is unchanged — and recorded here.
+
+**The spawned shape carries no credential**, and says so in the schema. An HTTP server's token is
+Perch's own, minted per session and scoped; a command line is a command line on a machine Perch does
+not own, and putting a secret in one would put it in that machine's process list.
+
+**The command is configuration, not a pinned dependency.** `PERCH_PLAYWRIGHT_MCP` names it and unset
+means off. Which build of `@playwright/mcp` matches the browser in a given runner image is that
+operator's decision; Perch shipping `npx -y @playwright/mcp@latest` would be Perch choosing a package
+manager, a network fetch and an unpinned version inside somebody else's container. The hosted image
+sets one; `.env.example` shows the shape.
+
+**"A preview is open" means the project's own configured port.** Not any listening port: a runner has
+other things listening, and Perch would not know which of them is the page — the in-process runner
+sees the whole machine, which is how the first version of this test failed. A session with nothing to
+look at gets no browser, because a process and a context window spent on nothing is worse than no
+tool, and an agent offered tools that cannot work is an agent that will try them.
+
+### Consequences
+The eyes are attached per round rather than per session, so a preview that comes up mid-session is
+seen by the next turn — the same rule the rest of `mcpServers` already follows.
+
+A failure here costs a session its eyes, not its turn: `mcpServers` has always swallowed its own
+errors, and an agent that cannot look at the page is still an agent.
+
+What is not here: Perch does not check that the command exists. A misconfigured one fails when the
+agent tries it, in the agent's own words, which is where an operator will be looking.

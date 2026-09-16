@@ -16,6 +16,14 @@ const onOff = z
 const rawEnvSchema = z.object({
   PERCH_PUBLIC_URL: z.url().optional(),
   PERCH_PREVIEW_DOMAIN: z.string().min(1).optional(),
+  /**
+   * The command a runner spawns to give an agent eyes on a preview (spec §5.6 "@playwright/mcp in
+   * the runner attached to sessions when a preview is open"; task 3.21, ADR-0139). Unset means the
+   * feature is off: which build of `@playwright/mcp` matches the browser in a given runner image is
+   * that operator's decision, not a version Perch pins on their behalf. `npx -y @playwright/mcp` is
+   * the usual value; the hosted image sets one.
+   */
+  PERCH_PLAYWRIGHT_MCP: z.string().min(1).optional(),
   PERCH_MASTER_KEY: z.string().min(1).optional(),
   DATABASE_URL: z.string().min(1).default("pglite://~/.perch/data"),
   PERCH_RUNNER_MODE: z.enum(["docker", "shared", "inprocess"]).optional(),
@@ -71,6 +79,8 @@ export type Env = {
   mode: PerchMode;
   publicUrl: string;
   previewDomain: string | undefined;
+  /** The command that gives an agent eyes on a preview (task 3.21); unset means off. */
+  playwrightMcp: string | undefined;
   masterKey: string;
   sessionSecret: string;
   databaseUrl: string;
@@ -183,6 +193,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     mode,
     publicUrl,
     previewDomain: raw.PERCH_PREVIEW_DOMAIN,
+    playwrightMcp: raw.PERCH_PLAYWRIGHT_MCP,
     masterKey,
     sessionSecret: raw.PERCH_SESSION_SECRET ?? deriveSessionSecret(masterKey),
     databaseUrl: raw.DATABASE_URL,

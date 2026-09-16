@@ -172,7 +172,20 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const repoIndex = new RepoIndexService({ db: db.db, bus, brains, log });
   const dbBrowser = new DbBrowser({ connections, gateway: mcp });
   const sessions = new SessionService(
-    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
+    {
+      db: db.db,
+      bus,
+      registry: runners,
+      engines,
+      flags,
+      brains,
+      mcp,
+      vault,
+      log,
+      // Eyes on a preview, when there is one to look at and a command to look with (task 3.21).
+      previews,
+      playwrightMcp: env.playwrightMcp,
+    },
     options.sessions ?? {},
   );
   // A mention that opens a coding session (spec §5.3 "Agent bots"; task 3.7). It is its own

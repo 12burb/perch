@@ -98,6 +98,30 @@ way, and reflowing a file to change one word is a rude diff.
 Without the dev plugin there is no `data-perch-src`, so there is nothing to write to and the button
 is disabled. The tweak still shows in the page.
 
+## The agent's eyes (task 3.21)
+
+An agent working on a page should be able to look at it. While the project's **own** preview is
+serving — the port `.perch/project.json` names, with something on it — every session on that project
+is handed a Playwright MCP server, spawned on the runner beside the agent. It navigates, takes
+accessibility snapshots, clicks and screenshots, and it does all of that where the page is.
+
+It is spawned rather than served over HTTP, which is the one new shape in §7.6's `mcp_servers`: a
+browser has to be on the runner, so there is nothing for the api to serve (ADR-0139). Nothing in
+that server's configuration is a credential — it is a command line on a machine Perch does not own.
+
+```
+PERCH_PLAYWRIGHT_MCP="npx -y @playwright/mcp@0.0.41"
+```
+
+Unset means off, and that is the default. Which build of `@playwright/mcp` matches the browser in a
+given runner image is that operator's decision; Perch pinning one on their behalf would be Perch
+choosing a package manager and a network fetch inside somebody else's container.
+
+"A preview is open" means the project's configured port specifically. Any-port-is-up would be wrong
+twice over: a runner has other things listening, and Perch would not know which of them is the page.
+A session with nothing to look at gets no browser — a process and a context window spent on nothing,
+and an agent offered tools that cannot work is an agent that will try them.
+
 ## Not here yet
 
-The agent's own Playwright eyes and preflight visual smoke are the rest of §5.6's Phase 3.
+Preflight visual smoke is the rest of §5.6's Phase 3.

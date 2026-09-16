@@ -13,6 +13,7 @@ import type {
   Project,
   SessionCheckpoint,
   SessionReasoning,
+  Workspace,
 } from "@perch/db";
 import { type Engine, EngineError, type EngineRegistry } from "@perch/engines";
 import {
@@ -57,6 +58,7 @@ import {
   updateSession,
   upsertCheckpoint,
 } from "../repos/sessions.ts";
+import { findWorkspaceById } from "../repos/workspaces.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import type { BrainsService } from "./brains.ts";
 import type { McpGateway } from "./mcp.ts";
@@ -76,6 +78,14 @@ export type SessionDeps = {
   mcp: McpGateway;
   /** Where a project's own environment is sealed (task 2.13). */
   vault: Vault;
+  /**
+   * What is running in this workspace, so a session can be given eyes on it (task 3.21), and the
+   * command that does the looking. Both absent means an agent works blind, as it did before.
+   */
+  previews?: {
+    ports: (workspace: Workspace, project: Project) => { runnerId: string; configured: boolean }[];
+  };
+  playwrightMcp?: string | undefined;
   log: Logger;
 };
 
@@ -887,11 +897,40 @@ export class SessionService {
         userId: session.userId,
         sessionId: session.id,
       });
-      return servers.length > 0 ? { mcpServers: servers } : {};
+      const all = [...servers, ...(await this.eyes(session))];
+      return all.length > 0 ? { mcpServers: all } : {};
     } catch (error) {
       this.deps.log.warn({ err: error, sessionId: session.id }, "mcp servers unavailable");
       return {};
     }
+  }
+
+  /**
+   * The agent's eyes (spec §5.6 "@playwright/mcp in the runner attached to sessions when a preview
+   * is open"; task 3.21, ADR-0139). A browser has to be where the page is, so this one is spawned
+   * on the runner rather than served over HTTP.
+   *
+   * Only while the project's own preview is actually serving — the port `.perch/project.json`
+   * names, with something on it. Any-port-is-up would be wrong twice over: a runner has other
+   * things listening, and Perch would not know which of them is the page. A browser attached to a
+   * session with nothing to look at is a process and a context window spent on nothing, and an
+   * agent offered tools that cannot work is an agent that will try them.
+   */
+  private async eyes(session: CodingSession): Promise<SessionMcpServer[]> {
+    const command = this.deps.playwrightMcp?.trim();
+    if (!command || !this.deps.previews) return [];
+    const workspace = await findWorkspaceById(this.deps.db, session.workspaceId);
+    const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
+    if (!workspace || !project) return [];
+    // A configured port that nothing is serving yet has no runner on it: that is the Start button,
+    // not a page.
+    const up = this.deps.previews
+      .ports(workspace, project)
+      .some((one) => one.configured && one.runnerId !== "");
+    if (!up) return [];
+    const [head, ...args] = command.split(/\s+/).filter(Boolean);
+    if (!head) return [];
+    return [{ name: "playwright", command: head, ...(args.length > 0 ? { args } : {}) }];
   }
 
   /** Grants a fresh session its owner's own connections (ADR-0083); never fatal to the session. */

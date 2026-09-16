@@ -64,11 +64,28 @@ export const runnerToApiParams = {
  * One MCP server a session may reach (spec §7.5): a name, Perch's gateway URL for it, and the
  * bearer Perch minted for this session. Never a provider's own token (AGENTS.md §1.6).
  */
-export const sessionMcpServerSchema = z.object({
-  name: z.string().min(1),
-  url: z.url(),
-  token: z.string().min(1),
-});
+/**
+ * An MCP server a session may reach. §7.6 declares the HTTP shape — Perch's own gateway, with a
+ * token minted for that session (task 1.17) — and task 3.21 adds the other transport MCP has: a
+ * command the runner spawns beside the agent. Playwright's is the reason (spec §5.6 "@playwright/mcp
+ * in the runner attached to sessions when a preview is open"): a browser has to be where the page
+ * is, which is the runner, so there is nothing for the api to serve over HTTP (ADR-0139).
+ */
+export const sessionMcpServerSchema = z.union([
+  z.object({
+    name: z.string().min(1),
+    url: z.url(),
+    token: z.string().min(1),
+  }),
+  z.object({
+    name: z.string().min(1),
+    /** The executable, as the runner will find it. */
+    command: z.string().min(1),
+    args: z.array(z.string()).max(64).optional(),
+    /** Never a credential: this is a command line on a machine Perch does not own. */
+    env: z.record(z.string(), z.string()).optional(),
+  }),
+]);
 export type SessionMcpServer = z.infer<typeof sessionMcpServerSchema>;
 
 /** Api → runner. */
