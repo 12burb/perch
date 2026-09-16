@@ -14,6 +14,8 @@ export {
   summarize,
 } from "./chains.ts";
 export {
+  type AppMention,
+  appMentionSchema,
   BOT_EVENTS,
   type BotActor,
   type BotEvent,
@@ -23,9 +25,17 @@ export {
   type BotEvents,
   type BotEventsOptions,
   botActorSchema,
+  type ChannelJoined,
+  channelJoinedSchema,
   createBotEvents,
   type InteractionReceived,
   interactionReceivedSchema,
+  type MessageCreated,
+  messageCreatedSchema,
+  type ReactionAdded,
+  reactionAddedSchema,
+  type SessionCompleted,
+  sessionCompletedSchema,
   type Unsubscribe,
 } from "./events.ts";
 export {

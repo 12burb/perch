@@ -56,8 +56,83 @@ export const interactionReceivedSchema = z
   .strict();
 export type InteractionReceived = z.infer<typeof interactionReceivedSchema>;
 
+/** A message as a bot is told about it (spec §7.3 `message.created`). */
+export const messageCreatedSchema = z
+  .object({
+    workspace_id: z.uuid(),
+    channel_id: z.uuid(),
+    channel_name: z.string().nullable(),
+    message_id: z.uuid(),
+    /** The thread this is in, when it is in one; a root message has none. */
+    thread_root_id: z.uuid().nullable(),
+    text: z.string(),
+    blocks: z.array(z.looseObject({ type: z.string() })),
+    user: botActorSchema,
+    ts: z.string(),
+  })
+  .strict();
+export type MessageCreated = z.infer<typeof messageCreatedSchema>;
+
+/**
+ * `app_mention` (spec §7.3 `{mentioned_by, mode, root_id, hop, budget_remaining}`): somebody said
+ * this bot's name. A bot saying it counts the same as a person saying it, which is what makes a
+ * chain a chain — and why the hop and what is left of the budget travel with it.
+ */
+export const appMentionSchema = messageCreatedSchema
+  .extend({
+    mentioned_by: botActorSchema,
+    /** How the tag was meant when a bot made it (spec §5.4): consult, handoff, fan-out. */
+    mode: z.string().nullable(),
+    root_id: z.uuid(),
+    hop: z.number().int().nonnegative(),
+    /** What is left of the chain's budget in dollars, or null when nothing caps it. */
+    budget_remaining: z.number().nullable(),
+  })
+  .strict();
+export type AppMention = z.infer<typeof appMentionSchema>;
+
+export const reactionAddedSchema = z
+  .object({
+    workspace_id: z.uuid(),
+    channel_id: z.uuid(),
+    message_id: z.uuid(),
+    emoji: z.string().min(1),
+    user: botActorSchema,
+    ts: z.string(),
+  })
+  .strict();
+export type ReactionAdded = z.infer<typeof reactionAddedSchema>;
+
+export const channelJoinedSchema = z
+  .object({
+    workspace_id: z.uuid(),
+    channel_id: z.uuid(),
+    channel_name: z.string().nullable(),
+    ts: z.string(),
+  })
+  .strict();
+export type ChannelJoined = z.infer<typeof channelJoinedSchema>;
+
+export const sessionCompletedSchema = z
+  .object({
+    workspace_id: z.uuid(),
+    session_id: z.uuid(),
+    project_id: z.uuid(),
+    status: z.string(),
+    /** Why it ended that way, when there is a reason; never a credential. */
+    message: z.string().nullable(),
+    ts: z.string(),
+  })
+  .strict();
+export type SessionCompleted = z.infer<typeof sessionCompletedSchema>;
+
 export type BotEventPayloads = {
+  "message.created": MessageCreated;
+  app_mention: AppMention;
+  "reaction.added": ReactionAdded;
+  "channel.joined": ChannelJoined;
   "interaction.received": InteractionReceived;
+  "session.completed": SessionCompleted;
 };
 
 /** The envelope every transport wraps: which bot it is for, what happened, and when. */

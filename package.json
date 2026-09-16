@@ -36,6 +36,7 @@
     "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate",
     "ct": "bun run --filter @perch/ui test:ct",
     "build:cli": "bun scripts/build-cli.ts",
+    "build:bot-sdk": "bun scripts/build-bot-sdk.ts",
     "version": "changeset version && bun install"
   },
   "devDependencies": {

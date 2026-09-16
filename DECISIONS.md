@@ -4059,3 +4059,67 @@ leaves. Today only Code mode uses it; Home and Inbox are the obvious next caller
 `projectActions` is derived, never stored: there is one source of truth for what a project can do,
 and it is the file in the repository. A project whose `project.json` is malformed keeps its old
 config and says why in `config_error`, exactly as it did at setup.
+
+## ADR-0112: A bot outside Perch is a token, its installs, and a socket that tells it things
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 2.19
+
+### Context
+Spec §7.3 gives the Bot API a Slack-shaped surface, seven scopes, "Rate limit 60 req/min per bot
+with Retry-After on 429", and "Events via wss:///api/bot/socket or HMAC-signed webhook". It does not
+say where a bot's token comes from, what a bot may see, or how a socket decides what to send. §6 has
+no table for a bot's credentials, and §11's acceptance is "an external script posts a message and
+receives an app_mention".
+
+### Decision
+**A bot token is a row, minted per bot, and shown once.** `bot_tokens` (migration
+`0023_bot_tokens.sql`) stores the sha-256 hash, a hint, its scopes, who made it, when it was last
+used, and when it was revoked — the same shape `api_tokens` already has, for the same reason. The
+value starts `pbot_`, which is what tells a bot's bearer apart from a person's at the door. Minting
+and revoking live on the bot's card in the Forge and under `.../bots/{bot}/tokens`, authorized with
+`bots.write`: giving a program the right to act as a bot is an admin decision, not a bot's.
+
+**No Bot API call names a workspace.** A token names one bot, a bot belongs to one workspace, so the
+routes are `/api/bot/chat.postMessage` rather than `/api/workspaces/{ws}/…`. A bot that had to say
+which workspace it was in could try to say the wrong one.
+
+**A bot's subscription is its installs.** There is no subscribe operation on the socket and no
+channel parameter that widens anything: `conversations.list` is the channels the bot was put in, and
+every other call is checked against them. A second way to choose what a bot hears would be a second
+permission system, disagreeing with the first about a private channel.
+
+**A scope that was not minted is refused, not narrowed.** A call answers 403 naming the scope it
+wanted, so a bot fails loudly at the line that needs more rather than quietly doing less.
+
+**The window is per bot, not per token**, as §7.3 says: minting a second token must not buy a second
+minute. It is a fixed window rather than a sliding one, so a rate-limited bot can reason about when
+it will not be.
+
+**`Retry-After` is a header, set by the error handler.** Any `rate_limited` PerchError whose details
+carry `retry_after` now renders with the header, so the MCP gateway's limits and the Bot API's agree
+without either knowing about the other.
+
+**The SDK publishes as `perch-bot-sdk`, unscoped**, staged by `scripts/build-bot-sdk.ts` and pushed
+by `release.yml` when `NPM_TOKEN` exists — the same shape, and the same skip, as `perch-dev`. A
+scope needs an npm org and nothing about writing a bot should wait on one.
+
+### Consequences
+Two of §7.3's endpoints are not here. `work.create` needs work items, which arrive in Phase 3 (§10);
+the `work:write` scope exists and is refused until then. The HMAC-signed webhook alternative to
+socket mode is not built: the socket is the acceptance path, and a webhook adds a delivery-retry
+story that belongs with outbound webhooks rather than with the Bot API. Both are spec deviations,
+recorded here.
+
+`files.upload` stores through the same `storeUpload` a person's upload does, so a bot's file obeys
+ADR-0094 unchanged: until the bot says it in a channel, the file is the uploader's alone.
+
+Socket mode takes its token as a query parameter, because a browser's `WebSocket` cannot set a
+header and an external bot may be running in one. The token is checked on open and the socket is
+closed with 1008 if it is not one; it is never logged, and the `hello` frame carries the bot's
+identity so a script does not have to ask.
+
+`channel.joined` is emitted off the existing `bot.installed` bus event: being put in a channel is
+the one thing a bot cannot learn by listening, because until it is installed it hears nothing from
+there at all.

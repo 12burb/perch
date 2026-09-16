@@ -20,6 +20,7 @@
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
 | [`inspector.md`](inspector.md) | The inspector: the dev plugins, the injected client, context chips, screenshots |
 | [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
+| [`bot-api.md`](bot-api.md) | The Bot API: a token, the Slack-shaped endpoints, socket mode, and `perch-bot-sdk` |
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
 | [`inbox.md`](inbox.md) | The inbox: what needs you, where it comes from, and approving from a phone |
 | [`policy.md`](policy.md) | The policy: what may happen here, how two documents merge, and where each rule is asked |

@@ -9,6 +9,7 @@ import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { BotApiService } from "./services/bot-api.ts";
 import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
 import type { ConnectionsService } from "./services/connections.ts";
@@ -64,6 +65,8 @@ export type Deps = {
   dbBrowser: DbBrowser;
   /** What Perch knows about a repository: the index behind @codebase (task 2.17). */
   repoIndex: RepoIndexService;
+  /** The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told. */
+  botApi: BotApiService;
   /** Feature flags (spec §9.1), default off. */
   flags: Flags;
   log: Logger;

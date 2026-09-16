@@ -70,6 +70,14 @@ export function isPerchError(error: unknown): error is PerchError {
   return error instanceof PerchError;
 }
 
+/** Seconds a rate-limited caller should wait, when the error said so. */
+function retryAfter(details: Record<string, unknown> | undefined): number | null {
+  const seconds = details?.retry_after;
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0
+    ? Math.ceil(seconds)
+    : null;
+}
+
 /** Hono onError: every failure becomes the §7.8 shape; unknown errors are logged and hidden. */
 export function errorHandler(error: Error, c: Context<AppEnv>): Response {
   const requestId = c.get("requestId") ?? "unknown";
@@ -80,7 +88,13 @@ export function errorHandler(error: Error, c: Context<AppEnv>): Response {
   }
   if (isPerchError(error)) {
     if (error.status >= 500) log?.error({ err: error, code: error.code }, error.message);
-    return c.json(error.toBody(requestId), error.status as ContentfulStatusCode);
+    // Spec §7.3 asks a 429 to say how long to wait, and a header is where a client looks for it.
+    const wait = error.code === "rate_limited" ? retryAfter(error.details) : null;
+    return c.json(
+      error.toBody(requestId),
+      error.status as ContentfulStatusCode,
+      wait === null ? {} : { "retry-after": String(wait) },
+    );
   }
   log?.error({ err: error }, "unhandled error");
   const internal = new PerchError("internal", "internal error");

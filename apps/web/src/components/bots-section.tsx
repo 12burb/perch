@@ -15,8 +15,10 @@ import { type FormEvent, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import {
   type BotRow,
+  type BotScope,
   botRunsQuery,
   botsQuery,
+  botTokensQuery,
   channelsQuery,
   modelProfilesQuery,
 } from "../lib/queries.ts";
@@ -351,6 +353,177 @@ function BotForm(props: {
 }
 
 /** One bot: where it is, what it has cost, a test chat, and the switch that pauses it. */
+/** What a token may do (spec §7.3), in the order the form offers them. */
+const SCOPES: BotScope[] = [
+  "chat:write",
+  "chat:read",
+  "channels:read",
+  "files:write",
+  "tools:call",
+  "sessions:open",
+  "work:write",
+];
+
+const DEFAULT_SCOPES: BotScope[] = ["chat:write", "chat:read", "channels:read"];
+
+/**
+ * Bot API tokens (spec §7.3; task 2.19). A token is how a program outside Perch acts as this bot,
+ * so the form is the permission decision: what it may do is chosen here and refused elsewhere.
+ * The value is shown once — afterwards the list has a hint and nothing else.
+ */
+function BotTokens(props: { workspaceId: string; botId: string }) {
+  const queryClient = useQueryClient();
+  const tokens = useQuery(botTokensQuery(props.workspaceId, props.botId));
+  const nameId = useId();
+  const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<BotScope[]>(DEFAULT_SCOPES);
+  const [minted, setMinted] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["workspace", props.workspaceId, "bots", props.botId, "tokens"],
+    });
+
+  const mint = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/bots/{bot}/tokens", {
+          params: { path: { ws: props.workspaceId, bot: props.botId } },
+          body: { name: name.trim(), scopes },
+        }),
+      ),
+    onSuccess: async (result) => {
+      setError(null);
+      setMinted(result.token);
+      setCopied(false);
+      setName("");
+      await refresh();
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+
+  const revoke = useMutation({
+    // 204: there is no body to unwrap, only a failure to notice.
+    mutationFn: async (id: string) => {
+      const result = await api.DELETE("/api/workspaces/{ws}/bots/{bot}/tokens/{token}", {
+        params: { path: { ws: props.workspaceId, bot: props.botId, token: id } },
+      });
+      if (result.error) throw new RequestFailed(result.response.status, result.error);
+    },
+    onSuccess: async () => {
+      setError(null);
+      await refresh();
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+
+  const toggle = (scope: BotScope, on: boolean) =>
+    setScopes((was) => (on ? [...was, scope] : was.filter((one) => one !== scope)));
+
+  return (
+    <details className="rounded border border-border">
+      <summary className="cursor-pointer px-2 py-1 text-sm font-medium">
+        {t("forge.tokens")}
+      </summary>
+      <div className="flex flex-col gap-2 p-2">
+        <p className="text-sm text-fg-muted">{t("forge.tokensHint")}</p>
+
+        <ul aria-label={t("forge.tokens")} className="flex flex-col gap-1">
+          {(tokens.data ?? []).map((row) => (
+            <li
+              key={row.id}
+              data-testid="bot-token"
+              className="flex flex-wrap items-center gap-2 text-sm"
+            >
+              <span className="font-medium">{row.name}</span>
+              <code className="rounded bg-surface-2 px-1">{row.hint}</code>
+              <span className="text-fg-muted">{row.scopes.join(", ")}</span>
+              <span className="text-fg-muted">
+                {row.last_used_at
+                  ? t("forge.tokenLastUsed", {
+                      when: new Date(row.last_used_at).toLocaleDateString(),
+                    })
+                  : t("forge.tokenNeverUsed")}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                aria-label={`${t("forge.revoke")} ${row.name}`}
+                onClick={() => revoke.mutate(row.id)}
+              >
+                {t("forge.revoke")}
+              </Button>
+            </li>
+          ))}
+          {(tokens.data ?? []).length === 0 ? (
+            <li className="text-sm text-fg-muted">{t("forge.noTokens")}</li>
+          ) : null}
+        </ul>
+
+        {minted ? (
+          <div className="flex flex-col gap-1 rounded bg-surface-2 p-2">
+            <p className="text-sm">{t("forge.tokenOnce")}</p>
+            <div className="flex items-center gap-2">
+              <code data-testid="bot-token-value" className="flex-1 break-all text-sm">
+                {minted}
+              </code>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(minted).then(() => setCopied(true));
+                }}
+              >
+                {copied ? t("forge.copied") : t("forge.copy")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        <Field id={nameId} label={t("forge.tokenName")}>
+          {(control) => (
+            <Input
+              {...control}
+              value={name}
+              placeholder={t("forge.tokenNamePlaceholder")}
+              onChange={(event) => setName(event.target.value)}
+            />
+          )}
+        </Field>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-sm font-medium">{t("forge.tokenScopes")}</legend>
+          <div className="flex flex-wrap gap-2">
+            {SCOPES.map((scope) => (
+              <label key={scope} className="flex items-center gap-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={scopes.includes(scope)}
+                  onChange={(event) => toggle(scope, event.target.checked)}
+                />
+                {t(`scope.${scope}`)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <Button
+          variant="secondary"
+          disabled={mint.isPending || name.trim() === "" || scopes.length === 0}
+          onClick={() => mint.mutate()}
+        >
+          {mint.isPending ? t("forge.minting") : t("forge.mintToken")}
+        </Button>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 function BotCard(props: { workspaceId: string; bot: BotRow }) {
   const queryClient = useQueryClient();
   const channels = useQuery(channelsQuery(props.workspaceId));
@@ -481,6 +654,8 @@ function BotCard(props: { workspaceId: string; bot: BotRow }) {
           {test.isPending ? t("forge.asking") : t("forge.ask")}
         </Button>
       </div>
+      <BotTokens workspaceId={props.workspaceId} botId={props.bot.id} />
+
       {reply ? (
         <p
           data-testid="bot-test-reply"

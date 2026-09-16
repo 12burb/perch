@@ -7,16 +7,19 @@
  * spends the workspace's money — is an admin's (ADR-0096).
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Bot, BotRun } from "@perch/db";
-import { botBudgetSchema, botSpecSchema } from "@perch/db";
+import type { Bot, BotRun, BotToken } from "@perch/db";
+import { BOT_SCOPES, botBudgetSchema, botSpecSchema } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import { insertBotToken, listBotTokens, revokeBotToken } from "../repos/bot-tokens.ts";
 import { listBots, listRuns } from "../repos/bots.ts";
 import { getMessage } from "../repos/messages.ts";
+import { botTokenHint, botTokenValue } from "../services/bot-api.ts";
 import { botFor } from "../services/bots.ts";
 import { channelFor } from "../services/channels.ts";
+import { hashToken } from "../services/tokens.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const workspaceParam = z.object({ ws: z.uuid() });
@@ -316,6 +319,98 @@ const runsRoute = createRoute({
   },
 });
 
+const tokenSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string(),
+    hint: z.string(),
+    scopes: z.array(z.enum(BOT_SCOPES)),
+    last_used_at: z.string().nullable(),
+    expires_at: z.string().nullable(),
+    created_at: z.string(),
+  })
+  .openapi("BotTokenRow");
+
+const listTokensRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/bots/{bot}/tokens",
+  tags: ["bots"],
+  summary: "This bot's tokens (hints only; a token is shown once)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: botParam },
+  responses: {
+    200: {
+      description: "Tokens",
+      content: { "application/json": { schema: z.object({ tokens: z.array(tokenSchema) }) } },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
+const mintTokenRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/bots/{bot}/tokens",
+  tags: ["bots"],
+  summary: "Mint a token for this bot; the value is returned exactly once",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: botParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              name: z.string().min(1).max(120),
+              scopes: z.array(z.enum(BOT_SCOPES)).min(1),
+              /** Days until it stops working; without one it does not expire. */
+              expires_in_days: z.number().int().min(1).max(3_650).optional(),
+            })
+            .openapi("MintBotToken"),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "The token, once",
+      content: {
+        "application/json": {
+          schema: z.object({ token: z.string(), row: tokenSchema }).openapi("MintedBotToken"),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const revokeTokenRoute = createRoute({
+  method: "delete",
+  path: "/api/workspaces/{ws}/bots/{bot}/tokens/{token}",
+  tags: ["bots"],
+  summary: "Revoke a bot token",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: botParam.extend({ token: z.uuid() }) },
+  responses: {
+    204: { description: "Revoked" },
+    ...errorResponses(403, 404),
+  },
+});
+
+function tokenBody(row: BotToken) {
+  return {
+    id: row.id,
+    name: row.name,
+    hint: row.hint,
+    scopes: row.scopes,
+    last_used_at: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
+    expires_at: row.expiresAt ? row.expiresAt.toISOString() : null,
+    created_at: row.createdAt.toISOString(),
+  };
+}
+
 function runBody(row: BotRun) {
   return {
     id: row.id,
@@ -528,5 +623,42 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const bot = await visible(ws, id, currentUser(c).id);
     const rows = await listRuns(deps.db.db, bot.id, limit ?? 50);
     return c.json({ runs: rows.map(runBody) }, 200);
+  });
+
+  app.openapi(listTokensRoute, async (c) => {
+    const { ws, bot: id } = c.req.valid("param");
+    await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
+    const bot = await visible(ws, id, currentUser(c).id);
+    const rows = await listBotTokens(deps.db.db, bot.id);
+    return c.json({ tokens: rows.map(tokenBody) }, 200);
+  });
+
+  app.openapi(mintTokenRoute, async (c) => {
+    const { ws, bot: id } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
+    const bot = await visible(ws, id, currentUser(c).id);
+    const token = botTokenValue();
+    const row = await insertBotToken(deps.db.db, {
+      botId: bot.id,
+      workspaceId: bot.workspaceId,
+      name: body.name.trim(),
+      tokenHash: hashToken(token),
+      hint: botTokenHint(token),
+      scopes: body.scopes,
+      createdBy: currentUser(c).id,
+      ...(body.expires_in_days
+        ? { expiresAt: new Date(Date.now() + body.expires_in_days * 86_400_000) }
+        : {}),
+    });
+    return c.json({ token, row: tokenBody(row) }, 201);
+  });
+
+  app.openapi(revokeTokenRoute, async (c) => {
+    const { ws, bot: id, token } = c.req.valid("param");
+    await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
+    const bot = await visible(ws, id, currentUser(c).id);
+    if (!(await revokeBotToken(deps.db.db, bot.id, token))) throw PerchError.notFound("token");
+    return c.body(null, 204);
   });
 }

@@ -11,6 +11,7 @@ import { authenticate, requireUser } from "./auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
+import { registerBotApi } from "./routes/bot-api.ts";
 import { registerBots } from "./routes/bots.ts";
 import { registerBrains } from "./routes/brains.ts";
 import { registerChannels } from "./routes/channels.ts";
@@ -42,6 +43,7 @@ import { registerVersion } from "./routes/version.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
 import type { RunnerChannel } from "./runners/channel.ts";
 import { isSetupComplete } from "./services/setup.ts";
+import { createBotSocket } from "./ws/bot-socket.ts";
 import type { WsServer } from "./ws/server.ts";
 
 export type AppOptions = {
@@ -115,6 +117,8 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   if (options.ws) {
     // Upgrades need a signed-in user (cookie or bearer); the §7.8 forbidden body is returned otherwise.
     app.get("/api/ws", requireUser, options.ws.handler);
+    // Socket mode (spec §7.3; task 2.19): the bot's own token, not a person's session.
+    app.get("/api/bot/socket", createBotSocket(deps, options.ws).handler);
     registerTerminal(app, deps, options.ws);
   }
 
@@ -136,6 +140,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerChannels(app, deps);
   registerMessages(app, deps);
   registerBots(app, deps);
+  registerBotApi(app, deps);
   registerFiles(app, deps);
   registerUnfurl(app, deps);
   registerInbox(app, deps);

@@ -61,6 +61,8 @@ jobs:
         run: bun run sdk:generate
       - name: perch binaries and the perch-dev npm package
         run: bun run build:cli -- --version ${{ needs.meta.outputs.version }}
+      - name: The perch-bot-sdk npm package
+        run: bun run build:bot-sdk -- --version ${{ needs.meta.outputs.version }}
       - name: Checksums
         working-directory: dist/cli
         run: sha256sum perch-* > SHA256SUMS
@@ -71,6 +73,10 @@ jobs:
             dist/cli/perch-*
             dist/cli/SHA256SUMS
             dist/cli/npm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bot-sdk
+          path: dist/bot-sdk
       - uses: actions/upload-artifact@v7
         with:
           name: sdk
@@ -228,6 +234,13 @@ jobs:
       - name: npm publish perch-dev (skipped without NPM_TOKEN)
         if: ${{ env.NPM_TOKEN != '' }}
         working-directory: release/cli/npm
+        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: npm publish perch-bot-sdk (skipped without NPM_TOKEN)
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: release/bot-sdk
         run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

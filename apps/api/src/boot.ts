@@ -25,6 +25,7 @@ import {
   type RunnerChannelOptions,
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
+import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
 import { ConnectionsService } from "./services/connections.ts";
@@ -168,6 +169,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
     options.sessions ?? {},
   );
+  // The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told.
+  const botApi = new BotApiService({ db: db.db, bus, botEvents, mcp, sessions, log });
   const deps: Deps = {
     env,
     db,
@@ -188,6 +191,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     deploys,
     dbBrowser,
     repoIndex,
+    botApi,
     flags,
     log,
     version: versionInfo(env),
@@ -197,6 +201,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // unsubscribes so no new run starts; a run already in flight is abandoned rather than waited for,
   // because one extra tick inside `close` wakes a spin in the teardown that predates bots (ADR-0096).
   const stopBots = bots.start();
+  // The same bus, translated into the outward-facing shape a bot is handed (spec §7.3).
+  const stopBotApi = botApi.start();
   // A mention reaches a phone through the same bus everything else travels on (task 2.3).
   const stopPush = startPushSubscriber({ bus, db, vault, env, log });
   // And what needs a person lands in their inbox off the same bus (task 2.10).
@@ -223,6 +229,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
      */
     close: async () => {
       stopBots();
+      stopBotApi();
       stopAudit();
       stopPush();
       stopInbox();

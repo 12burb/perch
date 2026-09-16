@@ -375,6 +375,23 @@ export function connectionGrantsQuery(workspaceId: string, connectionId: string)
   });
 }
 
+export type BotTokenRow = components["schemas"]["BotTokenRow"];
+export type BotScope = BotTokenRow["scopes"][number];
+
+/** A bot's Bot API tokens (spec §7.3; task 2.19). Hints only: a token is shown once. */
+export function botTokensQuery(workspaceId: string, botId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "bots", botId, "tokens"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/bots/{bot}/tokens", {
+          params: { path: { ws: workspaceId, bot: botId } },
+        }),
+      ).tokens,
+    enabled: workspaceId !== "" && botId !== "",
+  });
+}
+
 export function channelsQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "channels"],

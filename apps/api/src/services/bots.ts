@@ -19,6 +19,7 @@ import {
   type ChatLine,
   DEFAULT_MAX_HOPS,
   firesOn,
+  type InteractionReceived,
   inScope,
   type MemoryHit,
   mayHop,
@@ -335,8 +336,9 @@ export class BotsService {
       // The intervene card's answer comes back on the Bot API seam (task 2.5), like any other.
       this.deps.botEvents.subscribe((event) => {
         if (event.type !== "interaction.received") return;
-        if (event.payload.action !== INTERVENE_ACTION) return;
-        this.track(this.intervened(event.payload.block_id, event.payload.values.decision ?? ""));
+        const payload = event.payload as InteractionReceived;
+        if (payload.action !== INTERVENE_ACTION) return;
+        this.track(this.intervened(payload.block_id, payload.values.decision ?? ""));
       }),
     ];
     return () => {

@@ -85,6 +85,51 @@ export const botInstalls = pgTable(
   (t) => [uniqueIndex("bot_installs_bot_channel_idx").on(t.botId, t.channelId)],
 );
 
+/**
+ * What a bot token may do (spec §7.3). Slack-shaped on purpose: anybody who has written a Slack app
+ * can read the list and know what it buys.
+ */
+export const BOT_SCOPES = [
+  "chat:write",
+  "chat:read",
+  "channels:read",
+  "files:write",
+  "tools:call",
+  "sessions:open",
+  "work:write",
+] as const;
+export type BotScope = (typeof BOT_SCOPES)[number];
+
+/**
+ * A bot's own credential (spec §7.1 `.../bots (+ … tokens)`, §7.3; task 2.19). Only the hash is
+ * kept: the token is shown once when it is minted and never again, like an api token.
+ */
+export const botTokens = pgTable(
+  "bot_tokens",
+  {
+    id: id(),
+    botId: uuid("bot_id")
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** Enough to tell two tokens apart in a list, and useless to anybody who reads it. */
+    hint: text("hint").notNull(),
+    scopes: jsonb("scopes").$type<BotScope[]>().notNull().default([]),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    lastUsedAt: timestamptz("last_used_at"),
+    expiresAt: timestamptz("expires_at"),
+    revokedAt: timestamptz("revoked_at"),
+    ...timestamps(),
+  },
+  (t) => [index("bot_tokens_bot_idx").on(t.botId)],
+);
+
+export type BotToken = typeof botTokens.$inferSelect;
+
 export const BOT_RUN_STATUSES = ["running", "done", "error", "refused"] as const;
 export type BotRunStatus = (typeof BOT_RUN_STATUSES)[number];
 

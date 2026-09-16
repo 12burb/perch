@@ -339,6 +339,35 @@ export class SessionService {
     return session;
   }
 
+  /**
+   * A session a bot opened over the Bot API (spec §7.3 `sessions.open`; task 2.19). It runs as the
+   * bot's owner — a bot is not a person and has no runner of its own — and says so in the actor, so
+   * the audit log records which bot asked.
+   */
+  async openForBot(
+    bot: { id: string; ownerId: string },
+    project: Project,
+    input: { engine?: string; prompt?: string },
+  ): Promise<{ id: string; status: string }> {
+    const by: ActorContext = { actor: { type: "bot", id: bot.id }, meta: {} };
+    const session = await this.create({
+      project,
+      userId: bot.ownerId,
+      ...(input.engine ? { engine: input.engine } : {}),
+      title: `Opened by a bot`,
+      by,
+    });
+    if (!input.prompt) return { id: session.id, status: session.status };
+    try {
+      const sent = await this.sendTurn(session, bot.ownerId, { text: input.prompt }, { by });
+      return { id: sent.session.id, status: sent.session.status };
+    } catch (error) {
+      if (!(error instanceof PerchError)) throw error;
+      const fresh = await this.get(session.id);
+      return { id: session.id, status: fresh?.status ?? "error" };
+    }
+  }
+
   /** A new title. */
   async rename(session: CodingSession, title: string | null): Promise<CodingSession> {
     return (await updateSession(this.deps.db, session.id, { title })) ?? session;
