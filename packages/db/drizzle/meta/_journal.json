@@ -211,6 +211,13 @@
       "when": 1789540488390,
       "tag": "0029_agent_bots",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789550060158,
+      "tag": "0030_work_items",
+      "breakpoints": true
     }
   ]
 }

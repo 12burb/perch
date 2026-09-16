@@ -16,7 +16,16 @@
  */
 
 import type { Bus } from "@perch/bus";
-import type { ApiTokenScopes, Channel, DbHandle } from "@perch/db";
+import {
+  type ApiTokenScopes,
+  type Channel,
+  type DbHandle,
+  WORK_ITEM_STATES,
+  WORK_ITEM_TYPES,
+  type WorkItem,
+  type WorkItemState,
+  type WorkItemType,
+} from "@perch/db";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -28,6 +37,7 @@ import type { McpGateway } from "./mcp.ts";
 import { post, textBlocks } from "./messages.ts";
 import { search } from "./search.ts";
 import type { SessionService } from "./sessions.ts";
+import { viewWorkItem, type WorkService } from "./work.ts";
 
 /** An MCP tool as the SDK wants it handed over. */
 export type PerchTool = {
@@ -59,11 +69,7 @@ export type PerchCaller = {
 
 const str = (description: string) => ({ type: "string", description });
 
-/**
- * The seven tools §7.5 names, minus the two that have nothing to stand on yet: `work.create` and
- * `work.update` arrive with the work items they are about (task 3.13), which is why this is a list
- * rather than a switch — adding them there is an entry and a case.
- */
+/** The seven tools §7.5 names. */
 export const PERCH_TOOLS: PerchTool[] = [
   {
     name: "channels.list",
@@ -120,6 +126,42 @@ export const PERCH_TOOLS: PerchTool[] = [
     },
   },
   {
+    name: "work.create",
+    description:
+      "Add a work item to a project's board: what needs doing, and who or which bot should do it.",
+    scope: "work:write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: str("The project id."),
+        title: str("One line: what needs doing."),
+        description: str("The detail, if there is any."),
+        type: str("task (the default), bug, feature or epic."),
+        state: str("Where it starts. backlog by default."),
+        priority: { type: "number", description: "0 none, 1 urgent … 4 low." },
+      },
+      required: ["project", "title"],
+    },
+  },
+  {
+    name: "work.update",
+    description:
+      "Change a work item: move it on the board, reassign it, retitle it, or put a pull request on it.",
+    scope: "work:write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        item: str("The work item id, or KEY-123."),
+        state: str("backlog, queued, running, needs_you, in_review, done or cancelled."),
+        title: str("A new title."),
+        description: str("A new description."),
+        priority: { type: "number", description: "0 none, 1 urgent … 4 low." },
+        pr_url: str("The pull request that did it."),
+      },
+      required: ["item"],
+    },
+  },
+  {
     name: "connections.call",
     description:
       "Call a tool on one of this workspace's connections. Perch attaches the credential; you never see it.",
@@ -142,6 +184,7 @@ export type PerchMcpDeps = {
   sessions: SessionService;
   connections: ConnectionsService;
   mcp: McpGateway;
+  work: WorkService;
   bus: Bus;
   env: { publicUrl: string };
 };
@@ -182,6 +225,10 @@ export class PerchMcpService {
         return json(await this.post(caller, args, by));
       case "sessions.open":
         return json(await this.openSession(caller, args, by));
+      case "work.create":
+        return json(await this.createWork(caller, args, by));
+      case "work.update":
+        return json(await this.updateWork(caller, args, by));
       case "connections.call":
         return json(await this.callConnection(caller, args, by));
       default:
@@ -310,6 +357,57 @@ export class PerchMcpService {
     };
   }
 
+  private async createWork(caller: PerchCaller, args: Record<string, unknown>, by: ActorContext) {
+    const projectId = text(args.project);
+    const title = text(args.title);
+    if (!projectId || !title) throw PerchError.validation("say which project, and a title");
+    const project = await this.project(caller, projectId);
+    const item = await this.deps.work.create({
+      project,
+      userId: caller.userId,
+      title,
+      // An agent asking for work to exist is `bot` however it got here: it is not a person typing.
+      source: "bot",
+      by,
+      ...(text(args.description) ? { description: text(args.description) } : {}),
+      ...(isType(args.type) ? { type: args.type } : {}),
+      ...(isState(args.state) ? { state: args.state } : {}),
+      ...(typeof args.priority === "number" ? { priority: Math.trunc(args.priority) } : {}),
+    });
+    return viewWorkItem(item, project.key);
+  }
+
+  private async updateWork(caller: PerchCaller, args: Record<string, unknown>, by: ActorContext) {
+    const item = await this.workItem(caller, text(args.item));
+    const project = await this.deps.work.projectOf(item);
+    const updated = await this.deps.work.update(
+      item,
+      {
+        ...(isState(args.state) ? { state: args.state } : {}),
+        ...(text(args.title) ? { title: text(args.title) } : {}),
+        ...(typeof args.description === "string" ? { description: args.description } : {}),
+        ...(typeof args.priority === "number" ? { priority: Math.trunc(args.priority) } : {}),
+        ...(text(args.pr_url) ? { prUrl: text(args.pr_url) } : {}),
+      },
+      by,
+    );
+    return viewWorkItem(updated, project.key);
+  }
+
+  /** By its id, or by the `KEY-123` a person would have said (spec §7.8). */
+  private async workItem(caller: PerchCaller, ref: string | undefined): Promise<WorkItem> {
+    if (!ref) throw PerchError.validation("say which work item");
+    const workspaces = await this.workspaces(caller);
+    const direct = UUID.test(ref) ? await this.deps.work.item(ref) : null;
+    if (direct && workspaces.includes(direct.workspaceId)) return direct;
+    const named = /^([A-Za-z][\w-]*)-(\d+)$/.exec(ref);
+    if (named?.[1] && named[2]) {
+      const found = await this.deps.work.byIdentifier(workspaces, named[1], Number(named[2]));
+      if (found) return found;
+    }
+    throw PerchError.notFound("work item");
+  }
+
   private async callConnection(
     caller: PerchCaller,
     args: Record<string, unknown>,
@@ -389,6 +487,16 @@ function plain(blocks: unknown): string {
     )
     .filter(Boolean)
     .join("\n");
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isState(value: unknown): value is WorkItemState {
+  return typeof value === "string" && (WORK_ITEM_STATES as readonly string[]).includes(value);
+}
+
+function isType(value: unknown): value is WorkItemType {
+  return typeof value === "string" && (WORK_ITEM_TYPES as readonly string[]).includes(value);
 }
 
 function text(value: unknown): string | undefined {

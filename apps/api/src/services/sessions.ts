@@ -125,6 +125,8 @@ export type CreateSessionInput = {
   channelId?: string | undefined;
   threadRootId?: string | null | undefined;
   botId?: string | undefined;
+  /** The work item this session is doing, when the board started it (task 3.13). */
+  workItemId?: string | undefined;
   by: ActorContext;
 };
 
@@ -331,6 +333,7 @@ export class SessionService {
       ...(input.channelId ? { channelId: input.channelId } : {}),
       ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
       ...(input.botId ? { botId: input.botId } : {}),
+      ...(input.workItemId ? { workItemId: input.workItemId } : {}),
     });
     await this.grantConnections(session);
     await this.deps.bus.publish(
@@ -1038,7 +1041,12 @@ export class SessionService {
       }
       // Auto-settle: a background run that finished with nothing waiting on a person lets its
       // session go, so a runner is not held open by a conversation nobody is having.
-      if (background.autoSettle && !this.pending.has(session.id)) {
+      //
+      // A session opened from a work item always settles (task 3.13). It belongs to the card
+      // rather than to a person at a keyboard, and its ending is what moves the card to review —
+      // a session that never ends is a card that never moves.
+      const settles = background.autoSettle || session.workItemId !== null;
+      if (settles && !this.pending.has(session.id)) {
         const fresh = await getSession(this.deps.db, session.id);
         if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
       }

@@ -41,6 +41,7 @@ import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { SpecBotsService } from "./services/spec-bots.ts";
 import { WebhooksService } from "./services/webhooks.ts";
+import { WorkService } from "./services/work.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
@@ -216,6 +217,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     log,
   });
+  // Work items, and the board that follows the sessions doing them (task 3.13).
+  const work = new WorkService({ db, bus, log, sessions });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -224,6 +227,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     connections,
     mcp,
+    work,
     bus,
     env: { publicUrl: env.publicUrl },
   });
@@ -245,6 +249,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     connections,
     mcp,
     perchMcp,
+    work,
     previews,
     deploys,
     dbBrowser,
@@ -269,6 +274,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const stopInbox = startInboxSubscriber({ bus, db, log });
   // A session an agent bot opened reports back into the thread it came from (task 3.7).
   const stopAgentBots = agentBots.start();
+  // And the board follows the sessions doing its items, so nobody drags a card (task 3.13).
+  const stopWork = work.start();
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -296,6 +303,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       stopPush();
       stopInbox();
       stopAgentBots();
+      stopWork();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

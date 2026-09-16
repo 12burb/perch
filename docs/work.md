@@ -1,0 +1,108 @@
+# Work: a board the agents move
+
+Every tracker has a Done column somebody drags a card into. This one has a **Running** column and
+a **Needs you** column, and nobody drags anything into either: a session is running, or it stopped
+to ask (spec §4 "Work (Plane)", §6, §7.1; task 3.13).
+
+## The shape of an item
+
+A work item belongs to a project and carries an identifier of `KEY-123` — the project's key and a
+number counted per project, never reused (spec §7.8). Beyond the obvious fields it holds the links
+that make it the one place to look: the thread it came out of, the session doing it, the pull
+request that finished it.
+
+| State | Means |
+|---|---|
+| **Backlog** | Somewhere to put it |
+| **Queued** | Next |
+| **Running** | A session is on it *right now* |
+| **Needs you** | That session stopped to ask something |
+| **In review** | The session finished; a person has not looked yet |
+| **Done** | A person said so |
+| **Cancelled** | Not happening |
+
+## Where they come from
+
+- **Typed in**, on the board in Work mode.
+- **From a message.** Pass `thread_root_id` and the item remembers the conversation that started
+  it, so the work and the talking stay one thing.
+- **From an agent**, over `/mcp/perch` or the Bot API — `work.create` is one of the tools an
+  outside agent has (see [the MCP gateway](./mcp-gateway.md)).
+
+```
+POST /api/workspaces/{ws}/projects/{p}/work-items  {title, type?, priority?, thread_root_id?}
+GET  /api/workspaces/{ws}/projects/{p}/work-items?state&assignee&limit
+GET|PATCH /api/work-items/{id}
+POST /api/work-items/{id}/start-session  {engine?, prompt?}
+```
+
+## Handing one to an agent
+
+**Hand to an agent** on a card opens a coding session on the item's project, titled `KEY-123` and
+its title, and sends the item's own words as the first turn unless you say otherwise. From then on
+the item follows the session:
+
+| The session | The item |
+|---|---|
+| running | **Running** |
+| asks a permission | **Needs you** |
+| the answer arrives | **Running** |
+| errors | **Needs you** |
+| ends | **In review**, and the session link is cleared |
+
+A session opened from a work item **settles when it is done** — it lets go of its runner rather
+than holding one open for a conversation nobody is having, which is what moves the card. That is
+different from a session you opened yourself, which waits for your next turn (ADR-0129).
+
+An item that a person has already marked **Done** or **Cancelled** is never dragged back by
+anything on the bus. A person's word is the last one.
+
+## The board
+
+Work mode shows one column per state, urgent first and then oldest first, with a card per item.
+Moving a card by hand is a select on the card rather than a drag, because a drag is a mouse and
+the board has to work on a phone. Columns scroll on their own and the board asks for at most 200
+items: past that, the answer is a filter rather than more cards.
+
+The board is live. It subscribes to the workspace topic and refetches on any `work_item.*` event,
+so a card moves under you while an agent works.
+
+## What a bot hears
+
+A bot installed in the workspace gets `work_item.updated` over the Bot API — what moved, not the
+whole item:
+
+```json
+{
+  "type": "work_item.updated",
+  "payload": {
+    "work_item_id": "…",
+    "identifier": "NEST-12",
+    "title": "Fix the login redirect",
+    "state": "in_review",
+    "changes": ["state"],
+    "assignee_type": "bot",
+    "assignee_id": "…"
+  }
+}
+```
+
+A bot that cares reads the item; a bot that does not should not be handed it.
+
+## Roles
+
+| Action | owner | admin | member |
+|---|---|---|---|
+| See a board | ✅ | ✅ | ✅ |
+| Add, move, assign, close | ✅ | ✅ | ✅ |
+| Hand an item to an agent | ✅ | ✅ | ✅ |
+
+A board is what a team does together, so every member writes to it. Somebody who is not in the
+workspace gets a `404` rather than a `403`: they do not learn the item is there either.
+
+## Not here yet
+
+Cycles and modules have their tables and their columns on an item, and nothing built on them yet.
+Saved views, the other four layouts (list, calendar, timeline, spreadsheet), the Intake triage
+queue, sub-items and relations, and a Tiptap description are §4's and arrive with their own tasks.
+A worktree per item is task 3.14.

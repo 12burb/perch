@@ -245,6 +245,11 @@ export const LIST_SURFACES = [
     how: { capped: 100, in: "apps/web/src/lib/queries.ts", proof: "limit: 100" },
   },
   {
+    file: "apps/web/src/work/board.tsx",
+    list: "a project's work items, one scrolling column per state",
+    how: { capped: 200, in: "apps/web/src/lib/queries.ts", proof: "limit: 200" },
+  },
+  {
     file: "apps/web/src/inbox/inbox.tsx",
     list: "the inbox's own scroller around that list",
     how: { capped: 100, in: "apps/web/src/lib/queries.ts", proof: "limit: 100" },

@@ -126,6 +126,28 @@ export const sessionCompletedSchema = z
   .strict();
 export type SessionCompleted = z.infer<typeof sessionCompletedSchema>;
 
+/**
+ * `work_item.updated` (spec §7.3; task 3.13). A bot hears what moved rather than the whole item,
+ * because a bot that cares reads the item and a bot that does not should not be handed it.
+ */
+export const workItemUpdatedSchema = z
+  .object({
+    workspace_id: z.uuid(),
+    project_id: z.uuid(),
+    work_item_id: z.uuid(),
+    /** `KEY-123`, so a bot can say it out loud without another call. */
+    identifier: z.string(),
+    title: z.string(),
+    state: z.string(),
+    /** Which fields moved: "state", "assignee", "title" … */
+    changes: z.array(z.string()),
+    assignee_type: z.string().nullable(),
+    assignee_id: z.uuid().nullable(),
+    ts: z.string(),
+  })
+  .strict();
+export type WorkItemUpdated = z.infer<typeof workItemUpdatedSchema>;
+
 export type BotEventPayloads = {
   "message.created": MessageCreated;
   app_mention: AppMention;
@@ -133,6 +155,7 @@ export type BotEventPayloads = {
   "channel.joined": ChannelJoined;
   "interaction.received": InteractionReceived;
   "session.completed": SessionCompleted;
+  "work_item.updated": WorkItemUpdated;
 };
 
 /** The envelope every transport wraps: which bot it is for, what happened, and when. */

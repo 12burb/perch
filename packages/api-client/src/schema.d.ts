@@ -9433,6 +9433,308 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/work-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The project's board */
+        get: {
+            parameters: {
+                query?: {
+                    state?: "backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled";
+                    assignee?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Items */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkBoard"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a work item */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateWorkItem"];
+                };
+            };
+            responses: {
+                /** @description The item */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkItem"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/work-items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One work item */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkItem"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change a work item: its state, its assignee, anything on it */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PatchWorkItem"];
+                };
+            };
+            responses: {
+                /** @description The item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkItem"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/work-items/{id}/start-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hand it to an agent: opens a session on the project and moves the item to running */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["StartWorkItemSession"];
+                };
+            };
+            responses: {
+                /** @description The item and the session now doing it */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkItemSessionStarted"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/policy": {
         parameters: {
             query?: never;
@@ -12284,6 +12586,78 @@ export type components = {
         SnoozeInboxItem: {
             /** Format: date-time */
             until?: string;
+        };
+        WorkBoard: {
+            items: components["schemas"]["WorkItem"][];
+            states: ("backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled")[];
+        };
+        WorkItem: {
+            /** Format: uuid */
+            id: string;
+            identifier: string;
+            number: number;
+            /** Format: uuid */
+            project_id: string;
+            /** @enum {string} */
+            type: "task" | "bug" | "feature" | "epic";
+            title: string;
+            description: string;
+            /** @enum {string} */
+            state: "backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled";
+            priority: number;
+            /** @enum {string|null} */
+            assignee_type: "user" | "bot" | null;
+            /** Format: uuid */
+            assignee_id: string | null;
+            labels: string[];
+            /** Format: uuid */
+            thread_root_id: string | null;
+            /** Format: uuid */
+            session_id: string | null;
+            pr_url: string | null;
+            created_at: string;
+            updated_at: string;
+        };
+        CreateWorkItem: {
+            title: string;
+            /** @enum {string} */
+            type?: "task" | "bug" | "feature" | "epic";
+            description?: string;
+            /** @enum {string} */
+            state?: "backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled";
+            priority?: number;
+            assignee?: components["schemas"]["WorkAssignee"];
+            labels?: string[];
+            /** Format: uuid */
+            thread_root_id?: string;
+        };
+        WorkAssignee: {
+            /** @enum {string} */
+            type: "user" | "bot";
+            /** Format: uuid */
+            id: string;
+        } | null;
+        PatchWorkItem: {
+            title?: string;
+            /** @enum {string} */
+            type?: "task" | "bug" | "feature" | "epic";
+            description?: string;
+            /** @enum {string} */
+            state?: "backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled";
+            priority?: number;
+            assignee?: components["schemas"]["WorkAssignee"];
+            labels?: string[];
+            /** Format: uri */
+            pr_url?: string | null;
+        };
+        WorkItemSessionStarted: {
+            item: components["schemas"]["WorkItem"];
+            /** Format: uuid */
+            session_id: string;
+        };
+        StartWorkItemSession: {
+            engine?: string;
+            prompt?: string;
         };
         Policy: {
             yaml: string;

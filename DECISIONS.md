@@ -4926,3 +4926,58 @@ a uuid and `perch` is not one.
 
 Virtual keys will be a third `callerOf` beside the session token and the api token, for every MCP
 route at once, when Phase 4 builds them. Nothing here has to change to admit them.
+
+## ADR-0129: The board follows the session, and a card's session settles
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.13
+
+### Context
+§4 gives work items seven states, and two of them — `Running` and `Needs you` — are not states any
+other tracker has. They are not opinions about the work; they are facts about an agent. A tracker
+where somebody has to drag a card into Running the moment they start a session is a tracker that
+is wrong most of the time, and 3.13's acceptance says as much: "closed by the session that
+finished it".
+
+### Decision
+**One subscription, on `session.status`.** A coding session's own statuses are already the answer:
+`running`, `needs_you`, `error`, `ended`. So the board reads them rather than keeping a second
+opinion about the same thing — running → `running`, needs_you and error → `needs_you`, ended →
+`in_review`. `idle` is deliberately not mapped: a session between turns has not moved.
+
+**`ended` lands in `in_review`, never `done`.** An agent finishing is not a person agreeing. The
+only thing that puts an item in `done` is somebody saying so, and an item already in `done` or
+`cancelled` is never dragged back by anything on the bus — a person's word is the last one.
+
+**A session opened from a work item settles by itself.** Task 2.18 made auto-settle a per-project
+policy, on the reasoning that a background run should not hold a runner open for a conversation
+nobody is having. A session opened from a card is exactly that run: it belongs to the card rather
+than to somebody at a keyboard, and there is no route that ends a session by hand. Without this
+the item would sit in `running` forever and the acceptance could not happen — the card would never
+move. So `work_item_id` on a session is itself the auto-settle signal, whatever the project says.
+
+**`KEY-123` is allocated in the insert.** The number comes from
+`select coalesce(max(number), 0) + 1 … where project_id = $1` inside the `insert … returning`,
+with the unique index as the arbiter and a retry when two writers read the same max. The
+alternative — a sequence per project — is DDL at runtime for every project ever created.
+
+**`cycles` and `modules` ship with the migration and nothing else.** `work_items` references them
+by foreign key, and a shipped migration is never edited (AGENTS.md §7). Their tables exist; what
+is built on them is a later task's.
+
+### Consequences
+`work.read` and `work.write` join §7.1's policy actions, both open to every member: a board is
+what a team does together, and a member who can open a session can certainly move a card.
+
+`work.create` and `work.update` complete the seven tools of §7.5 on `/mcp/perch`, which ADR-0128
+left at five. An agent may name an item by its id or by `KEY-123`, because `KEY-123` is what a
+person would have said to it.
+
+A bot hears `work_item.updated` over the Bot API carrying the identifier, the title, the state and
+which fields moved — not the item. A bot that cares reads it; a bot that does not should not be
+handed it.
+
+The board caps at 200 items and scrolls per column rather than virtualizing seven independent
+lists. Past 200 the useful answer is a filter, not more cards; the cap is registered in
+`scripts/perf-budget.ts` like the inbox's, so it cannot quietly go away.

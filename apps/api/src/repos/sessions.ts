@@ -43,6 +43,8 @@ export async function insertSession(
     channelId?: string;
     threadRootId?: string;
     botId?: string;
+    /** The work item it is doing, when it was started from the board (task 3.13). */
+    workItemId?: string;
   },
 ): Promise<CodingSession> {
   const [row] = await db
@@ -65,6 +67,7 @@ export async function insertSession(
       ...(values.channelId ? { channelId: values.channelId } : {}),
       ...(values.threadRootId ? { threadRootId: values.threadRootId } : {}),
       ...(values.botId ? { botId: values.botId } : {}),
+      ...(values.workItemId ? { workItemId: values.workItemId } : {}),
       ...(values.turns === undefined ? {} : { turns: values.turns }),
     })
     .returning();

@@ -30,11 +30,13 @@ import {
 } from "../repos/messages.ts";
 import { getSession } from "../repos/sessions.ts";
 import { findUserById } from "../repos/users.ts";
+import { getWorkItem } from "../repos/work.ts";
 import type { ConnectionsService } from "./connections.ts";
 import type { McpGateway } from "./mcp.ts";
 import { getProject } from "./projects.ts";
 import type { SessionService } from "./sessions.ts";
 import { hashToken } from "./tokens.ts";
+import { identifierOf } from "./work.ts";
 
 /**
  * An unknown, revoked or expired token is nobody; which of the three it was is not a caller's
@@ -357,6 +359,12 @@ export class BotApiService {
           this.deps.log.error({ err: error }, "a bot event could not be delivered");
         });
       }),
+      // What moved on the board, for the bots that watch it (spec §7.3; task 3.13).
+      this.deps.bus.subscribe("work_item.updated", (event) => {
+        void this.onWorkItem(event.payload).catch((error: unknown) => {
+          this.deps.log.error({ err: error }, "a bot event could not be delivered");
+        });
+      }),
     ];
     return () => {
       for (const stop of stops) stop();
@@ -472,6 +480,34 @@ export class BotApiService {
         project_id: session.projectId,
         status: payload.status,
         message: session.statusMessage,
+        ts: new Date().toISOString(),
+      },
+    });
+  }
+
+  private async onWorkItem(payload: {
+    workspaceId: string;
+    projectId: string;
+    workItemId: string;
+    changes?: string[];
+  }): Promise<void> {
+    const item = await getWorkItem(this.deps.db, payload.workItemId);
+    if (!item) return;
+    const project = await getProject(this.deps.db, item.workspaceId, item.projectId);
+    if (!project) return;
+    await this.emit({
+      type: "work_item.updated",
+      botId: null,
+      payload: {
+        workspace_id: item.workspaceId,
+        project_id: item.projectId,
+        work_item_id: item.id,
+        identifier: identifierOf(project.key, item.number),
+        title: item.title,
+        state: item.state,
+        changes: payload.changes ?? [],
+        assignee_type: item.assigneeType,
+        assignee_id: item.assigneeId,
         ts: new Date().toISOString(),
       },
     });

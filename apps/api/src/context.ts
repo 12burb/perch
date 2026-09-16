@@ -24,6 +24,7 @@ import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 import type { SpecBotsService } from "./services/spec-bots.ts";
 import type { WebhooksService } from "./services/webhooks.ts";
+import type { WorkService } from "./services/work.ts";
 
 /** What every handler can reach through the Hono context. */
 export type AppVariables = {
@@ -60,6 +61,8 @@ export type Deps = {
   bots: BotsService;
   /** Perch's own MCP server: the chat, search, sessions and connections as tools (task 3.12). */
   perchMcp: PerchMcpService;
+  /** Work items and the board, moved by the sessions doing them (task 3.13). */
+  work: WorkService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

@@ -12,6 +12,7 @@
     "./i18n/code": "./src/i18n/code.ts",
     "./i18n/inbox": "./src/i18n/inbox.ts",
     "./i18n/settings": "./src/i18n/settings.ts",
+    "./i18n/work": "./src/i18n/work.ts",
     "./blocks": "./src/components/blocks.tsx",
     "./chain": "./src/components/chain-header.tsx",
     "./inbox": "./src/components/inbox-list.tsx",

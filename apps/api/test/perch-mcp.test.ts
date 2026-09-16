@@ -303,6 +303,54 @@ describe("Perch as an MCP server (task 3.12)", () => {
     expect(answer).not.toContain("sbp_");
   }, 60_000);
 
+  test("work.create and work.update: an agent puts something on the board and moves it", async () => {
+    const token = await tokenWith(["work:write"]);
+    const client = await agent(token);
+    try {
+      expect((await client.listTools()).tools.map((one) => one.name).sort()).toEqual([
+        "work.create",
+        "work.update",
+      ]);
+      const made = parsed<{ id: string; identifier: string; state: string; title: string }>(
+        await client.callTool({
+          name: "work.create",
+          arguments: {
+            project,
+            title: "The migration step needs a retry",
+            description: "It fails on a cold database.",
+            type: "bug",
+            priority: 1,
+          },
+        }),
+      );
+      expect(made.identifier).toMatch(/-1$/);
+      expect(made.state).toBe("backlog");
+
+      // And it can move it, by the `KEY-123` a person would have said rather than by a uuid.
+      const moved = parsed<{ state: string; pr_url: string | null }>(
+        await client.callTool({
+          name: "work.update",
+          arguments: {
+            item: made.identifier,
+            state: "in_review",
+            pr_url: "https://github.com/acme/site/pull/12",
+          },
+        }),
+      );
+      expect(moved.state).toBe("in_review");
+      expect(moved.pr_url).toBe("https://github.com/acme/site/pull/12");
+
+      // Somebody else's item is not there to move.
+      const refused = await client.callTool({
+        name: "work.update",
+        arguments: { item: "NOPE-1", state: "done" },
+      });
+      expect(refused.isError).toBe(true);
+    } finally {
+      await client.close();
+    }
+  }, 60_000);
+
   test("no token is a challenge, not a page", async () => {
     const res = await fetch(`${base}/mcp/perch`, {
       method: "POST",

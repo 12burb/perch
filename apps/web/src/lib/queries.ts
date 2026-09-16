@@ -88,6 +88,22 @@ export function projectsQuery(workspaceId: string) {
   });
 }
 
+/** A project's board (spec §4 "Work (Plane)"; task 3.13). */
+export function workItemsQuery(workspaceId: string, projectId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "work", projectId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/work-items", {
+          // A board shows what is in front of you, urgent and oldest first. Past 200 the answer
+          // is a filter, not more cards, so the columns stay a size a browser can draw.
+          params: { path: { ws: workspaceId, project: projectId }, query: { limit: 200 } },
+        }),
+      ),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function deployKeyQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "deploy-key"],

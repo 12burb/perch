@@ -11,6 +11,7 @@ import { membersQuery, meQuery } from "../../../lib/queries.ts";
 import { usePresence } from "../../../lib/ws.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
+import { WorkMain } from "../../../work/board.tsx";
 
 const MODES: RailMode[] = ["home", "code", "work", "bots", "inbox", "search"];
 
@@ -60,7 +61,14 @@ function ModeRoute() {
         <SearchMain workspaceId={workspace.id} workspaceSlug={workspace.slug} />
       ) : null}
       {mode === "inbox" ? <InboxMain filter={filter} userId={me.data?.id ?? ""} /> : null}
-      {mode === "code" || mode === "home" || mode === "search" || mode === "inbox" ? null : (
+      {mode === "work" ? (
+        <WorkMain workspaceId={workspace.id} workspaceSlug={workspace.slug} />
+      ) : null}
+      {mode === "code" ||
+      mode === "home" ||
+      mode === "search" ||
+      mode === "inbox" ||
+      mode === "work" ? null : (
         <EmptyState
           icon={<Icon className="size-8" aria-hidden="true" />}
           title={t(`shell.${mode}.emptyTitle`)}

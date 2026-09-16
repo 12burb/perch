@@ -30,6 +30,13 @@ export const API_TOKEN_SCOPES = [
 export const apiTokenScopesSchema = z.array(z.enum(API_TOKEN_SCOPES));
 export type ApiTokenScopes = z.infer<typeof apiTokenScopesSchema>;
 
+// work_items.description: plain text today; §4's Tiptap document rides in `doc` when it lands.
+export const workItemDescriptionSchema = z.object({
+  text: z.string().max(100_000).default(""),
+  doc: z.unknown().optional(),
+});
+export type WorkItemDescription = z.infer<typeof workItemDescriptionSchema>;
+
 // audit_log.details: the audited event's payload (ids and small facts; never a secret or a body)
 export const auditDetailsSchema = z.record(z.string(), z.unknown());
 export type AuditDetails = z.infer<typeof auditDetailsSchema>;

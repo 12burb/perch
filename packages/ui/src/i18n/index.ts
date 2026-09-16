@@ -24,6 +24,7 @@ import type code from "./en.code.json";
 import type inbox from "./en.inbox.json";
 import en from "./en.json" with { type: "json" };
 import type settings from "./en.settings.json";
+import type work from "./en.work.json";
 
 /** Every key that exists, whichever fragment ships it: `t()` is typed across all of them. */
 export type MessageKey =
@@ -31,7 +32,8 @@ export type MessageKey =
   | keyof typeof chat
   | keyof typeof code
   | keyof typeof inbox
-  | keyof typeof settings;
+  | keyof typeof settings
+  | keyof typeof work;
 export type Locale = "en";
 export type MessageParams = Record<string, string | number>;
 

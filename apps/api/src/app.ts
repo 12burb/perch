@@ -42,6 +42,7 @@ import { registerTerminal } from "./routes/terminal.ts";
 import { registerUnfurl } from "./routes/unfurl.ts";
 import { registerVersion } from "./routes/version.ts";
 import { registerWebhooks } from "./routes/webhooks.ts";
+import { registerWork } from "./routes/work.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
 import type { RunnerChannel } from "./runners/channel.ts";
 import { isSetupComplete } from "./services/setup.ts";
@@ -146,6 +147,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerFiles(app, deps);
   registerUnfurl(app, deps);
   registerInbox(app, deps);
+  registerWork(app, deps);
   registerPolicy(app, deps);
   registerProjectEnv(app, deps);
   registerDeploys(app, deps);

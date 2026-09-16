@@ -56,6 +56,8 @@ export const ACTIONS = [
   "bots.read",
   "bots.write",
   "bots.admin",
+  "work.read",
+  "work.write",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -108,6 +110,9 @@ export const ROLE_MATRIX: Record<Action, readonly Role[]> = {
   "sessions.read": ["owner", "admin", "member"],
   "sessions.create": ["owner", "admin", "member"],
   "sessions.update": ["owner", "admin", "member"],
+  // Work items (task 3.13): a board is what a team does together, so every member writes to it.
+  "work.read": ["owner", "admin", "member"],
+  "work.write": ["owner", "admin", "member"],
   // Brains (task 1.15): everyone sees which brains exist and may add their own key; the workspace's
   // shared credentials and its model profiles belong to the admins.
   "brains.read": ["owner", "admin", "member"],
@@ -168,6 +173,8 @@ export const SCOPE_FOR_ACTION: Record<Action, "read" | "write" | "admin"> = {
   "sessions.read": "read",
   "sessions.create": "write",
   "sessions.update": "write",
+  "work.read": "read",
+  "work.write": "write",
   "brains.read": "read",
   "brains.write": "write",
   "brains.admin": "admin",
