@@ -469,6 +469,7 @@ describe("sessions api (task 1.8)", () => {
       "acp",
       "opencode",
       "cli-harness",
+      "hermes",
       "fake",
     ]);
     // The cli-harness lane stays behind its feature flag (off here).

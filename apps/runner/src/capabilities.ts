@@ -1,6 +1,7 @@
 import { arch, platform } from "node:os";
 import type { RunnerCapabilities } from "@perch/db";
 import { installedAgents } from "./acp.ts";
+import { hermesInstalled } from "./hermes.ts";
 import { opencodeBinary, opencodeUrl } from "./opencode.ts";
 
 let toolVersions: Record<string, string> | undefined;
@@ -32,8 +33,12 @@ export function localCapabilities(overrides: Partial<RunnerCapabilities> = {}): 
   return {
     // The ACP adapter runs on every runner (task 1.9) and OpenCode where its binary is — or where
     // PERCH_OPENCODE_URL names a server already running (task 1.10); which agents are on PATH is
-    // reported too.
-    engines: ["acp", ...(opencodeBinary() || opencodeUrl() ? ["opencode"] : [])],
+    // reported too. Hermes is its own engine where it is installed (task 3.8).
+    engines: [
+      "acp",
+      ...(opencodeBinary() || opencodeUrl() ? ["opencode"] : []),
+      ...(hermesInstalled() ? ["hermes"] : []),
+    ],
     agents: installedAgents(),
     pty: true,
     platform: platform(),

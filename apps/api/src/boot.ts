@@ -111,8 +111,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const auth = createAuth({ env, db, log });
   const runners = new RunnerRegistry(bus);
   const engines = new EngineRegistry();
-  // The ACP adapter lives on the project's runner (task 1.9): one bridge per runner link.
-  for (const id of ["acp", "opencode", "cli-harness"] as const) {
+  // The ACP adapter lives on the project's runner (task 1.9): one bridge per runner link. So do
+  // OpenCode (1.10), the cli-harness lane (1.11), and Hermes (3.8) — the runner decides which of
+  // them it can actually host, and says so when it cannot.
+  for (const id of ["acp", "opencode", "cli-harness", "hermes"] as const) {
     engines.register(id, ({ link }) => {
       if (!link)
         throw new EngineError(`the ${id} engine runs on a project's runner`, "unavailable");

@@ -112,7 +112,10 @@ dependency dashboard.
 
 ## Container images (task 0.13, ADR-0058)
 
-Resolved from Docker Hub and PyPI on 2026-09-13; Renovate keeps them current.
+Resolved from Docker Hub and PyPI on 2026-09-13 (Hermes Agent on 2026-09-16); Renovate keeps them
+current. Hermes Agent is installed from its own repository at a tag rather than from PyPI, because
+upstream deprecated the `hermes-agent` PyPI package at v0.19.0 and the install path since is the
+repository checkout (task 3.8, ADR-0123).
 
 | Image / tool | Pin | Where |
 |---|---|---|
@@ -122,6 +125,8 @@ Resolved from Docker Hub and PyPI on 2026-09-13; Renovate keeps them current.
 | Node tarball | `24.21.0` (SHASUMS256-verified) | `deploy/Dockerfile.runner` |
 | uv | `0.12.13` | `deploy/Dockerfile.runner` |
 | Playwright Chromium | `1.62.1` | `deploy/Dockerfile.runner` |
+| `opencode-ai` (binary) | `1.18.30` | `deploy/Dockerfile.runner` |
+| Hermes Agent | `v2026.9.14` (git tag; package version `0.21.3`, extra `[acp]`, Python 3.12) | `deploy/Dockerfile.runner`, `HERMES_VERSION` in `apps/runner/src/hermes.ts` |
 | `caddy` | `2.11.4`, `2.11.4-builder` | `deploy/Dockerfile.caddy` |
 | `pgvector/pgvector` | `0.8.6-pg16` | `deploy/docker-compose.yml` |
 | `ollama/ollama` | `0.34.0` (profile `local`) | `deploy/docker-compose.yml` |

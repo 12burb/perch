@@ -72,6 +72,14 @@ export {
   type RunnerServices,
 } from "./handlers.ts";
 export {
+  HERMES_AGENT,
+  HERMES_LAUNCHERS,
+  HERMES_VERSION,
+  hermesEnv,
+  hermesInstalled,
+  resolveHermes,
+} from "./hermes.ts";
+export {
   createInProcessRunner,
   IMPLEMENTED_METHODS,
   type InProcessRunner,

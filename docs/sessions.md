@@ -184,6 +184,27 @@ environment with brains (task 1.15); until then it uses OpenCode's own configura
 The adapter (apps/runner/src/opencode.ts) is the only code touching OpenCode's API, and a version
 bump reruns spike 0.4.3 first.
 
+## The Hermes engine (`hermes`, task 3.8)
+
+Hermes Agent is the runtime the Nest agents run on (spec §3.3). It speaks ACP itself — `hermes acp`
+is an ACP server over stdio — so Perch runs it through the same client every registry agent uses.
+What `engine: "hermes"` adds is the launch and two things that are Hermes' own:
+
+- **Its own provider setup.** Hermes reads `~/.hermes/config.yaml` and `~/.hermes/.env`, and `~` is
+  the person's own home volume (`/data/homes/<user>`). A Nous Portal or Codex subscription signed in
+  with `hermes` in the terminal belongs to that person and serves only their sessions — spec §3.6's
+  Lane B, kept by Perch not touching it. Perch never writes a credential into a Hermes session.
+- **The model per run.** The session's brain travels as `HERMES_INFERENCE_MODEL`, which Hermes
+  documents as the equivalent of `--model`. A session on the engine's own default (`provider:
+  "engine"`) sets nothing and lets Hermes choose.
+
+The runner image installs it pinned (see [dependencies](dependencies.md)); a runner that has it says
+so in its capabilities, and one that does not refuses the session with a line saying what is missing.
+`PERCH_HERMES_COMMAND` points at a checkout the PATH does not reach — `PERCH_HERMES_COMMAND="/opt/hermes/venv/bin/hermes acp"`.
+
+Everything else — permissions, modes, diffs, usage, cancellation — is the ACP adapter's, described
+above.
+
 ## The cli-harness engine (`cli-harness`, task 1.11, behind a flag)
 
 Lane C of spec §3.6: the official CLIs in headless mode under the person's own login, on their own

@@ -20,11 +20,13 @@ import {
   type AcpAgentSpec,
   AcpSession,
   type AcpSessionOptions,
+  type AgentLaunch,
   agentTable,
   describeError,
   resolveAgentLaunch,
 } from "./acp.ts";
 import { CLI_HARNESS, CliHarnessSession, type CliHarnessSpec } from "./cli-harness.ts";
+import { HERMES_AGENT, hermesEnv, hermesInstalled, resolveHermes } from "./hermes.ts";
 import type { Notify } from "./notify.ts";
 import { OpenCodeHost, type OpenCodeOptions } from "./opencode.ts";
 import type { RunnerPolicy } from "./policy.ts";
@@ -62,6 +64,8 @@ export type SessionsOptions = {
   opencode?: OpenCodeOptions;
   /** The cli-harness lane: only local runners allow it (the person's own login); the CLIs it knows. */
   cliHarness?: { allowed: boolean; tools?: Record<string, CliHarnessSpec> };
+  /** The environment the runner looks for engines in; the process's own unless a test says. */
+  env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
 };
 
@@ -131,6 +135,7 @@ export class SessionManager {
     return [
       "acp",
       ...(this.opencode.available() ? ["opencode"] : []),
+      ...(hermesInstalled(this.options.env) ? ["hermes"] : []),
       ...(this.options.cliHarness?.allowed ? ["cli-harness"] : []),
     ];
   }
@@ -141,6 +146,9 @@ export class SessionManager {
     }
     if (params.engine === "opencode") return this.createOpenCode(params);
     if (params.engine === "cli-harness") return this.createCliHarness(params);
+    // Hermes speaks ACP itself (task 3.8), so it is the same client with its own launcher and the
+    // model it was asked for; everything after this line is shared with any registry agent.
+    if (params.engine === "hermes") return this.createHermes(params);
     if (params.engine !== "acp") {
       throw new RunnerRpcError(
         JSON_RPC_ERRORS.invalidParams,
@@ -164,8 +172,37 @@ export class SessionManager {
         `${spec.name} is not installed on this runner (needs ${spec.command ?? spec.npx?.package ?? "a command"} on PATH${spec.npx ? " or npx" : ""})`,
       );
     }
+    return await this.openAcp(params, { id: agentId, name: spec.name }, launch, spec.env ?? {});
+  }
+
+  /**
+   * Hermes Agent (spec §3.3 `hermes`; task 3.8). The launcher is Hermes' own ACP server and the
+   * model travels as `HERMES_INFERENCE_MODEL`; its provider configuration and any subscription it
+   * signed in with live in the user's home volume and are never read here (§3.6 Lane B).
+   */
+  private async createHermes(
+    params: RunnerRequestParams<"session.create">,
+  ): Promise<SessionCreateResult> {
+    const launch = resolveHermes(this.options.env);
+    if (!launch) {
+      throw new RunnerRpcError(
+        JSON_RPC_ERRORS.internal,
+        "Hermes Agent is not installed on this runner (needs `hermes` or `hermes-acp` on PATH)",
+      );
+    }
+    return await this.openAcp(params, HERMES_AGENT, launch, hermesEnv(params.model));
+  }
+
+  /** One ACP session, however the agent behind it was chosen. */
+  private async openAcp(
+    params: RunnerRequestParams<"session.create">,
+    agent: { id: string; name: string },
+    launch: AgentLaunch,
+    extraEnv: Record<string, string>,
+  ): Promise<SessionCreateResult> {
+    const agentId = agent.id;
     const cwd = this.cwdOf(params);
-    const env = { ...this.envOf(params), ...(spec.env ?? {}) };
+    const env = { ...this.envOf(params), ...extraEnv };
     const sessionId = params.session_id;
     const acp = await AcpSession.open({
       sessionId,
@@ -196,7 +233,7 @@ export class SessionManager {
     });
     return {
       ...(acp.agentSessionId ? { engine_session_id: acp.agentSessionId } : {}),
-      agent: { id: agentId, name: spec.name },
+      agent: { id: agentId, name: agent.name },
       ...(acp.modes ? { modes: acp.modes } : {}),
     };
   }

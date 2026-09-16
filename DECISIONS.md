@@ -4613,3 +4613,57 @@ they are who has a runner and a credential.
 An engine that asks for a permission and gets no answer waits as long as the session's silence timer
 allows, exactly as it does in the pane. Nothing in this task shortens that; a permission that nobody
 answers is the inbox's problem, and the inbox already has session permissions in it.
+
+## ADR-0123: Hermes is the ACP client with a Hermes-shaped launch
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.8
+
+### Context
+Spec §3.3 lists `hermes` among the Engine interface's ids — "hermes = Hermes Agent runtime for Nest
+agents (Phase 3)" — and §9's rule 13 says bespoke adapters exist only "for extras an agent offers
+beyond ACP (OpenCode) or for runtimes that don't speak it yet (Hermes)". That parenthesis was true
+when the spec was written. It is not any more: Hermes Agent ships `hermes acp`, an ACP server over
+stdio with stdout reserved for JSON-RPC and logs on stderr (verified against its own docs,
+2026-09-16).
+
+### Decision
+**No second protocol.** The `hermes` engine is the ACP client the runner has had since task 1.9,
+launched as `hermes acp` (falling back to the `hermes-acp` console script the `[acp]` extra
+installs, and to `PERCH_HERMES_COMMAND` for a checkout off the PATH). Writing a bespoke adapter for
+a runtime that speaks the contract would be a second mapping of the same events to maintain, and
+§3.3's own rule says not to.
+
+**An engine id of its own, not a registry entry.** `hermes` could have been one more row in
+`ACP_AGENTS` next to gemini and codex. It is not, because the engine id is what a project's
+`.perch/project.json` and a bot's spec name, and `hermes` is one of the ids the spec gives the
+Engine interface. A session that says `engine: "hermes"` should not also have to know that the agent
+behind it is called hermes.
+
+**The model travels as `HERMES_INFERENCE_MODEL`.** `hermes acp` publishes no flags of its own; the
+CLI documents that variable as the equivalent of `--model`. A session on the engine's own default —
+`provider: "engine"` — sets nothing, so Hermes uses what the person configured. Perch chooses a
+model; it does not hand over a key.
+
+**Lane B by doing nothing.** Hermes reads `~/.hermes`, and the runner already runs an agent with the
+person's own `HOME` (`/data/homes/<user>`, task 1.2). So a Nous Portal or Codex subscription signed
+in through the terminal is that person's, serves only their sessions, and never enters the vault —
+spec §3.6's Lane B, arranged by not arranging anything. The acceptance test checks exactly this: the
+environment Hermes was handed carries the model and that home, and no Perch credential.
+
+**Installed from its repository, at a tag.** Upstream deprecated the `hermes-agent` PyPI package at
+v0.19.0; the supported install is a checkout. The runner image clones `v2026.9.14` into a venv of
+its own and installs `-e '.[acp]'` (Python 3.12, within its `>=3.11,<3.14`), which is what puts
+`hermes` on PATH. Pinned like every other dependency and recorded in docs/dependencies.md.
+
+### Consequences
+This is the first engine whose runtime is Python. It lives in `/opt/hermes` with its own venv rather
+than in the image's system Python, so nothing else in the runner is affected by what it pulls in.
+
+A Hermes session's `agent` column stays null: there is one program behind this engine and naming it
+twice would be noise. The refusal when Hermes is missing names the binary rather than the engine,
+because "hermes is not installed" is actionable and "the hermes engine is unavailable" is not.
+
+Spec deviation: §9's rule 13 describes Hermes as a runtime that does not speak ACP. It does now, and
+this ADR is the record that the rule was followed rather than the parenthesis.
