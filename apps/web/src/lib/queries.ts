@@ -5,6 +5,7 @@
 
 import type { components, paths } from "@perch/api-client";
 import { queryOptions } from "@tanstack/react-query";
+import { UNSETTLED_POLL_MS, unsettled } from "../code/project-status.ts";
 import { api, unwrap } from "./api.ts";
 
 export type MyWorkspace = components["schemas"]["MyWorkspace"];
@@ -81,6 +82,9 @@ export function projectsQuery(workspaceId: string) {
       unwrap(
         await api.GET("/api/workspaces/{ws}/projects", { params: { path: { ws: workspaceId } } }),
       ).projects,
+    // The socket is how this list normally hears about a setup finishing; the poller is what
+    // happens when it does not (ADR-0115).
+    refetchInterval: (query) => (unsettled(query.state.data) ? UNSETTLED_POLL_MS : false),
   });
 }
 

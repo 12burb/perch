@@ -4229,3 +4229,37 @@ at two viewports.
 A spec this long fails in more places than a short one, and each failure is now a claim about the
 whole phase rather than one feature. That is the point, and it is also the cost: when it goes red,
 the feature spec beside it says which clause.
+
+## ADR-0115: A list that only the socket updates is a list that can be wrong
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 2.20 follow-up (a red `main`)
+
+### Context
+CI went red on `94da876` with one failure, twice over: `deploy.e2e.ts` at a phone's viewport waited
+sixty seconds for a project to say "Ready" and it said "Setting up" the whole time. The runner RPC
+has a timeout and a setup that fails writes `status: "error"`, so a project stuck on `setting_up`
+for two minutes is not a setup that hung — it is a browser that never asked again.
+
+Code's project list refetches when a `project.*` event arrives on the workspace topic and at no
+other time. That is right until an event is missed: a reconnect, or a subscribe that lands after
+the publish. Then the row says "Setting up" about a project that is ready, until somebody reloads.
+
+### Decision
+**The socket is the fast path, not the only path.** `projectsQuery` polls every two seconds while
+any project is `pending` or `setting_up`, and stops the moment none is — the same shape the
+previews query has used since task 1.18, and for the same reason: something comes up on its own and
+a person is watching for it. The predicate lives in `apps/web/src/code/project-status.ts` with no
+imports, so it can be tested without a DOM.
+
+**And `deploy.e2e.ts` waits as long as its siblings.** Its project-status assertion was sixty
+seconds where `inspector.e2e.ts` already allowed ninety for the same work; it is now a hundred and
+twenty. The assertion is unchanged — what a loaded CI machine gets is patience, not a lower bar.
+
+### Consequences
+Every list in Perch that a WebSocket keeps fresh has this shape of bug available to it. This one was
+found because a project's setup is the slowest thing a person watches; channels, sessions and the
+inbox are refetched on the same socket and would show the same staleness for a shorter time. The
+honest next step is not to poll them all, but to make a reconnect refetch what it subscribed to —
+which is a change to `apps/web/src/lib/ws.ts` and a task of its own, not a fix on a red `main`.

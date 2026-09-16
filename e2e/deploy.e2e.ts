@@ -95,7 +95,7 @@ test("a deploy posts its preview URL in a thread, and the database panel reads",
   expect(made.projectId).not.toBe("");
 
   const row = page.getByTestId("project-row").filter({ hasText: "Nest" });
-  await expect(row.getByTestId("project-status")).toHaveText("Ready", { timeout: 60_000 });
+  await expect(row.getByTestId("project-status")).toHaveText("Ready", { timeout: 120_000 });
   await page.getByRole("link", { name: "Open Nest" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Nest" })).toBeVisible();
 
