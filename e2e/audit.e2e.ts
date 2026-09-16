@@ -60,12 +60,16 @@ test("how long the log is kept is the instance admin's to say", async ({ page })
   test.setTimeout(120_000);
   // The account this instance was set up with, and its workspace (scripts/e2e-server.ts).
   await page.goto("/sign-in");
+  await expect(page.getByLabel("Email")).toBeVisible();
   await page.getByLabel("Email").fill("admin@perch.test");
   await page.getByLabel("Password").fill("admin-passphrase-for-tests");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByTestId("signed-in-as")).toBeVisible();
+  // Leaving the sign-in page is the signal; where it lands afterwards depends on what this
+  // account already has, and this test does not care.
+  await page.waitForURL((url) => !url.pathname.includes("/sign-in"), { timeout: 30_000 });
 
   await page.goto("/admin/settings");
+  await expect(page).toHaveURL(/\/admin\/settings/);
   const audit = page.getByRole("region", { name: "Audit log" });
   await expect(audit).toBeVisible();
   const days = audit.getByTestId("audit-retention");
