@@ -270,7 +270,19 @@ const hasDisplay =
 
 describe.skipIf(!nativeRequired && nativeError !== "")("the native webview layer", () => {
   const dir = mkdtempSync(join(tmpdir(), "perch-desktop-"));
-  afterAll(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+  afterAll(() => {
+    /**
+     * Best effort, and it has to be. Windows keeps a handle on WebView2's browsing-data directory
+     * for a while after the process that opened it is gone, so this used to fail the suite with
+     * EBUSY after every assertion in it had passed. Whether a temp directory was deleted is not
+     * something this suite is testing, and the runner's temp is wiped either way.
+     */
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    } catch (error) {
+      console.log(`left ${dir} behind: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
 
   test("--check loads the platform webview", async () => {
     expect(nativeError).toBe("");
