@@ -34,24 +34,27 @@ export type AcpAgentSpec = {
 
 /**
  * The ACP registry's entries for the agents the runner image ships or can fetch (registry v1,
- * 2026-09-14; versions pinned as the registry pins them). A binary on PATH wins over npx.
+ * 2026-09-14). A binary on PATH wins over npx, which is what makes a session on the image start
+ * without fetching anything (task 4.6); the npx pins are the fallback for a machine that has
+ * nothing installed, and for the four the image ships they are the same versions as
+ * `deploy/agents.json` — `apps/runner/test/agents.test.ts` holds the two in step.
  */
 export const ACP_AGENTS: Record<string, AcpAgentSpec> = {
   gemini: {
     name: "Gemini CLI",
     command: "gemini",
     args: ["--acp"],
-    npx: { package: "@google/gemini-cli@0.59.0", args: ["--acp"] },
+    npx: { package: "@google/gemini-cli@0.60.0", args: ["--acp"] },
   },
   codex: {
     name: "Codex",
     command: "codex-acp",
-    npx: { package: "@agentclientprotocol/codex-acp@1.11.0" },
+    npx: { package: "@agentclientprotocol/codex-acp@1.12.0" },
   },
   claude: {
     name: "Claude Agent",
     command: "claude-agent-acp",
-    npx: { package: "@agentclientprotocol/claude-agent-acp@0.77.0" },
+    npx: { package: "@agentclientprotocol/claude-agent-acp@0.78.0" },
   },
   goose: { name: "goose", command: "goose", args: ["acp"] },
   opencode: { name: "OpenCode", command: "opencode", args: ["acp"] },

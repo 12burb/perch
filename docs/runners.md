@@ -224,6 +224,28 @@ minutes are closed, and so are OpenCode servers with no session left. Runners re
 | `PERCH_ACP_AGENT` | the agent for sessions that name none (default `gemini`) |
 | `PERCH_ACP_AGENTS` | JSON `{ "<id>": { "name", "command"?, "args"?, "npx"?: { "package", "args"? }, "env"? } }` adding or overriding agents |
 | `PERCH_OPENCODE_URL` | an `opencode serve` already running, for every project directory; nothing is spawned then |
+| `PERCH_AGENT_MANIFEST` | where to read the agent manifest (default `/opt/perch/agents.json`) |
+
+### The CLIs the image ships
+
+The runner image installs four official CLIs at pinned versions (task 4.6), from one file —
+`deploy/agents.json` — which then travels in the image at `/opt/perch/agents.json`:
+
+| Agent | Package | On PATH as | How a session starts it |
+|---|---|---|---|
+| Codex | `@openai/codex` | `codex` | the `codex-acp` bridge, also installed |
+| Claude Code | `@anthropic-ai/claude-code` | `claude` | the `claude-agent-acp` bridge, also installed |
+| Gemini CLI | `@google/gemini-cli` | `gemini` | `gemini --acp`, which it speaks itself |
+| OpenCode | `opencode-ai` | `opencode` | `opencode serve` (the `opencode` engine) or `opencode acp` |
+
+Because they are installed, a session starts on any of them without fetching anything, and the
+runner reports them in `capabilities.versions` — so the Environments page can say which Codex a
+session would run on without starting one. A runner with no manifest (a laptop joined with `perch
+runner connect`) asks each CLI its own version instead, and reports only what is really there.
+
+None of them carries a credential from the image: every one reads the person's own home volume at
+run time (spec §3.6), and the versions here are exactly what
+[`dependencies.md`](dependencies.md) records.
 
 ### Policy hooks
 

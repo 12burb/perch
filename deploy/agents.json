@@ -1,0 +1,44 @@
+{
+  "manifest": "perch-agents",
+  "version": 1,
+  "note": "The official CLIs the runner image ships, pinned (task 4.6). The image installs exactly these and copies this file to /opt/perch/agents.json; the runner reads it and reports what it has. A version here is exact on purpose: an agent that changes under a session is a change nobody chose.",
+  "agents": {
+    "codex": {
+      "name": "Codex",
+      "package": "@openai/codex",
+      "version": "0.154.0",
+      "command": "codex",
+      "acp": {
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "1.12.0",
+        "command": "codex-acp"
+      }
+    },
+    "claude": {
+      "name": "Claude Code",
+      "package": "@anthropic-ai/claude-code",
+      "version": "2.1.273",
+      "command": "claude",
+      "acp": {
+        "package": "@agentclientprotocol/claude-agent-acp",
+        "version": "0.78.0",
+        "command": "claude-agent-acp"
+      }
+    },
+    "gemini": {
+      "name": "Gemini CLI",
+      "package": "@google/gemini-cli",
+      "version": "0.60.0",
+      "command": "gemini",
+      "acp": { "command": "gemini", "args": ["--acp"] }
+    },
+    "opencode": {
+      "name": "OpenCode",
+      "package": "opencode-ai",
+      "note": "Held at the version @opencode-ai/sdk in apps/runner speaks (task 1.10): the client and the server it drives move together.",
+      "version": "1.18.30",
+      "command": "opencode",
+      "acp": { "command": "opencode", "args": ["acp"] }
+    }
+  }
+}

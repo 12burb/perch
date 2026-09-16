@@ -161,6 +161,33 @@ jobs:
           wait "$pid"
           ls -la dist/desktop
 
+  runner-agents:
+    name: The agent CLIs in the runner image (task 4.6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # Just the `agents` stage: the four CLIs and the two ACP bridges at the versions
+      # deploy/agents.json pins, without the Chromium download and the Hermes checkout behind it.
+      - name: Build the agents layer
+        run: docker build -f deploy/Dockerfile.runner --target agents -t perch-runner-agents:ci .
+      - name: The four report their versions, and the manifest says the same
+        run: |
+          set -euo pipefail
+          # -c, not -lc: a login shell would source /etc/profile and drop /opt/node/bin from PATH.
+          docker run --rm --entrypoint bash perch-runner-agents:ci -c '
+            set -euo pipefail
+            for id in $(jq -r ".agents | keys[]" /opt/perch/agents.json); do
+              command=$(jq -r ".agents.\"$id\".command" /opt/perch/agents.json)
+              pinned=$(jq -r ".agents.\"$id\".version" /opt/perch/agents.json)
+              reported=$("$command" --version 2>&1 | head -n 1)
+              echo "$id: pinned $pinned, reports $reported"
+              case "$reported" in *"$pinned"*) ;; *) echo "::error::$command does not report $pinned"; exit 1 ;; esac
+            done
+            for bridge in codex-acp claude-agent-acp; do command -v "$bridge"; done
+          '
+
   compose-smoke:
     name: Compose smoke (docker compose up → wizard → sign in)
     runs-on: ubuntu-latest

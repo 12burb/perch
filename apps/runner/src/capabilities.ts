@@ -1,6 +1,7 @@
 import { arch, platform } from "node:os";
 import type { RunnerCapabilities } from "@perch/db";
 import { installedAgents } from "./acp.ts";
+import { agentVersions } from "./agents.ts";
 import { hermesInstalled } from "./hermes.ts";
 import { opencodeBinary, opencodeUrl } from "./opencode.ts";
 
@@ -28,7 +29,12 @@ export function detectToolVersions(): Record<string, string> {
   return out;
 }
 
-/** What this runner can do, in the shape the api stores (spec §6 runners.capabilities). */
+/**
+ * What this runner can do, in the shape the api stores (spec §6 runners.capabilities).
+ *
+ * `versions` carries the agent CLIs too, so the Environments page can say which Codex a session
+ * would start on without starting one.
+ */
 export function localCapabilities(overrides: Partial<RunnerCapabilities> = {}): RunnerCapabilities {
   return {
     // The ACP adapter runs on every runner (task 1.9) and OpenCode where its binary is — or where
@@ -43,7 +49,8 @@ export function localCapabilities(overrides: Partial<RunnerCapabilities> = {}): 
     pty: true,
     platform: platform(),
     arch: arch(),
-    versions: { bun: Bun.version, ...detectToolVersions() },
+    // The agent CLIs this image ships, at the versions it pinned (task 4.6), beside the tools.
+    versions: { bun: Bun.version, ...detectToolVersions(), ...agentVersions() },
     ...overrides,
   };
 }

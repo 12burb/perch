@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1.7
 # perch/runner (spec §3.1, §3.2, §8): Ubuntu 24.04 with Bun, Node LTS, Python + uv, git, ripgrep, tmux,
-# Playwright's Chromium, the pinned OpenCode binary (task 1.10), Hermes Agent (task 3.8), and the
-# runner agent (apps/runner, task 1.1) as the entrypoint. The official CLIs (claude, codex, gemini)
-# arrive with their tasks.
+# the four official agent CLIs pinned by deploy/agents.json (task 4.6), Playwright's Chromium,
+# Hermes Agent (task 3.8), and the runner agent (apps/runner, task 1.1) as the entrypoint.
+#
+# The CLIs are their own stage (`agents`), so CI can build and check just that layer — the four
+# report their versions — without the Chromium download and the Hermes checkout behind it.
 # Homes live at /data/homes/<user>; projects at /data/projects. Build from the repository root.
 ARG UBUNTU_VERSION=24.04
 ARG BUN_VERSION=1.3.11
@@ -25,13 +27,10 @@ RUN mkdir -p /prod \
  && cd /prod \
  && bun install --frozen-lockfile --ignore-scripts --production --omit=peer --filter @perch/runner
 
-FROM ubuntu:${UBUNTU_VERSION}
+FROM ubuntu:${UBUNTU_VERSION} AS base
 ARG BUN_VERSION
 ARG NODE_VERSION=24.21.0
 ARG UV_VERSION=0.12.13
-ARG PLAYWRIGHT_VERSION=1.62.1
-ARG OPENCODE_VERSION=1.18.30
-ARG HERMES_VERSION=v2026.9.14
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -61,17 +60,31 @@ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --v
 # uv (and through it, Python toolchains), pinned.
 RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && uv --version
 
+# The official agent CLIs (spec §3.3, §10's Phase 4 line; task 4.6), pinned by deploy/agents.json:
+# Codex, Claude Code, Gemini CLI and OpenCode, plus the two ACP bridges. They are installed here,
+# so a session starts on any of them without fetching anything, and the manifest travels with them
+# so the runner can report what it has. Credentials are never baked in: every one of these reads
+# the person's own home volume at run time (spec §3.6).
+FROM base AS agents
+COPY deploy/agents.json /opt/perch/agents.json
+RUN set -eux; \
+    packages="$(jq -r '.agents[] | (.package + "@" + .version), (.acp | select(.package) | .package + "@" + .version)' /opt/perch/agents.json)"; \
+    echo "installing: ${packages}"; \
+    npm install -g ${packages}; \
+    rm -rf /root/.npm; \
+    for command in $(jq -r '.agents[].command' /opt/perch/agents.json); do command -v "${command}"; done
+
+FROM agents AS full
+ARG PLAYWRIGHT_VERSION=1.62.1
+ARG HERMES_VERSION=v2026.9.14
+
 # Playwright's Chromium and its system dependencies (agent eyes and preview screenshots, spec §5.6).
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium && rm -rf /root/.npm
-
-# OpenCode, pinned (spec §3.3, ADR-0031): the npm package's postinstall fetches the platform binary.
-RUN npm install -g "opencode-ai@${OPENCODE_VERSION}" && opencode --version && rm -rf /root/.npm
 
 # Hermes Agent, pinned (spec §3.3 `hermes`; task 3.8). Installed from its own repository at a tag —
 # the PyPI package is deprecated upstream — into a venv of its own, with the `[acp]` extra, which is
 # what puts `hermes` and `hermes-acp` on PATH. Every provider credential it ever uses comes from the
 # person's own home volume at run time (~/.hermes), never from this image (spec §3.6 Lane B).
-ARG HERMES_VERSION
 RUN set -eux; \
     git clone --depth 1 --branch "${HERMES_VERSION}" https://github.com/NousResearch/hermes-agent.git /opt/hermes/src; \
     uv venv /opt/hermes/venv --python 3.12; \
@@ -87,6 +100,8 @@ RUN (getent passwd ubuntu >/dev/null && userdel -r ubuntu) || true \
     && groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
     && mkdir -p /data/homes /data/projects && chown -R perch:perch /data /opt/pw-browsers /opt/hermes
 COPY --from=agent --chown=perch:perch /prod /opt/perch
+# The manifest sits beside the agent tree the CLIs were installed from (task 4.6).
+COPY --chown=perch:perch deploy/agents.json /opt/perch/agents.json
 USER perch
 WORKDIR /data/projects
 # The runner agent (spec §7.6): PERCH_API_URL and PERCH_RUNNER_TOKEN come from the supervisor.

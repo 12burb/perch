@@ -6019,3 +6019,44 @@ cell is code that ran because of a log entry somebody else wrote.
 **The page is capped, not paged.** A hundred rows, and the filters are how you reach further back —
 the same shape as the usage dashboard, and one fewer piece of state than a cursor UI. An instance
 that wants everything takes the CSV.
+
+## ADR-0152: One file pins the agent CLIs, and the image ships it
+
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Task:** 4.6 (official CLIs in the runner image)
+
+### Context
+Four official CLIs — Codex, Claude Code, Gemini CLI, OpenCode — and two ACP bridges are what a
+session actually runs on. Before this they were fetched by `npx` on first use, from versions pinned
+in `apps/runner/src/acp.ts`, which meant the first session on a cold runner paid for a download and
+the runner could not say what it had until it had tried.
+
+Pinning them in the Dockerfile would have put the versions in a second place, and a Dockerfile
+cannot be read by the runner at run time.
+
+### Decision
+**`deploy/agents.json` is the pin**, and the image installs from it: the build reads the file with
+`jq` and `npm install -g`s exactly those six packages, then ships the same file at
+`/opt/perch/agents.json`. What a runner reports is therefore what was installed, not a guess — and
+there is one place to change a version.
+
+**The runner trusts the manifest, but checks PATH.** `capabilities.versions` lists an agent only
+when its command is really there, so an image whose install was tampered with, or a manifest copied
+somewhere it does not belong, does not produce a version Perch cannot run. A machine with no
+manifest — somebody's laptop through `perch runner connect` — asks each CLI for `--version`
+instead.
+
+**The CLIs are their own build stage.** `--target agents` stops after the six installs, before
+Playwright's Chromium and the Hermes checkout, so CI can build that layer on every push and check
+that each CLI reports the version the manifest pins. The full image is still built on a tag, where
+it is published.
+
+**The ACP table keeps its npx pins, and a test holds them in step** with the manifest: a machine
+without the image fetches the same version the image installed, rather than whatever is newest that
+day. A binary on PATH still wins over `npx`, which is what makes a session on the image start
+without fetching anything.
+
+**OpenCode is held at `@opencode-ai/sdk`'s version** rather than the newest published: the runner
+drives `opencode serve` with that SDK, and a client and a server that move independently is a bug
+report waiting to be written.
