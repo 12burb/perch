@@ -48,19 +48,33 @@ Ollama and `--profile tunnel` for a Cloudflare tunnel when you have no public do
 ### Laptop mode (one binary, no Docker)
 
 ```sh
-curl -fsSL https://get.perch.dev | sh   # or: npx perch-dev@latest dev
+curl -fsSL https://raw.githubusercontent.com/12burb/perch/main/install.sh | sh
 perch dev
 ```
 
-Runs api, web, and an in-process runner on PGlite in `~/.perch`; `perch doctor` checks the machine,
-`perch backup` / `perch restore` keep the data safe. `perch migrate --to-compose` moves a laptop instance
-into the compose stack when a team shows up.
+On Windows, in PowerShell:
 
-Binaries ship for Linux (x64, arm64), macOS (Apple silicon, Intel), and Windows (x64). On Windows,
-download `perch-windows-x64.exe` from the release page (or run `bunx perch-dev@latest dev` with Bun
-installed), run `perch dev` from PowerShell or a terminal, and find the data in `%USERPROFILE%\.perch`.
-CI runs the laptop smoke (`perch dev`, doctor, backup, restore, and the compiled binary) on Linux, macOS,
-and Windows on every push.
+```powershell
+irm https://raw.githubusercontent.com/12burb/perch/main/install.ps1 | iex
+perch dev
+```
+
+Or through a package manager: `brew install 12burb/perch/perch`, `winget install Perch.Perch`,
+`yay -S perch-bin`, `nix run github:12burb/perch`, `npx perch-dev@latest dev`.
+
+Nothing is installed that the release did not vouch for: the binary must match the release's
+`SHA256SUMS`, and those checksums are signed by the release workflow with cosign (keyless,
+Sigstore) — verified too when cosign is on the machine, and required with
+`PERCH_REQUIRE_SIGNATURE=1`. `perch upgrade` does the same checks and replaces the running binary in
+place. See [`docs/install.md`](docs/install.md).
+
+Laptop mode runs api, web, and an in-process runner on PGlite in `~/.perch`; `perch doctor` checks the
+machine, `perch backup` / `perch restore` keep the data safe. `perch migrate --to-compose` moves a laptop
+instance into the compose stack when a team shows up.
+
+Binaries ship for Linux (x64, arm64), macOS (Apple silicon, Intel), and Windows (x64); the data lives in
+`%USERPROFILE%\.perch` on Windows. CI runs the laptop smoke (`perch dev`, doctor, backup, restore, and
+the compiled binary) on Linux, macOS, and Windows on every push.
 
 ### Desktop app (laptop mode in a window)
 

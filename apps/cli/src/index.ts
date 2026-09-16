@@ -12,6 +12,7 @@ import { runDev } from "./commands/dev.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runInit } from "./commands/init.ts";
 import { runRunner } from "./commands/runner.ts";
+import { runUpgrade } from "./commands/upgrade.ts";
 
 export const packageName = "@perch/cli";
 
@@ -25,6 +26,7 @@ Commands:
   init        write .env, docker-compose.yml, and a Caddyfile for docker compose (team mode)
   runner      connect this machine to a Perch as one of your environments (runner connect <url>)
   connectors  check connector manifests before an instance loads them (connectors check <dir>)
+  upgrade     replace this binary with the newest release, checksum and signature checked
   help        show this help
 
 Run "perch <command> --help" for the options of a command.`;
@@ -46,6 +48,8 @@ export async function main(argv: string[]): Promise<number> {
       return runRunner(rest);
     case "connectors":
       return runConnectors(rest);
+    case "upgrade":
+      return runUpgrade(rest);
     case undefined:
     case "help":
     case "--help":

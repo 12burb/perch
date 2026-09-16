@@ -5867,3 +5867,53 @@ refusal in the thread; `/v1` answers `402`.
 
 **A budget never widens anything.** The bot spec's own caps and `policy.yaml`'s ceilings still
 narrow a bot; a workspace budget is another ceiling above them, not a permission.
+
+## ADR-0149: A release signs its checksums, and generates the packaging rather than keeping it
+
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Task:** 4.3 (install anywhere)
+
+### Context
+Task 4.3 asks for "a `curl | sh` installer that verifies the release signature" and "a Homebrew
+tap, winget manifest, AUR PKGBUILD and nix flake published by the release workflow". Spec §8 names
+cosign for the images, and nothing at all for the binaries: a release published `SHA256SUMS` and
+left it there, which is a promise only against a corrupted download, not against a swapped one.
+
+Two things were undecided. What a "release signature" over a binary is, given that Perch has no key
+to keep and no wish to ask a maintainer to guard one. And where four packaging files live, given
+that three of the four registries are repositories this project does not own: `homebrew-perch`,
+`microsoft/winget-pkgs`, and the AUR each want a push with credentials the release workflow has no
+business holding.
+
+### Decision
+**One signature, over the checksum file.** The release workflow signs `SHA256SUMS` with cosign
+keyless (Sigstore, the same trust path as the images) and publishes `SHA256SUMS.sig` and
+`SHA256SUMS.pem`. Signing one small file rather than five binaries keeps the verification a single
+step for every platform, and the checksums already bind every asset. The identity is pinned on the
+reader's side: only this repository's `release.yml`, through GitHub's OIDC issuer, counts.
+
+**Checksum always, signature where it can be checked.** `install.sh`, `install.ps1` and
+`perch upgrade` refuse outright on a checksum mismatch — that check needs nothing but `sha256sum`.
+The signature is verified when cosign is on the machine, and saying "the checksum matched; install
+cosign to check the signature too" is more honest than a silent skip. `PERCH_REQUIRE_SIGNATURE=1`
+and `perch upgrade --require-signature` turn it into a refusal for machines that want one. Perch
+does not ship a Sigstore verifier of its own: reimplementing certificate-transparency checks badly
+would be worse than the plain truth that cosign is not installed.
+
+**The packaging is generated at release time, not committed.** `scripts/packaging.ts` reads the
+release's own `SHA256SUMS` and writes the Homebrew formula, the three winget files, the AUR
+`PKGBUILD` and the nix `flake.nix`; the workflow attaches all six to the release. A committed
+manifest carries a checksum for a build that has not happened yet, which is how taps end up
+installing yesterday's binary. An asset missing from `SHA256SUMS` fails the generator rather than
+writing a blank checksum.
+
+**Pushing to the registries stays a separate, credential-gated step.** The release *publishes* the
+manifests; a maintainer (or a later workflow with a tap token) copies them into
+`homebrew-perch`, `winget-pkgs` and the AUR. The release workflow keeps `contents: write` on this
+repository and nothing else, which is the right blast radius for a workflow that runs on a tag.
+
+**An upgrade replaces the running binary by renaming it.** `perch upgrade` stages the new binary
+beside the old one, renames the running one to `perch.old`, moves the new one in, and rolls back if
+that fails. A running executable cannot be overwritten on Windows but can be moved, so this is the
+one shape that works on all three platforms; it also means a failed upgrade leaves a working Perch.

@@ -6,6 +6,7 @@
 | [`spec/PERCH-PLAN.md`](spec/PERCH-PLAN.md) | The extended build plan (v2.0) behind the spec |
 | [`spec/KICKOFF.md`](spec/KICKOFF.md) | Kickoff prompts for agent sessions |
 | [`dependencies.md`](dependencies.md) | Resolved and pinned package versions (task 0.3) |
+| [`install.md`](install.md) | Installing Perch: the one-liners, what is checked before anything is written, package managers, `perch upgrade` |
 | [`deploy.md`](deploy.md) | Team mode with docker compose: `perch init`, the images, the setup wizard |
 | [`ci.md`](ci.md) | The pull-request pipeline, the release workflow, the perf budgets |
 | [`runners.md`](runners.md) | The runner control channel, hosted and local runners, the supervisor |
