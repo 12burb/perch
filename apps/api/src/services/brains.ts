@@ -225,6 +225,8 @@ export class BrainsService {
     modelId: string;
     credentialId?: string;
     defaultFor?: ProfileDefault;
+    /** Other profiles to try when this one's provider will not answer (task 4.1). */
+    fallbacks?: string[];
     by: ActorContext;
   }): Promise<ModelProfile> {
     if (input.credentialId) {
@@ -248,6 +250,7 @@ export class BrainsService {
       modelId: input.modelId.trim(),
       credentialId: input.credentialId ?? null,
       defaultFor: null,
+      fallbacks: input.fallbacks ?? [],
     });
     if (input.defaultFor) {
       const promoted = await makeDefault(this.deps.db, input.workspaceId, row.id, input.defaultFor);

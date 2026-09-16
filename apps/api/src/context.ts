@@ -20,6 +20,7 @@ import type { DeployService } from "./services/deploys.ts";
 import type { LocalMcpService } from "./services/local-mcp.ts";
 import type { McpGateway } from "./services/mcp.ts";
 import type { MergeQueueService } from "./services/merge-queue.ts";
+import type { ModelGatewayService } from "./services/model-gateway.ts";
 import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
 import type { PlanningService } from "./services/planning.ts";
@@ -32,6 +33,7 @@ import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 import type { SpecBotsService } from "./services/spec-bots.ts";
 import type { TestingLoopService } from "./services/testing-loop.ts";
+import type { VirtualKeysService } from "./services/virtual-keys.ts";
 import type { WebhooksService } from "./services/webhooks.ts";
 import type { WorkService } from "./services/work.ts";
 
@@ -72,6 +74,9 @@ export type Deps = {
   perchMcp: PerchMcpService;
   /** Work items and the board, moved by the sessions doing them (task 3.13). */
   work: WorkService;
+  /** The `/v1` gateway and the keys it is reached with (task 4.1). */
+  modelGateway: ModelGatewayService;
+  virtualKeys: VirtualKeysService;
   /** Cycles, modules, saved views and relations (task 3.26). */
   planning: PlanningService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */

@@ -7,8 +7,18 @@
  * a credential is tested or a model is picked (ADR-0081).
  */
 import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { bytea, id, timestamps } from "../columns.ts";
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+import { bytea, id, timestamps, timestamptz } from "../columns.ts";
 import { users } from "./identity.ts";
 import { workspaces } from "./tenancy.ts";
 
@@ -103,6 +113,12 @@ export const modelProfiles = pgTable(
     params: jsonb("params").$type<ModelParams>().notNull().default({}),
     toolPolicy: jsonb("tool_policy").$type<ToolPolicy>().notNull().default({}),
     costCap: jsonb("cost_cap").$type<CostCap>().notNull().default({}),
+    /**
+     * The profiles to try when this one's provider will not answer, by name and in order
+     * (spec §3.4 "fallback chains"; task 4.1, ADR-0147). §6 does not have this column: a chain has
+     * to live somewhere, and the profile is the thing a caller names.
+     */
+    fallbacks: jsonb("fallbacks").$type<string[]>().notNull().default([]),
     defaultFor: text("default_for").$type<ProfileDefault>(),
     ...timestamps(),
   },
@@ -120,3 +136,97 @@ export const modelProfiles = pgTable(
 );
 export type ModelProfile = typeof modelProfiles.$inferSelect;
 export type NewModelProfile = typeof modelProfiles.$inferInsert;
+
+/**
+ * A virtual key (spec §6 `virtual_keys`, §3.4, §7.4; task 4.1): what an external caller reaches
+ * `/v1` with. `pk_…` is shown once and stored as a hash — the same shape an api token has, for the
+ * same reason.
+ */
+export const KEY_SUBJECTS = ["user", "bot", "runner", "external"] as const;
+export type KeySubject = (typeof KEY_SUBJECTS)[number];
+
+/** What a key may spend, and over what stretch (spec §7.4's `Perch-Budget-Remaining`). */
+export type KeyBudget = {
+  /** Dollars. Absent means no ceiling. */
+  limitUsd?: number;
+  /** The window the limit is counted over; `total` is the key's whole life. */
+  period?: "day" | "month" | "total";
+};
+
+export const virtualKeys = pgTable(
+  "virtual_keys",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    subjectType: text("subject_type").$type<KeySubject>().notNull(),
+    /** Who it speaks as. Null for `external`, which is a key that is nobody in particular. */
+    subjectId: uuid("subject_id"),
+    name: text("name").notNull().default(""),
+    keyHash: text("key_hash").notNull(),
+    /** The first characters of the key, so a list can show which one this is. */
+    prefix: text("prefix").notNull(),
+    budget: jsonb("budget").$type<KeyBudget>().notNull().default({}),
+    /**
+     * The model profiles this key may ask for, by name. Empty means the workspace's whole
+     * allow-list — §6 does not have this column and ADR-0147 says why it is here.
+     */
+    models: jsonb("models").$type<string[]>().notNull().default([]),
+    expiresAt: timestamptz("expires_at"),
+    revokedAt: timestamptz("revoked_at"),
+    lastUsedAt: timestamptz("last_used_at"),
+    createdBy: uuid("created_by"),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("virtual_keys_hash_idx").on(t.keyHash),
+    index("virtual_keys_workspace_idx").on(t.workspaceId, t.createdAt),
+    check(
+      "virtual_keys_subject_check",
+      sql`${t.subjectType} in ('user', 'bot', 'runner', 'external')`,
+    ),
+  ],
+);
+export type VirtualKey = typeof virtualKeys.$inferSelect;
+
+/**
+ * One call's cost (spec §6 `usage_events`, §3.4 "cost logged to usage_events"; task 4.1). The
+ * ledger a budget is checked against and the dashboard is drawn from — one row per call, whoever
+ * made it: a person in the web app, a bot, a session, or a key on `/v1`.
+ */
+export const USAGE_ACTORS = ["user", "bot", "runner", "external", "system"] as const;
+export type UsageActor = (typeof USAGE_ACTORS)[number];
+
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    actorType: text("actor_type").$type<UsageActor>().notNull(),
+    actorId: uuid("actor_id"),
+    sessionId: uuid("session_id"),
+    botRunId: uuid("bot_run_id"),
+    /** The key it came through, when it came through one. */
+    virtualKeyId: uuid("virtual_key_id").references(() => virtualKeys.id, { onDelete: "set null" }),
+    provider: text("provider").notNull(),
+    modelId: text("model_id").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    ts: timestamptz("ts").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("usage_events_workspace_idx").on(t.workspaceId, t.ts),
+    index("usage_events_key_idx").on(t.virtualKeyId, t.ts),
+    check(
+      "usage_events_actor_check",
+      sql`${t.actorType} in ('user', 'bot', 'runner', 'external', 'system')`,
+    ),
+  ],
+);
+export type UsageEvent = typeof usageEvents.$inferSelect;

@@ -56,6 +56,8 @@ const profileSchema = z
     model_id: z.string(),
     credential_id: z.uuid().nullable(),
     default_for: z.enum(PROFILE_DEFAULTS).nullable(),
+    /** The profiles to try when this one's provider will not answer, in order (task 4.1). */
+    fallbacks: z.array(z.string()),
     created_at: z.string(),
   })
   .openapi("ModelProfile");
@@ -208,6 +210,7 @@ const addProfileRoute = createRoute({
               model_id: z.string().min(1).max(200),
               credential_id: z.uuid().optional(),
               default_for: z.enum(PROFILE_DEFAULTS).optional(),
+              fallbacks: z.array(z.string().trim().min(1).max(120)).max(8).optional(),
             })
             .openapi("AddModelProfile"),
         },
@@ -356,6 +359,7 @@ export function registerBrains(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       modelId: body.model_id,
       ...(body.credential_id ? { credentialId: body.credential_id } : {}),
       ...(body.default_for ? { defaultFor: body.default_for } : {}),
+      ...(body.fallbacks ? { fallbacks: body.fallbacks } : {}),
       by: actorOf(c),
     });
     return c.json(toProfile(row), 201);
@@ -403,6 +407,7 @@ function toProfile(row: {
   modelId: string;
   credentialId: string | null;
   defaultFor: ProfileDefault | null;
+  fallbacks: string[];
   createdAt: Date;
 }) {
   return {
@@ -412,6 +417,7 @@ function toProfile(row: {
     model_id: row.modelId,
     credential_id: row.credentialId,
     default_for: row.defaultFor,
+    fallbacks: row.fallbacks,
     created_at: row.createdAt.toISOString(),
   };
 }

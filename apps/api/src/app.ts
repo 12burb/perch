@@ -46,7 +46,9 @@ import { registerSetup } from "./routes/setup.ts";
 import { registerSpecBots } from "./routes/spec-bots.ts";
 import { registerTerminal } from "./routes/terminal.ts";
 import { registerUnfurl } from "./routes/unfurl.ts";
+import { registerV1 } from "./routes/v1.ts";
 import { registerVersion } from "./routes/version.ts";
+import { registerVirtualKeys } from "./routes/virtual-keys.ts";
 import { registerWebhooks } from "./routes/webhooks.ts";
 import { registerWork } from "./routes/work.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
@@ -156,6 +158,9 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerInbox(app, deps);
   registerWork(app, deps);
   registerPlanning(app, deps);
+  registerVirtualKeys(app, deps);
+  // Not an /api route and not in the OpenAPI document: /v1 is somebody else's contract.
+  registerV1(app, deps);
   registerMergeQueue(app, deps);
   registerRaces(app, deps);
   registerAgents(app, deps);

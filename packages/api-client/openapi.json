@@ -2474,6 +2474,12 @@
               null
             ]
           },
+          "fallbacks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "created_at": {
             "type": "string"
           }
@@ -2485,6 +2491,7 @@
           "model_id",
           "credential_id",
           "default_for",
+          "fallbacks",
           "created_at"
         ]
       },
@@ -2517,6 +2524,15 @@
               "code",
               "embedding"
             ]
+          },
+          "fallbacks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "maxItems": 8
           }
         },
         "required": [
@@ -7279,6 +7295,156 @@
             "format": "uuid"
           }
         }
+      },
+      "VirtualKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "bot",
+              "runner",
+              "external"
+            ]
+          },
+          "subject_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/KeyBudget"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "subject_type",
+          "subject_id",
+          "prefix",
+          "budget",
+          "models",
+          "expires_at",
+          "revoked_at",
+          "last_used_at",
+          "created_at"
+        ]
+      },
+      "KeyBudget": {
+        "type": "object",
+        "properties": {
+          "limit_usd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "month",
+              "total"
+            ]
+          }
+        }
+      },
+      "MintedVirtualKey": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "virtual_key": {
+            "$ref": "#/components/schemas/VirtualKey"
+          }
+        },
+        "required": [
+          "key",
+          "virtual_key"
+        ]
+      },
+      "CreateVirtualKey": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "bot",
+              "runner",
+              "external"
+            ],
+            "default": "external"
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/KeyBudget"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "maxItems": 50
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "name"
+        ]
       },
       "MergeQueue": {
         "type": "object",
@@ -23535,6 +23701,213 @@
           },
           "422": {
             "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/virtual-keys": {
+      "get": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "The keys this workspace has minted for /v1",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "keys": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/VirtualKey"
+                      }
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "Mint a virtual key; the key itself is shown exactly once",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVirtualKey"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The key, and the row that will outlive it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedVirtualKey"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/virtual-keys/{id}": {
+      "delete": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "Revoke a key; what it spent stays in the ledger",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {

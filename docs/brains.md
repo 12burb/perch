@@ -88,8 +88,81 @@ Google do not publish that shape, so their model ids are typed rather than picke
 | Add or remove a workspace credential | ✅ | ✅ | ❌ |
 | Add, remove, or promote a brain | ✅ | ✅ | ❌ |
 
+## The gateway at `/v1`
+
+Anything that can talk to OpenAI can talk to a Perch. Point a client at your instance, use a
+virtual key where the API key goes, and name a brain where the model goes:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="https://perch.example.com/v1", api_key="pk_…")
+client.chat.completions.create(model="chat", messages=[{"role": "user", "content": "hello"}])
+```
+
+Three endpoints: `POST /v1/chat/completions` (streamed and not), `GET /v1/models`, and
+`POST /v1/embeddings`. `model` is a brain's name, or `provider/model_id`, or the bare model id —
+whichever the caller has configured — as long as the key may name it.
+
+The credential never leaves the server. That is the whole point: a script, a cron job, Hermes or
+OpenCode-as-a-custom-provider gets an answer, and the workspace's key stays in the vault.
+
+Every answer carries what it cost:
+
+| Header | What it says |
+|---|---|
+| `Perch-Provider` | who actually answered — which matters when a fallback did |
+| `Perch-Input-Tokens`, `Perch-Output-Tokens` | what the provider reported |
+| `Perch-Cost-Usd` | what that came to, from the price table |
+| `Perch-Budget-Remaining` | what is left of this key's budget, when it has one |
+
+A streamed answer cannot carry its cost in a header — the headers are gone before the last token
+is — so the usage rides in the final chunk, the way OpenAI's `stream_options.include_usage` does.
+
+Errors are OpenAI's shape rather than Perch's (`{"error": {"message", "type", "code"}}`), because a
+client library parses them: `401 invalid_api_key`, `404 model_not_found`, `402 budget_exceeded`,
+`502 upstream_failed`.
+
+## Virtual keys
+
+```
+POST   /api/workspaces/{ws}/virtual-keys  {name, subject_type, subject_id?, budget?, models?, expires_at?}
+→ {key: "pk_…", virtual_key: {…}}
+GET    /api/workspaces/{ws}/virtual-keys
+DELETE /api/workspaces/{ws}/virtual-keys/{id}
+```
+
+Minting one is an admin's act, and the key is **shown exactly once** — the row keeps a hash and the
+first few characters so a list can tell two keys apart. A key speaks as somebody: a person, a bot,
+a runner, or nobody in particular (`external`), which decides whose credentials it can reach. A
+key that speaks as nobody can only use workspace credentials, never a personal one.
+
+`models` narrows a key to some of the workspace's brains; empty means all of them. `budget` is
+`{limit_usd, period}` over a day, a month, or the key's whole life, counted from the ledger. A key
+that has spent it is refused with `402` before any provider is called. Revoking is a one-way door,
+and what the key spent stays in the ledger.
+
+## Fallback chains
+
+A brain can name others to try when its provider will not answer:
+
+```
+POST /api/workspaces/{ws}/model-profiles  {name: "flaky", …, fallbacks: ["chat"]}
+```
+
+The gateway walks the chain in order and answers with whichever one spoke, saying so in
+`Perch-Provider`. A fallback the key may not name is skipped rather than refused: a chain is a
+preference, not a promise about somebody else's key.
+
+## The ledger
+
+Every call through the gateway writes a row in `usage_events`: the workspace, who made it, which
+key, the provider and model, the tokens, and what it cost. `usage.recorded` goes out on the bus
+with the same facts. Budgets are counted from it, and the usage dashboard is drawn from it.
+
 ## Not here yet
 
 Per-brain parameters (temperature and the rest), tool policy, and cost caps have columns in the
-schema and nothing reading them; the `chat` default waits for chat sessions in Phase 2. Routing a
-bot or a chat reply through a brain arrives with the model gateway of Phase 3.
+schema and nothing reading them. `/v1` does not run tools for a caller — a request with `tools` is
+answered as if it had none. Budgets beyond a key's own (per workspace, per person, per bot) and the
+dashboard that draws the ledger are task 4.2.

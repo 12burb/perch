@@ -11380,6 +11380,172 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/virtual-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The keys this workspace has minted for /v1 */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Keys */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            keys: components["schemas"]["VirtualKey"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Mint a virtual key; the key itself is shown exactly once */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateVirtualKey"];
+                };
+            };
+            responses: {
+                /** @description The key, and the row that will outlive it */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MintedVirtualKey"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/virtual-keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a key; what it spent stays in the ledger */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/projects/{project}/merge-queue": {
         parameters: {
             query?: never;
@@ -14290,6 +14456,7 @@ export type components = {
             credential_id: string | null;
             /** @enum {string|null} */
             default_for: "chat" | "code" | "embedding" | null;
+            fallbacks: string[];
             created_at: string;
         };
         AddModelProfile: {
@@ -14300,6 +14467,7 @@ export type components = {
             credential_id?: string;
             /** @enum {string} */
             default_for?: "chat" | "code" | "embedding";
+            fallbacks?: string[];
         };
         MakeDefaultProfile: {
             /** @enum {string} */
@@ -15435,6 +15603,45 @@ export type components = {
             type?: "task" | "bug" | "feature" | "epic";
             /** Format: uuid */
             cycle_id?: string | null;
+        };
+        VirtualKey: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @enum {string} */
+            subject_type: "user" | "bot" | "runner" | "external";
+            /** Format: uuid */
+            subject_id: string | null;
+            prefix: string;
+            budget: components["schemas"]["KeyBudget"];
+            models: string[];
+            expires_at: string | null;
+            revoked_at: string | null;
+            last_used_at: string | null;
+            created_at: string;
+        };
+        KeyBudget: {
+            limit_usd?: number;
+            /** @enum {string} */
+            period?: "day" | "month" | "total";
+        };
+        MintedVirtualKey: {
+            key: string;
+            virtual_key: components["schemas"]["VirtualKey"];
+        };
+        CreateVirtualKey: {
+            name: string;
+            /**
+             * @default external
+             * @enum {string}
+             */
+            subject_type: "user" | "bot" | "runner" | "external";
+            /** Format: uuid */
+            subject_id?: string;
+            budget?: components["schemas"]["KeyBudget"];
+            models?: string[];
+            /** Format: date-time */
+            expires_at?: string;
         };
         MergeQueue: {
             entries: components["schemas"]["MergeQueueEntry"][];

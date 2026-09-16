@@ -94,6 +94,8 @@ export async function insertProfile(
     modelId: string;
     credentialId: string | null;
     defaultFor: ProfileDefault | null;
+    /** The profiles to try when this one will not answer, by name (task 4.1). */
+    fallbacks?: string[];
   },
 ): Promise<ModelProfile> {
   const [row] = await db.insert(modelProfiles).values(values).returning();

@@ -2,6 +2,14 @@
 export const packageName = "@perch/gateway";
 
 export {
+  type Answer,
+  type CallInput,
+  type CallSettings,
+  type CallUsage,
+  complete,
+  streamCompletion,
+} from "./call.ts";
+export {
   CatalogError,
   type CatalogModel,
   type CatalogQuery,
@@ -25,6 +33,22 @@ export {
   PRICES,
   priceOf,
 } from "./models.ts";
+export {
+  type ChatRequest,
+  type CompletionUsage,
+  chatRequestSchema,
+  chunkBody,
+  completionBody,
+  completionId,
+  type EmbeddingsRequest,
+  embeddingsBody,
+  embeddingsRequestSchema,
+  errorBody,
+  modelBody,
+  sse,
+  toMessages,
+  toSettings,
+} from "./openai.ts";
 export {
   baseUrlFor,
   PROVIDERS,

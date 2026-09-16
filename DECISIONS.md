@@ -5793,3 +5793,43 @@ everything else.
 decisions worth reading, the verification numbers from this environment, and the deviations carried
 forward. A human reviewing Phase 4 reads that page and edits `TASKS.md`; nothing here is waiting on
 that review to start.
+
+## ADR-0147: What a key may name, and what a brain falls back to
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 4.1
+
+### Context
+§6 gives `virtual_keys` seven columns — workspace, subject, key hash, prefix, budget, expiry,
+revocation — and `usage_events` eleven. §3.4 asks for "fallback chains" and says nothing about
+where a chain is written down. §7.4 says a request's `model` is "a profile name or
+`provider/model_id` on the allow-list", where the allow-list is the workspace's.
+
+Two things that the spec asks for have nowhere to live in the spec's own columns.
+
+### Decision
+Three columns beyond §6, each earning its place:
+
+- **`virtual_keys.models`** — the brains one key may name, by profile name; empty means the
+  workspace's whole allow-list. Without it, every key a workspace mints can spend on its most
+  expensive model, and the only way to give a script the cheap one is a second workspace. It
+  narrows rather than widens: a key can never name a profile the workspace does not have.
+- **`model_profiles.fallbacks`** — the chain, as profile names in order. The profile is the thing a
+  caller names, so the profile is where "and if that is down, try these" belongs. A fallback the
+  key may not name is skipped, not refused.
+- **`usage_events.virtual_key_id`** — which key spent it. §6 has `actor_type`/`actor_id`, and for a
+  key that speaks as nobody in particular those say `external` and nothing else. A budget is a
+  question about one key, so the ledger has to be able to answer it.
+
+Two smaller shapes, for the same reason:
+
+- A key that is `external` is nobody, so it reaches **workspace credentials only** — the personal
+  ones stay personal, because `credentialFor` refuses a user-scoped credential to anyone but its
+  owner and a key that is nobody is not its owner.
+- On the bus, a `usage.recorded` for an `external` key says `system`: §7.7's actor kinds are the
+  four a person can be in a workspace, and the ledger keeps the exact word.
+
+`/v1` is not in the OpenAPI document and its errors are OpenAI's shape rather than §7.8's. The
+contract there is somebody else's: a client holding an OpenAI SDK should not have to learn Perch's
+error model to read a refusal.

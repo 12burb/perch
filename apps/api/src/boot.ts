@@ -37,6 +37,7 @@ import { DeployService } from "./services/deploys.ts";
 import { LocalMcpService } from "./services/local-mcp.ts";
 import { McpGateway } from "./services/mcp.ts";
 import { MergeQueueService } from "./services/merge-queue.ts";
+import { ModelGatewayService } from "./services/model-gateway.ts";
 import { NestService } from "./services/nest.ts";
 import { PerchMcpService } from "./services/perch-mcp.ts";
 import { PlanningService } from "./services/planning.ts";
@@ -49,6 +50,7 @@ import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { SpecBotsService } from "./services/spec-bots.ts";
 import { TestingLoopService } from "./services/testing-loop.ts";
+import { VirtualKeysService } from "./services/virtual-keys.ts";
 import { WebhooksService } from "./services/webhooks.ts";
 import { WorkService } from "./services/work.ts";
 import { startTracing } from "./telemetry/tracing.ts";
@@ -247,6 +249,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
   });
   // Work items, and the board that follows the sessions doing them (task 3.13).
+  // The gateway at /v1, and the keys it is reached with (task 4.1).
+  const modelGateway = new ModelGatewayService({ db, bus, log, brains });
+  const virtualKeys = new VirtualKeysService({ db, bus, log });
   const work = new WorkService({ db, bus, log, sessions });
   // What the work is planned into: cycles, modules, saved views, relations (task 3.26).
   const planning = new PlanningService({ db, bus, log });
@@ -307,6 +312,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     perchMcp,
     work,
     planning,
+    modelGateway,
+    virtualKeys,
     mergeQueue,
     races,
     background,
