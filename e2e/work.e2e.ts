@@ -137,10 +137,11 @@ test("a cycle, a saved view, and the five layouts", async ({ page }, info) => {
   await expect(page.getByTestId("work-row").first()).toBeVisible();
   await page.getByTestId("work-layout").selectOption("spreadsheet");
   await expect(page.getByRole("columnheader", { name: "Title" })).toBeVisible();
+  // Named, not `getByRole("status")`: the closed cycle's own status line is still on the page.
   await page.getByTestId("work-layout").selectOption("calendar");
-  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.getByText("Nothing with a date.", { exact: false })).toBeVisible();
   await page.getByTestId("work-layout").selectOption("timeline");
-  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.getByText("Nothing with dates yet.")).toBeVisible();
 
   // A view somebody saved is the view they get back: save the list layout, open something else,
   // come back to it, and reload the page for good measure.

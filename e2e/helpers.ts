@@ -12,6 +12,38 @@ export const apiBase = (process.env.E2E_BASE_URL ?? "http://perch.localhost:3999
   "127.0.0.1",
 );
 
+/**
+ * The account this instance was set up with, which is not the same account in both modes: with
+ * `E2E_SETUP=wizard` (CI) the wizard spec makes it through the UI, and otherwise
+ * `scripts/e2e-server.ts` seeds one before any spec runs. Tests that need the *instance's* admin —
+ * the only account `/api/admin/*` answers — ask here rather than guessing.
+ */
+export const INSTANCE_ADMIN =
+  process.env.E2E_SETUP === "wizard"
+    ? { email: "dawn@example.test", password: PASSWORD }
+    : { email: "admin@perch.test", password: "admin-passphrase-for-tests" };
+
+/** Signs in through the form and waits until the sign-in page is behind us. */
+export async function signIn(page: Page, who: { email: string; password: string }): Promise<void> {
+  await page.goto("/sign-in");
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await page.getByLabel("Email").fill(who.email);
+  await page.getByLabel("Password").fill(who.password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.waitForURL((url) => !url.pathname.includes("/sign-in"), { timeout: 30_000 });
+}
+
+/** The slug of the first workspace this account is in, asked through the browser's own session. */
+export async function firstWorkspaceSlug(page: Page): Promise<string> {
+  const slug = await page.evaluate(async () => {
+    const res = await fetch("/api/workspaces", { credentials: "include" });
+    const body = (await res.json()) as { workspaces?: { slug?: string }[] };
+    return body.workspaces?.[0]?.slug ?? "";
+  });
+  expect(slug).not.toBe("");
+  return slug;
+}
+
 export function uniqueEmail(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
 }

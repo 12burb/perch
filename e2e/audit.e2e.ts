@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { createWorkspace, signUp, uniqueEmail } from "./helpers.ts";
+import {
+  createWorkspace,
+  firstWorkspaceSlug,
+  INSTANCE_ADMIN,
+  signIn,
+  signUp,
+  uniqueEmail,
+} from "./helpers.ts";
 
 /**
  * Task 4.5 (spec §6, §7.1): the audit page shows who did what and when, narrows to the question
@@ -58,18 +65,12 @@ test("the audit page says who did what and when, filters, and exports", async ({
 
 test("how long the log is kept is the instance admin's to say", async ({ page }) => {
   test.setTimeout(120_000);
-  // The account this instance was set up with, and its workspace (scripts/e2e-server.ts).
-  await page.goto("/sign-in");
-  await expect(page.getByLabel("Email")).toBeVisible();
-  await page.getByLabel("Email").fill("admin@perch.test");
-  await page.getByLabel("Password").fill("admin-passphrase-for-tests");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  // Leaving the sign-in page is the signal; where it lands afterwards depends on what this
-  // account already has, and this test does not care.
-  await page.waitForURL((url) => !url.pathname.includes("/sign-in"), { timeout: 30_000 });
+  // The account this instance was set up with — the wizard's in CI, the seeded one otherwise —
+  // and whichever workspace it landed in.
+  await signIn(page, INSTANCE_ADMIN);
+  const slug = await firstWorkspaceSlug(page);
 
-  await page.goto("/admin/settings");
-  await expect(page).toHaveURL(/\/admin\/settings/);
+  await page.goto(`/${slug}/settings`);
   const audit = page.getByRole("region", { name: "Audit log" });
   await expect(audit).toBeVisible();
   const days = audit.getByTestId("audit-retention");
