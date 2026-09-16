@@ -5766,3 +5766,30 @@ The document is stored in `work_items.description.doc` beside the plain text in
 `description.text`, and both are written on every save. A bot reading a description over the Bot
 API, a search index, and a person in the editor then see the same words — and an item whose
 description was typed by a bot still opens in the editor.
+
+## ADR-0146: Phase 4's task list, written at the gate rather than waited for
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: the Phase 3 gate
+
+### Context
+`TASKS.md` said Phase 4 would be "written at the Phase 3 gate (spec §10) and reviewed by the human
+before starting", the same sentence Phase 3 carried. Phase 3 is now `[x]` from 3.1 to 3.26 and its
+exit criterion runs as one Playwright spec.
+
+The maintainer's standing direction for this repository is to keep building and push to `main`
+(ADR-0065), and AGENTS.md §1.9 says not to ask the human a question the spec can answer.
+
+### Decision
+Phase 4's list is written now, from §10's Phase 4 line, in §11's format: 4.1–4.13, each with its
+acceptance in parentheses. The ordering is by dependency rather than by the order §10 names things
+— the gateway and its keys first, because budgets, the usage dashboard and the reliability bar are
+all about what runs through them; distribution early, because the maintainer's ask for this
+repository is that "anyone can download and use" it; the launch bar last, because it measures
+everything else.
+
+`docs/phase-3-report.md` is the gate itself: what shipped, the exit criterion and where it runs, the
+decisions worth reading, the verification numbers from this environment, and the deviations carried
+forward. A human reviewing Phase 4 reads that page and edits `TASKS.md`; nothing here is waiting on
+that review to start.

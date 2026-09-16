@@ -121,7 +121,23 @@ a granted Supabase connection; the agent screenshots its own change before repor
 
 ## Phase 4 — Gateway, hardening, launch
 
-Written at the Phase 3 gate (spec §10) and reviewed by the human before starting.
+Written at the Phase 3 gate from spec §10's Phase 4 line, in the §11 format (ADR-0146). Exit:
+public beta where compose and `curl | sh` work for strangers; time-to-first-agent-PR under ten
+minutes; first external contributor merged.
+
+- [ ] **4.1** The model gateway at `/v1`: OpenAI-compatible `chat/completions` (streamed and not), `embeddings` and `models`, reached with a virtual key (`pk_…`) minted per workspace, person or bot, with per-key model allow-lists and provider fallbacks — and the vault's credentials never leaving the gateway (an OpenAI SDK pointed at a Perch virtual key completes a streamed chat through a workspace credential, and a revoked key is refused)
+- [ ] **4.2** Budgets and the usage dashboard: a `usage` row per call, budgets per workspace, person and bot with a soft warning and a hard stop, `GET /api/workspaces/{ws}/usage?from&to&group_by`, and a Brains screen that draws it (a bot that runs out of budget stops and says so in the thread, and the dashboard shows the spend by model, by bot and by person)
+- [ ] **4.3** Install anywhere: a `curl | sh` installer that verifies the release signature, `perch upgrade`, and a Homebrew tap, winget manifest, AUR PKGBUILD and nix flake published by the release workflow (a stranger on macOS, Linux or Windows installs a signed `perch`, runs `perch dev`, and upgrades in place)
+- [ ] **4.4** Backups you can trust: scheduled backups in team mode (Postgres, the vault key, project volumes), retention, and a restore drill in CI for both modes (a nightly backup restores into an empty instance and the workspace is all there)
+- [ ] **4.5** RBAC and audit hardening: the audit page with filters and export, retention settings, and a test that every route names an action `authorize()` knows (every route is authorized, and the audit page shows who did what and when)
+- [ ] **4.6** Official CLIs in the runner image: Codex, Claude Code, Gemini CLI and OpenCode pinned and preinstalled with a version manifest (the runner reports the four CLIs and their versions, and a session starts on each without a download)
+- [ ] **4.7** The docs site: `docs/` published as a static site with search, built in CI and versioned by release (every page under `docs/` is reachable from the site, and the build fails on a broken link)
+- [ ] **4.8** One-click templates, starter stacks and a demo workspace: `templates/` filled in (Next.js, a Bun API, Python, a static site) and `perch demo` seeding a workspace with channels, bots and a project (a template becomes a project with its preview running, in one click)
+- [ ] **4.9** Security: dependency and container scanning in CI, an SBOM per release, signatures the installer checks, and a written disclosure drill (a release publishes an SBOM and a signature, and the installer refuses a tampered download)
+- [ ] **4.10** The reliability bar: load, upgrade and chaos tests with published targets (a hundred sessions at once, an upgrade with no data loss, a runner killed mid-turn recovering)
+- [ ] **4.11** Accessibility pass: axe on every screen at 390 px and 1440 px, keyboard-only walkthroughs, focus order and live regions (every screen passes axe and can be driven by keyboard alone)
+- [ ] **4.12** Hub v1: an index of connectors, bots, skills and templates, installable from inside Perch (a bot installs from the hub into a workspace and answers)
+- [ ] **4.13** Phase 4 e2e and the launch bar: the stranger's two paths — `docker compose up` and `curl | sh` — with time-to-first-agent-PR measured (both green in CI, under ten minutes)
 
 ## Beyond the spec
 
