@@ -22,6 +22,7 @@ import type { MergeQueueService } from "./services/merge-queue.ts";
 import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
+import type { PreflightService } from "./services/preflight.ts";
 import type { PreviewService } from "./services/previews.ts";
 import type { PullRequestsService } from "./services/pull-requests.ts";
 import type { RaceService } from "./services/races.ts";
@@ -81,6 +82,8 @@ export type Deps = {
   agents: AgentsService;
   /** The connection's pull requests, their reviews, and the agent that answers one (task 3.20). */
   pullRequests: PullRequestsService;
+  /** The project's own checks and a look at each route, before a push (task 3.21). */
+  preflight: PreflightService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

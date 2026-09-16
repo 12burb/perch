@@ -132,5 +132,16 @@ export {
   tmux,
   tmuxSessionName,
 } from "./pty.ts";
+export {
+  browserCandidates,
+  findBrowser,
+  NoBrowser,
+  type PageConsoleLine,
+  type PageFailedRequest,
+  type ScreenshotInput,
+  screenshot,
+  type VisitResult,
+  visit,
+} from "./screenshot.ts";
 export { SessionManager, type SessionsOptions } from "./sessions.ts";
 export { createStreamPair, Inbox, type StreamOpener, streamOverSocket } from "./streams.ts";

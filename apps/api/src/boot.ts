@@ -39,6 +39,7 @@ import { MergeQueueService } from "./services/merge-queue.ts";
 import { NestService } from "./services/nest.ts";
 import { PerchMcpService } from "./services/perch-mcp.ts";
 import { PolicyService } from "./services/policy.ts";
+import { PreflightService } from "./services/preflight.ts";
 import { PreviewService } from "./services/previews.ts";
 import { PullRequestsService } from "./services/pull-requests.ts";
 import { RaceService } from "./services/races.ts";
@@ -260,6 +261,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const agents = new AgentsService({ db, bus, log, sessions, bots });
   // The connection's pull requests, and the session that answers a review (task 3.20).
   const pullRequests = new PullRequestsService({ connections, log, sessions });
+  // The project's own lint, test and build, and a look at each of its routes (task 3.21).
+  const preflight = new PreflightService({ log });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -297,6 +300,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     testingLoop,
     agents,
     pullRequests,
+    preflight,
     previews,
     deploys,
     dbBrowser,

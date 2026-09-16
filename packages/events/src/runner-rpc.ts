@@ -358,6 +358,18 @@ export const screenshotResultSchema = z
     png: z.string().min(1),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
+    /**
+     * What the page said while it was being looked at (task 3.21). Absent from a runner that
+     * predates it; a preflight without it reports the picture and no verdict rather than a pass.
+     */
+    console: z
+      .array(z.object({ level: z.string(), text: z.string() }))
+      .max(500)
+      .optional(),
+    failed: z
+      .array(z.object({ url: z.string(), status: z.number().int() }))
+      .max(200)
+      .optional(),
   })
   .strict();
 export type ScreenshotResult = z.infer<typeof screenshotResultSchema>;

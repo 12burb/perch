@@ -241,7 +241,163 @@ const elementEditRoute = createRoute({
   },
 });
 
+/**
+ * Preflight (spec §5.6; task 3.21): the project's own commands, then a look at each of its routes.
+ * A channel gets the checklist as a card; without one it is just the answer.
+ */
+const preflightRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/preflight",
+  tags: ["previews"],
+  summary: "Run the project's checks and look at each of its routes",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: projectParam,
+    body: {
+      // Running it needs nothing said: a caller that wants the card in a channel says so, and
+      // everybody else sends no body at all rather than an empty object.
+      required: false,
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              channel_id: z.uuid().optional(),
+              thread_root_id: z.uuid().optional(),
+            })
+            .openapi("PreflightRequest"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "The checklist",
+      content: {
+        "application/json": {
+          schema: z.object({
+            passed: z.boolean(),
+            verdict: z.enum(["warn", "block"]),
+            rows: z.array(
+              z.object({
+                name: z.string(),
+                kind: z.enum(["command", "route"]),
+                ok: z.boolean(),
+                detail: z.string().optional(),
+                file_id: z.uuid().optional(),
+              }),
+            ),
+            message_id: z.uuid().nullable(),
+          }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422, 502),
+  },
+});
+
 export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
+  app.openapi(preflightRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    const body = (c.req.valid("json") ?? {}) as {
+      channel_id?: string;
+      thread_root_id?: string;
+    };
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const link = await projectRunnerLink(projectDeps(deps), project, user.id);
+    const port = project.config.preview?.port;
+    const up = port
+      ? deps.runners.forWorkspace(ws).some((one) => one.ports.some((each) => each.port === port))
+      : false;
+    const result = await deps.preflight.run({
+      project,
+      link,
+      userId: user.id,
+      ...(up && port ? { port } : {}),
+    });
+
+    // A picture belongs in a file, not in a JSON body: the row points at it.
+    const rows: { row: (typeof result.rows)[number]; fileId?: string }[] = [];
+    for (const row of result.rows) {
+      if (!row.png) {
+        rows.push({ row });
+        continue;
+      }
+      const file = await storeUpload(
+        { db: deps.db, env: { filesDir: deps.env.filesDir } },
+        {
+          workspaceId: ws,
+          uploader: { type: "user", id: user.id },
+          file: new File(
+            [Buffer.from(row.png, "base64")],
+            `${project.key}${row.name.replace(/[^a-zA-Z0-9]+/g, "-")}.png`.replace(/-+/g, "-"),
+            { type: "image/png" },
+          ),
+        },
+      );
+      rows.push({ row, fileId: file.id });
+    }
+
+    let messageId: string | null = null;
+    if (body.channel_id) {
+      const channel = await getChannel(deps.db.db, body.channel_id);
+      if (!channel || channel.workspaceId !== ws) throw PerchError.notFound("channel");
+      const message = await insertMessage(deps.db.db, {
+        workspaceId: ws,
+        channelId: channel.id,
+        threadRootId: body.thread_root_id ?? null,
+        authorType: "user",
+        authorId: user.id,
+        blocks: [
+          {
+            type: "preflight_card",
+            state: result.passed ? "passed" : "failed",
+            verdict: result.verdict,
+            rows: rows.map(({ row, fileId }) => ({
+              name: row.name,
+              kind: row.kind,
+              ok: row.ok,
+              ...(row.detail === undefined ? {} : { detail: row.detail }),
+              ...(fileId ? { fileId } : {}),
+            })),
+          },
+        ],
+      });
+      messageId = message.id;
+      await deps.bus.publish(
+        "message.created",
+        {
+          workspaceId: ws,
+          channelId: channel.id,
+          messageId: message.id,
+          ...(body.thread_root_id ? { threadRootId: body.thread_root_id } : {}),
+          authorType: "user" as const,
+          authorId: user.id,
+        },
+        { ...actorOf(c), topics: [`channel:${channel.id}`] },
+      );
+    }
+
+    return c.json(
+      {
+        passed: result.passed,
+        verdict: result.verdict,
+        rows: rows.map(({ row, fileId }) => ({
+          name: row.name,
+          kind: row.kind,
+          ok: row.ok,
+          ...(row.detail === undefined ? {} : { detail: row.detail }),
+          ...(fileId ? { file_id: fileId } : {}),
+        })),
+        message_id: messageId,
+      },
+      200,
+    );
+  });
+
   app.openapi(elementEditRoute, async (c) => {
     const { ws, project: projectId } = c.req.valid("param");
     const body = c.req.valid("json");

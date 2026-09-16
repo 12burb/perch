@@ -5574,6 +5574,100 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/projects/{project}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run the project's checks and look at each of its routes */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                    project: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PreflightRequest"];
+                };
+            };
+            responses: {
+                /** @description The checklist */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            passed: boolean;
+                            /** @enum {string} */
+                            verdict: "warn" | "block";
+                            rows: {
+                                name: string;
+                                /** @enum {string} */
+                                kind: "command" | "route";
+                                ok: boolean;
+                                detail?: string;
+                                /** Format: uuid */
+                                file_id?: string;
+                            }[];
+                            /** Format: uuid */
+                            message_id: string | null;
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Upstream failed */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/projects/{project}/element-edit": {
         parameters: {
             query?: never;
@@ -12541,6 +12635,16 @@ export type components = {
             pushed: boolean;
             remote: string;
             branch: string;
+            preflight?: {
+                passed: boolean;
+                rows: {
+                    name: string;
+                    /** @enum {string} */
+                    kind: "command" | "route";
+                    ok: boolean;
+                    detail?: string;
+                }[];
+            };
         };
         GitPushRequest: {
             branch?: string;
@@ -12953,6 +13057,12 @@ export type components = {
             requires_permission?: string[] | null;
             channels?: string[] | null;
             obo?: boolean;
+        };
+        PreflightRequest: {
+            /** Format: uuid */
+            channel_id?: string;
+            /** Format: uuid */
+            thread_root_id?: string;
         };
         ElementEditRequest: {
             source: string;

@@ -25,7 +25,7 @@ import {
   setupProject,
 } from "./projects.ts";
 import { PtyManager, type PtyOptions } from "./pty.ts";
-import { screenshot } from "./screenshot.ts";
+import { visit } from "./screenshot.ts";
 import { SessionManager, type SessionsOptions } from "./sessions.ts";
 import type { StreamOpener } from "./streams.ts";
 
@@ -100,8 +100,10 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
     "http.open": (params) => tunnel.open(params),
+    // The visit rather than the picture (task 3.21): the caller gets both, and preflight is the
+    // one that reads the console. A panel asking for a screenshot ignores the rest.
     "preview.screenshot": (params) =>
-      screenshot({
+      visit({
         port: params.port,
         path: params.path,
         ...(params.width === undefined ? {} : { width: params.width }),

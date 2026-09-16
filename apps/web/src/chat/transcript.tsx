@@ -179,6 +179,9 @@ function Blocks(props: {
         if (block.type === "race_card") {
           return <RaceCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "preflight_card") {
+          return <PreflightCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "background_card") {
           return <BackgroundCard key={key} block={block as Record<string, unknown>} />;
         }
@@ -1132,6 +1135,65 @@ function QueueCard(props: { block: Record<string, unknown> }) {
  * goes, so what is here in the morning is the run rather than a stack of notifications: what it
  * was asked, how far it got, and — once it is over — what the whole night came to.
  */
+/**
+ * Preflight, as the checklist §5.6 asks for (task 3.21): a row per thing that was checked, ticked
+ * or not, and for the ones that were not, why. A route that was looked at shows the picture that
+ * was taken of it, because a visual smoke whose evidence you cannot see is a claim.
+ */
+function PreflightCard(props: { block: Record<string, unknown> }) {
+  const state = String(props.block.state ?? "failed");
+  const rows = Array.isArray(props.block.rows)
+    ? (props.block.rows as Record<string, unknown>[])
+    : [];
+  return (
+    <div
+      data-testid="preflight-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{t("chat.preflight")}</span>
+        <Badge tone={state === "passed" ? "success" : "danger"}>
+          {t(`chat.preflight.${state}` as "chat.preflight.passed")}
+        </Badge>
+        {state === "failed" ? (
+          <span className="text-sm text-fg-muted">
+            {t(
+              `chat.preflightVerdict.${String(props.block.verdict ?? "warn")}` as "chat.preflightVerdict.warn",
+            )}
+          </span>
+        ) : null}
+      </span>
+      <ul aria-label={t("chat.preflight")} className="flex flex-col gap-1">
+        {rows.map((row, index) => (
+          <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: a checklist's rows have no id of their own
+            key={index}
+            data-testid="preflight-row"
+            className="flex flex-col gap-0.5 text-sm"
+          >
+            <span className="flex items-center gap-2">
+              <span aria-hidden="true">{row.ok === true ? "\u2713" : "\u2717"}</span>
+              <span className={row.ok === true ? "" : "text-danger"}>{String(row.name ?? "")}</span>
+            </span>
+            {row.detail ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-fg-subtle">
+                {String(row.detail)}
+              </pre>
+            ) : null}
+            {row.fileId ? (
+              <img
+                src={`/api/files/${String(row.fileId)}/preview`}
+                alt={String(row.name ?? "")}
+                className="max-h-40 rounded border border-border object-contain"
+              />
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function BackgroundCard(props: { block: Record<string, unknown> }) {
   const state = String(props.block.state ?? "running");
   const url = String(props.block.url ?? "");

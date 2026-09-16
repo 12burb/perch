@@ -122,6 +122,34 @@ twice over: a runner has other things listening, and Perch would not know which 
 A session with nothing to look at gets no browser — a process and a context window spent on nothing,
 and an agent offered tools that cannot work is an agent that will try them.
 
-## Not here yet
+## Preflight before push (task 3.21)
 
-Preflight visual smoke is the rest of §5.6's Phase 3.
+```json
+{
+  "run": { "lint": "biome check .", "test": "bun test", "build": "bun run build" },
+  "preview": { "port": 5173, "routes": ["/", "/pricing"], "preflight": "block" }
+}
+```
+
+With `preflight` set, a push runs two halves first.
+
+1. **The project's own commands** — `lint`, `test` and `build`, whichever it has, fast ones first.
+   That is what CI would have told you in ten minutes' time.
+2. **A look at each route**, in the runner's own browser. A console **error** or a request that did
+   not come back is a failure. This is the half a suite cannot do: a page that throws on load passes
+   every unit test ever written.
+
+`block` refuses the push with the checklist (`409`); `warn` pushes and returns it anyway; absent is
+off, because a suite and a browser on every push is a choice a project makes rather than one it
+discovers from its bill.
+
+```
+POST /api/workspaces/{ws}/projects/{p}/preflight  {channel_id?, thread_root_id?}
+```
+
+Run it on its own any time. With a channel it posts the **checklist card** — a row per thing
+checked, the reason for each failure, and the picture taken of each route, because a visual smoke
+whose evidence you cannot see is a claim.
+
+A route's verdict needs the project's preview to actually be serving; without it, preflight says so
+rather than quietly passing a check it did not run.

@@ -5500,3 +5500,55 @@ errors, and an agent that cannot look at the page is still an agent.
 
 What is not here: Perch does not check that the command exists. A misconfigured one fails when the
 agent tries it, in the agent's own words, which is where an operator will be looking.
+
+## ADR-0140: One way to drive the browser, and it comes back with a verdict
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.21
+
+### Context
+§5.6 asks for "Preflight before push: run test/lint/build from project.json, then an agent visual
+smoke over the configured routes (screenshot each, fail on console errors) → checklist card;
+configurable warn or block".
+
+Task 2.16 drove headless Chromium with `--screenshot`, and ADR-0108 said why: the browser is there
+for the agent's eyes anyway, and a second way of asking it for a picture would be a second thing to
+keep working.
+
+### Decision
+**The CLI cannot answer "fail on console errors", so the DevTools protocol does.** Verified rather
+than assumed: Chromium logs `console.log`, `console.error` and an uncaught exception all at
+`INFO:CONSOLE` on stderr, so what the page thought was an error is not recoverable from it.
+`Runtime.consoleAPICalled` carries the level, `Runtime.exceptionThrown` is unambiguous, and
+`Network.responseReceived` gives the requests that did not come back.
+
+**So `visit` replaces `--screenshot` rather than joining it**, and `screenshot` asks `visit` for the
+picture. That is ADR-0108's own reasoning applied to its own decision: one way to drive the browser,
+and it is the one that can answer both questions. `preview.screenshot`'s result gains two optional
+fields; a runner that predates them reports a picture and no verdict, which preflight treats as no
+verdict rather than as a pass.
+
+**Two halves, and the second is the point.** The commands are what CI would say later. The look is
+what no suite says at all: a page that throws on load passes every unit test ever written. A route
+whose preview is not serving is a failed row saying so — quietly passing a check that did not run
+would be worse than either answer.
+
+**Off unless the project asks**, and then `warn` or `block`. Same reasoning as the testing loop
+(ADR-0135): a suite and a browser on every push is somebody's bill, and a default that surprises
+them is worse than a feature they have to turn on. `block` refuses with `409` and the checklist.
+
+**`conflict`, not a new error code.** §7.8's set is the set. A push the project's own state refuses
+is a conflict with that state, and inventing `preflight_failed` would make every client that
+switches on the code wrong.
+
+### Consequences
+The browser test moved to the CI job that has a browser. `bun test` skips it where there is none —
+which is honest about what a unit-test job can check — and the Playwright job runs it with the
+chromium it already installs.
+
+The checklist card carries the picture of each route as a file, not as base64 in a block: a block is
+read into every client that renders the thread.
+
+What is not here: a diff between this run's pictures and the last one's. §5.6 does not ask for it,
+and a visual regression that nobody has a baseline for is a screenshot with an opinion.

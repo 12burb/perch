@@ -109,6 +109,12 @@ export const projectConfigSchema = z
         port: z.number().int().min(1).max(65535).optional(),
         path: z.string().min(1).optional(),
         routes: z.array(z.string().min(1)).optional(),
+        /**
+         * Preflight before push (spec §5.6 "configurable warn or block"; task 3.21, ADR-0140):
+         * the project's own test, lint and build, then a look at each route in `routes`. Absent
+         * means off — a suite and a browser on every push is a choice a project makes.
+         */
+        preflight: z.enum(["off", "warn", "block"]).optional(),
       })
       .strict()
       .optional(),
@@ -377,6 +383,33 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
             .strict(),
         )
         .max(8),
+    })
+    .strict(),
+  /**
+   * Preflight, as the checklist §5.6 asks for (task 3.21): one row per thing that was checked,
+   * and whether it passed. A row that failed carries why, never a whole log.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("preflight_card"),
+      state: z.enum(["passed", "failed"]),
+      /** What the project said to do about a failure. */
+      verdict: z.enum(["warn", "block"]),
+      rows: z
+        .array(
+          z
+            .object({
+              name: z.string().max(200),
+              kind: z.enum(["command", "route"]),
+              ok: z.boolean(),
+              detail: z.string().max(2000).optional(),
+              /** The picture of a route, when one was taken. */
+              fileId: z.uuid().optional(),
+            })
+            .strict(),
+        )
+        .max(50),
     })
     .strict(),
   /**

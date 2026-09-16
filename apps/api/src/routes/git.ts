@@ -8,6 +8,7 @@
  * take.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import type { Project } from "@perch/db";
 import {
   gitBranchResultSchema,
   gitCommitResultSchema,
@@ -19,6 +20,11 @@ import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
+import {
+  type PreflightResult,
+  type PreflightRow,
+  preflightVerdict,
+} from "../services/preflight.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
 import { runnerCall } from "../services/runners.ts";
 import { wholeChange } from "../services/ship.ts";
@@ -69,9 +75,43 @@ const commitSchema = z
   })
   .openapi("GitCommit");
 
+/** One row of a preflight checklist, without the picture: this is a push's answer, not a gallery. */
+export const preflightRowSchema = z.object({
+  name: z.string(),
+  kind: z.enum(["command", "route"]),
+  ok: z.boolean(),
+  detail: z.string().optional(),
+});
+
 const pushSchema = z
-  .object({ pushed: z.boolean(), remote: z.string(), branch: z.string() })
+  .object({
+    pushed: z.boolean(),
+    remote: z.string(),
+    branch: z.string(),
+    /** Present when the project asked for a preflight (task 3.21). */
+    preflight: z.object({ passed: z.boolean(), rows: z.array(preflightRowSchema) }).optional(),
+  })
   .openapi("GitPush");
+
+/** A row as the wire carries it: the png stays on the server side of this. */
+function bare(row: PreflightRow) {
+  return {
+    name: row.name,
+    kind: row.kind,
+    ok: row.ok,
+    ...(row.detail === undefined ? {} : { detail: row.detail }),
+  };
+}
+
+/** The port this project's preview is on, when something is serving it. */
+function previewPort(deps: Deps, project: Project): number | undefined {
+  const configured = project.config.preview?.port;
+  if (!configured) return undefined;
+  for (const runner of deps.runners.forWorkspace(project.workspaceId)) {
+    if (runner.ports.some((one) => one.port === configured)) return configured;
+  }
+  return undefined;
+}
 
 const branchSchema = z
   .object({
@@ -359,6 +399,27 @@ export function registerGit(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       { kind: "git.push", branch: body.branch ?? project.defaultBranch },
       actorOf(c),
     );
+    // Preflight, when the project asks for one (spec §5.6; task 3.21). A `block` project does not
+    // push on a red checklist; a `warn` one pushes and says what it found.
+    let preflight: PreflightResult | null = null;
+    if (preflightVerdict(project) !== "off") {
+      preflight = await deps.preflight.run({
+        project,
+        link,
+        userId: user.id,
+        ...(previewPort(deps, project) === undefined ? {} : { port: previewPort(deps, project) }),
+      });
+      if (!preflight.passed && preflight.verdict === "block") {
+        // Not a new error code: §7.8's set is the set, and a push the project's own state refuses
+        // is a conflict with that state.
+        throw new PerchError(
+          "conflict",
+          "preflight found something, and this project blocks a push on that",
+          { preflight: preflight.rows.map(bare) },
+          409,
+        );
+      }
+    }
     const auth = await pushCredential(deps, project.workspaceId, user.id, body.connection_id);
     const raw = await runnerCall(link, "git.push", {
       workspace_id: ws,
@@ -373,7 +434,17 @@ export function registerGit(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     await deps.specBots.sync(link, project, user.id).catch((error: unknown) => {
       deps.log.warn({ err: error, projectId: project.id }, "spec bots did not sync after a push");
     });
-    return c.json({ pushed: true, remote: pushed.remote, branch: pushed.branch }, 200);
+    return c.json(
+      {
+        pushed: true,
+        remote: pushed.remote,
+        branch: pushed.branch,
+        ...(preflight
+          ? { preflight: { passed: preflight.passed, rows: preflight.rows.map(bare) } }
+          : {}),
+      },
+      200,
+    );
   });
 
   app.openapi(branchesRoute, async (c) => {
