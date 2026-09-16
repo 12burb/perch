@@ -280,6 +280,17 @@ export function botsQuery(workspaceId: string) {
   });
 }
 
+/** The Nest roster, and which of them this workspace already has (spec §5.3; task 3.9). */
+export function nestQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "nest"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/workspaces/{ws}/nest", { params: { path: { ws: workspaceId } } }))
+        .agents,
+    enabled: workspaceId !== "",
+  });
+}
+
 /**
  * The chat this person has with this bot (task 2.9). Opening it is what makes it, so the ask is a
  * POST — it finds the room the second time rather than starting another — and the answer says where

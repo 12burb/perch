@@ -4667,3 +4667,49 @@ because "hermes is not installed" is actionable and "the hermes engine is unavai
 
 Spec deviation: §9's rule 13 describes Hermes as a runtime that does not speak ACP. It does now, and
 this ADR is the record that the rule was followed rather than the parenthesis.
+
+## ADR-0124: The Nest is a roster, not a runtime
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.9
+
+### Context
+Spec §5.3 ends its bots section with "Nest agents (Birbus orchestrator; Dawn, Julius, Paige, Kimi
+specialists) join via the Bot API or the hermes adapter", and §10's Phase 3 exit asks that "a Nest
+agent posts via the Bot API using a granted Supabase connection". Neither says what a Nest agent *is*
+in the database.
+
+### Decision
+**They are bots, made from data.** `packages/bots/src/nest.ts` is a list — handle, name, persona,
+triggers, budget, which door, what it expects to be granted — with no imports, like the Forge's
+templates, so a browser can show the roster without the runtime. `NestService.install` turns entries
+into ordinary rows in `bots`. Nothing about them is privileged afterwards: edit, re-scope or delete
+them like anything else, and a second install takes nobody's name — a handle already here is
+reported and left alone.
+
+**The door decides the level.** `door: "bot_api"` makes an `external` bot with a token minted once
+(§7.3): the agent runs wherever it already runs and Perch is somewhere it talks. `door: "hermes"`
+makes an agent bot with `engine: "hermes"` and the workspace's projects (tasks 3.7, 3.8): Perch runs
+it. Dawn is the hermes one, because the whole point of Dawn is that a mention becomes a session.
+
+**Installing grants nothing.** Kimi's entry says it expects a `supabase` connection; that is a label
+on a card and a line in the response, not a grant. A grant is an admin's decision on the Connections
+page (spec §3.5), and until one exists the agent is refused with a 403. The acceptance test checks
+that order explicitly: the call before the grant is refused and never reaches the provider.
+
+**Kimi is the data specialist.** The spec names the five and says what Birbus, Dawn, Julius and
+Paige do; it does not say what Kimi does. Read against §10's exit criterion — a Nest agent on a
+granted Supabase connection — the gap in the team is the one who answers from the data, so that is
+what Kimi is. Read-only is written into its persona and its skill, not just hoped for.
+
+**Its own path, not under `/bots`.** `/api/workspaces/{ws}/nest`, because `/bots/nest` collides with
+`/bots/{bot}` and resolving that by route ordering is a trap for whoever adds the next route.
+
+### Consequences
+The roster is Perch's opinion about a good team, and somebody else's Nest will differ. It is data in
+one file for exactly that reason: a fork edits the list, and nothing else changes.
+
+Birbus carries `orchestrator: true` and the tools to tag and wait, but what an orchestrator *does*
+with a fan-out — the plan card, the per-child budgets, folding the answers back — is task 3.10. Until
+then Birbus is a bot that may tag other bots, which is what task 2.7 already gives it.

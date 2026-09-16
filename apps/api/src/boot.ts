@@ -33,6 +33,7 @@ import { ConnectionsService } from "./services/connections.ts";
 import { DbBrowser } from "./services/db-browser.ts";
 import { DeployService } from "./services/deploys.ts";
 import { McpGateway } from "./services/mcp.ts";
+import { NestService } from "./services/nest.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
@@ -193,6 +194,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     agents: agentBots,
     ...(env.search ? { search: env.search } : {}),
   });
+  // The Nest as members (spec §5.3; task 3.9): a roster an admin installs, each entry becoming an
+  // ordinary bot — external with its own token, or an agent bot on the hermes engine.
+  const nest = new NestService({ db: db.db, bots });
   // Bots that live in a project's repository (spec §5.3; task 3.1): the sync needs the bot service
   // for the cron triggers a synced bot brings with it.
   const specBots = new SpecBotsService({ db: db.db, bots, log });
@@ -222,6 +226,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     sessions,
     brains,
     bots,
+    nest,
     policy,
     connections,
     mcp,

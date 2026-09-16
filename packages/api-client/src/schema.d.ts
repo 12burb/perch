@@ -8032,6 +8032,120 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{ws}/nest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Nest roster, and which of them this workspace already has (spec §5.3) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Who is in the Nest */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            agents: components["schemas"]["NestAgent"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Install the Nest agents that are missing (spec §5.3) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["InstallNest"];
+                };
+            };
+            responses: {
+                /** @description What was installed, and who was already here */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            installed: components["schemas"]["InstalledNestAgent"][];
+                            already: string[];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bot/chat.postMessage": {
         parameters: {
             query?: never;
@@ -12037,6 +12151,29 @@ export type components = {
             decided_at: string | null;
             error: string | null;
             created_at: string;
+        };
+        NestAgent: {
+            handle: string;
+            name: string;
+            blurb: string;
+            /** @enum {string} */
+            door: "bot_api" | "hermes";
+            orchestrator: boolean;
+            connections: string[];
+            installed: boolean;
+        };
+        InstalledNestAgent: {
+            handle: string;
+            name: string;
+            /** Format: uuid */
+            bot_id: string;
+            /** @enum {string} */
+            door: "bot_api" | "hermes";
+            token?: string;
+            connections: string[];
+        };
+        InstallNest: {
+            handles?: string[];
         };
         BotMessage: {
             /** @enum {boolean} */

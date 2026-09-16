@@ -16,6 +16,7 @@ import type { ConnectionsService } from "./services/connections.ts";
 import type { DbBrowser } from "./services/db-browser.ts";
 import type { DeployService } from "./services/deploys.ts";
 import type { McpGateway } from "./services/mcp.ts";
+import type { NestService } from "./services/nest.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
@@ -56,6 +57,8 @@ export type Deps = {
   brains: BrainsService;
   /** The native bot runtime: triggers, tools, runs and their ledger (task 2.6). */
   bots: BotsService;
+  /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
+  nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */
   policy: PolicyService;
   connections: ConnectionsService;

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./templates": "./src/templates.ts",
+    "./nest": "./src/nest.ts",
     "./spec": "./src/spec.ts",
     "./sandbox": "./src/sandbox.ts"
   },

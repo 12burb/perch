@@ -21,6 +21,7 @@ import {
   botTokensQuery,
   channelsQuery,
   modelProfilesQuery,
+  nestQuery,
 } from "../lib/queries.ts";
 
 function message(err: unknown): string {
@@ -137,6 +138,7 @@ export function BotsSection(props: { workspaceId: string; canAdmin: boolean }) {
         <EmptyState title={t("forge.emptyTitle")} hint={t("forge.emptyHint")} />
       )}
 
+      <Nest workspaceId={props.workspaceId} canAdmin={props.canAdmin} />
       <Templates onPick={(template) => setDraft(fromTemplate(template))} />
       <BotForm
         workspaceId={props.workspaceId}
@@ -145,6 +147,92 @@ export function BotsSection(props: { workspaceId: string; canAdmin: boolean }) {
         onDraft={setDraft}
       />
     </section>
+  );
+}
+
+/**
+ * The Nest (spec §5.3 "Nest agents … join via the Bot API or the hermes adapter"; task 3.9): a team
+ * an admin installs in one press. What comes out is ordinary bots — the tokens are shown once here
+ * and nowhere else, because Perch keeps only their hashes.
+ */
+function Nest(props: { workspaceId: string; canAdmin: boolean }) {
+  const queryClient = useQueryClient();
+  const roster = useQuery(nestQuery(props.workspaceId));
+  const [tokens, setTokens] = useState<{ name: string; token: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const install = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/nest", {
+          params: { path: { ws: props.workspaceId } },
+          body: {},
+        }),
+      ),
+    onSuccess: async (result) => {
+      setError(null);
+      setTokens(
+        (result.installed ?? [])
+          .filter((one) => typeof one.token === "string" && one.token)
+          .map((one) => ({ name: one.name, token: String(one.token) })),
+      );
+      await queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "bots"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "nest"] });
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+  const agents = roster.data ?? [];
+  if (agents.length === 0) return null;
+  const missing = agents.filter((one) => !one.installed).length;
+  return (
+    <div className="flex flex-col gap-2" data-testid="nest">
+      <h3 className="text-sm font-semibold text-fg-muted">{t("nest.title")}</h3>
+      <p className="max-w-prose text-sm text-fg-muted">{t("nest.hint")}</p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {agents.map((agent) => (
+          <li
+            key={agent.handle}
+            data-testid="nest-agent"
+            className="flex flex-col gap-1 rounded border border-border bg-raised p-2"
+          >
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{agent.name}</span>
+              <span className="font-mono text-sm text-fg-muted">@{agent.handle}</span>
+              <Badge>{agent.door === "hermes" ? t("nest.doorHermes") : t("nest.doorBotApi")}</Badge>
+              {agent.orchestrator ? <Badge tone="accent">{t("nest.orchestrator")}</Badge> : null}
+              {agent.installed ? <Badge tone="success">{t("nest.installed")}</Badge> : null}
+            </span>
+            <span className="text-sm text-fg-muted">{agent.blurb}</span>
+            {agent.connections.map((provider) => (
+              <span key={provider} className="text-sm text-fg-subtle">
+                {t("nest.needs", { provider })}
+              </span>
+            ))}
+          </li>
+        ))}
+      </ul>
+      {props.canAdmin && missing > 0 ? (
+        <Button
+          variant="secondary"
+          className="self-start"
+          data-testid="install-nest"
+          disabled={install.isPending}
+          onClick={() => install.mutate()}
+        >
+          {install.isPending ? t("nest.installing") : t("nest.install")}
+        </Button>
+      ) : null}
+      {tokens.length > 0 ? (
+        <div className="flex flex-col gap-1 rounded border border-border bg-raised p-2">
+          <span className="text-sm text-fg-muted">{t("nest.tokens")}</span>
+          {tokens.map((one) => (
+            <code key={one.name} className="break-all font-mono text-sm">
+              {one.name}: {one.token}
+            </code>
+          ))}
+        </div>
+      ) : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@
  * spends the workspace's money — is an admin's (ADR-0096).
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { NEST_AGENTS, NEST_DOORS, type NestAgent } from "@perch/bots/nest";
 import type { Bot, BotRun, BotToken, BotToolCall } from "@perch/db";
 import { BOT_SCOPES, BOT_TOOL_CALL_STATUSES, botBudgetSchema, botSpecSchema } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
@@ -556,6 +557,88 @@ const decideToolCallRoute = createRoute({
   },
 });
 
+const nestAgentSchema = z
+  .object({
+    handle: z.string(),
+    name: z.string(),
+    blurb: z.string(),
+    door: z.enum(NEST_DOORS),
+    orchestrator: z.boolean(),
+    connections: z.array(z.string()),
+    /** Whether this workspace already has a bot by that handle. */
+    installed: z.boolean(),
+  })
+  .openapi("NestAgent");
+
+const nestRosterRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/nest",
+  tags: ["bots"],
+  summary: "The Nest roster, and which of them this workspace already has (spec §5.3)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: workspaceParam },
+  responses: {
+    200: {
+      description: "Who is in the Nest",
+      content: {
+        "application/json": { schema: z.object({ agents: z.array(nestAgentSchema) }) },
+      },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
+const installedNestSchema = z
+  .object({
+    handle: z.string(),
+    name: z.string(),
+    bot_id: z.uuid(),
+    door: z.enum(NEST_DOORS),
+    /** Minted once for an agent that joins over the Bot API; never readable again. */
+    token: z.string().optional(),
+    connections: z.array(z.string()),
+  })
+  .openapi("InstalledNestAgent");
+
+const nestInstallRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/nest",
+  tags: ["bots"],
+  summary: "Install the Nest agents that are missing (spec §5.3)",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: workspaceParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              /** Some of the roster; the whole Nest when it is left out. */
+              handles: z.array(z.string().min(1).max(64)).max(20).optional(),
+            })
+            .openapi("InstallNest"),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "What was installed, and who was already here",
+      content: {
+        "application/json": {
+          schema: z.object({
+            installed: z.array(installedNestSchema),
+            already: z.array(z.string()),
+          }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 409),
+  },
+});
+
 export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   const body = async (bot: Bot) => ({
     id: bot.id,
@@ -850,5 +933,53 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       by: actorOf(c),
     });
     return c.json(toolCallBody(answered), 200);
+  });
+
+  app.openapi(nestRosterRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
+    const here = await listBots(deps.db.db, ws, currentUser(c).id);
+    const handles = new Set(here.map((row) => row.handle));
+    return c.json(
+      {
+        agents: NEST_AGENTS.map((one: NestAgent) => ({
+          handle: one.handle,
+          name: one.name,
+          blurb: one.blurb,
+          door: one.door,
+          orchestrator: one.orchestrator === true,
+          connections: one.connections ?? [],
+          installed: handles.has(one.handle),
+        })),
+      },
+      200,
+    );
+  });
+
+  app.openapi(nestInstallRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const body = c.req.valid("json");
+    // A Nest agent is visible to the whole workspace and spends its money: an admin's to add.
+    await authorize(c, deps, "bots.admin", { type: "workspace", id: ws });
+    const result = await deps.nest.install({
+      workspaceId: ws,
+      ownerId: currentUser(c).id,
+      ...(body.handles ? { handles: body.handles } : {}),
+      by: actorOf(c),
+    });
+    return c.json(
+      {
+        installed: result.installed.map((one) => ({
+          handle: one.handle,
+          name: one.name,
+          bot_id: one.botId,
+          door: one.door,
+          ...(one.token ? { token: one.token } : {}),
+          connections: one.connections,
+        })),
+        already: result.already,
+      },
+      201,
+    );
   });
 }

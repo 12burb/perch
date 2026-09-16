@@ -256,6 +256,32 @@ no tokens, and `http_fetch` refuses anything that resolves inside the network Pe
 `web_search` goes to whatever endpoint `PERCH_SEARCH_URL` names (Brave-shaped) with
 `PERCH_SEARCH_KEY`; without one the tool says it is not configured rather than inventing an answer.
 
+## The Nest
+
+Perch ships a roster of agents you can install as a team (spec §5.3): **Birbus**, who runs the Nest,
+and four specialists — **Dawn** (code), **Julius** (finding things out), **Paige** (writing) and
+**Kimi** (what the data says). Workspace settings → Bots → The Nest, or:
+
+```
+GET  /api/workspaces/{ws}/nest     who is in it, and which of them you already have
+POST /api/workspaces/{ws}/nest     {"handles": ["kimi"]}  — or {} for all of them
+```
+
+Each joins through one of two doors, and the door is what the bot becomes:
+
+| Door | What it is | Who runs it |
+|---|---|---|
+| Bot API | an **external** bot with a token, minted once | wherever the agent already runs — a Hermes process, a script, a laptop |
+| Hermes | an **agent bot** on the [`hermes` engine](sessions.md#the-hermes-engine-hermes-task-38) | Perch, on a project's runner |
+
+Installing is an admin's to do, and it makes **ordinary bots**: edit them, put them in channels,
+change their brains, delete them. Nothing about a Nest agent is privileged, and in particular
+**installing one grants it nothing** — Kimi expects a Supabase connection, and until an admin grants
+one on the Connections page it simply cannot reach it (see [connections](connections.md#who-may-use-a-connection)).
+
+The tokens for the Bot API agents are shown once, on the install. Perch keeps only their hashes; a
+token that got away is revoked and re-minted from the bot's own page.
+
 ## Agent bots
 
 A bot with an `engine` does not answer from a model. It opens a coding session on one of its

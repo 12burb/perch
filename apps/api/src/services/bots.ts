@@ -986,6 +986,8 @@ export class BotsService {
     visibility?: Bot["visibility"];
     budget?: Bot["budget"];
     orchestrator?: boolean;
+    /** How it was made (spec §6 bots.level): `ui` unless it joins over the Bot API (task 3.9). */
+    level?: Bot["level"];
     by: ActorContext;
   }): Promise<Bot> {
     const handle = normalizeHandle(input.handle);
@@ -1000,7 +1002,7 @@ export class BotsService {
       ownerId: input.ownerId,
       handle,
       name: input.name,
-      level: "ui",
+      level: input.level ?? "ui",
       ...(input.spec ? { spec: input.spec } : {}),
       ...(input.visibility ? { visibility: input.visibility } : {}),
       ...(input.budget ? { budget: input.budget } : {}),
