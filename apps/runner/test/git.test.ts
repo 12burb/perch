@@ -6,6 +6,7 @@ import {
   gitBranch,
   gitCommit,
   gitDiff,
+  gitMerge,
   gitPush,
   gitStatus,
   worktreeCreate,
@@ -139,4 +140,94 @@ describe("git methods (task 1.5)", () => {
     });
     expect(git(remote, "rev-parse", "refs/heads/feature")).toBe(git(dir, "rev-parse", "HEAD"));
   }, 30_000);
+});
+
+/**
+ * Task 3.15's merge, and the thing CI caught that a developer's machine cannot: a rebase writes
+ * commits, and a runner is a fresh container with no `user.email` in it. The first branch to land
+ * hides this — its rebase is a no-op because the base has not moved — so the bug only appears on
+ * the *second* branch, which is exactly what happened on run 35084505896.
+ *
+ * An empty `user.name` in the repository's own config is how this is made local and hermetic: git
+ * refuses to write a commit with an empty ident, and nothing but `GIT_AUTHOR_*` in the environment
+ * can override it — which is precisely what the fix supplies and what a bare container lacks.
+ */
+describe("landing a branch (task 3.15)", () => {
+  async function repoWithTwoBranches() {
+    const { root, dir } = await project();
+    const opts = { root, policy: runnerPolicy() };
+    writeFileSync(join(dir, "base.txt"), "base\n");
+    await gitCommit(opts, { ...ctx, message: "first", author });
+
+    for (const [branch, file] of [
+      ["perch/one", "one.txt"],
+      ["perch/two", "two.txt"],
+    ] as const) {
+      const made = await worktreeCreate(opts, { ...ctx, branch, base: "main" });
+      writeFileSync(join(made.path, file), "hello\n");
+      git(made.path, "add", ".");
+      git(
+        made.path,
+        "-c",
+        `user.name=${author.name}`,
+        "-c",
+        `user.email=${author.email}`,
+        "commit",
+        "-m",
+        file,
+      );
+    }
+    return { root, dir, opts };
+  }
+
+  test("two branches land in turn: the second rebases onto the first", async () => {
+    const { dir, opts } = await repoWithTwoBranches();
+    // The repository has no identity to commit with, the way a bare container has none.
+    git(dir, "config", "user.name", "");
+    git(dir, "config", "user.email", "");
+
+    const first = await gitMerge(opts, { ...ctx, branch: "perch/one", into: "main" });
+    expect(first).toMatchObject({ merged: true });
+    // The one that has to replay a commit, which is where a missing identity bites.
+    const second = await gitMerge(opts, { ...ctx, branch: "perch/two", into: "main" });
+    expect(second.reason ?? "").not.toContain("empty ident");
+    expect(second).toMatchObject({ merged: true });
+
+    const files = git(dir, "ls-tree", "--name-only", "HEAD").split("\n");
+    expect(files).toContain("one.txt");
+    expect(files).toContain("two.txt");
+  });
+
+  test("a branch that cannot be replayed is a conflict, and main is left alone", async () => {
+    const { root, dir } = await project();
+    const opts = { root, policy: runnerPolicy() };
+    writeFileSync(join(dir, "same.txt"), "base\n");
+    await gitCommit(opts, { ...ctx, message: "first", author });
+    for (const [branch, body] of [
+      ["perch/left", "left\n"],
+      ["perch/right", "right\n"],
+    ] as const) {
+      const made = await worktreeCreate(opts, { ...ctx, branch, base: "main" });
+      writeFileSync(join(made.path, "same.txt"), body);
+      git(made.path, "add", ".");
+      git(
+        made.path,
+        "-c",
+        `user.name=${author.name}`,
+        "-c",
+        `user.email=${author.email}`,
+        "commit",
+        "-m",
+        branch,
+      );
+    }
+    expect(await gitMerge(opts, { ...ctx, branch: "perch/left", into: "main" })).toMatchObject({
+      merged: true,
+    });
+    const refused = await gitMerge(opts, { ...ctx, branch: "perch/right", into: "main" });
+    expect(refused).toMatchObject({ merged: false, conflict: true });
+    // Nothing half-applied: the rebase was aborted and main is where it was.
+    expect(git(dir, "status", "--porcelain")).toBe("");
+    expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
+  });
 });

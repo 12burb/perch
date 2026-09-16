@@ -35,6 +35,24 @@ function gitAt(dir: string, env: Record<string, string> = {}): SimpleGit {
   return simpleGit({ baseDir: dir }).env(cloneEnv(process.env, env));
 }
 
+/**
+ * Who a commit is by, as environment rather than as config. A runner is a fresh container with no
+ * `user.email` in it, so anything that writes a commit has to carry an identity or git refuses —
+ * and a rebase writes commits too, which is what task 3.15 learned the hard way.
+ */
+function identity(author?: { name: string; email: string }): Record<string, string> {
+  const who = author ?? {
+    name: process.env.GIT_AUTHOR_NAME ?? "Perch",
+    email: process.env.GIT_AUTHOR_EMAIL ?? "noreply@perch.local",
+  };
+  return {
+    GIT_AUTHOR_NAME: who.name,
+    GIT_AUTHOR_EMAIL: who.email,
+    GIT_COMMITTER_NAME: who.name,
+    GIT_COMMITTER_EMAIL: who.email,
+  };
+}
+
 export async function gitStatus(options: GitOptions, params: RunnerRequestParams<"git.status">) {
   const status = await gitAt(dirOf(options, params)).status();
   return {
@@ -97,16 +115,7 @@ export async function gitCommit(options: GitOptions, params: RunnerRequestParams
     project: params.project,
     paths: params.paths ?? [],
   });
-  const author = params.author ?? {
-    name: process.env.GIT_AUTHOR_NAME ?? "Perch",
-    email: process.env.GIT_AUTHOR_EMAIL ?? "noreply@perch.local",
-  };
-  const git = gitAt(dir, {
-    GIT_AUTHOR_NAME: author.name,
-    GIT_AUTHOR_EMAIL: author.email,
-    GIT_COMMITTER_NAME: author.name,
-    GIT_COMMITTER_EMAIL: author.email,
-  });
+  const git = gitAt(dir, identity(params.author ?? undefined));
   if (params.paths && params.paths.length > 0) await git.add(params.paths);
   else await git.add(["-A", "."]);
   const result = await git.commit(params.message);
@@ -256,14 +265,14 @@ async function worktreeFor(git: SimpleGit, branch: string): Promise<string | nul
  */
 export async function gitMerge(options: GitOptions, params: RunnerRequestParams<"git.merge">) {
   const dir = dirOf(options, params);
-  const git = gitAt(dir);
+  const git = gitAt(dir, identity());
   enforce(options.policy, { kind: "git.branch", project: params.project, branch: params.branch });
   const into = params.into ?? (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
   if (params.branch === into) return { merged: false, reason: "a branch cannot land on itself" };
 
   if (params.rebase !== false) {
     const where = (await worktreeFor(git, params.branch)) ?? dir;
-    const rebase = gitAt(where);
+    const rebase = gitAt(where, identity());
     const onSpot = where === dir;
     try {
       // In the project directory the branch is not checked out, so say which one to rebase.
