@@ -268,8 +268,16 @@ export function engineFailure(error: unknown): PerchError {
   return new PerchError("upstream_failed", error instanceof Error ? error.message : String(error));
 }
 
+/**
+ * What a round's end may hand back (task 3.18): `true` means something is about to send another
+ * turn, so the session should stay open instead of settling.
+ */
+export type RoundEndHook = (session: CodingSession) => Promise<boolean>;
+
 export class SessionService {
   private readonly rounds = new Map<string, Round>();
+  /** Set by the testing loop at boot (task 3.18); nothing happens between rounds without it. */
+  private roundEnd: RoundEndHook | null = null;
   private readonly pending = new Map<string, PendingPermission>();
   /** Sessions this process has opened on their engine (engines forget across api restarts). */
   private readonly known = new Set<string>();
@@ -519,6 +527,27 @@ export class SessionService {
       this.deps.log.error({ err: error, sessionId: session.id }, "session round crashed");
     });
     return { seq, session: updated };
+  }
+
+  /**
+   * What runs when a round goes quiet, before auto-settle decides (task 3.18). It answers whether
+   * something is going to send another turn — the testing loop, when the project's tests failed
+   * and the agent has attempts left — because a session that has already ended cannot be told
+   * anything.
+   */
+  onRoundEnd(hook: RoundEndHook): void {
+    this.roundEnd = hook;
+  }
+
+  /** Stop and ask a person, with the reason on the row where the inbox and the card read it. */
+  async park(session: CodingSession, why: string): Promise<CodingSession> {
+    return this.setStatus(session, "needs_you", why);
+  }
+
+  /** End a session nothing is going to send another turn to (task 3.18's failure path). */
+  async settle(session: CodingSession): Promise<void> {
+    const fresh = await getSession(this.deps.db, session.id);
+    if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
   }
 
   async respondPermission(
@@ -1115,8 +1144,21 @@ export class SessionService {
       // the card rather than to a person at a keyboard, and its ending is what moves the card to
       // review — a session that never ends is a card that never moves. A race entrant is the same
       // thing: its ending is what gets it measured and compared (task 3.16).
+      // The project's own tests on what this round wrote, with a failure fed back as the next
+      // turn (task 3.18). It answers before auto-settle, because a session that has ended cannot
+      // be told anything — and only for a round that finished cleanly: an agent that errored, or
+      // one parked on a permission, has a different problem from a failing test.
+      let held = false;
+      const after = await getSession(this.deps.db, session.id);
+      if (after?.status === "idle") {
+        try {
+          held = (await this.roundEnd?.(after)) ?? false;
+        } catch (error) {
+          this.deps.log.warn({ err: error, sessionId: session.id }, "the round-end hook failed");
+        }
+      }
       const settles = background.autoSettle || session.unattended;
-      if (settles && !this.pending.has(session.id)) {
+      if (settles && !held && !this.pending.has(session.id)) {
         const fresh = await getSession(this.deps.db, session.id);
         if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
       }

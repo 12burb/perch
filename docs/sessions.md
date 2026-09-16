@@ -276,6 +276,32 @@ It is **unattended** (ADR-0133), so it settles when its round goes quiet instead
 open for a turn nobody is going to type. That is the finish line: the card's `done` and the
 session's `ended` are the same moment.
 
+### The testing loop (task 3.18)
+
+`background.testLoop` in `.perch/project.json` turns on the loop §5.7 asks for: after a round that
+**wrote something**, the project's own tests run on what it wrote, and a failure goes straight back
+to the agent as the next turn.
+
+```json
+{ "run": { "test": "bun test" }, "background": { "testLoop": { "attempts": 2 } } }
+```
+
+"Its tests" is the first of `test`, `check`, `ci` or `verify` in the `run` map. They run where the
+session works — its worktree when it has one (task 3.14), the project checkout otherwise — and the
+agent is shown the command and the tail of what it said, with one instruction: fix it, and do not
+change the tests to make them pass.
+
+`attempts` (2 by default, 5 at most) is the bound. When it runs out the session stops at
+**needs you** with what still fails on it, which is what the inbox and the background card read. An
+agent that cannot fix what it broke will not fix it on the fifth try, and every try is somebody's
+money.
+
+A round that answered a question rather than writing anything is not tested, a round that errored
+is not told off for it, and a test command that cannot be run at all is a warning in the log rather
+than a failure the agent is blamed for. Leaving `testLoop` out, or setting `enabled: false`, turns
+the whole thing off — running a suite after every turn is a choice a project makes, not a default
+somebody discovers from their bill.
+
 ### What reaches a phone
 
 `background.notify` in `.perch/project.json`:

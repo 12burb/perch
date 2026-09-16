@@ -301,7 +301,14 @@ export const apiToRunnerParams = {
   exec: z.object({
     ...ctx,
     command: z.string(),
-    cwd: z.string(),
+    /**
+     * Where to run it. §7.6 writes this as required; it is optional here, and a caller that names
+     * a `project` instead gets that project's directory (task 3.18, ADR-0135). Which directory a
+     * project is in is the runner's business, and an api that has to know is an api that has to
+     * agree with it.
+     */
+    cwd: z.string().optional(),
+    project: z.uuid().optional(),
     timeout: z.number().int().positive(),
   }),
 } as const;

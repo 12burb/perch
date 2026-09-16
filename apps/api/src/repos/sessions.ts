@@ -120,6 +120,8 @@ export type SessionPatch = Partial<{
   endedAt: Date | null;
   /** The card a background session keeps rewritten in its thread (task 3.17). */
   cardMessageId: string | null;
+  /** Turns the testing loop has sent since a person last said anything (task 3.18). */
+  fixAttempts: number;
 }>;
 
 export async function updateSession(

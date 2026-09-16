@@ -96,6 +96,11 @@ export const codingSessions = pgTable(
      * story, not a notification per event.
      */
     cardMessageId: uuid("card_message_id"),
+    /**
+     * Turns the testing loop has sent since a person last said anything (task 3.18). It is the
+     * bound: an agent that cannot fix what it broke stops and asks, rather than trying all night.
+     */
+    fixAttempts: integer("fix_attempts").notNull().default(0),
     threadRootId: uuid("thread_root_id"),
     /**
      * The chat this session is answering in, when a bot opened it from one (spec §5.3 "agent

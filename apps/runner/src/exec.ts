@@ -8,6 +8,7 @@ import { platform } from "node:os";
 import { resolve } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
 import { enforce, type RunnerPolicy } from "./policy.ts";
+import { projectDir } from "./projects.ts";
 
 export type ExecOptions = {
   root: string;
@@ -127,14 +128,19 @@ export async function exec(
   options: ExecOptions,
   params: RunnerRequestParams<"exec">,
 ): Promise<ExecResult> {
-  const cwd = resolve(options.root, params.cwd);
+  // A caller that names a project rather than a directory gets the project's own (task 3.18):
+  // where a project lives is the runner's business, and the policy hook still sees the answer.
+  const where =
+    params.cwd ??
+    (params.project ? projectDir(options.root, params.workspace_id, params.project) : ".");
+  const cwd = resolve(options.root, where);
   enforce(options.policy, {
     kind: "exec",
     command: params.command,
     cwd,
     root: resolve(options.root),
   });
-  if (!existsSync(cwd)) throw new Error(`cwd does not exist: ${params.cwd}`);
+  if (!existsSync(cwd)) throw new Error(`cwd does not exist: ${where}`);
   const started = performance.now();
   const { argv, group } = shell(params.command);
   const proc = Bun.spawn(argv, {

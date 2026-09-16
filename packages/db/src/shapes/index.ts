@@ -129,6 +129,19 @@ export const projectConfigSchema = z
          * default; `always` adds the finish; `never` leaves the card to speak for itself.
          */
         notify: z.enum(["needs_you", "always", "never"]).optional(),
+        /**
+         * Run the project's own tests after a round that wrote something, and feed a failure back
+         * as the next turn (spec §5.7 "failing tests → bounded auto-fix loop with budget"; task
+         * 3.18, ADR-0135). Absent means off: a test run after every turn is somebody's bill.
+         */
+        testLoop: z
+          .object({
+            enabled: z.boolean().optional(),
+            /** How many turns the loop may send before it stops and asks a person. */
+            attempts: z.number().int().min(1).max(5).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

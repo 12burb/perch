@@ -5232,3 +5232,60 @@ What is not here: no schedule (a run every night at two is cron, task 3.5's, poi
 endpoint), no budget ceiling of its own (the policy engine's, task 2.11), and no digest of several
 runs. The approval inbox already collects what needs a person across features (task 2.10); this
 adds the card, not a second queue.
+
+## ADR-0135: The tests run at the end of a round, and the loop is short
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.18
+
+### Context
+§5.7 asks for a "testing loop: failing tests → bounded auto-fix loop with budget", and §11's line
+for 3.18 for "an agent breaks a test, is told, and fixes it without anybody typing".
+
+### Decision
+**It hooks the end of a round, not the bus.** Every other feature in this phase subscribes to
+`session.status` and works from there. This one cannot: an unattended session settles the moment
+its round goes quiet (ADR-0133), and a session that has ended cannot be told anything. So
+`SessionService` gained one seam — `onRoundEnd`, which answers whether something is about to send
+another turn — and auto-settle waits for that answer. The loop is the only thing that sets it
+today.
+
+It runs only for a round that finished **cleanly**. An agent that errored, or one parked on a
+permission, has a different problem from a failing test, and telling it about the tests would bury
+the real one.
+
+**Off unless the project asks.** `background.testLoop` absent means off. A suite after every turn is
+somebody's bill and, in a session a person is sitting in, a surprise turn they did not type. It is
+also the third place a project's checks could run — the merge queue holds branches to them (3.15)
+and a race measures its entrants with them (3.16) — and a third one running automatically, on
+everything, would be surprising rather than helpful.
+
+**Only after a round that wrote something.** The transcript says whether it did: a `tool_result`
+carrying a diff since the last turn. A round that answered a question has nothing to test.
+
+**Two attempts, and then a person.** `attempts` defaults to 2 and is capped at 5.
+`coding_sessions.fix_attempts` counts them and a passing run resets it, so the count is per problem
+rather than per session. When it runs out the session is parked at `needs_you` with the failure as
+its status message, which is where both the inbox (2.10) and the background card (3.17) already
+look. An agent that cannot fix what it broke in two goes will not fix it in five, and each go is
+real money.
+
+**`exec` gained an optional `project`, and its `cwd` became optional.** §7.6 writes
+`exec {command, cwd, timeout}`, which obliges the caller to know which directory a project is in.
+The merge queue and race mode both had one to hand from `worktree.create`; a session working in the
+project checkout does not, and the api would have had to reconstruct the runner's own directory
+layout to say so. Naming the project instead keeps that knowledge on the runner, where it belongs.
+`cwd` still wins when both are given, so every existing caller is unchanged.
+
+### Consequences
+Spec deviation: `exec`'s params, as above. Recorded here and noted in the commit.
+
+The failure the agent sees is the tail of the command's output, capped, and the turn says "do not
+change the tests to make them pass" — the one obvious way to satisfy a test loop is to delete the
+test.
+
+What is not here: no flaky-test detection (a test that fails once and passes once is still a
+failure to this), and no CI-status webhook retry — §5.7 names both, and both belong with the Pull
+Requests page (3.20) where a CI run is a thing Perch can see. The loop also does not commit what it
+fixed: a session's changes land the way any session's changes land.

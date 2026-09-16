@@ -51,6 +51,31 @@ describe("exec (task 1.5)", () => {
     expect(relative.stdout.trim()).toBe("rel");
   });
 
+  test("a project instead of a cwd runs in that project's directory (task 3.18)", async () => {
+    const opts = { root, policy: runnerPolicy() };
+    // The testing loop names the project rather than the directory: where a project lives is the
+    // runner's business, and an api that has to know is an api that has to agree with it.
+    const named = await exec(opts, {
+      ...ctx,
+      command: win ? "cd" : "pwd",
+      project: PROJECT,
+      timeout: 10_000,
+    });
+    expect(named.exitCode).toBe(0);
+    expect(named.stdout.trim().replace(/\\/g, "/")).toContain(`${WS}/${PROJECT}`);
+
+    // A cwd still wins when both are given: it is the more specific of the two.
+    mkdirSync(join(dir, "inner"), { recursive: true });
+    const both = await exec(opts, {
+      ...ctx,
+      command: win ? "cd" : "pwd",
+      cwd: join(dir, "inner"),
+      project: PROJECT,
+      timeout: 10_000,
+    });
+    expect(both.stdout.trim().replace(/\\/g, "/")).toContain("/inner");
+  });
+
   test("a command over its budget is killed and reported", async () => {
     const opts = { root, policy: runnerPolicy() };
     const slow = await exec(opts, {

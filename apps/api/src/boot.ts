@@ -43,6 +43,7 @@ import { RaceService } from "./services/races.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
 import { SpecBotsService } from "./services/spec-bots.ts";
+import { TestingLoopService } from "./services/testing-loop.ts";
 import { WebhooksService } from "./services/webhooks.ts";
 import { WorkService } from "./services/work.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
@@ -236,6 +237,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     env: { publicUrl: env.publicUrl },
     sessions,
   });
+  // The project's own tests after a round that wrote something, with a failure fed back as the
+  // next turn and a bound on how many of those there are (task 3.18).
+  const testingLoop = new TestingLoopService({ db, log, sessions, registry: runners });
+  sessions.onRoundEnd((session) => testingLoop.afterRound(session));
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -270,6 +275,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     mergeQueue,
     races,
     background,
+    testingLoop,
     previews,
     deploys,
     dbBrowser,
@@ -330,6 +336,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       stopWork();
       stopRaces();
       stopBackground();
+      testingLoop.close();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

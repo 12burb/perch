@@ -26,6 +26,7 @@ import type { RaceService } from "./services/races.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 import type { SpecBotsService } from "./services/spec-bots.ts";
+import type { TestingLoopService } from "./services/testing-loop.ts";
 import type { WebhooksService } from "./services/webhooks.ts";
 import type { WorkService } from "./services/work.ts";
 
@@ -72,6 +73,8 @@ export type Deps = {
   races: RaceService;
   /** Sessions that run to a finish line and report as one card (task 3.17). */
   background: BackgroundService;
+  /** The project's tests after a round, and a failure fed back as a turn (task 3.18). */
+  testingLoop: TestingLoopService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

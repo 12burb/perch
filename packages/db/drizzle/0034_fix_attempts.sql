@@ -1,0 +1,1 @@
+ALTER TABLE "coding_sessions" ADD COLUMN "fix_attempts" integer DEFAULT 0 NOT NULL;
