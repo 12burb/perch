@@ -201,5 +201,22 @@
   "budgets.spent": "${spent} of ${limit} spent",
   "budgets.left": "${left} left",
   "budgets.over": "over by ${over}",
-  "budgets.who": "Whose (id)"
+  "budgets.who": "Whose (id)",
+  "audit.export": "Export CSV",
+  "audit.action": "Action",
+  "audit.actor": "Actor",
+  "audit.actor.user": "Person",
+  "audit.actor.bot": "Bot",
+  "audit.actor.system": "Perch",
+  "audit.actor.runner": "Runner",
+  "audit.target": "Target",
+  "audit.when": "When",
+  "audit.any": "Any",
+  "audit.from": "From",
+  "audit.to": "To",
+  "audit.clear": "Clear filters",
+  "audit.retention": "Keep audit rows for (days)",
+  "audit.save": "Save",
+  "audit.forever": "Kept forever.",
+  "audit.kept": "Rows older than {days} days are removed nightly."
 }

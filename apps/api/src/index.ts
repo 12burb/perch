@@ -13,9 +13,15 @@
  */
 import { resolve } from "node:path";
 import { boot } from "./boot.ts";
-import { backupJobHandlers, scheduleBackups } from "./jobs/backups.ts";
+import {
+  auditJobHandlers,
+  backupJobHandlers,
+  scheduleAuditRetention,
+  scheduleBackups,
+} from "./jobs/backups.ts";
 import { repoIndexJobHandlers } from "./jobs/repo-index.ts";
 import { serve } from "./server.ts";
+import { AUDIT_QUEUE } from "./services/audit.ts";
 import { BACKUPS_QUEUE } from "./services/backups.ts";
 import { REPO_INDEX_QUEUE } from "./services/repo-index.ts";
 import { dockerodeClient } from "./supervisor/docker.ts";
@@ -52,12 +58,14 @@ if (entrypoint === "supervisor") {
 if (entrypoint === "worker" || entrypoint === "api") {
   // The nightly backup is a cron row, put in place (or taken away) every time a worker starts.
   await scheduleBackups(booted);
+  await scheduleAuditRetention(booted);
   const worker = booted.queue.worker({
-    queues: ["system", "bots", REPO_INDEX_QUEUE, BACKUPS_QUEUE],
+    queues: ["system", "bots", REPO_INDEX_QUEUE, BACKUPS_QUEUE, AUDIT_QUEUE],
     handlers: {
       ...booted.bots.jobHandlers(),
       ...repoIndexJobHandlers(booted),
       ...backupJobHandlers(booted),
+      ...auditJobHandlers(booted),
     },
   });
   worker.start();

@@ -198,6 +198,148 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this instance is set to, beyond its environment */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InstanceSettings"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change what this instance keeps */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PatchInstanceSettings"];
+                };
+            };
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InstanceSettings"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The audit log across every workspace, newest first */
+        get: {
+            parameters: {
+                query?: {
+                    before?: string;
+                    limit?: number;
+                    action?: string;
+                    actor_type?: "user" | "bot" | "system" | "runner";
+                    actor_id?: string;
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Audit rows */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            rows: components["schemas"]["InstanceAuditRow"][];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/setup": {
         parameters: {
             query?: never;
@@ -914,6 +1056,11 @@ export type paths = {
                     before?: string;
                     limit?: number;
                     action?: string;
+                    actor_type?: "user" | "bot" | "system" | "runner";
+                    actor_id?: string;
+                    target_type?: string;
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path: {
@@ -923,7 +1070,7 @@ export type paths = {
             };
             requestBody?: never;
             responses: {
-                /** @description Audit rows */
+                /** @description Audit rows, and the actions this workspace has recorded */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -931,7 +1078,80 @@ export type paths = {
                     content: {
                         "application/json": {
                             rows: components["schemas"]["AuditRow"][];
+                            actions: string[];
                         };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The same rows as CSV, for a spreadsheet or a compliance conversation */
+        get: {
+            parameters: {
+                query?: {
+                    action?: string;
+                    actor_type?: "user" | "bot" | "system" | "runner";
+                    actor_id?: string;
+                    target_type?: string;
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description At most 10000 rows, newest first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
                     };
                 };
                 /** @description Forbidden (including unauthenticated) */
@@ -14226,6 +14446,34 @@ export type components = {
                 };
             };
             request_id: string;
+        };
+        InstanceSettings: {
+            audit_retention_days: number;
+            backup: {
+                directory: string | null;
+                cron: string | null;
+                keep: number;
+                include_key: boolean;
+            };
+        };
+        PatchInstanceSettings: {
+            audit_retention_days: number;
+        };
+        InstanceAuditRow: {
+            /** Format: uuid */
+            id: string;
+            ts: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @enum {string} */
+            actor_type: "user" | "bot" | "system" | "runner";
+            /** Format: uuid */
+            actor_id: string | null;
+            action: string;
+            target_type: string;
+            /** Format: uuid */
+            target_id: string | null;
+            ip: string | null;
         };
         SetupResult: {
             /** Format: uuid */

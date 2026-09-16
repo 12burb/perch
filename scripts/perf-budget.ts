@@ -269,6 +269,11 @@ export const LIST_SURFACES = [
     },
   },
   {
+    file: "apps/web/src/components/audit-section.tsx",
+    list: "the workspace's audit log, filtered",
+    how: { capped: 100, in: "apps/web/src/components/audit-section.tsx", proof: "LIMIT = 100" },
+  },
+  {
     file: "apps/web/src/components/usage-section.tsx",
     list: "what the workspace spent, by model, provider, person or day",
     how: { capped: 200, in: "apps/api/src/repos/virtual-keys.ts", proof: "limit(200)" },

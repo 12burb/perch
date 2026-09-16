@@ -1,7 +1,8 @@
-import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
+import { Badge, Button, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { AuditSection } from "../../../components/audit-section.tsx";
 import { BotsSection } from "../../../components/bots-section.tsx";
 import { BrainsSection } from "../../../components/brains-section.tsx";
 import { ConnectionsSection } from "../../../components/connections-section.tsx";
@@ -9,7 +10,7 @@ import { PolicySection } from "../../../components/policy-section.tsx";
 import { UsageSection } from "../../../components/usage-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
 import { connectOutcome } from "../../../lib/connect-outcome.ts";
-import { auditQuery, type Member, membersQuery } from "../../../lib/queries.ts";
+import { type Member, membersQuery } from "../../../lib/queries.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
 
@@ -195,6 +196,8 @@ function MembersSection(props: { workspaceId: string; myId: string; myRole: Role
       ) : null}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
+          {/* Named, so a screen reader (and a test) can tell this table from the audit log's. */}
+          <caption className="sr-only">{t("shell.home.members")}</caption>
           <thead>
             <tr className="text-left text-fg-muted">
               <th scope="col" className="py-1 pr-3 font-medium">
@@ -343,42 +346,6 @@ function InviteSection(props: { workspaceId: string; myRole: Role }) {
           </output>
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function AuditSection(props: { workspaceId: string }) {
-  const rows = useQuery(auditQuery(props.workspaceId)).data ?? [];
-  return (
-    <section aria-labelledby="audit-heading" className="flex flex-col gap-3">
-      <h2 id="audit-heading" className="text-md font-semibold">
-        {t("settings.audit")}
-      </h2>
-      {rows.length === 0 ? (
-        <EmptyState
-          title={t("settings.auditEmpty")}
-          hint={t("settings.auditEmptyHint")}
-          className="py-6"
-        />
-      ) : (
-        <ol
-          aria-label={t("settings.audit")}
-          className="flex flex-col divide-y divide-border text-sm"
-        >
-          {rows.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center gap-2 py-1.5">
-              <time dateTime={row.ts} className="w-40 shrink-0 font-mono text-fg-muted">
-                {new Date(row.ts).toLocaleString()}
-              </time>
-              <code className="rounded bg-raised px-1">{row.action}</code>
-              <span className="text-fg-muted">
-                {row.target_type}
-                {row.target_id ? ` ${row.target_id.slice(0, 8)}` : ""}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
     </section>
   );
 }

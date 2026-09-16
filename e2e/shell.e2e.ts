@@ -135,7 +135,8 @@ test("the six modes, the settings pages, and their empty states", async ({ page 
   await page.getByRole("button", { name: "Create invite" }).click();
   await expect(page.getByTestId("invite-link")).toContainText("/invite/inv_");
   await page.reload();
-  await expect(page.getByRole("list", { name: "Audit log" })).toContainText("workspace.updated");
-  await expect(page.getByRole("table")).toContainText("Dawn B.");
+  // The audit log is a table of its own now (task 4.5), so both are named.
+  await expect(page.getByTestId("audit-table")).toContainText("workspace.updated");
+  await expect(page.getByRole("table", { name: "Members" })).toContainText("Dawn B.");
   await checkPage(page, "settings-workspace", project);
 });

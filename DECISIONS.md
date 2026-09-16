@@ -5974,3 +5974,48 @@ live data is a merge nobody asked for.
 **`/api/admin/*` is guarded by the instance's admin account** — the one the setup wizard made —
 rather than by a workspace role, because a backup is every workspace at once. Task 4.5 gives the
 instance a roster; this is the smallest true rule until then.
+
+## ADR-0151: The route invariant is read, not run, and retention is a setting rather than a column
+
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Task:** 4.5 (RBAC and audit hardening)
+
+### Context
+Task 4.5 asks for "a test that every route names an action `authorize()` knows". A runtime test
+cannot answer that: it would have to call every route, with a caller of every role, and a route
+nobody thought to exercise is exactly the route that forgot its check. The handlers also do not all
+call `authorize()` directly — sessions reach through `load(c, id, "sessions.read")`, work items
+through `reach(...)`, the Bot API through a scope check, and the instance's own endpoints through
+an admin guard.
+
+The audit log needed the other half of §7.1 too: filters, an export, and a retention, none of which
+§6 gives a column for.
+
+### Decision
+**The invariant is a static read.** `apps/api/test/authorized.test.ts` parses every route file: it
+finds each `createRoute({...})`, each `app.openapi(route, handler)` body by brace matching, and the
+file's own helpers, then marks as authorizing anything that reaches `authorize`, the Bot API's
+`enter` (scopes), or the instance `guard` — through up to four levels of delegation. What is left
+must be named in an exemption table with its reason, and anything exempt that is not public must
+still stand behind `requireUser`. Both halves fail loudly: an exemption for a route that no longer
+exists is also an error, so the table cannot rot.
+
+This is a heuristic over source text, and it is worth it: it caught its own removal in review (take
+the guard off a handler and the test names it), and the alternative — trusting that a reviewer
+notices a missing line — is how this class of bug ships.
+
+**Retention is an instance setting, not a column and not an env var.** `audit.retention_days` lives
+in `instance_settings`, 0 meaning forever, changed through `PATCH /api/admin/settings` by the
+account the instance was set up with. A prune runs nightly at 04:00 UTC, an hour after the backup
+(ADR-0150), so a row that is about to be deleted is in last night's copy first; it deletes in
+batches, because a year of an instance's log is not a row count to hold in one transaction.
+
+**The export is capped and defanged.** 10,000 rows, the same filters as the page, and every field
+that starts with `=`, `+`, `-` or `@` is written with a leading apostrophe. An audit export is
+precisely the file somebody opens in a spreadsheet without thinking about it, and a formula in a
+cell is code that ran because of a log entry somebody else wrote.
+
+**The page is capped, not paged.** A hundred rows, and the filters are how you reach further back —
+the same shape as the usage dashboard, and one fewer piece of state than a cursor UI. An instance
+that wants everything takes the CSV.

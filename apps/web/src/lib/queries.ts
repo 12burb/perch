@@ -58,15 +58,45 @@ export function membersQuery(workspaceId: string) {
   });
 }
 
-export function auditQuery(workspaceId: string) {
+/** What the audit page narrows by (task 4.5); an empty field is left out of the request. */
+export type AuditFilters = {
+  action?: string;
+  actor_type?: "user" | "bot" | "system" | "runner";
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
+/** The filters as query parameters, with the empty ones dropped. */
+export function auditParams(filters: AuditFilters): Record<string, string | number> {
+  const params: Record<string, string | number> = { limit: filters.limit ?? 100 };
+  if (filters.action) params.action = filters.action;
+  if (filters.actor_type) params.actor_type = filters.actor_type;
+  // A date input gives a day; the log is in instants, so a day means all of it.
+  if (filters.from) params.from = new Date(`${filters.from}T00:00:00Z`).toISOString();
+  if (filters.to) params.to = new Date(`${filters.to}T23:59:59Z`).toISOString();
+  return params;
+}
+
+export function auditQuery(workspaceId: string, filters: AuditFilters = {}) {
+  const params = auditParams(filters);
   return queryOptions({
-    queryKey: ["workspace", workspaceId, "audit"],
+    queryKey: ["workspace", workspaceId, "audit", params],
     queryFn: async () =>
       unwrap(
         await api.GET("/api/workspaces/{ws}/audit", {
-          params: { path: { ws: workspaceId }, query: { limit: 30 } },
+          params: { path: { ws: workspaceId }, query: params },
         }),
-      ).rows,
+      ),
+  });
+}
+
+/** What this instance keeps, for whoever set it up; anybody else is refused and sees nothing. */
+export function instanceSettingsQuery() {
+  return queryOptions({
+    queryKey: ["instance", "settings"],
+    retry: false,
+    queryFn: async () => unwrap(await api.GET("/api/admin/settings", {})),
   });
 }
 

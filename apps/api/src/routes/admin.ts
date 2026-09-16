@@ -6,6 +6,7 @@
  * instance can hand out — it is every workspace at once — so nothing here is a member's right.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { AUDIT_ACTOR_TYPES } from "@perch/db";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
@@ -70,6 +71,101 @@ const takeRoute = createRoute({
   },
 });
 
+const settingsSchema = z
+  .object({
+    /** Days of audit log to keep; 0 keeps everything. */
+    audit_retention_days: z.number().int().min(0).max(3650),
+    /** What backups this instance takes, repeated here so one page answers "is it looked after". */
+    backup: z.object({
+      directory: z.string().nullable(),
+      cron: z.string().nullable(),
+      keep: z.number().int(),
+      include_key: z.boolean(),
+    }),
+  })
+  .openapi("InstanceSettings");
+
+const settingsRoute = createRoute({
+  method: "get",
+  path: "/api/admin/settings",
+  tags: ["system"],
+  summary: "What this instance is set to, beyond its environment",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  responses: {
+    200: {
+      description: "Settings",
+      content: { "application/json": { schema: settingsSchema } },
+    },
+    ...errorResponses(403),
+  },
+});
+
+const patchSettingsRoute = createRoute({
+  method: "patch",
+  path: "/api/admin/settings",
+  tags: ["system"],
+  summary: "Change what this instance keeps",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({ audit_retention_days: z.number().int().min(0).max(3650) })
+            .openapi("PatchInstanceSettings"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "Settings", content: { "application/json": { schema: settingsSchema } } },
+    ...errorResponses(403, 422),
+  },
+});
+
+const auditRowSchema = z
+  .object({
+    id: z.uuid(),
+    ts: z.string(),
+    workspace_id: z.uuid(),
+    actor_type: z.enum(AUDIT_ACTOR_TYPES),
+    actor_id: z.uuid().nullable(),
+    action: z.string(),
+    target_type: z.string(),
+    target_id: z.uuid().nullable(),
+    ip: z.string().nullable(),
+  })
+  .openapi("InstanceAuditRow");
+
+const auditRoute = createRoute({
+  method: "get",
+  path: "/api/admin/audit",
+  tags: ["system"],
+  summary: "The audit log across every workspace, newest first",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    query: z.object({
+      before: z.iso.datetime().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+      action: z.string().min(1).max(64).optional(),
+      actor_type: z.enum(AUDIT_ACTOR_TYPES).optional(),
+      actor_id: z.uuid().optional(),
+      from: z.iso.datetime().optional(),
+      to: z.iso.datetime().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Audit rows",
+      content: { "application/json": { schema: z.object({ rows: z.array(auditRowSchema) }) } },
+    },
+    ...errorResponses(403),
+  },
+});
+
 function view(backup: BackupSummary) {
   return {
     id: backup.id,
@@ -108,5 +204,56 @@ export function registerAdmin(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     await guard(currentUser(c).id);
     const backup = await deps.backups.create();
     return c.json(view(backup), 201);
+  });
+
+  const settings = async () => ({
+    audit_retention_days: await deps.audit.retentionDays(),
+    backup: {
+      directory: deps.backups.root ?? null,
+      cron: deps.backups.root ? deps.env.backup.cron : null,
+      keep: deps.env.backup.keep,
+      include_key: deps.env.backup.includeKey,
+    },
+  });
+
+  app.openapi(settingsRoute, async (c) => {
+    await guard(currentUser(c).id);
+    return c.json(await settings(), 200);
+  });
+
+  app.openapi(patchSettingsRoute, async (c) => {
+    await guard(currentUser(c).id);
+    await deps.audit.setRetentionDays(c.req.valid("json").audit_retention_days);
+    return c.json(await settings(), 200);
+  });
+
+  app.openapi(auditRoute, async (c) => {
+    await guard(currentUser(c).id);
+    const query = c.req.valid("query");
+    const rows = await deps.audit.everywhere({
+      limit: query.limit,
+      ...(query.before ? { before: new Date(query.before) } : {}),
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.actor_type ? { actorType: query.actor_type } : {}),
+      ...(query.actor_id ? { actorId: query.actor_id } : {}),
+      ...(query.from ? { from: new Date(query.from) } : {}),
+      ...(query.to ? { to: new Date(query.to) } : {}),
+    });
+    return c.json(
+      {
+        rows: rows.map((row) => ({
+          id: row.id,
+          ts: row.ts.toISOString(),
+          workspace_id: row.workspaceId,
+          actor_type: row.actorType,
+          actor_id: row.actorId,
+          action: row.action,
+          target_type: row.targetType,
+          target_id: row.targetId,
+          ip: row.ip,
+        })),
+      },
+      200,
+    );
   });
 }

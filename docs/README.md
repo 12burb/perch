@@ -25,6 +25,7 @@
 | [`bot-api.md`](bot-api.md) | The Bot API: a token, the Slack-shaped endpoints, socket mode, and `perch-bot-sdk` |
 | [`git.md`](git.md) | The Git panel: what changed, a written message, branch, push, open a PR |
 | [`inbox.md`](inbox.md) | The inbox: what needs you, where it comes from, and approving from a phone |
+| [`audit.md`](audit.md) | The audit log: what is recorded, the filters, the CSV export, retention, and the test that every route is authorized |
 | [`policy.md`](policy.md) | The policy: what may happen here, how two documents merge, and where each rule is asked |
 | [`shipping.md`](shipping.md) | The Deploy button and the database panel: preview-URL cards in a thread, read-only SQL |
 | [`repo-intelligence.md`](repo-intelligence.md) | The codebase index: `@codebase`, semantic search, optional embeddings, the AGENTS.md draft |

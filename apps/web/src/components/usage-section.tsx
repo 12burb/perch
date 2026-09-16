@@ -70,47 +70,56 @@ export function UsageSection(props: { workspaceId: string; canAdmin: boolean }) 
           {t("usage.empty")}
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[32rem] border-collapse text-sm">
-            <caption className="sr-only">{t("usage.title")}</caption>
-            <thead>
-              <tr className="border-border border-b text-left">
-                <th scope="col" className="p-2">
-                  {t("usage.column.key")}
-                </th>
-                <th scope="col" className="p-2">
-                  {t("usage.column.calls")}
-                </th>
-                <th scope="col" className="p-2">
-                  {t("usage.column.tokens")}
-                </th>
-                <th scope="col" className="p-2">
-                  {t("usage.column.cost")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* At most 200 slices come back, and a group with more than that is a filter. */}
-              {slices.map((slice) => (
-                <tr key={slice.key} data-testid="usage-row" className="border-border border-b">
-                  <td className="p-2">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate">{slice.key}</span>
-                      <span
-                        aria-hidden="true"
-                        className="h-2 rounded bg-accent"
-                        style={{ width: `${Math.round((slice.cost_usd / most) * 60)}px` }}
-                      />
-                    </span>
-                  </td>
-                  <td className="p-2 text-fg-muted">{slice.calls}</td>
-                  <td className="p-2 text-fg-muted">{slice.input_tokens + slice.output_tokens}</td>
-                  <td className="p-2">${money(slice.cost_usd)}</td>
+        <>
+          {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls on
+              its own has to be reachable by a keyboard as well as a thumb (axe:
+              scrollable-region-focusable), and the table holds nothing focusable. It is
+              deliberately unnamed: a second landmark called "Audit log" inside the one
+              already called that is a violation of its own. */}
+          <div className="overflow-x-auto" tabIndex={0}>
+            <table className="w-full min-w-[32rem] border-collapse text-sm">
+              <caption className="sr-only">{t("usage.title")}</caption>
+              <thead>
+                <tr className="border-border border-b text-left">
+                  <th scope="col" className="p-2">
+                    {t("usage.column.key")}
+                  </th>
+                  <th scope="col" className="p-2">
+                    {t("usage.column.calls")}
+                  </th>
+                  <th scope="col" className="p-2">
+                    {t("usage.column.tokens")}
+                  </th>
+                  <th scope="col" className="p-2">
+                    {t("usage.column.cost")}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {/* At most 200 slices come back, and a group with more than that is a filter. */}
+                {slices.map((slice) => (
+                  <tr key={slice.key} data-testid="usage-row" className="border-border border-b">
+                    <td className="p-2">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate">{slice.key}</span>
+                        <span
+                          aria-hidden="true"
+                          className="h-2 rounded bg-accent"
+                          style={{ width: `${Math.round((slice.cost_usd / most) * 60)}px` }}
+                        />
+                      </span>
+                    </td>
+                    <td className="p-2 text-fg-muted">{slice.calls}</td>
+                    <td className="p-2 text-fg-muted">
+                      {slice.input_tokens + slice.output_tokens}
+                    </td>
+                    <td className="p-2">${money(slice.cost_usd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <Budgets workspaceId={props.workspaceId} canAdmin={props.canAdmin} />

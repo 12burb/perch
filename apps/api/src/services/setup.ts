@@ -21,6 +21,8 @@ export const SETTING_KEYS = {
   adminUserId: "instance.admin_user_id",
   telemetry: "telemetry.enabled",
   publicUrl: "instance.public_url",
+  /** How many days of audit log to keep; 0 (the default) keeps everything (task 4.5). */
+  auditRetentionDays: "audit.retention_days",
 } as const;
 
 export async function getSetting<T>(db: Db, key: string): Promise<T | undefined> {

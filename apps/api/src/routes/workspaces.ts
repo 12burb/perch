@@ -1,10 +1,10 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { workspaceSettingsSchema } from "@perch/db";
+import { AUDIT_ACTOR_TYPES, type AuditRow, workspaceSettingsSchema } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
-import { listAudit } from "../repos/audit.ts";
 import { findMembership } from "../repos/workspaces.ts";
+import { type AuditQuery, EXPORT_LIMIT, toCsv } from "../services/audit.ts";
 import { acceptInvite, createInvite, previewInvite } from "../services/invites.ts";
 import {
   changeMemberRole,
@@ -200,6 +200,41 @@ const deleteMemberRoute = createRoute({
   },
 });
 
+/** The query string, as the service takes it. */
+function auditQuery(query: {
+  before?: string;
+  limit?: number;
+  action?: string;
+  actor_type?: (typeof AUDIT_ACTOR_TYPES)[number];
+  actor_id?: string;
+  target_type?: string;
+  from?: string;
+  to?: string;
+}): AuditQuery {
+  return {
+    ...(query.limit === undefined ? {} : { limit: query.limit }),
+    ...(query.before ? { before: new Date(query.before) } : {}),
+    ...(query.action ? { action: query.action } : {}),
+    ...(query.actor_type ? { actorType: query.actor_type } : {}),
+    ...(query.actor_id ? { actorId: query.actor_id } : {}),
+    ...(query.target_type ? { targetType: query.target_type } : {}),
+    ...(query.from ? { from: new Date(query.from) } : {}),
+    ...(query.to ? { to: new Date(query.to) } : {}),
+  };
+}
+
+/** What the audit page narrows by (task 4.5); every field is optional and they all AND. */
+const auditQuerySchema = z.object({
+  before: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  action: z.string().min(1).max(64).optional(),
+  actor_type: z.enum(AUDIT_ACTOR_TYPES).optional(),
+  actor_id: z.uuid().optional(),
+  target_type: z.string().min(1).max(64).optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+});
+
 const auditRowSchema = z
   .object({
     id: z.uuid(),
@@ -221,18 +256,35 @@ const listAuditRoute = createRoute({
   summary: "The workspace audit log, newest first (owners and admins)",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
+  request: { params: wsParam, query: auditQuerySchema },
+  responses: {
+    200: {
+      description: "Audit rows, and the actions this workspace has recorded",
+      content: {
+        "application/json": {
+          schema: z.object({ rows: z.array(auditRowSchema), actions: z.array(z.string()) }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 422),
+  },
+});
+
+const exportAuditRoute = createRoute({
+  method: "get",
+  path: "/api/workspaces/{ws}/audit/export",
+  tags: ["workspaces"],
+  summary: "The same rows as CSV, for a spreadsheet or a compliance conversation",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
   request: {
     params: wsParam,
-    query: z.object({
-      before: z.iso.datetime().optional(),
-      limit: z.coerce.number().int().min(1).max(200).default(50),
-      action: z.string().min(1).max(64).optional(),
-    }),
+    query: auditQuerySchema.omit({ limit: true, before: true }),
   },
   responses: {
     200: {
-      description: "Audit rows",
-      content: { "application/json": { schema: z.object({ rows: z.array(auditRowSchema) }) } },
+      description: `At most ${EXPORT_LIMIT} rows, newest first`,
+      content: { "text/csv": { schema: z.string() } },
     },
     ...errorResponses(403, 404, 422),
   },
@@ -320,7 +372,7 @@ const acceptInviteRoute = createRoute({
 
 export function registerWorkspaces(
   app: OpenAPIHono<AppEnv>,
-  deps: Pick<Deps, "db" | "bus" | "env">,
+  deps: Pick<Deps, "db" | "bus" | "env" | "audit">,
 ): void {
   app.openapi(listWorkspaces, async (c) => {
     const user = currentUser(c);
@@ -406,14 +458,13 @@ export function registerWorkspaces(
     const { ws } = c.req.valid("param");
     const query = c.req.valid("query");
     await authorize(c, deps, "audit.read", { type: "workspace", id: ws });
-    const rows = await listAudit(deps.db.db, ws, {
-      limit: query.limit,
-      ...(query.before ? { before: new Date(query.before) } : {}),
-      ...(query.action ? { action: query.action } : {}),
-    });
+    const [rows, actions] = await Promise.all([
+      deps.audit.list(ws, auditQuery(query)),
+      deps.audit.actions(ws),
+    ]);
     return c.json(
       {
-        rows: rows.map((r) => ({
+        rows: rows.map((r: AuditRow) => ({
           id: r.id,
           ts: r.ts.toISOString(),
           actor_type: r.actorType,
@@ -424,9 +475,23 @@ export function registerWorkspaces(
           details: r.details,
           ip: r.ip,
         })),
+        actions,
       },
       200,
     );
+  });
+
+  app.openapi(exportAuditRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const query = c.req.valid("query");
+    await authorize(c, deps, "audit.read", { type: "workspace", id: ws });
+    const rows = await deps.audit.export(ws, auditQuery(query));
+    // A download rather than something a browser renders: the name carries the day it was taken.
+    const day = new Date().toISOString().slice(0, 10);
+    return c.body(toCsv(rows), 200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="perch-audit-${day}.csv"`,
+    });
   });
 
   app.openapi(createInviteRoute, async (c) => {

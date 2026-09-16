@@ -10,6 +10,7 @@ import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
 import type { AgentsService } from "./services/agents.ts";
+import type { AuditService } from "./services/audit.ts";
 import type { BackgroundService } from "./services/background.ts";
 import type { BackupsService } from "./services/backups.ts";
 import type { BotApiService } from "./services/bot-api.ts";
@@ -83,6 +84,8 @@ export type Deps = {
   budgets: BudgetsService;
   /** The instance's backups: taken on a schedule, restored into an empty Perch (task 4.4). */
   backups: BackupsService;
+  /** Reading the audit log, exporting it, and how long it is kept (task 4.5). */
+  audit: AuditService;
   /** Cycles, modules, saved views and relations (task 3.26). */
   planning: PlanningService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */

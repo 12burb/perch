@@ -27,6 +27,7 @@ import {
 import { RunnerRegistry } from "./runners/registry.ts";
 import { AgentBotsService } from "./services/agent-bots.ts";
 import { AgentsService } from "./services/agents.ts";
+import { AuditService } from "./services/audit.ts";
 import { BackgroundService } from "./services/background.ts";
 import { BackupsService } from "./services/backups.ts";
 import { BotApiService } from "./services/bot-api.ts";
@@ -222,6 +223,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const budgets = new BudgetsService({ db, bus, log });
   // The instance's own backups (task 4.4): the database, the files beside it, and the vault key's
   // fingerprint, in a directory that can be carried somewhere else.
+  // Who did what and when, and for how long it is remembered (task 4.5).
+  const audit = new AuditService({ db, log });
   const backups = new BackupsService({
     env,
     db,
@@ -337,6 +340,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     virtualKeys,
     budgets,
     backups,
+    audit,
     mergeQueue,
     races,
     background,
