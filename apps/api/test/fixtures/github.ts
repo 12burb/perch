@@ -155,7 +155,8 @@ export async function startStandInGitHub(
   const server = Bun.serve({
     port: options.port ?? 0,
     hostname: "127.0.0.1",
-    fetch(request) {
+    // Async because opening a pull request reads its body: everything else answers immediately.
+    async fetch(request) {
       const url = new URL(request.url);
       const auth = request.headers.get("authorization");
       seen.push({ path: url.pathname, auth, method: request.method });
@@ -251,8 +252,26 @@ export async function startStandInGitHub(
         if (auth !== `Bearer ${installationToken}` && auth !== `Bearer ${token}`) {
           return Response.json({ message: "Bad credentials" }, { status: 401 });
         }
+        // A pull request somebody opened is one the same stand-in can list afterwards, which is
+        // the only reason the Pull Requests page has anything to show in an end-to-end run.
+        const body = (await request.json().catch(() => ({}))) as {
+          title?: string;
+          head?: string;
+          base?: string;
+          body?: string;
+        };
+        const number = pulls.size === 0 ? 7 : Math.max(...pulls.keys()) + 1;
+        pulls.set(number, {
+          number,
+          title: body.title ?? `Pull request ${number}`,
+          branch: body.head ?? "perch/work",
+          sha: `sha${number}`,
+          ...(body.base ? { base: body.base } : {}),
+          ...(body.body ? { body: body.body } : {}),
+          author: login,
+        });
         return Response.json(
-          { number: 7, html_url: "https://github.test/o/r/pull/7" },
+          { number, html_url: `https://github.test/o/r/pull/${number}` },
           { status: 201 },
         );
       }

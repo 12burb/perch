@@ -59,6 +59,40 @@ const SCRIPTED: Record<string, string> = {
   pong: "<@ping> no, yours",
 };
 
+/** One streamed answer in the OpenAI shape: text pieces, or a tool call, then a finish reason. */
+function streamed(
+  parts: { text?: string; delta?: Record<string, unknown>; finish: string }[],
+): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (payload: unknown) =>
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`));
+      const head = { id: "1", object: "chat.completion.chunk", created: 1, model: "gpt-test-mini" };
+      for (const part of parts) {
+        for (const piece of part.text?.match(/.{1,12}/g) ?? []) {
+          send({
+            ...head,
+            choices: [{ index: 0, delta: { content: piece }, finish_reason: null }],
+          });
+        }
+        if (part.delta) {
+          send({ ...head, choices: [{ index: 0, delta: part.delta, finish_reason: null }] });
+        }
+        send({
+          ...head,
+          choices: [{ index: 0, delta: {}, finish_reason: part.finish }],
+          usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+        });
+      }
+      controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+  });
+}
+
 const providerPort = Number(process.env.E2E_PROVIDER_PORT ?? "3998");
 const provider = Bun.serve({
   port: providerPort,
@@ -67,13 +101,55 @@ const provider = Bun.serve({
     const url = new URL(request.url);
     // A bot's brain (task 2.6): the OpenAI-compatible streaming shape, answering whoever asked.
     if (url.pathname.endsWith("/chat/completions")) {
-      const body = (await request.json()) as { messages?: { role: string; content?: unknown }[] };
+      const body = (await request.json()) as {
+        messages?: { role: string; content?: unknown }[];
+        tools?: { function?: { name?: string } }[];
+      };
       const last = [...(body.messages ?? [])].reverse().find((one) => one.role === "user");
       const asked = typeof last?.content === "string" ? last.content : "";
       const system = body.messages?.find((one) => one.role === "system");
       const handle = /writing @([a-z0-9_-]+)/.exec(String(system?.content ?? ""))?.[1] ?? "";
       // How much of the conversation it was shown, which is what proves a fresh chat (task 2.9).
       const turns = (body.messages ?? []).filter((one) => one.role !== "system").length;
+
+      /**
+       * A bot with an attached MCP server (task 3.6) is a bot that is offered tools, and a brain
+       * that never calls one cannot prove the lane. So: asked about something an offered tool is
+       * plainly for, it calls that tool; shown the answer, it says what the answer was. Which tool
+       * is decided by the ask, not by this file knowing what Supabase is.
+       */
+      const offered = (body.tools ?? []).map((one) => one.function?.name ?? "").filter(Boolean);
+      const wanted = offered.find((name) =>
+        asked.toLowerCase().includes("table") ? name.endsWith("list_tables") : false,
+      );
+      const answered = (body.messages ?? []).find((one) => one.role === "tool");
+      if (wanted && !answered) {
+        return streamed([
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: wanted, arguments: "{}" },
+                },
+              ],
+            },
+            finish: "tool_calls",
+          },
+        ]);
+      }
+      if (answered) {
+        const said =
+          typeof answered.content === "string"
+            ? answered.content
+            : JSON.stringify(answered.content);
+        return streamed([
+          { text: `What the database says: ${said}`.slice(0, 900), finish: "stop" },
+        ]);
+      }
+
       // A lead tags the desk, which is what makes a chain in the browser (task 2.7); the desk,
       // the two specialists and the arguing pair are Phase 2's exit criterion (task 2.21).
       const reply =
@@ -178,6 +254,15 @@ writeFileSync(
   `export default { server: { host: "127.0.0.1", port: ${vitePort}, strictPort: true, allowedHosts: true } };\n`,
 );
 writeFileSync(join(viteDir, "package.json"), '{ "name": "perch-e2e-preview", "type": "module" }\n');
+/**
+ * And a page that throws on load, for preflight (task 3.21, 3.23): every unit test in the world
+ * passes for this page, and one look at it in a browser does not. It is a second page rather than
+ * a change to the first, because the preview spec is watching that one.
+ */
+writeFileSync(
+  join(viteDir, "boom.html"),
+  "<!doctype html><html><body><h1>shipping</h1><script>brokenOnLoad();</script></body></html>\n",
+);
 const viteBin = resolve(root, "apps/web/node_modules/.bin/vite");
 const vite = Bun.spawn(["bun", viteBin], {
   cwd: viteDir,
@@ -216,16 +301,47 @@ const origins = await Promise.all(
     }),
   ),
 );
-const github = Object.fromEntries(
-  LANES.map((lane, i) => {
+/**
+ * And Phase 3's own origin (task 3.23): the repository three agents share. Its config is the one
+ * that makes that possible — a check command for the merge queue, and the edits an agent may make
+ * with nobody watching, which is the repository saying what it trusts (ADR-0111).
+ */
+const phase3 = await startStandInGitHub({
+  files: {
+    "README.md": "# Aviary\n\nThe repository the Phase 3 loop works on.\n",
+    "notes.txt": "release notes\n",
+    ".perch/project.json": `${JSON.stringify(
+      {
+        engine: "acp",
+        run: { check: "true" },
+        preview: { port: vitePort, path: "/" },
+        background: { unattended: ["Edit *"], autoSettle: true },
+      },
+      null,
+      2,
+    )}\n`,
+  },
+});
+
+const github = Object.fromEntries([
+  ...LANES.map((lane, i) => {
     const origin = origins[i];
     if (!origin) throw new Error(`no stand-in for ${lane}`);
     return [
       lane,
       { url: origin.url, repoUrl: origin.repoUrl, token: origin.token, login: origin.login },
-    ];
+    ] as const;
   }),
-);
+  [
+    "phase3",
+    {
+      url: phase3.url,
+      repoUrl: phase3.repoUrl,
+      token: phase3.token,
+      login: phase3.login,
+    },
+  ] as const,
+]);
 
 /**
  * A stand-in MCP server with its own authorization server (task 2.14), so the connections spec can

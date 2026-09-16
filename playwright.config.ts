@@ -40,12 +40,12 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: /(phase1|phase2|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|phase3|push)\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
       name: "mobile",
-      testIgnore: /(phase1|phase2|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|phase3|push)\.e2e\.ts$/,
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },
     // Web push (task 2.3) needs a browser that has the Push API, and the headless shell Playwright
@@ -70,6 +70,13 @@ export default defineConfig({
     {
       name: "phase2",
       testMatch: /phase2\.e2e\.ts$/,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    // Phase 3's exit criterion, once (task 3.23): a mention that ships a pull request, three
+    // agents on one repository, a race somebody judges, and a push a browser refuses.
+    {
+      name: "phase3",
+      testMatch: /phase3\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],

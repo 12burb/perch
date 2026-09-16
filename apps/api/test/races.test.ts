@@ -273,6 +273,14 @@ describe("race mode (task 3.16)", () => {
     });
     expect(tooFew.status).toBe(422);
 
+    // Two of the same engine would be two entrants on one branch, which is not a race.
+    const twice = await call(`/api/workspaces/${ws}/projects/${project}/races`, {
+      method: "POST",
+      json: { prompt: "again", runners: [{ engine: "quick" }, { engine: "quick" }] },
+    });
+    expect(twice.status).toBe(422);
+    expect(twice.text).toContain("only enter a race once");
+
     const entrants = ((await call(`/api/races/${raceId}`)) as { body: Race }).body.entrants;
     const loser = entrants.find((one) => one.state === "discarded");
     const again = await call(`/api/races/${raceId}/pick/${loser?.id ?? ""}`, { method: "POST" });

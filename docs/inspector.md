@@ -141,6 +141,10 @@ With `preflight` set, a push runs two halves first.
    not come back is a failure. This is the half a suite cannot do: a page that throws on load passes
    every unit test ever written.
 
+A request the *browser* made on its own — `/favicon.ico`, an Apple touch icon — is not the page's
+failure, and a project with no favicon yet is every project on its first afternoon. Those are
+skipped; everything the page asked for counts.
+
 `block` refuses the push with the checklist (`409`); `warn` pushes and returns it anyway; absent is
 off, because a suite and a browser on every push is a choice a project makes rather than one it
 discovers from its bill.

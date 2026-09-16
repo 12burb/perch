@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
 import { pickMode, resolveAgentLaunch, selectPermissionOption } from "../src/acp.ts";
+import { worktreePath } from "../src/git.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -292,6 +293,40 @@ describe("the ACP adapter (task 1.9)", () => {
       outcome: { outcome: "cancelled" },
     });
   });
+});
+
+/**
+ * Task 3.14: a session works in the project's worktree for its branch. The branch is a git name
+ * and the worktree is a directory, and `worktree.create` is the one that turns one into the other
+ * — a session that joins the branch onto the path looks in `…/perch/aviary-4/acp-fake` for a
+ * checkout that is really at `…/perch-aviary-4-acp-fake`, and every agent on a worktree fails.
+ */
+describe("a session in a worktree (task 3.14)", () => {
+  test("it runs where worktree.create put the checkout, whatever the branch is called", async () => {
+    const dir = projectDir(root, WS, PROJECT);
+    const branch = "perch/aviary-4/acp-fake";
+    const worktree = worktreePath(root, WS, PROJECT, branch);
+    expect(worktree).toBe(join(`${dir}.worktrees`, "perch-aviary-4-acp-fake"));
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(worktree, "README.md"), "# The worktree\n");
+
+    const id = "0190f2d0-0000-7000-8000-0000000000e1";
+    await newSession(id, { worktree: branch });
+    try {
+      events = [];
+      await manager.send({ ...ctx, session_id: id, turn: { text: "read README.md" } });
+      await until(() => ["done", "error"].includes(eventsOf(id).at(-1)?.type ?? ""));
+      // It read the file in the worktree, not the one in the project directory.
+      const said = eventsOf(id)
+        .filter((one) => one.type === "text")
+        .map((one) => (one as { type: "text"; delta: string }).delta)
+        .join("");
+      expect(said).toContain("The worktree");
+      expect(said).not.toContain("# Project");
+    } finally {
+      await manager.close(id);
+    }
+  }, 120_000);
 });
 
 const realAgent = process.env.PERCH_ACP_TEST_AGENT;

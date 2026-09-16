@@ -55,7 +55,14 @@ beforeAll(async () => {
   dev = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch: () => new Response(page, { headers: { "content-type": "text/html" } }),
+    fetch: (request) => {
+      // Every dev server does this, and every browser asks: a page with no favicon is not a page
+      // that fails (task 3.21).
+      if (new URL(request.url).pathname === "/favicon.ico") {
+        return new Response("no", { status: 404 });
+      }
+      return new Response(page, { headers: { "content-type": "text/html" } });
+    },
   });
   booted = await bootTestApp({});
   projectsDir = mkdtempSync(join(tmpdir(), "perch-preflight-"));
@@ -199,7 +206,8 @@ describe("preflight before push (task 3.21)", () => {
       expect(refused.status).toBe(409);
       expect(refused.text).toContain("preflight");
 
-      // A page that does not throw passes, and the same push gets as far as git.
+      // A page that does not throw passes — the browser's own 404 for the favicon nobody added is
+      // not the page's failure — and the same push gets as far as git.
       page = "<!doctype html><html><body><h1>fine</h1></body></html>";
       const again = (await call(`/api/workspaces/${ws}/projects/${project}/preflight`, {
         method: "POST",

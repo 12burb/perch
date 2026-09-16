@@ -6,7 +6,7 @@
  * as soon as the round started.
  */
 import { existsSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute } from "node:path";
 import {
   type EngineEvent,
   JSON_RPC_ERRORS,
@@ -26,6 +26,7 @@ import {
   resolveAgentLaunch,
 } from "./acp.ts";
 import { CLI_HARNESS, CliHarnessSession, type CliHarnessSpec } from "./cli-harness.ts";
+import { worktreePath } from "./git.ts";
 import { HERMES_AGENT, hermesEnv, hermesInstalled, resolveHermes } from "./hermes.ts";
 import type { Notify } from "./notify.ts";
 import { OpenCodeHost, type OpenCodeOptions } from "./opencode.ts";
@@ -376,7 +377,12 @@ export class SessionManager {
 
   private cwdOf(params: RunnerRequestParams<"session.create">): string {
     const dir = projectDir(this.options.root, params.workspace_id, params.project);
-    const cwd = params.worktree ? join(`${dir}.worktrees`, params.worktree) : dir;
+    // The worktree's directory is `worktree.create`'s to name, not this one's: a branch is not a
+    // path, and joining one on gives `…/perch/aviary-4/acp-fake` where the worktree is really at
+    // `…/perch-aviary-4-acp-fake` — a session that never found its own checkout (task 3.14).
+    const cwd = params.worktree
+      ? worktreePath(this.options.root, params.workspace_id, params.project, params.worktree)
+      : dir;
     if (!existsSync(cwd)) {
       throw new RunnerRpcError(
         JSON_RPC_ERRORS.invalidParams,

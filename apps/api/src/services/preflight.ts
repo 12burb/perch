@@ -40,6 +40,12 @@ export type PreflightDeps = {
 
 /** The commands preflight runs, in the order a person would: fast ones first. */
 const COMMANDS = ["lint", "test", "build"] as const;
+/**
+ * Requests the browser makes on its own behalf, which the page never asked for. A project with no
+ * favicon is every project on its first afternoon, and refusing a push over one would teach people
+ * to turn preflight off.
+ */
+const UNASKED = /\/(favicon\.(ico|png|svg)|apple-touch-icon(-precomposed)?\.png)(\?|$)/i;
 const COMMAND_TIMEOUT_MS = 10 * 60_000;
 const TAIL = 2_000;
 
@@ -146,7 +152,7 @@ export class PreflightService {
         });
         const seen = screenshotResultSchema.parse(raw);
         const errors = (seen.console ?? []).filter((one) => one.level === "error");
-        const failed = seen.failed ?? [];
+        const failed = (seen.failed ?? []).filter((one) => !UNASKED.test(one.url));
         const why = [
           ...errors.map((one) => one.text),
           ...failed.map((one) => `${one.status} ${one.url}`),

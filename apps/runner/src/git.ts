@@ -185,7 +185,14 @@ export async function gitBranch(options: GitOptions, params: RunnerRequestParams
   };
 }
 
-function worktreePath(
+/**
+ * Where a branch's worktree lives: one directory beside the project, named for the branch with
+ * everything a path could trip over flattened out. `perch/aviary-4/acp-fake` is a fine branch and
+ * a bad directory name — so this is the one place that turns one into the other, and everything
+ * that needs the directory (the runner's sessions among them) asks here rather than joining a
+ * branch onto a path itself.
+ */
+export function worktreePath(
   root: string,
   workspaceId: string,
   projectId: string,

@@ -85,6 +85,19 @@ export class RaceService {
       throw PerchError.validation("a race needs at least two engines to be a race");
     }
     if (input.runners.length > 8) throw PerchError.validation("eight engines is enough");
+    // An entrant is its branch, and a branch is its engine and agent — so the same pair twice is
+    // two entrants in one worktree, which is not a race and cannot be made into one.
+    const seen = new Set<string>();
+    for (const runner of input.runners) {
+      const key = `${runner.engine}:${runner.agent ?? ""}`;
+      if (seen.has(key)) {
+        throw PerchError.validation("an engine can only enter a race once", {
+          engine: runner.engine,
+          ...(runner.agent ? { agent: runner.agent } : {}),
+        });
+      }
+      seen.add(key);
+    }
     const prompt = input.prompt.trim();
     if (!prompt) throw PerchError.validation("say what they are all being asked");
 
