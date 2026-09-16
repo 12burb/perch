@@ -216,6 +216,16 @@ PERCH_ACP_TEST_AGENT=codex OPENAI_API_KEY=… bun test apps/runner/test/acp.test
 
 CI runs the same flow against a registry-shaped agent (apps/runner/test/fixtures/acp-agent.ts).
 
+## A session opened from a chat (task 3.7)
+
+An agent bot's mention opens one of these (see [Agent bots](bots.md#agent-bots)). Such a session
+carries the channel, the thread and the bot on its row, which is the whole of the coupling: the
+session does not know it is being watched, and the thread hears about it by subscribing to the same
+`session.permission_requested`, `session.done` and `session.error` events everything else does.
+
+It runs as the bot's **owner** — a bot is not a person and has no runner — while the actor on every
+event says which bot asked, so the audit log records both.
+
 ## The lifecycle
 
 ```

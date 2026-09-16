@@ -256,6 +256,38 @@ no tokens, and `http_fetch` refuses anything that resolves inside the network Pe
 `web_search` goes to whatever endpoint `PERCH_SEARCH_URL` names (Brave-shaped) with
 `PERCH_SEARCH_KEY`; without one the tool says it is not configured rather than inventing an answer.
 
+## Agent bots
+
+A bot with an `engine` does not answer from a model. It opens a coding session on one of its
+projects and reports back in the thread (spec §5.3 "Agent bots"):
+
+```yaml
+handle: dawn
+name: Dawn
+engine: acp              # or opencode, or any engine this Perch has
+projects: [Aviary]       # by name or id; the first is the default
+connection: github       # what the push and the pull request run on (optional)
+pullRequest: true        # the default; false leaves the work in the session
+triggers:
+  - on: mention
+```
+
+`@dawn edit the header to add a dark-mode toggle` opens a session on Aviary, as the bot's owner —
+a bot has no runner of its own — and posts a **session card** in the thread with a link straight
+into Code mode. Naming a project in the message picks it; otherwise the bot's first one.
+
+While it works, everything a person would have to answer comes to them where they asked:
+
+- **Permissions.** An engine that wants to do something it has to ask about gets an Approve / Deny
+  card in the thread. Answering it answers the engine — there is no second place to go.
+- **The end.** When the turn finishes, what the agent left behind is put on a branch of its own,
+  read for secrets (the same gate a person's commit goes through), committed, pushed, and opened as
+  a pull request. The thread gets a **diff card**: what changed, Open in IDE, and the pull request.
+
+Nothing is silently skipped. A project with no repository, a workspace with no connection to push
+with, or a change with something that looks like a credential in it all stop where they stop, and
+the card says which and why. `pullRequest: false` leaves the work in the session on purpose.
+
 ## Tools from an MCP server
 
 A bot can reach any MCP server a connection stands for — a provider's own, or one an admin pasted

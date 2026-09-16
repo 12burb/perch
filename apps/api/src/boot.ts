@@ -25,6 +25,7 @@ import {
   type RunnerChannelOptions,
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
+import { AgentBotsService } from "./services/agent-bots.ts";
 import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
@@ -157,6 +158,23 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // What Perch knows about a repository: the index behind @codebase (task 2.17).
   const repoIndex = new RepoIndexService({ db: db.db, bus, brains, log });
   const dbBrowser = new DbBrowser({ connections, gateway: mcp });
+  const sessions = new SessionService(
+    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
+    options.sessions ?? {},
+  );
+  // A mention that opens a coding session (spec §5.3 "Agent bots"; task 3.7). It is its own
+  // service because it belongs to neither side: the bots service asks it for a session, the
+  // session's own events come back on the bus, and the thread hears about both.
+  const agentBots = new AgentBotsService({
+    db: db.db,
+    bus,
+    botEvents,
+    sessions,
+    connections,
+    policy,
+    log,
+    runners: { db: db.db, registry: runners },
+  });
   const bots = new BotsService({
     db: db.db,
     bus,
@@ -169,6 +187,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     // carries the connection's own token, and the bot's context never sees either.
     connections,
     mcp,
+    // A mention that opens a coding session (spec §5.3 "Agent bots"; task 3.7).
+    agents: agentBots,
     ...(env.search ? { search: env.search } : {}),
   });
   // Bots that live in a project's repository (spec §5.3; task 3.1): the sync needs the bot service
@@ -177,10 +197,6 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // What a provider posts when something happens (spec §3.5; task 3.4): checked against the
   // manifest's own scheme, refused if it is a replay, and posted as a card.
   const webhooks = new WebhooksService({ db: db.db, bus, vault, connections, bots, log });
-  const sessions = new SessionService(
-    { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
-    options.sessions ?? {},
-  );
   // The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told.
   const botApi = new BotApiService({
     db: db.db,
@@ -229,6 +245,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const stopPush = startPushSubscriber({ bus, db, vault, env, log });
   // And what needs a person lands in their inbox off the same bus (task 2.10).
   const stopInbox = startInboxSubscriber({ bus, db, log });
+  // A session an agent bot opened reports back into the thread it came from (task 3.7).
+  const stopAgentBots = agentBots.start();
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -255,6 +273,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       stopAudit();
       stopPush();
       stopInbox();
+      stopAgentBots();
       sessions.close();
       await runnerChannel.close();
       await runners.closeAll();

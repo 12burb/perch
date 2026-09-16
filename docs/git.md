@@ -35,6 +35,14 @@ then asks the provider to open the pull request, answering with its number and U
 Without a connection, Push still works for a remote that needs no credential, and Open PR is
 disabled with a line saying why.
 
+## All four at once (task 3.7)
+
+An agent bot has nobody to press four buttons for it, so when its session finishes the same four
+steps run in one go: a branch of its own, the secret scan, the commit, the push, and the pull
+request. The gates are the same gates — a change with something that looks like a credential in it
+is not committed, and a push is checked against the workspace's policy — and each step that cannot
+happen stops there and says so on the card rather than being skipped quietly.
+
 ## The API
 
 Everything the panel does is a route, so a script can do it too:

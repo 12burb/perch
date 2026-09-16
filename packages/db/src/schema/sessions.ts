@@ -20,7 +20,9 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { id, timestamps, timestamptz } from "../columns.ts";
+import { bots } from "./bots.ts";
 import { modelProfiles } from "./brains.ts";
+import { channels } from "./chat.ts";
 import { users } from "./identity.ts";
 import { projects, runners } from "./projects.ts";
 import { workspaces } from "./tenancy.ts";
@@ -82,6 +84,14 @@ export const codingSessions = pgTable(
     branch: text("branch"),
     workItemId: uuid("work_item_id"),
     threadRootId: uuid("thread_root_id"),
+    /**
+     * The chat this session is answering in, when a bot opened it from one (spec §5.3 "agent
+     * bots"; task 3.7). Its cards — the session card, the permissions, the diff at the end — go
+     * back to this channel and this thread.
+     */
+    channelId: uuid("channel_id").references(() => channels.id, { onDelete: "set null" }),
+    /** The agent bot that opened it, so its answer is posted as that bot rather than as a person. */
+    botId: uuid("bot_id").references(() => bots.id, { onDelete: "set null" }),
     /** The session this one was forked from (task 1.12): its transcript was copied at the fork. */
     forkedFromId: uuid("forked_from_id"),
     costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }).notNull().default(0),

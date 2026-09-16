@@ -116,6 +116,10 @@
   "chat.deployState.canceled": "Cancelled",
   "chat.deployLogs": "Build log",
   "chat.deployWaiting": "No URL yet.",
+  "chat.session": "Session",
+  "chat.sessionOpen": "Open in IDE",
+  "chat.diff": "Change",
+  "chat.diffPr": "Pull request #{number}",
   "chat.more": "{count} more",
   "chat.seeAll": "See all {count}"
 }

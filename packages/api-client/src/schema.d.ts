@@ -11765,6 +11765,10 @@ export type components = {
                     connection: string;
                     tools?: string[];
                 }[];
+                engine?: string;
+                projects?: string[];
+                pullRequest?: boolean;
+                connection?: string;
                 timezone?: string;
                 scope?: {
                     channels?: string[];
@@ -11826,6 +11830,10 @@ export type components = {
                     connection: string;
                     tools?: string[];
                 }[];
+                engine?: string;
+                projects?: string[];
+                pullRequest?: boolean;
+                connection?: string;
                 timezone?: string;
                 scope?: {
                     channels?: string[];
@@ -11879,6 +11887,10 @@ export type components = {
                     connection: string;
                     tools?: string[];
                 }[];
+                engine?: string;
+                projects?: string[];
+                pullRequest?: boolean;
+                connection?: string;
                 timezone?: string;
                 scope?: {
                     channels?: string[];

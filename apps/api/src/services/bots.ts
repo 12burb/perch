@@ -118,6 +118,27 @@ export type BotsDeps = {
   connections?: Pick<ConnectionsService, "mayUse"> | undefined;
   /** The gateway an attached MCP server is reached through; the credential stays in the vault. */
   mcp?: Pick<McpGateway, "tools" | "call"> | undefined;
+  /** What an agent bot opens a session with (spec §5.3 "Agent bots"; task 3.7). */
+  agents?: AgentSessions | undefined;
+};
+
+/**
+ * The half of an agent bot that is a coding session (spec §5.3 `engine: opencode|acp + projects`).
+ *
+ * The bots service knows a mention should become a session; it does not know what a session is.
+ * Boot closes this over the session service, which keeps `packages/bots` and this file free of
+ * engines, runners and worktrees.
+ */
+export type AgentSessions = {
+  /** Opens one on this project, in this thread, and answers with what the card should say. */
+  open(input: {
+    bot: Bot;
+    channel: Channel;
+    threadRootId: string | null;
+    projects: readonly string[];
+    engine: string;
+    prompt: string;
+  }): Promise<{ sessionId: string; project: string; status: string; url: string }>;
 };
 
 export type BotsOptions = {
@@ -191,6 +212,18 @@ export function mentionsIn(text: string): string[] {
   return [...text.matchAll(/<@([a-z0-9._-]{1,64})>|(?:^|[\s(])@([a-z0-9._-]{1,64})/gi)].map(
     (match) => (match[1] ?? match[2] ?? "").toLowerCase(),
   );
+}
+
+/**
+ * What was asked, without the naming of who was asked (task 3.7). "@dawn add a dark-mode toggle"
+ * is a prompt for an engine only once `@dawn` is out of it: the engine has never heard of dawn.
+ */
+export function withoutMentions(text: string): string {
+  return text
+    .replace(/<@[a-z0-9._-]{1,64}>/gi, " ")
+    .replace(/(^|[\s(])@[a-z0-9._-]{1,64}/gi, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -1126,6 +1159,72 @@ export class BotsService {
    * uses, so a code bot has no permission a form bot does not. A run that loops, throws or runs out
    * of memory is a failed `bot_runs` row and nothing more.
    */
+  /**
+   * An agent bot's turn (spec §5.3 "Agent bots: `engine: opencode|acp` + `projects: [...]` —
+   * `@dawn add a dark-mode toggle` opens a session on that project"; task 3.7).
+   *
+   * What it says back is a session card, not an answer: the work happens in the session, and the
+   * thread gets its permissions and its diff as they arrive (the agent-bots subscriber). The run
+   * is over as soon as the session is open — the session keeps its own ledger from there.
+   */
+  private async runAgent(
+    bot: Bot,
+    channel: Channel,
+    input: RunInput,
+    run: BotRun,
+  ): Promise<RunOutcome> {
+    const asked =
+      input.prompt ?? (input.message ? withoutMentions(textOf(input.message.blocks)) : "");
+    const threadRootId = input.message?.threadRootId ?? input.message?.id ?? null;
+    if (!this.deps.agents) {
+      const said = "There is nothing here to open a session with.";
+      if (!input.quiet) await this.say(bot, channel, input.message, said);
+      const ended = await finishRun(this.deps.db, run.id, { status: "error", error: said });
+      return { run: ended ?? run, text: said };
+    }
+    try {
+      const opened = await this.deps.agents.open({
+        bot,
+        channel,
+        threadRootId,
+        projects: bot.spec.projects ?? [],
+        engine: bot.spec.engine ?? "",
+        prompt: asked,
+      });
+      const said = `Working on it in ${opened.project}.`;
+      if (!input.quiet) {
+        await this.post(channel, threadRootId, bot, [
+          { type: "text", text: said },
+          {
+            type: "session_card",
+            sessionId: opened.sessionId,
+            text: opened.project,
+            url: opened.url,
+          },
+        ]);
+      }
+      const ended = await finishRun(this.deps.db, run.id, { status: "done" });
+      if (input.chain) {
+        await finishHop(this.deps.db, input.chain.id, { status: "done", tokens: 0, costUsd: 0 });
+      }
+      return { run: ended ?? run, text: said };
+    } catch (error) {
+      const said = error instanceof PerchError ? error.message : "That session would not open.";
+      if (!input.quiet) await this.say(bot, channel, input.message, said);
+      this.deps.log.warn({ err: error, botId: bot.id }, "an agent bot could not open a session");
+      const ended = await finishRun(this.deps.db, run.id, { status: "error", error: said });
+      if (input.chain) {
+        await finishHop(this.deps.db, input.chain.id, { status: "error", tokens: 0, costUsd: 0 });
+      }
+      await this.deps.bus.publish(
+        "bot.run_failed",
+        { workspaceId: channel.workspaceId, botId: bot.id, runId: run.id, error: said },
+        input.by,
+      );
+      return { run: ended ?? run, text: said };
+    }
+  }
+
   private async runCode(
     bot: Bot,
     channel: Channel,
@@ -1256,6 +1355,8 @@ export class BotsService {
 
     // A code bot is its own answer: the file decides, not a model (spec §5.3; task 3.2).
     if (bot.code) return await this.runCode(bot, channel, input, run);
+    // An agent bot does not answer from a model at all: it opens a session (spec §5.3; task 3.7).
+    if (bot.spec.engine) return await this.runAgent(bot, channel, input, run);
 
     let placeholder: Message | null = null;
     try {

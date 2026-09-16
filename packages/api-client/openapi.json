@@ -3876,6 +3876,28 @@
                 },
                 "maxItems": 10
               },
+              "engine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 20
+              },
+              "pullRequest": {
+                "type": "boolean"
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
               "timezone": {
                 "type": "string",
                 "minLength": 1,
@@ -4165,6 +4187,28 @@
                 },
                 "maxItems": 10
               },
+              "engine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 20
+              },
+              "pullRequest": {
+                "type": "boolean"
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
               "timezone": {
                 "type": "string",
                 "minLength": 1,
@@ -4415,6 +4459,28 @@
                   "additionalProperties": false
                 },
                 "maxItems": 10
+              },
+              "engine": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 20
+              },
+              "pullRequest": {
+                "type": "boolean"
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
               },
               "timezone": {
                 "type": "string",

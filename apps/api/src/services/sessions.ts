@@ -121,6 +121,10 @@ export type CreateSessionInput = {
   modelProfileId?: string;
   /** How hard to think (task 2.18); `auto` — the agent's own choice — otherwise. */
   reasoning?: SessionReasoning;
+  /** The chat this session answers in, when an agent bot opened it from one (task 3.7). */
+  channelId?: string | undefined;
+  threadRootId?: string | null | undefined;
+  botId?: string | undefined;
   by: ActorContext;
 };
 
@@ -323,6 +327,10 @@ export class SessionService {
       ...(input.reasoning ? { reasoning: input.reasoning } : {}),
       title: input.title ?? null,
       ...(input.kind ? { kind: input.kind } : {}),
+      // Where its cards go, when a mention in a chat is what opened it (task 3.7).
+      ...(input.channelId ? { channelId: input.channelId } : {}),
+      ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      ...(input.botId ? { botId: input.botId } : {}),
     });
     await this.grantConnections(session);
     await this.deps.bus.publish(

@@ -39,6 +39,10 @@ export async function insertSession(
     kind?: CodingSessionKind;
     /** A fork starts with the turns of the transcript it copied, so turn numbers keep meaning. */
     turns?: number;
+    /** The chat it answers in, when an agent bot opened it from one (task 3.7). */
+    channelId?: string;
+    threadRootId?: string;
+    botId?: string;
   },
 ): Promise<CodingSession> {
   const [row] = await db
@@ -58,6 +62,9 @@ export async function insertSession(
       title: values.title,
       forkedFromId: values.forkedFromId ?? null,
       ...(values.kind ? { kind: values.kind } : {}),
+      ...(values.channelId ? { channelId: values.channelId } : {}),
+      ...(values.threadRootId ? { threadRootId: values.threadRootId } : {}),
+      ...(values.botId ? { botId: values.botId } : {}),
       ...(values.turns === undefined ? {} : { turns: values.turns }),
     })
     .returning();

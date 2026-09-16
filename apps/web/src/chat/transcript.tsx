@@ -173,6 +173,9 @@ function Blocks(props: {
         if (block.type === "webhook_card") {
           return <WebhookCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "session_card" || block.type === "diff_card") {
+          return <WorkCard key={key} kind={block.type} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "code") {
           return (
             <pre
@@ -1013,6 +1016,44 @@ function WebhookCard(props: { block: Record<string, unknown> }) {
           rel="noreferrer"
         >
           {url}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What an agent bot is doing, and what it did (spec §5.3 "posts a session_card in the thread …
+ * finishes with a diff_card, Open in IDE, and a PR link"; task 3.7).
+ *
+ * Both cards are the same shape — a line about the work and the ways out of the chat into it —
+ * so a thread reads as one story rather than two kinds of box.
+ */
+function WorkCard(props: { kind: "session_card" | "diff_card"; block: Record<string, unknown> }) {
+  const said = String(props.block.summary ?? props.block.text ?? "");
+  const url = typeof props.block.url === "string" ? props.block.url : "";
+  const prUrl = typeof props.block.prUrl === "string" ? props.block.prUrl : "";
+  const prNumber = typeof props.block.prNumber === "number" ? props.block.prNumber : 0;
+  // With a summary, `text` is the aside under it — why it stopped where it did.
+  const note = props.block.summary ? String(props.block.text ?? "") : "";
+  return (
+    <div
+      data-testid={props.kind === "diff_card" ? "diff-card" : "session-card"}
+      className="my-1 flex flex-wrap items-center gap-2 rounded border border-border bg-raised p-2"
+    >
+      <span className="font-medium">
+        {props.kind === "diff_card" ? t("chat.diff") : t("chat.session")}
+      </span>
+      {said ? <span className="text-sm text-fg-muted">{said}</span> : null}
+      {note ? <span className="w-full text-sm text-fg-subtle">{note}</span> : null}
+      {url ? (
+        <a className="ml-auto text-sm text-accent underline" href={url}>
+          {t("chat.sessionOpen")}
+        </a>
+      ) : null}
+      {prUrl ? (
+        <a className="text-sm text-accent underline" href={prUrl} target="_blank" rel="noreferrer">
+          {t("chat.diffPr", { number: prNumber })}
         </a>
       ) : null}
     </div>

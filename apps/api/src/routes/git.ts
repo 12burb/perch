@@ -9,13 +9,11 @@
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import {
-  fsReadResultSchema,
   gitBranchResultSchema,
   gitCommitResultSchema,
   gitDiffResultSchema,
   gitPushResultSchema,
   gitStatusResultSchema,
-  type RunnerLink,
 } from "@perch/events";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
@@ -23,8 +21,11 @@ import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
 import { runnerCall } from "../services/runners.ts";
+import { wholeChange } from "../services/ship.ts";
 import { projectDeps } from "./projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
+
+export { wholeChange };
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
 
@@ -458,47 +459,6 @@ export function onlyPaths(diff: string, files: { path: string }[], wanted: Set<s
       return (a && wanted.has(a)) || (b && wanted.has(b));
     })
     .join("");
-}
-
-/** A file big enough that reading it to look for a key is not worth the wait. */
-const SCAN_MAX_BYTES = 512 * 1024;
-/** How many new files one commit may bring before the scan stops reading them one by one. */
-const SCAN_MAX_FILES = 200;
-
-/**
- * Everything a commit is about to take, as one diff to read (task 2.12). `git diff` knows about
- * files git already knows about; a file the agent has just written is untracked, so its content is
- * added as if the whole thing were new — which, to history, it is.
- */
-export async function wholeChange(
-  link: RunnerLink,
-  input: { ws: string; userId: string; projectId: string; paths?: readonly string[] | undefined },
-): Promise<string> {
-  const base = { workspace_id: input.ws, user_id: input.userId, project: input.projectId };
-  const tracked = gitDiffResultSchema.parse(await runnerCall(link, "git.diff", base));
-  const status = gitStatusResultSchema.parse(await runnerCall(link, "git.status", base));
-  const wanted = input.paths && input.paths.length > 0 ? new Set(input.paths) : null;
-  const fresh = status.files
-    .filter((file) => file.index === "?" && (!wanted || wanted.has(file.path)))
-    .slice(0, SCAN_MAX_FILES);
-  const parts = [tracked.diff];
-  for (const file of fresh) {
-    try {
-      const read = fsReadResultSchema.parse(
-        await runnerCall(link, "fs.read", { ...base, path: file.path }),
-      );
-      // A binary file has nothing to read, and a huge one is not worth the wait.
-      if (read.encoding !== "utf8" || read.size > SCAN_MAX_BYTES) continue;
-      const body = read.content
-        .split(/\r?\n/)
-        .map((line) => `+${line}`)
-        .join("\n");
-      parts.push(`diff --git a/${file.path} b/${file.path}\n+++ b/${file.path}\n@@\n${body}`);
-    } catch {
-      // A file that cannot be read is one the commit will not take either.
-    }
-  }
-  return parts.join("\n");
 }
 
 /** What a push authenticates with: a connection the member may use, or the workspace's key. */

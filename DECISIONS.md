@@ -4551,3 +4551,65 @@ rather than its handle, because a card that says `@scout` would mention the bot 
 `requires_permission` is per grant, not per manifest: the same tool can need a person for a bot in
 a shared channel and not for a session its owner is watching. A manifest-level default would be a
 better answer for the common case, and can be added later without moving this.
+
+## ADR-0122: An agent bot's session belongs to the thread it came from
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.7
+
+### Context
+Spec §5.3 says an agent bot is `engine: opencode|acp` plus `projects: [...]`, and that `@dawn add a
+dark-mode toggle` "opens a session on that project, posts a session_card in the thread, asks
+permissions in-thread, and finishes with a diff_card, Open in IDE, and a PR link". §10's Phase 3
+exit criterion is the same sentence, shorter: from chat, a diff card and a PR.
+
+Two things had to be decided: where the coupling between a chat and a session lives, and how far a
+finished session gets on its own.
+
+### Decision
+**The session carries the chat, and the chat subscribes.** `coding_sessions` gains `channel_id` and
+`bot_id` (migration 0029). Nothing pushes updates into the thread; a subscriber watches
+`session.permission_requested`, `session.done` and `session.error` and posts into the thread of any
+session that has those two columns set (§9.1). The session service gained three optional fields and
+no knowledge of chat at all.
+
+**`AgentBotsService` is its own service, on both seams.** The bots service holds an `AgentSessions`
+interface with one method and is handed an implementation at boot. It does not import the session
+service, and the session service does not import it — which is also why `bots` and `sessions` could
+be built in either order once the seam existed.
+
+**A bot's turn is over once the session is open.** `runAgent` finishes the `bot_runs` row as soon
+as the card is posted rather than waiting for the engine. A bot run is a model turn's ledger, and an
+agent bot's turn costs nothing: the session keeps its own. Holding the run open for an hour would
+also hold a chain hop open, and the chain breaker would eventually trip on work that was going fine.
+
+**An engine's permission is the same `approve_deny` block as everything else.** The block id encodes
+`session.permission:<sessionId>:<permissionId>`, the answer arrives on the interaction seam (task
+2.5), and it is passed straight to `respondPermission`. No new transport, and the session pane's own
+prompt still works — whoever gets there first answers it.
+
+**Finishing ships.** `services/ship.ts` does branch → secret scan → commit → push → pull request in
+one call and stops at the first step it cannot take, saying which. It is a service rather than four
+route handlers because an agent has nobody to press the four buttons; the Git panel's endpoints stay
+as they are, and `wholeChange` — the secret scanner's reader — moved out of `routes/git.ts` into it,
+so the gate is one implementation rather than two. `pullRequest: false` on a bot opts out.
+
+**The push connection is named, then guessed, then not.** `spec.connection` wins. Otherwise a
+connection whose provider matches the repository's host, workspace-owned before personal. Otherwise
+the workspace's only connection, which can only be wrong if there was never a right answer. A guess
+past that point would be spending somebody's credential on a hunch.
+
+**A card carries its own link.** `session_card` and `diff_card` gained `url` (a path in this Perch)
+and the diff card `prUrl`/`prNumber`. The alternative — the client joining session → project → key →
+workspace slug to build the link — puts routing knowledge in a renderer for something the api knew
+when it posted it. The inbox already works this way.
+
+### Consequences
+The commit is authored as the bot (`<handle>@bots.perch.local`) rather than as its owner, because
+the owner did not write it. The session, the push and the audit trail are all still the owner's:
+they are who has a runner and a credential.
+
+An engine that asks for a permission and gets no answer waits as long as the session's silence timer
+allows, exactly as it does in the pane. Nothing in this task shortens that; a permission that nobody
+answers is the inbox's problem, and the inbox already has session permissions in it.

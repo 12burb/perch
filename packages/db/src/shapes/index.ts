@@ -184,6 +184,11 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
       turn: z.number().int().nonnegative().optional(),
       summary: z.string().optional(),
       text: z.string().optional(),
+      /** Where to open it in this Perch: `/<slug>/code/<project>?session=<id>` (task 3.7). */
+      url: z.string().max(2000).optional(),
+      /** The pull request the work became, when it became one (spec §10's Phase 3 exit). */
+      prUrl: z.url().max(2000).optional(),
+      prNumber: z.number().int().positive().optional(),
     })
     .strict(),
   z
@@ -192,6 +197,8 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
       type: z.literal("session_card"),
       sessionId: z.uuid(),
       text: z.string().optional(),
+      /** Where to open it in this Perch: `/<slug>/code/<project>?session=<id>` (task 3.7). */
+      url: z.string().max(2000).optional(),
     })
     .strict(),
   z
@@ -452,6 +459,25 @@ export const botSpecSchema = z
       )
       .max(10)
       .optional(),
+    /**
+     * An agent bot (spec §5.3 "Agent bots: engine: opencode|acp + projects: [...]"; task 3.7).
+     * Naming an engine changes what a mention does: instead of answering from a model, the bot
+     * opens a coding session on one of its projects and reports back in the thread.
+     */
+    engine: z.string().min(1).max(64).optional(),
+    /** The projects it may work on, by name or id. The first is the default when nobody says. */
+    projects: z.array(z.string().min(1).max(200)).max(20).optional(),
+    /**
+     * Whether a finished session that changed something is pushed and opened as a pull request
+     * (spec §10's Phase 3 exit: "@dawn fix X" from chat ships a diff card and a PR). On unless the
+     * bot says otherwise; a project with no repository or no connection says so on the card.
+     */
+    pullRequest: z.boolean().optional(),
+    /**
+     * The connection the push and the pull request run on, by id or provider. Without one Perch
+     * looks for a connection for the repository's own host, and then for the workspace's only one.
+     */
+    connection: z.string().min(1).max(120).optional(),
     /**
      * The zone this bot's schedules are read in (spec §5.3's `schedule (cron)`; task 3.5). "0 9 *
      * * 1-5" means nine in the morning where the person who wrote it lives. An IANA name —
