@@ -521,6 +521,45 @@ export function agentsQuery(workspaceId: string) {
   });
 }
 
+/** The connection's open pull requests for this project (task 3.20). */
+export function pullRequestsQuery(workspaceId: string, projectId: string, connectionId: string) {
+  return queryOptions({
+    queryKey: ["pull-requests", workspaceId, projectId, connectionId],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/pull-requests", {
+          params: {
+            path: { ws: workspaceId, project: projectId },
+            query: { connection_id: connectionId },
+          },
+        }),
+      ),
+    enabled: workspaceId !== "" && projectId !== "" && connectionId !== "",
+  });
+}
+
+/** One of them, with its inline comments, its reviews and its checks. */
+export function pullRequestQuery(
+  workspaceId: string,
+  projectId: string,
+  connectionId: string,
+  number: number,
+) {
+  return queryOptions({
+    queryKey: ["pull-requests", workspaceId, projectId, connectionId, number],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/projects/{project}/pull-requests/{number}", {
+          params: {
+            path: { ws: workspaceId, project: projectId, number },
+            query: { connection_id: connectionId },
+          },
+        }),
+      ),
+    enabled: workspaceId !== "" && projectId !== "" && connectionId !== "" && number > 0,
+  });
+}
+
 export function previewsQuery(workspaceId: string, projectId: string) {
   return queryOptions({
     queryKey: ["previews", workspaceId, projectId],

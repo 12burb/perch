@@ -5344,3 +5344,60 @@ a session is the right that closes one. Somebody outside the workspace gets a `4
 What is not here: "assignment from chat", which §5.7 names in the same breath — that is the board's
 (3.13) and the orchestrators' (3.10). Nor a history of what has been stopped; `bot_runs` and the
 audit log both keep that already.
+
+## ADR-0137: Pull requests are the connection's, and the push is the reply
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.20
+
+### Context
+§5.1 asks for a "Pull Requests page in Phase 3 with inline comments, request changes, 'ask the agent
+to address review'", and §11's line for 3.20 for "a review comment becomes a turn and the push
+answers it". Task 1.20 already opens one; this is reading and answering them.
+
+### Decision
+**No `pull_requests` table, and no cache.** Every read goes to the provider on the connection's own
+delegated token. A copy in Perch would be a second answer to "what does this review say", and it
+would be wrong from the moment somebody comments in the provider's own UI — which is where most
+reviews are still written. The cost is a round trip per page; the alternative is a page that
+confidently shows yesterday's review.
+
+**Three calls for one pull request**, not one: the pull request, its review comments, and the checks
+on its head commit. Checks hang off the commit rather than the pull request, so a pull request whose
+head moved has different checks from the one you were reading — folding them into one call would
+mean pretending otherwise. Checks failing to load is a warning rather than an error: a repository
+with no checks answers this differently on every provider, and a pull request is still readable
+without them.
+
+**The push is the reply.** "Ask the agent to address it" opens a session on the pull request's own
+branch, hands it the review as its first turn — every comment with its file and its line — and tells
+it not to reply in the pull request. Perch posting a comment on the agent's behalf would put a
+message in a reviewer's inbox that contains no change; the commit that answers them is the answer.
+
+**A branch that is not here is a `422`, not a best effort.** `worktree.create` makes a branch from
+the base when it does not find one, so addressing a pull request whose branch this checkout has never
+seen would silently give the agent an empty branch cut from `main` — which looks like it is working.
+The service asks `git.branch` first and refuses by name. Fetching it instead is a real improvement
+and needs a `git.fetch` in §7.6; that is not this task.
+
+**Requesting changes without saying why is a `422`.** The provider would accept it. A request for
+changes that does not say what to change is not a request, and the person who wrote it will be asked
+anyway.
+
+**`PullRequestDetail`, not `PullRequest`.** 1.20 already registered `PullRequest` as the shape
+returned when one is opened. Two schemas under one component name silently keep the first, which is
+how the generated client ended up typed as the wrong thing until the collision was noticed.
+
+### Consequences
+The page is a drawer tab in Code mode beside Git, Deploy and the database browser, lazily loaded:
+it only matters once there is a connection and something to review, and most sessions never open it.
+
+The connection is chosen per request rather than stored on the project. A project can be reachable
+through more than one connection (a person's and an app's), and which one a review is submitted as
+is a decision worth making explicitly.
+
+What is not here: replying to a single inline comment (the push answers the review as a whole),
+resolving a thread, merging from Perch, and requesting a reviewer. Merging especially: the merge
+queue (3.15) lands branches on the runner's checkout, and a "Merge" button on this page would be a
+second, different way to land something.

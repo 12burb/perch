@@ -26,7 +26,25 @@ export type StandInGitHub = {
   bare: string;
   /** Every request it saw, so a test can prove what went out and what did not. */
   seen: { path: string; auth: string | null; method: string }[];
+  /** The pull requests it will answer with, and the review comments on each (task 3.20). */
+  pulls: Map<number, StandInPull>;
+  /** The reviews a test submitted, in order. */
+  reviews: { number: number; event: string; body: string }[];
   stop(): void;
+};
+
+/** One pull request, as much of one as the Pull Requests page reads. */
+export type StandInPull = {
+  number: number;
+  title: string;
+  branch: string;
+  sha: string;
+  base?: string;
+  author?: string;
+  body?: string;
+  comments?: { id: number; path: string; line: number; body: string; author?: string }[];
+  reviews?: { id: number; state: string; body: string; author?: string }[];
+  checks?: { name: string; status: string; conclusion: string | null }[];
 };
 
 export type StandInGitHubOptions = {
@@ -132,6 +150,8 @@ export async function startStandInGitHub(
   run(bare, "config", "http.receivepack", "true");
 
   const seen: StandInGitHub["seen"] = [];
+  const pulls = new Map<number, StandInPull>();
+  const reviews: { number: number; event: string; body: string }[] = [];
   const server = Bun.serve({
     port: options.port ?? 0,
     hostname: "127.0.0.1",
@@ -163,6 +183,70 @@ export async function startStandInGitHub(
           repository_selection: "selected",
         });
       }
+      // The Pull Requests page (task 3.20): the list, one of them, its inline comments, its
+      // reviews, the checks on its head commit, and a review being submitted.
+      const authorized = auth === `Bearer ${installationToken}` || auth === `Bearer ${token}`;
+      const pull = /\/pulls\/(\d+)(\/(comments|reviews))?$/.exec(url.pathname);
+      if (pull && request.method === "GET") {
+        if (!authorized) return Response.json({ message: "Bad credentials" }, { status: 401 });
+        const row = pulls.get(Number(pull[1]));
+        if (!row) return Response.json({ message: "Not Found" }, { status: 404 });
+        if (pull[3] === "comments") {
+          return Response.json(
+            (row.comments ?? []).map((one) => ({
+              id: one.id,
+              path: one.path,
+              line: one.line,
+              body: one.body,
+              user: { login: one.author ?? "reviewer" },
+              diff_hunk: `@@ -${one.line},1 +${one.line},1 @@`,
+            })),
+          );
+        }
+        if (pull[3] === "reviews") {
+          return Response.json(
+            (row.reviews ?? []).map((one) => ({
+              id: one.id,
+              state: one.state,
+              body: one.body,
+              user: { login: one.author ?? "reviewer" },
+            })),
+          );
+        }
+        return Response.json(wirePull(row));
+      }
+      if (pull && pull[3] === "reviews" && request.method === "POST") {
+        if (!authorized) return Response.json({ message: "Bad credentials" }, { status: 401 });
+        return request.json().then((raw) => {
+          const said = raw as { event?: string; body?: string };
+          reviews.push({
+            number: Number(pull[1]),
+            event: said.event ?? "",
+            body: said.body ?? "",
+          });
+          return Response.json(
+            { id: 900 + reviews.length, state: said.event ?? "" },
+            { status: 200 },
+          );
+        });
+      }
+      const checks = /\/commits\/([^/]+)\/check-runs$/.exec(url.pathname);
+      if (checks && request.method === "GET") {
+        if (!authorized) return Response.json({ message: "Bad credentials" }, { status: 401 });
+        const row = [...pulls.values()].find((one) => one.sha === checks[1]);
+        return Response.json({
+          check_runs: (row?.checks ?? []).map((one) => ({
+            name: one.name,
+            status: one.status,
+            conclusion: one.conclusion,
+            html_url: `https://github.test/o/r/runs/${one.name}`,
+          })),
+        });
+      }
+      if (url.pathname.endsWith("/pulls") && request.method === "GET") {
+        if (!authorized) return Response.json({ message: "Bad credentials" }, { status: 401 });
+        return Response.json([...pulls.values()].map(wirePull));
+      }
       if (url.pathname.endsWith("/pulls") && request.method === "POST") {
         if (auth !== `Bearer ${installationToken}` && auth !== `Bearer ${token}`) {
           return Response.json({ message: "Bad credentials" }, { status: 401 });
@@ -192,9 +276,44 @@ export async function startStandInGitHub(
     login,
     bare,
     seen,
+    pulls,
+    reviews,
     stop() {
       server.stop(true);
       rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+/** A stand-in pull request in the shape the provider answers with. */
+function wirePull(row: StandInPull) {
+  return {
+    number: row.number,
+    title: row.title,
+    html_url: `https://github.test/o/r/pull/${row.number}`,
+    state: "open",
+    draft: false,
+    body: row.body ?? "",
+    head: { ref: row.branch, sha: row.sha },
+    base: { ref: row.base ?? "main" },
+    user: { login: row.author ?? "robin" },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** A GitHub App's private key, in the PEM a connection is configured with. */
+export async function generateAppKey(): Promise<string> {
+  const pair = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+  const body = btoa(String.fromCharCode(...new Uint8Array(pkcs8))).replace(/(.{64})/g, "$1\n");
+  return `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
 }

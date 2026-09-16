@@ -260,6 +260,11 @@ export const LIST_SURFACES = [
     how: { capped: 100, in: "apps/api/src/repos/sessions.ts", proof: "limit = 100" },
   },
   {
+    file: "apps/web/src/code/pull-requests-panel.tsx",
+    list: "the connection's open pull requests, and one of them with its comments",
+    how: { capped: 50, in: "apps/api/src/services/pull-requests.ts", proof: "per_page=50" },
+  },
+  {
     file: "apps/web/src/shell/agents.tsx",
     list: "every session and bot working right now, in the sidebar",
     how: { capped: 200, in: "apps/api/src/repos/sessions.ts", proof: "limit(200)" },

@@ -35,6 +35,13 @@ const DbPanel = lazy(() =>
   import("../../../code/ship-panel.tsx").then((m) => ({ default: m.DbPanel })),
 );
 
+// The Pull Requests page (task 3.20): its own chunk, because it only matters once there is a
+// connection and something to review.
+const PullRequestsPanel = lazy(() =>
+  import("../../../code/pull-requests-panel.tsx").then((m) => ({
+    default: m.PullRequestsPanel,
+  })),
+);
 // The codebase index (task 2.17): its own chunk, because most sessions never open this tab.
 const CodebasePanel = lazy(() =>
   import("../../../code/codebase-panel.tsx").then((m) => ({ default: m.CodebasePanel })),
@@ -260,6 +267,17 @@ function ProjectCode() {
                 fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
               >
                 <GitPanel workspaceId={workspaceId} projectId={projectId} />
+              </Suspense>
+            ),
+          },
+          {
+            id: "pulls",
+            label: t("pr.title"),
+            content: (
+              <Suspense
+                fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
+              >
+                <PullRequestsPanel workspaceId={workspaceId} projectId={projectId} />
               </Suspense>
             ),
           },

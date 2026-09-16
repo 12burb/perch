@@ -23,6 +23,7 @@ import type { NestService } from "./services/nest.ts";
 import type { PerchMcpService } from "./services/perch-mcp.ts";
 import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
+import type { PullRequestsService } from "./services/pull-requests.ts";
 import type { RaceService } from "./services/races.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
@@ -78,6 +79,8 @@ export type Deps = {
   testingLoop: TestingLoopService;
   /** What every session and bot is doing right now, and the Stop beside it (task 3.19). */
   agents: AgentsService;
+  /** The connection's pull requests, their reviews, and the agent that answers one (task 3.20). */
+  pullRequests: PullRequestsService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

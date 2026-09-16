@@ -40,6 +40,7 @@ import { NestService } from "./services/nest.ts";
 import { PerchMcpService } from "./services/perch-mcp.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
+import { PullRequestsService } from "./services/pull-requests.ts";
 import { RaceService } from "./services/races.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
@@ -244,6 +245,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   sessions.onRoundEnd((session) => testingLoop.afterRound(session));
   // What is working right now, across sessions and bots, and one way to stop any of it (task 3.19).
   const agents = new AgentsService({ db, bus, log, sessions, bots });
+  // The connection's pull requests, and the session that answers a review (task 3.20).
+  const pullRequests = new PullRequestsService({ connections, log, sessions });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -280,6 +283,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     background,
     testingLoop,
     agents,
+    pullRequests,
     previews,
     deploys,
     dbBrowser,
