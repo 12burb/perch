@@ -195,6 +195,52 @@ describe("the Nest (task 3.9)", () => {
     expect(again.body.already.sort()).toEqual(NEST_AGENTS.map((one) => one.handle).sort());
   }, 60_000);
 
+  test("a person called Dawn somewhere else does not stop this workspace having @dawn", async () => {
+    // A handle is what somebody types after an `@`, and a mention is resolved inside a workspace.
+    // An instance-wide check made one person's name a bot nobody could install (task 3.24).
+    const stamp = Date.now();
+    const elsewhere = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Dawn",
+        // The handle comes from the address, so this is a person whose handle is exactly `dawn`.
+        email: "dawn@perch.test",
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(elsewhere.status).toBe(200);
+    const hers = cookiesFrom(elsewhere);
+    const herWorkspace = await fetch(`${base}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie: hers, "content-type": "application/json", origin: base },
+      body: JSON.stringify({ name: `Dawn's own ${stamp}` }),
+    });
+    expect(herWorkspace.status).toBe(201);
+    const me = (await (
+      await fetch(`${base}/api/me`, { headers: { cookie: hers, origin: base } })
+    ).json()) as { handle: string };
+    expect(me.handle).toBe("dawn");
+
+    // Robin's workspace already has the Nest, Dawn included, and it went in after she signed up.
+    const bots = (await call(`/api/workspaces/${ws}/bots`)) as {
+      body: { bots: { handle: string }[] };
+    };
+    expect(bots.body.bots.map((one) => one.handle)).toContain("dawn");
+
+    // And a fresh workspace can still install the whole roster.
+    const another = (await call("/api/workspaces", {
+      method: "POST",
+      json: { name: `Another nest ${stamp}` },
+    })) as { body: { id: string } };
+    const installed = (await call(`/api/workspaces/${another.body.id}/nest`, {
+      method: "POST",
+      json: {},
+    })) as { status: number; text: string; body: { installed: { handle: string }[] } };
+    expect(installed.status, installed.text).toBe(201);
+    expect(installed.body.installed.map((one) => one.handle)).toContain("dawn");
+  }, 60_000);
+
   test("the acceptance: a Nest agent posts via the Bot API on a granted Supabase connection", async () => {
     const botId = kimi?.bot_id ?? "";
     const botToken = kimi?.token ?? "";

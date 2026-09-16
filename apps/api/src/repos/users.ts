@@ -1,7 +1,7 @@
 import { type Db, schema, type User } from "@perch/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-const { users, authUser } = schema;
+const { users, authUser, memberships } = schema;
 
 export async function findUserById(db: Db, id: string): Promise<User | null> {
   const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
@@ -18,11 +18,29 @@ export async function findUserByEmail(db: Db, email: string): Promise<User | nul
   return row ?? null;
 }
 
-export async function handleTaken(db: Db, handle: string): Promise<boolean> {
+/**
+ * Whether a person already has this handle.
+ *
+ * With a workspace, only the people in that workspace count. A handle is what somebody types after
+ * an `@`, and a mention is resolved inside a workspace — so a Dawn in another one is not a clash,
+ * and treating her as one stopped a workspace from having a bot called `@dawn` at all (task 3.24).
+ * Without a workspace the question is instance-wide, which is what choosing a person's own handle
+ * asks: a person is one person across every workspace they are in.
+ */
+export async function handleTaken(db: Db, handle: string, workspaceId?: string): Promise<boolean> {
+  if (!workspaceId) {
+    const [row] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.handle, handle))
+      .limit(1);
+    return row !== undefined;
+  }
   const [row] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.handle, handle))
+    .innerJoin(memberships, eq(memberships.userId, users.id))
+    .where(and(eq(users.handle, handle), eq(memberships.workspaceId, workspaceId)))
     .limit(1);
   return row !== undefined;
 }

@@ -1246,7 +1246,9 @@ export class BotsService {
     if (await botByHandle(this.deps.db, input.workspaceId, handle)) {
       throw PerchError.conflict("that handle is taken");
     }
-    if (await handleTaken(this.deps.db, handle)) {
+    // Somebody in this workspace, rather than somebody anywhere: `@dawn` means whoever is called
+    // that here.
+    if (await handleTaken(this.deps.db, handle, input.workspaceId)) {
       throw PerchError.conflict("that handle belongs to somebody");
     }
     const bot = await insertBot(this.deps.db, {
