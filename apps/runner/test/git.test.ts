@@ -196,7 +196,7 @@ describe("landing a branch (task 3.15)", () => {
     const files = git(dir, "ls-tree", "--name-only", "HEAD").split("\n");
     expect(files).toContain("one.txt");
     expect(files).toContain("two.txt");
-  });
+  }, 30_000);
 
   test("a branch that cannot be replayed is a conflict, and main is left alone", async () => {
     const { root, dir } = await project();
@@ -229,5 +229,7 @@ describe("landing a branch (task 3.15)", () => {
     // Nothing half-applied: the rebase was aborted and main is where it was.
     expect(git(dir, "status", "--porcelain")).toBe("");
     expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
-  });
+    // Every git call here spawns a process; thirty seconds is what the rest of this file asks for,
+    // and Windows CI needs it (the default five ran out at 5219 ms on run 35147885279).
+  }, 30_000);
 });
