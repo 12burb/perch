@@ -4745,3 +4745,51 @@ reason in task 2.20 (ADR-0113).
 The passkey e2e (Chromium's virtual authenticator, desktop and mobile) covers both screens and
 passed unchanged, which is what makes this safe: a split that silently broke sign-in would have
 shown up there.
+
+## ADR-0126: An orchestrator fans out in one call, with a share each
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.10
+
+### Context
+Task 2.7 gave bots `mention`, `wait_for_replies` and `hand_off`, plus the rails: hop limits, the
+repeat-pair breaker, a per-thread budget. §11's line for 3.10 asks for three more things —
+"a plan card, per-child budgets, and a result the orchestrator folds back" — and for the
+`orchestrator: true` flag to mean something, which until now it barely did.
+
+### Decision
+**`fan_out` is one tool call, not three.** A model that tags three bots with `mention` and then
+calls `wait_for_replies` has four chances to get the sequence wrong, and there is no moment where
+Perch knows the whole plan — which is exactly what a plan card and a budget split need. `fan_out`
+takes the tasks together, so the host can post the plan, split the money, tag, wait, and update the
+card. A fourth native tool beyond §5.3's list; this ADR is the record.
+
+**The flag is the gate.** `fan_out` refuses a bot without `orchestrator: true`, saying so rather
+than failing quietly. Having the tool in a spec is not permission to use it — the flag is, which is
+what §5.3 has it for.
+
+**A share is a ceiling, not an allowance.** `ChainState.shares` maps bot id → dollars, written to
+the thread's facts by the fan-out and read back by `mayHop`. A pool alone is first-come-first-served:
+the first specialist to run can spend everything and the other two get a refusal that is not about
+them. A share says how much of the pool is whose. It never *widens* anything — when the thread's
+budget is gone everybody stops, share or no share, and a bot with no share is governed by the pool
+alone.
+
+**Even shares, not weighted ones.** What is left, divided by the number actually tagged. An
+orchestrator could be allowed to say "give Kimi half", but that is a model deciding how to spend
+somebody's money on a hunch, and the even split is the one nobody has to audit.
+
+**The plan card is a block, rewritten in place.** `plan_card` joins §5.2's set: rows of
+`{handle, text, status, note?, budgetUsd?}`, edited as answers land through the same
+`updateMessageBlocks` path a streaming reply uses — no edit history, no "(edited)" mark, because
+nobody rewrote anything.
+
+### Consequences
+The orchestrator's folded answer lands *above* the plan card and the tags, because a bot's reply
+goes into the placeholder its run opened with (spec §5.4). Reading top to bottom you get the answer,
+then the working-out. The alternative — holding the placeholder until the end — would leave a bot
+that fans out looking silent for a minute.
+
+`wait_for_replies` and `mention` still work exactly as they did, and a non-orchestrator can still
+consult one bot at a time. What it cannot do is run three at once on somebody else's budget.

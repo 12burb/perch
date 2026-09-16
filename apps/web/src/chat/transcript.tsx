@@ -173,6 +173,9 @@ function Blocks(props: {
         if (block.type === "webhook_card") {
           return <WebhookCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "plan_card") {
+          return <PlanCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "session_card" || block.type === "diff_card") {
           return <WorkCard key={key} kind={block.type} block={block as Record<string, unknown>} />;
         }
@@ -1056,6 +1059,57 @@ function WorkCard(props: { kind: "session_card" | "diff_card"; block: Record<str
           {t("chat.diffPr", { number: prNumber })}
         </a>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * What an orchestrator split a job into (spec §5.4 fan-out; task 3.10). One row per specialist,
+ * rewritten in place as their answers land — so the thread shows the shape of the work, and a
+ * person can see who is still out.
+ */
+function PlanCard(props: { block: Record<string, unknown> }) {
+  const steps = Array.isArray(props.block.steps)
+    ? (props.block.steps as Record<string, unknown>[])
+    : [];
+  const said = String(props.block.text ?? "");
+  const tone = (status: string) =>
+    status === "done" ? "success" : status === "failed" ? "warning" : "neutral";
+  const label = (status: string) =>
+    status === "done"
+      ? t("chat.planDone")
+      : status === "failed"
+        ? t("chat.planFailed")
+        : t("chat.planWaiting");
+  return (
+    <div
+      data-testid="plan-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <span className="flex items-center gap-2">
+        <span className="font-medium">{t("chat.plan")}</span>
+        {said ? <span className="text-sm text-fg-muted">{said}</span> : null}
+      </span>
+      <ul aria-label={t("chat.plan")} className="flex flex-col gap-1">
+        {steps.map((step, index) => {
+          const status = String(step.status ?? "waiting");
+          return (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: a plan's rows have no id of their own
+              key={index}
+              data-testid="plan-step"
+              className="flex flex-wrap items-center gap-2 text-sm"
+            >
+              <span className="font-mono text-fg-muted">@{String(step.handle ?? "")}</span>
+              <Badge tone={tone(status)}>{label(status)}</Badge>
+              <span className="whitespace-normal break-words">{String(step.text ?? "")}</span>
+              {step.note ? (
+                <span className="w-full text-fg-subtle">{String(step.note)}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

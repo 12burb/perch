@@ -28,6 +28,7 @@ import {
   runBot,
   type SearchHit,
   schedules,
+  spent,
   summarize,
   type ToolSet,
   type TriggerEvent,
@@ -193,6 +194,8 @@ const STOPPED = "chain.stopped";
 const BREAKER = "chain.breaker";
 /** What a person allowed this thread to spend when they let it carry on (spec §5.4 Continue). */
 const ALLOWANCE = "chain.allowance";
+/** What a fan-out promised each specialist, by bot id (spec §5.4 "split across hops"; task 3.10). */
+const SHARES = "chain.shares";
 /** What the intervene card asks (spec §5.4 "Continue/Stop"). */
 const INTERVENE_ACTION = "chain.intervene";
 /** What the permission card asks (spec §3.5 "pending + inbox item, completes on approval"). */
@@ -212,6 +215,19 @@ export function mentionsIn(text: string): string[] {
   return [...text.matchAll(/<@([a-z0-9._-]{1,64})>|(?:^|[\s(])@([a-z0-9._-]{1,64})/gi)].map(
     (match) => (match[1] ?? match[2] ?? "").toLowerCase(),
   );
+}
+
+/**
+ * A thread fact back as a share table (task 3.10). jsonb is `unknown` until something checks it,
+ * and a malformed one is no shares rather than a crash mid-chain.
+ */
+export function shareTable(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, number> = {};
+  for (const [id, share] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof share === "number" && Number.isFinite(share) && share >= 0) out[id] = share;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**
@@ -865,6 +881,200 @@ export class BotsService {
     );
   }
 
+  /**
+   * Waiting for the bots that were tagged (spec §5.4 "orchestrator collects (wait_for_replies)").
+   * A placeholder is not an answer, and neither is a message from before the wait began.
+   */
+  private async replies(
+    bot: Bot,
+    channel: Channel,
+    threadRootId: string | null,
+    input: {
+      handles: string[];
+      wait: "all" | "first" | "quorum";
+      quorum?: number;
+      timeoutMs?: number;
+    },
+  ): Promise<BotReply[]> {
+    if (!threadRootId) return [];
+    const wanted = input.handles.map((one) => one.replace(/^@/, "").toLowerCase());
+    const who = await botsByHandles(this.deps.db, channel.workspaceId, wanted);
+    if (who.length === 0) return [];
+    const need =
+      input.wait === "first"
+        ? 1
+        : input.wait === "quorum"
+          ? Math.min(input.quorum ?? 1, who.length)
+          : who.length;
+    const deadline = Date.now() + Math.min(input.timeoutMs ?? WAIT_MS, WAIT_MS);
+    const since = new Date();
+    const seen = new Map<string, BotReply>();
+    while (Date.now() < deadline && seen.size < need) {
+      const rows = await listMessages(this.deps.db, channel.id, bot.ownerId, {
+        threadRootId,
+        limit: 100,
+      });
+      for (const row of rows) {
+        if (row.authorType !== "bot" || row.createdAt < since) continue;
+        const author = who.find((one) => one.id === row.authorId);
+        const text = textOf(row.blocks).trim();
+        if (!author || text === "" || text === PLACEHOLDER) continue;
+        seen.set(author.handle, { handle: author.handle, text, at: row.createdAt.toISOString() });
+      }
+      if (seen.size >= need) break;
+      await Bun.sleep(WAIT_POLL_MS);
+    }
+    return [...seen.values()];
+  }
+
+  /** A card the bot posted, rewritten in place: the same edit a streaming reply makes. */
+  private async rewriteBlocks(
+    bot: Bot,
+    channel: Channel,
+    message: Message,
+    blocks: MessageBlock[],
+  ): Promise<void> {
+    await updateMessageBlocks(this.deps.db, message, blocks, {
+      type: "bot",
+      id: bot.id,
+      history: false,
+    });
+    await this.deps.bus.publish(
+      "message.updated",
+      { workspaceId: channel.workspaceId, channelId: channel.id, messageId: message.id },
+      botActor(bot.id),
+    );
+  }
+
+  /**
+   * One job, split (spec §5.4 "fan-out (parallel; wait for all/first/quorum)"; task 3.10).
+   *
+   * Three things happen here that tagging one bot at a time cannot do. The thread gets a **plan
+   * card** — who was asked what, rewritten in place as answers land, so a person scrolling past
+   * sees the shape of the work instead of five loose messages. The root's remaining budget is
+   * **split**, so the first specialist to run cannot spend what the other two were promised. And
+   * the orchestrator gets everything back at once, to fold into one answer.
+   *
+   * Nothing here is inherited: every specialist still runs on its own brain, its own tools and its
+   * own grants (spec §5.4). A share is a ceiling, not a credential.
+   */
+  private async fanOut(
+    bot: Bot,
+    channel: Channel,
+    threadRootId: string | null,
+    input: {
+      tasks: { handle: string; text: string }[];
+      wait: "all" | "first" | "quorum";
+      quorum?: number;
+      timeoutMs?: number;
+    },
+  ): Promise<{ replies: BotReply[]; refused: { handle: string; reason: string }[] }> {
+    if (!threadRootId) {
+      return { replies: [], refused: [{ handle: "", reason: "there is no thread to fan out in" }] };
+    }
+    // Fanning out is the orchestrator flag's whole job (spec §5.3 "orchestrator flag").
+    if (!bot.orchestrator) {
+      return {
+        replies: [],
+        refused: [{ handle: "", reason: "only an orchestrator may split a job across bots" }],
+      };
+    }
+    const rails = await this.deps.policy.evaluate(
+      { workspaceId: channel.workspaceId },
+      { kind: "bot.mention", ...(channel.name ? { channel: channel.name } : {}) },
+    );
+    if (!rails.allow) {
+      return { replies: [], refused: [{ handle: "", reason: rails.reason ?? "not here" }] };
+    }
+
+    const wanted = input.tasks.map((task) => ({
+      ...task,
+      handle: task.handle.replace(/^@/, "").toLowerCase(),
+    }));
+    const known = await botsByHandles(
+      this.deps.db,
+      channel.workspaceId,
+      wanted.map((one) => one.handle),
+    );
+    const state = await this.chainState(threadRootId, bot, channel);
+    // What is left of the thread's money, divided evenly among the ones actually tagged. Uncapped
+    // stays uncapped: a thread with no budget does not gain one by being split.
+    const left = state.budgetUsd === null ? null : Math.max(state.budgetUsd - spent(state), 0);
+
+    const refused: { handle: string; reason: string }[] = [];
+    const going: { handle: string; text: string; botId: string }[] = [];
+    for (const task of wanted) {
+      const tagged = known.find((one) => one.handle === task.handle);
+      if (!tagged) {
+        refused.push({ handle: task.handle, reason: `there is no @${task.handle} here` });
+        continue;
+      }
+      const verdict = mayHop(state, { fromType: "bot", fromId: bot.id, toBotId: tagged.id });
+      if (!verdict.ok) {
+        refused.push({ handle: task.handle, reason: verdict.reason });
+        continue;
+      }
+      going.push({ handle: tagged.handle, text: task.text, botId: tagged.id });
+    }
+    if (going.length === 0) return { replies: [], refused };
+
+    const share = left === null ? null : Math.round((left / going.length) * 1e6) / 1e6;
+    if (share !== null) {
+      const shares: Record<string, ThreadFactValue> = {};
+      for (const one of going) shares[one.botId] = share;
+      await upsertThreadFacts(
+        this.deps.db,
+        threadRootId,
+        { [SHARES]: shares },
+        { type: "bot", id: bot.id },
+      );
+    }
+
+    // The plan, before any of it has happened.
+    const steps = going.map((one) => ({
+      handle: one.handle,
+      text: one.text,
+      status: "waiting" as const,
+      ...(share === null ? {} : { budgetUsd: share }),
+    }));
+    const card = await this.post(channel, threadRootId, bot, [
+      { type: "plan_card", text: `${bot.name} split this ${going.length} ways`, steps },
+    ]);
+
+    // Then the tags themselves, each the same path a person's mention takes.
+    for (const one of going) {
+      const posted = await this.post(channel, threadRootId, bot, [
+        { type: "text", text: `<@${one.handle}> ${one.text}` },
+      ]);
+      this.modes.set(posted.id, "fanout");
+    }
+
+    const replies = await this.replies(bot, channel, threadRootId, {
+      handles: going.map((one) => one.handle),
+      wait: input.wait,
+      ...(input.quorum === undefined ? {} : { quorum: input.quorum }),
+      ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+    });
+
+    // And the card again, with what came back.
+    const answered = new Map(replies.map((reply) => [reply.handle, reply]));
+    await this.rewriteBlocks(bot, channel, card, [
+      {
+        type: "plan_card",
+        text: `${bot.name} split this ${going.length} ways`,
+        steps: steps.map((step) => {
+          const said = answered.get(step.handle);
+          return {
+            ...step,
+            status: said ? ("done" as const) : ("failed" as const),
+            ...(said ? { note: said.text.slice(0, 500) } : { note: "no answer in time" }),
+          };
+        }),
+      },
+    ]);
+    return { replies, refused };
+  }
+
   /** The thread as the rails see it: its hops, and what the bot that started it allowed. */
   private async chainState(
     threadRootId: string,
@@ -885,6 +1095,8 @@ export class BotsService {
     const rails = [budget.maxHops ?? DEFAULT_MAX_HOPS, policy?.bots?.maxHops].filter(
       (one): one is number => typeof one === "number",
     );
+    // What a fan-out promised each specialist, when one has happened here (task 3.10).
+    const shares = shareTable(facts[SHARES]);
     const ceiling = policy?.budgets?.perThreadUsd;
     const thread = [allowed ?? budget.perThreadUsd, ceiling].filter(
       (one): one is number => typeof one === "number",
@@ -899,6 +1111,7 @@ export class BotsService {
       })),
       budgetUsd: thread.length > 0 ? Math.min(...thread) : null,
       maxHops: Math.min(...rails),
+      ...(shares ? { shares } : {}),
     };
   }
 
@@ -1705,37 +1918,21 @@ export class BotsService {
         this.modes.set(posted.id, mode);
         return { ok: true, hop: verdict.hop };
       },
-      waitForReplies: async ({ handles, wait, quorum, timeoutMs }) => {
-        if (!threadRootId) return [];
-        const wanted = handles.map((one) => one.replace(/^@/, "").toLowerCase());
-        const who = await botsByHandles(this.deps.db, channel.workspaceId, wanted);
-        if (who.length === 0) return [];
-        const need =
-          wait === "first" ? 1 : wait === "quorum" ? Math.min(quorum ?? 1, who.length) : who.length;
-        const deadline = Date.now() + Math.min(timeoutMs ?? WAIT_MS, WAIT_MS);
-        const since = new Date();
-        const seen = new Map<string, BotReply>();
-        while (Date.now() < deadline && seen.size < need) {
-          const rows = await listMessages(this.deps.db, channel.id, bot.ownerId, {
-            threadRootId,
-            limit: 100,
-          });
-          for (const row of rows) {
-            if (row.authorType !== "bot" || row.createdAt < since) continue;
-            const author = who.find((one) => one.id === row.authorId);
-            const text = textOf(row.blocks).trim();
-            if (!author || text === "" || text === PLACEHOLDER) continue;
-            seen.set(author.handle, {
-              handle: author.handle,
-              text,
-              at: row.createdAt.toISOString(),
-            });
-          }
-          if (seen.size >= need) break;
-          await Bun.sleep(WAIT_POLL_MS);
-        }
-        return [...seen.values()];
+      fanOut: async ({ tasks, wait, quorum, timeoutMs }) => {
+        return await this.fanOut(bot, channel, threadRootId, {
+          tasks,
+          wait,
+          ...(quorum === undefined ? {} : { quorum }),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        });
       },
+      waitForReplies: async ({ handles, wait, quorum, timeoutMs }) =>
+        await this.replies(bot, channel, threadRootId, {
+          handles,
+          wait,
+          ...(quorum === undefined ? {} : { quorum }),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        }),
       webSearch: async ({ query, limit }) => {
         const search = this.deps.search;
         if (!search) {

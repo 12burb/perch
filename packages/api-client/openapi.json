@@ -3792,7 +3792,8 @@
                     "thread_facts",
                     "mention",
                     "wait_for_replies",
-                    "hand_off"
+                    "hand_off",
+                    "fan_out"
                   ]
                 }
               },
@@ -4103,7 +4104,8 @@
                     "thread_facts",
                     "mention",
                     "wait_for_replies",
-                    "hand_off"
+                    "hand_off",
+                    "fan_out"
                   ]
                 }
               },
@@ -4376,7 +4378,8 @@
                     "thread_facts",
                     "mention",
                     "wait_for_replies",
-                    "hand_off"
+                    "hand_off",
+                    "fan_out"
                   ]
                 }
               },

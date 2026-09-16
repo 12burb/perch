@@ -42,6 +42,17 @@ export type BotHost = {
     text: string;
     mode: "consult" | "handoff" | "fanout";
   }): Promise<{ ok: boolean; hop?: number; reason?: string }>;
+  /**
+   * One job split across several bots at once (spec §5.4 fan-out; task 3.10): the plan card, the
+   * tags, the share of the budget each gets, and the wait. The host does all of it, because every
+   * part of it is a rail — who may be tagged, what is left to spend, how long to wait.
+   */
+  fanOut(input: {
+    tasks: { handle: string; text: string }[];
+    wait: "all" | "first" | "quorum";
+    quorum?: number;
+    timeoutMs?: number;
+  }): Promise<{ replies: BotReply[]; refused: { handle: string; reason: string }[] }>;
   /** Wait for the bots that were tagged to answer in this thread. */
   waitForReplies(input: {
     handles: string[];
@@ -224,6 +235,39 @@ export function toolsFor(allowed: readonly BotTool[], host: BotHost): ToolSet {
           "wait_for_replies",
           clip(replies.map((reply) => `@${reply.handle}: ${reply.text}`).join("\n\n")),
         );
+      },
+    });
+  }
+
+  if (has("fan_out")) {
+    set.fan_out = tool({
+      description:
+        "Split this job across several bots at once: say who does what, and get their answers back. Each gets a share of what the thread may spend. Use this instead of tagging one at a time, then write one answer of your own from what comes back.",
+      inputSchema: z.object({
+        tasks: z
+          .array(
+            z.object({
+              handle: z.string().min(1).max(64),
+              text: z.string().min(1).max(2_000),
+            }),
+          )
+          .min(1)
+          .max(10),
+        wait: z.enum(["all", "first", "quorum"]).optional(),
+        quorum: z.number().int().min(1).max(10).optional(),
+      }),
+      execute: async ({ tasks, wait, quorum }) => {
+        const out = await host.fanOut({
+          tasks,
+          wait: wait ?? "all",
+          ...(quorum === undefined ? {} : { quorum }),
+        });
+        const said = out.replies.map((reply) => `@${reply.handle}: ${reply.text}`);
+        const missed = out.refused.map((one) => `@${one.handle} did not: ${one.reason}`);
+        if (said.length === 0 && missed.length === 0) {
+          return untrusted("fan_out", "nobody answered in time");
+        }
+        return untrusted("fan_out", clip([...said, ...missed].join("\n\n")));
       },
     });
   }

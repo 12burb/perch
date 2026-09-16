@@ -11863,7 +11863,7 @@ export type components = {
                     maxOutputTokens?: number;
                     pick?: boolean;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off" | "fan_out")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
@@ -11928,7 +11928,7 @@ export type components = {
                     maxOutputTokens?: number;
                     pick?: boolean;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off" | "fan_out")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";
@@ -11985,7 +11985,7 @@ export type components = {
                     maxOutputTokens?: number;
                     pick?: boolean;
                 };
-                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off")[];
+                tools?: ("web_search" | "http_fetch" | "chat_post" | "chat_read" | "remember" | "recall" | "thread_facts" | "mention" | "wait_for_replies" | "hand_off" | "fan_out")[];
                 triggers?: {
                     /** @enum {string} */
                     on: "dm" | "mention" | "keyword" | "channel_join" | "reaction" | "schedule" | "webhook";

@@ -29,6 +29,15 @@ export type ChainState = {
   /** What the whole conversation may spend, from the bot that started it; null is uncapped. */
   budgetUsd: number | null;
   maxHops?: number;
+  /**
+   * What a fan-out promised each specialist of the root's budget, by bot id (spec §5.4 "per-thread
+   * token/dollar budget inherited from the root and split across hops"; task 3.10).
+   *
+   * A pool alone is first-come-first-served: the first child to run can spend everything and the
+   * other two get a refusal for a reason that is not about them. A share is the orchestrator saying
+   * how much of the pool is whose, so three specialists asked at once each get their third.
+   */
+  shares?: Record<string, number> | undefined;
 };
 
 export type BreakerKind = "self" | "hops" | "repeat" | "budget";
@@ -39,6 +48,13 @@ export type ChainVerdict =
 /** What a chain has cost so far. */
 export function spent(state: ChainState): number {
   return state.hops.reduce((total, hop) => total + hop.costUsd, 0);
+}
+
+/** What one bot has cost this thread, which is what its share is measured against. */
+export function spentBy(state: ChainState, botId: string): number {
+  return state.hops
+    .filter((hop) => hop.toBotId === botId)
+    .reduce((total, hop) => total + hop.costUsd, 0);
 }
 
 /** The bot-to-bot hops, which are the ones the limit counts: a person tagging a bot is not one. */
@@ -94,6 +110,15 @@ export function mayHop(
       ok: false,
       kind: "budget",
       reason: "this conversation has spent its budget",
+    };
+  }
+  // A share is this one's alone: spending it stops this bot, and leaves the others theirs.
+  const share = state.shares?.[next.toBotId];
+  if (share !== undefined && spentBy(state, next.toBotId) >= share) {
+    return {
+      ok: false,
+      kind: "budget",
+      reason: "this bot has spent the share of the thread it was given",
     };
   }
   return {

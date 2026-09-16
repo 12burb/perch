@@ -367,6 +367,29 @@ Three tools do the tagging, and a bot only has the ones its spec lists:
 | `mention` | tag another bot in this thread — `consult` to ask, `fanout` to ask several |
 | `wait_for_replies` | wait for the ones you tagged (`all`, `first`, or a `quorum`) and read what they said |
 | `hand_off` | give the task to another bot and stop working on it yourself |
+| `fan_out` | split one job across several bots at once, and get every answer back (orchestrators only) |
+
+### Orchestrators
+
+A bot with **`orchestrator: true`** may split a job. `fan_out` takes the whole plan in one call —
+who does what, and whether to wait for all of them, the first, or a quorum — and does three things
+tagging one at a time cannot:
+
+- **A plan card** goes in the thread: one row per specialist, what each was asked, and what it may
+  spend. It is rewritten in place as answers land, so a person scrolling past sees the shape of the
+  work instead of five loose messages.
+- **The budget is split.** What is left of the thread's money is divided evenly among the ones
+  actually tagged, and each share is that bot's alone: the first to run cannot spend what the other
+  two were promised. A share is a ceiling, never an allowance of its own — when the *thread's*
+  budget is gone, everybody stops.
+- **One answer comes back.** Every reply returns to the orchestrator at once, wrapped as untrusted
+  like anything else a tool brings back, for it to fold into a single answer of its own. That answer
+  lands in the placeholder the run opened with, above the plan and the tags, which are the
+  working-out.
+
+Nothing is inherited. Each specialist still runs on its own brain, its own tools and its own grants
+(spec §5.4) — a share is money, not a credential. A bot without the flag that calls `fan_out` is
+told so and nobody is tagged.
 
 ### The rails
 
@@ -374,7 +397,8 @@ Three tools do the tagging, and a bot only has the ones its spec lists:
 - **Six hops** per conversation by default (`budget.maxHops` on the bot that started it).
 - **A pair that bounces stops.** A → B → A → B is a loop, and the third leg of it is refused.
 - **The thread has a budget**: `budget.perThreadUsd` on the bot that started it, spent across every
-  hop that follows. When it is gone, the chain stops.
+  hop that follows. When it is gone, the chain stops. A fan-out splits what is left into a share per
+  specialist; a bot that spends its share stops, and the others keep theirs.
 - **The breaker pauses the thread** and posts an intervene card — what happened, how many hops, what
   it cost — with Continue and Stop. Continue lets them carry on; Stop leaves it paused. It is the
   ordinary interactive block, so it works everywhere a message does.

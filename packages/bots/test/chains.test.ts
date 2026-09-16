@@ -6,6 +6,7 @@ import {
   type Hop,
   mayHop,
   spent,
+  spentBy,
   summarize,
 } from "../src/chains.ts";
 
@@ -108,5 +109,36 @@ describe("chain rails (task 2.7)", () => {
     expect(summarize(state([]), "these two have been going back and forth").broken).toContain(
       "back and forth",
     );
+  });
+
+  test("a share is one bot's alone: spending it stops that bot and leaves the others theirs", () => {
+    // A fan-out gave A, B and C a third of a $3 thread each (task 3.10).
+    const shares = { [A]: 1, [B]: 1, [C]: 1 };
+    const fresh: ChainState = { hops: [hop(HUMAN, A, 0, "user")], budgetUsd: 3, shares };
+    for (const who of [A, B, C]) {
+      expect(mayHop(fresh, { fromType: "bot", fromId: HUMAN, toBotId: who }).ok).toBe(true);
+    }
+
+    // A has spent its third. It stops; B and C have not, and carry on.
+    const after: ChainState = { ...fresh, hops: [...fresh.hops, hop(HUMAN, A, 1, "user")] };
+    expect(spentBy(after, A)).toBeCloseTo(1, 9);
+    expect(spentBy(after, B)).toBe(0);
+    const stopped = mayHop(after, { fromType: "bot", fromId: HUMAN, toBotId: A });
+    expect(stopped.ok).toBe(false);
+    if (!stopped.ok) {
+      expect(stopped.kind).toBe("budget");
+      expect(stopped.reason).toContain("share");
+    }
+    expect(mayHop(after, { fromType: "bot", fromId: HUMAN, toBotId: B }).ok).toBe(true);
+
+    // The pool still wins when it runs out: a share is a ceiling, never an allowance of its own.
+    const drained: ChainState = { ...fresh, hops: [hop(HUMAN, B, 3, "user")] };
+    const gone = mayHop(drained, { fromType: "bot", fromId: HUMAN, toBotId: C });
+    expect(gone.ok).toBe(false);
+    if (!gone.ok) expect(gone.reason).toContain("this conversation");
+
+    // And a bot with no share is governed by the pool alone.
+    const other = "8f2c0a3e-0000-4000-8000-00000000000d";
+    expect(mayHop(after, { fromType: "bot", fromId: HUMAN, toBotId: other }).ok).toBe(true);
   });
 });

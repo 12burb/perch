@@ -313,6 +313,33 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
       decision: z.enum(["approved", "denied"]).optional(),
     })
     .strict(),
+  /**
+   * What an orchestrator split a job into, and how far each piece has got (spec §5.4 fan-out;
+   * task 3.10). One row per specialist, rewritten in place as their answers land, so a thread
+   * shows the shape of the work rather than five loose messages.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("plan_card"),
+      text: z.string().optional(),
+      steps: z
+        .array(
+          z
+            .object({
+              handle: z.string().min(1).max(64),
+              text: z.string().max(2000),
+              status: z.enum(["waiting", "done", "failed"]),
+              /** What they said, in a line: the whole answer is its own message in the thread. */
+              note: z.string().max(500).optional(),
+              /** What this piece may spend, when the root's budget was split (task 3.10). */
+              budgetUsd: z.number().nonnegative().optional(),
+            })
+            .strict(),
+        )
+        .max(10),
+    })
+    .strict(),
   z
     .object({
       ...blockBase,
@@ -352,6 +379,7 @@ export const BOT_TOOLS = [
   "mention",
   "wait_for_replies",
   "hand_off",
+  "fan_out",
 ] as const;
 export type BotTool = (typeof BOT_TOOLS)[number];
 
