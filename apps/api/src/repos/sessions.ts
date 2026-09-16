@@ -16,7 +16,7 @@ import {
   schema,
 } from "@perch/db";
 import type { ModelRef, SessionEvent } from "@perch/events";
-import { and, asc, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 
 const { codingSessions, sessionCheckpoints, sessionEvents } = schema;
 
@@ -282,6 +282,25 @@ export async function findInlineSession(
 }
 
 /** Every session that has worked on this item, newest first (task 3.14). */
+/**
+ * Every session in a workspace that is actually doing something (task 3.19): running, or stopped
+ * to ask. An inline lane (⌘K) is not an agent anybody watches, so it is left out.
+ */
+export function workingSessions(db: Db, workspaceId: string): Promise<CodingSession[]> {
+  return db
+    .select()
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.workspaceId, workspaceId),
+        eq(codingSessions.kind, "agent"),
+        inArray(codingSessions.status, ["running", "needs_you"]),
+      ),
+    )
+    .orderBy(asc(codingSessions.startedAt))
+    .limit(200);
+}
+
 export async function sessionsForWorkItem(db: Db, workItemId: string): Promise<CodingSession[]> {
   return db
     .select()

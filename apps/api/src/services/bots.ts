@@ -283,6 +283,12 @@ export function fetchable(raw: string): URL {
 export class BotsService {
   private readonly inflight = new Set<Promise<unknown>>();
   /**
+   * The kill switch (task 3.19): one controller per run in flight, so `stop` reaches the model
+   * call itself rather than only marking a row. A run that has already finished has no entry, and
+   * stopping it is a no-op rather than an error.
+   */
+  private readonly stopping = new Map<string, AbortController>();
+  /**
    * How a tag was meant (spec §5.4 consult, handoff, fan-out). The mention travels as an ordinary
    * message, so the mode is remembered beside it until the hop it causes is recorded.
    */
@@ -408,6 +414,18 @@ export class BotsService {
   /** Where a bot has been put. */
   installsOf(botId: string): Promise<BotInstall[]> {
     return installsOf(this.deps.db, botId);
+  }
+
+  /**
+   * Stop a run that is in flight (spec §5.7 "agent presence … with a kill switch"; task 3.19).
+   * Returns false when there was nothing to stop, which is the honest answer for a run that
+   * finished a moment ago.
+   */
+  stop(runId: string): boolean {
+    const controller = this.stopping.get(runId);
+    if (!controller) return false;
+    controller.abort(new Error("stopped"));
+    return true;
   }
 
   /** Everything a message set off, once it has finished. For tests and for shutdown. */
@@ -1598,7 +1616,10 @@ export class BotsService {
       };
       placeholder = input.quiet ? null : await this.say(bot, channel, input.message, PLACEHOLDER);
 
+      const stopper = new AbortController();
+      this.stopping.set(run.id, stopper);
       const result = await runBot({
+        signal: stopper.signal,
         bot: { id: bot.id, name: bot.name, handle: bot.handle, spec: bot.spec },
         model,
         modelId: profile.modelId,
@@ -1653,7 +1674,12 @@ export class BotsService {
       if (placeholder) await this.offerReply(channel, placeholder, bot, said);
       return { run: ended ?? run, text: said };
     } catch (error) {
-      const why = error instanceof PerchError ? error.message : "this bot could not answer";
+      // A run somebody stopped is not a run that broke, and the row should say which it was.
+      const why = this.stopping.get(run.id)?.signal.aborted
+        ? "stopped by a person"
+        : error instanceof PerchError
+          ? error.message
+          : "this bot could not answer";
       this.deps.log.error({ err: error, botId: bot.id }, "bot run failed");
       if (placeholder) await this.rewrite(bot, channel, placeholder, why);
       else if (!input.quiet) await this.say(bot, channel, input.message, why);
@@ -1667,6 +1693,8 @@ export class BotsService {
         input.by,
       );
       return { run: ended ?? run, text: why };
+    } finally {
+      this.stopping.delete(run.id);
     }
   }
 

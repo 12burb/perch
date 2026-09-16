@@ -9,6 +9,7 @@ import type { Auth } from "./auth/auth.ts";
 import type { Env } from "./env.ts";
 import type { Flags } from "./flags.ts";
 import type { RunnerRegistry } from "./runners/registry.ts";
+import type { AgentsService } from "./services/agents.ts";
 import type { BackgroundService } from "./services/background.ts";
 import type { BotApiService } from "./services/bot-api.ts";
 import type { BotsService } from "./services/bots.ts";
@@ -75,6 +76,8 @@ export type Deps = {
   background: BackgroundService;
   /** The project's tests after a round, and a failure fed back as a turn (task 3.18). */
   testingLoop: TestingLoopService;
+  /** What every session and bot is doing right now, and the Stop beside it (task 3.19). */
+  agents: AgentsService;
   /** The Nest roster, installed into a workspace (spec §5.3; task 3.9). */
   nest: NestService;
   /** What may happen here: `.perch/policy.yaml`, merged and enforced (task 2.11). */

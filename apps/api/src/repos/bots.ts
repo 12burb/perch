@@ -208,6 +208,16 @@ export async function finishRun(
   return row ?? null;
 }
 
+/** Every run in a workspace that is still going (task 3.19), oldest first. */
+export function runningRuns(db: Db, workspaceId: string): Promise<BotRun[]> {
+  return db
+    .select()
+    .from(botRuns)
+    .where(and(eq(botRuns.workspaceId, workspaceId), eq(botRuns.status, "running")))
+    .orderBy(asc(botRuns.startedAt))
+    .limit(200);
+}
+
 export async function listRuns(db: Db, botId: string, limit = 50): Promise<BotRun[]> {
   return db
     .select()

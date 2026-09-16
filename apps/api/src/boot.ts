@@ -26,6 +26,7 @@ import {
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
 import { AgentBotsService } from "./services/agent-bots.ts";
+import { AgentsService } from "./services/agents.ts";
 import { BackgroundService } from "./services/background.ts";
 import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
@@ -241,6 +242,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // next turn and a bound on how many of those there are (task 3.18).
   const testingLoop = new TestingLoopService({ db, log, sessions, registry: runners });
   sessions.onRoundEnd((session) => testingLoop.afterRound(session));
+  // What is working right now, across sessions and bots, and one way to stop any of it (task 3.19).
+  const agents = new AgentsService({ db, bus, log, sessions, bots });
   // Perch's own MCP server (task 3.12): the same services the REST handlers use, behind an api
   // token's scopes.
   const perchMcp = new PerchMcpService({
@@ -276,6 +279,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     races,
     background,
     testingLoop,
+    agents,
     previews,
     deploys,
     dbBrowser,

@@ -260,6 +260,11 @@ export const LIST_SURFACES = [
     how: { capped: 100, in: "apps/api/src/repos/sessions.ts", proof: "limit = 100" },
   },
   {
+    file: "apps/web/src/shell/agents.tsx",
+    list: "every session and bot working right now, in the sidebar",
+    how: { capped: 200, in: "apps/api/src/repos/sessions.ts", proof: "limit(200)" },
+  },
+  {
     file: "apps/web/src/code/inspector.tsx",
     list: "the console strip and the elements tree",
     how: { capped: 10, in: "apps/web/src/code/inspector.tsx", proof: "slice(-10)" },

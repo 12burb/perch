@@ -504,6 +504,23 @@ export function connectionsQuery(workspaceId: string) {
 }
 
 /** The ports a project is serving and the links shared from them (task 1.18). */
+/**
+ * Everything working right now (task 3.19). The socket is how this normally hears about a change;
+ * the poller is the belt to its braces, because a list that is quietly wrong about what is running
+ * is worse than one that is a few seconds late.
+ */
+export function agentsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "agents"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/agents", { params: { path: { ws: workspaceId } } }),
+      ),
+    enabled: workspaceId !== "",
+    refetchInterval: 10_000,
+  });
+}
+
 export function previewsQuery(workspaceId: string, projectId: string) {
   return queryOptions({
     queryKey: ["previews", workspaceId, projectId],

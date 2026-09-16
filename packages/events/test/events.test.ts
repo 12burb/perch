@@ -56,7 +56,7 @@ const ADDITIVE_API_TO_RUNNER = [
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),
  * deploy.started (ADR-0106), bot.permission_requested / bot.permission_answered (ADR-0121),
- * merge.* (ADR-0131), race.* (ADR-0132).
+ * merge.* (ADR-0131), race.* (ADR-0132), agent.stopped (ADR-0136).
  */
 const ADDITIVE_BUS_EVENTS = [
   "session.turn",
@@ -69,6 +69,9 @@ const ADDITIVE_BUS_EVENTS = [
   "merge.landing",
   "merge.landed",
   "merge.failed",
+  // The kill switch beside an agent's row: stopping one is a state change like any other, and
+  // the audit log hears about it by subscribing (task 3.19, ADR-0136).
+  "agent.stopped",
   // Race mode (task 3.16, ADR-0132), for the same reason.
   "race.started",
   "race.entrant_finished",

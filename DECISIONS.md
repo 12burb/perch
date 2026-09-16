@@ -5289,3 +5289,58 @@ What is not here: no flaky-test detection (a test that fails once and passes onc
 failure to this), and no CI-status webhook retry — §5.7 names both, and both belong with the Pull
 Requests page (3.20) where a CI run is a thing Perch can see. The loop also does not commit what it
 fixed: a session's changes land the way any session's changes land.
+
+## ADR-0136: The floor is the two tables that already know, and Stop is one button
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.19
+
+### Context
+§5.7 asks for "agent presence: busy/idle, 'working on' cards, agent org view, assignment from
+chat", and §11's line for 3.19 for "three agents working show three rows, and stopping one stops
+it".
+
+### Decision
+**No register.** A running coding session is a row in `coding_sessions` with a status; a running
+bot is a row in `bot_runs` with a status. Reading both is the list. The tempting alternative — an
+in-memory registry every feature reports into — is a third source of truth whose only distinctive
+property is that it can be wrong about what is running, and it would be empty after a restart while
+the sessions it forgot were still going.
+
+**One endpoint for Stop, whatever the row is.** `POST …/agents/{kind}/{id}/stop` rather than the
+caller choosing between a session's cancel and a bot's. The person is looking at a list of things
+working, each with one button; making the client know which sort of thing each row is would be
+pushing a detail of our schema into their hand. Underneath it is still the session's own cancel and
+the bot's own abort.
+
+**A bot's stop reaches the model call.** `BotsService` now keeps an `AbortController` per run in
+flight and passes its signal to `runBot`, which already accepted one and had never been given it.
+Marking the row and letting the run carry on would be a lie told to somebody watching their bill.
+A stopped run finishes as `error` with "stopped by a person", so the row says which it was.
+
+**Stopping something already finished is `{stopped: false}`, not a `404`.** The race between a
+person's finger and an agent finishing is ordinary, and an error would make the UI apologise for
+something that is not wrong.
+
+**`agent.stopped` is an additive bus event** (register in `packages/events/test/events.test.ts`):
+stopping an agent is a state change, so the audit log hears about it by subscribing like everything
+else, rather than a feature writing to the audit log directly (AGENTS.md §5).
+
+**It lives in Bots mode's sidebar.** That is §5.7's "agent org view", and it is workspace-wide,
+which is the difference from Code mode's Sessions section — that one is a project's sessions,
+including the idle ones you might go back to. This one is only what is working, anywhere. A
+rail-wide indicator that follows you between modes is §4's business and not this task's.
+
+### Consequences
+The list is live off the workspace topic — `session.*`, `bot.run_*`, `agent.stopped` — with a ten
+second poller behind it, because a list that is quietly wrong about what is running is worse than
+one that is a few seconds late.
+
+Reading the floor needs `sessions.read` and stopping needs `sessions.create`: the right that opens
+a session is the right that closes one. Somebody outside the workspace gets a `404` rather than a
+`403`, so they do not learn how many agents are working either.
+
+What is not here: "assignment from chat", which §5.7 names in the same breath — that is the board's
+(3.13) and the orchestrators' (3.10). Nor a history of what has been stopped; `bot_runs` and the
+audit log both keep that already.

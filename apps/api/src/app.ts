@@ -11,6 +11,7 @@ import { authenticate, requireUser } from "./auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
 import { requestLogger } from "./logging.ts";
+import { registerAgents } from "./routes/agents.ts";
 import { registerBotApi } from "./routes/bot-api.ts";
 import { registerBots } from "./routes/bots.ts";
 import { registerBrains } from "./routes/brains.ts";
@@ -152,6 +153,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerWork(app, deps);
   registerMergeQueue(app, deps);
   registerRaces(app, deps);
+  registerAgents(app, deps);
   registerPolicy(app, deps);
   registerProjectEnv(app, deps);
   registerDeploys(app, deps);

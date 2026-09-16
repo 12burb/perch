@@ -11,6 +11,7 @@ import { FileTree } from "../code/file-tree.tsx";
 import { SessionsSection } from "../code/sessions-list.tsx";
 import { askFor, type InboxFilter, isFilter } from "../inbox/inbox.tsx";
 import { inboxQuery, type MyWorkspace, previewsQuery, projectsQuery } from "../lib/queries.ts";
+import { AgentsSection } from "./agents.tsx";
 import { useAppShell } from "./app-shell.tsx";
 
 type Section = { title: MessageKey; empty: MessageKey };
@@ -35,6 +36,7 @@ const SECTIONS: Record<RailMode, Section[]> = {
     { title: "shell.work.intake", empty: "shell.work.intakeEmpty" },
   ],
   bots: [
+    { title: "shell.bots.agents", empty: "shell.bots.agentsEmpty" },
     { title: "shell.bots.bots", empty: "shell.bots.botsEmpty" },
     { title: "shell.bots.templates", empty: "shell.bots.templatesEmpty" },
     { title: "shell.bots.skills", empty: "shell.bots.skillsEmpty" },
@@ -96,7 +98,9 @@ export function ModeSidebar(props: { mode: RailMode; workspace: MyWorkspace | nu
       }
     >
       {SECTIONS[props.mode].map((section) =>
-        section.title === "shell.home.channels" && props.workspace ? (
+        section.title === "shell.bots.agents" && props.workspace ? (
+          <AgentsSection key={section.title} workspaceId={props.workspace.id} />
+        ) : section.title === "shell.home.channels" && props.workspace ? (
           <ChannelsSection key={section.title} workspace={props.workspace} />
         ) : section.title === "shell.home.dms" && props.workspace ? (
           <DirectMessagesSection key={section.title} workspace={props.workspace} />

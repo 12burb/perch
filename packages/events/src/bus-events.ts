@@ -75,6 +75,16 @@ export const busEventPayloads = {
     channelId: uuid,
     lastReadMessageId: uuid.optional(),
   }),
+  /**
+   * Somebody pressed Stop on a running agent (spec §5.7 "agent presence … with a kill switch";
+   * task 3.19, ADR-0136). `stopped` is false when there was nothing left to stop.
+   */
+  "agent.stopped": z.object({
+    ...ws,
+    kind: z.enum(["session", "bot"]),
+    agentId: uuid,
+    stopped: z.boolean(),
+  }),
   "presence.changed": z.object({
     ...ws,
     userId: uuid,

@@ -316,6 +316,32 @@ One notification per state and one per session, so an evening of state changes r
 the lock screen rather than stacking up. A push that fails is a notification somebody misses, never
 a run that fails.
 
+## What is working right now (task 3.19)
+
+Bots mode's sidebar opens on **Working now**: every coding session and every bot run in the
+workspace that is actually going, oldest first, because the one that has been going longest is the
+one worth looking at.
+
+```
+GET  /api/workspaces/{ws}/agents
+POST /api/workspaces/{ws}/agents/{session|bot}/{id}/stop
+```
+
+Each row says what it is, what it is doing (**Working**, **Needs you**), which project or which
+bot, and what it has cost so far, and links into the thing itself. The list is live: a session
+changing status, a bot run starting or finishing, and a stop all land on the workspace topic, and
+each of them means the list is out of date.
+
+Beside every row is **Stop**, and it is the same button whatever the row is. For a session it
+cancels the round the way the pane's Esc does; for a bot run it aborts the model call itself, and
+the run ends saying it was stopped by a person rather than sitting `running` for ever. Stopping
+something that finished a moment ago answers `{"stopped": false}` rather than an error — that is
+the honest answer, and a race between a person's finger and an agent finishing is not a failure.
+
+There is no third table keeping a register of what is running. `coding_sessions` and `bot_runs` are
+where a working agent already records itself, and a register beside them would only be something
+that can disagree with them.
+
 ## The lifecycle
 
 ```
