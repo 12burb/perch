@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLocal } from "@perch/connect";
@@ -23,7 +23,9 @@ let root = "";
 let host: McpHost;
 
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "perch-mcp-host-"));
+  // Through the symlinks, because macOS's temp directory is one: a spawned process reports the
+  // real path as its cwd, and this test compares the two.
+  root = realpathSync(mkdtempSync(join(tmpdir(), "perch-mcp-host-")));
   mkdirSync(projectDir(root, WS, PROJECT), { recursive: true });
   host = new McpHost({ root, policy: runnerPolicy() });
 });
