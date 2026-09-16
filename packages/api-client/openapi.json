@@ -7446,6 +7446,160 @@
           "name"
         ]
       },
+      "Usage": {
+        "type": "object",
+        "properties": {
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "model",
+              "provider",
+              "actor",
+              "day",
+              "key"
+            ]
+          },
+          "total_usd": {
+            "type": "number"
+          },
+          "slices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageSlice"
+            }
+          }
+        },
+        "required": [
+          "group_by",
+          "total_usd",
+          "slices"
+        ]
+      },
+      "UsageSlice": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "calls",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd"
+        ]
+      },
+      "Budget": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "user",
+              "bot"
+            ]
+          },
+          "subject_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "limit_usd": {
+            "type": "number"
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "month",
+              "total"
+            ]
+          },
+          "warn_at": {
+            "type": "number"
+          },
+          "spent_usd": {
+            "type": "number"
+          },
+          "remaining_usd": {
+            "type": "number"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_type",
+          "subject_id",
+          "limit_usd",
+          "period",
+          "warn_at",
+          "spent_usd",
+          "remaining_usd",
+          "created_at"
+        ]
+      },
+      "SetBudget": {
+        "type": "object",
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "user",
+              "bot"
+            ]
+          },
+          "subject_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit_usd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "month",
+              "total"
+            ],
+            "default": "month"
+          },
+          "warn_at": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "subject_type",
+          "limit_usd"
+        ]
+      },
       "MergeQueue": {
         "type": "object",
         "properties": {
@@ -23895,6 +24049,306 @@
         "responses": {
           "204": {
             "description": "Revoked"
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/usage": {
+      "get": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "What this workspace has spent, added up the way you ask for",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "model",
+                "provider",
+                "actor",
+                "day",
+                "key"
+              ],
+              "default": "model"
+            },
+            "required": false,
+            "name": "group_by",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The slices, most expensive first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/budgets": {
+      "get": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "The ceilings this workspace has set, and where each one stands",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Budgets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "budgets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Budget"
+                      }
+                    }
+                  },
+                  "required": [
+                    "budgets"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "Set a budget for the workspace, a person, or a bot",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBudget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Budget"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/budgets/{id}": {
+      "delete": {
+        "tags": [
+          "brains"
+        ],
+        "summary": "Take a budget away; the ledger keeps what was spent",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gone"
           },
           "403": {
             "description": "Forbidden (including unauthenticated)",

@@ -148,3 +148,80 @@ export async function listUsage(
     .orderBy(desc(usageEvents.ts))
     .limit(Math.min(options.limit ?? 500, 5_000));
 }
+
+/** The ways a dashboard asks "what did we spend it on" (spec §7.1 `usage?group_by`; task 4.2). */
+export const USAGE_GROUPS = ["model", "provider", "actor", "day", "key"] as const;
+export type UsageGroup = (typeof USAGE_GROUPS)[number];
+
+export type UsageSlice = {
+  /** The model, the provider, the actor's id, the day, or the key — whichever was asked for. */
+  key: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+};
+
+/**
+ * The ledger, added up one way. One query per question: a dashboard asks three times and draws
+ * three charts, rather than pulling every row into the api and grouping it there.
+ */
+export async function usageBy(
+  db: Db,
+  workspaceId: string,
+  group: UsageGroup,
+  window: { from?: Date; to?: Date } = {},
+): Promise<UsageSlice[]> {
+  const column =
+    group === "model"
+      ? sql`${usageEvents.modelId}`
+      : group === "provider"
+        ? sql`${usageEvents.provider}`
+        : group === "actor"
+          ? sql`coalesce(${usageEvents.actorId}::text, ${usageEvents.actorType})`
+          : group === "key"
+            ? sql`coalesce(${usageEvents.virtualKeyId}::text, '')`
+            : sql`to_char(${usageEvents.ts}, 'YYYY-MM-DD')`;
+  const where = [eq(usageEvents.workspaceId, workspaceId)];
+  if (window.from) where.push(gte(usageEvents.ts, sql.param(window.from, usageEvents.ts)));
+  if (window.to) where.push(sql`${usageEvents.ts} <= ${sql.param(window.to, usageEvents.ts)}`);
+  const rows = await db
+    .select({
+      key: sql<string>`${column}`,
+      calls: sql<string>`count(*)`,
+      inputTokens: sql<string>`coalesce(sum(${usageEvents.inputTokens}), 0)`,
+      outputTokens: sql<string>`coalesce(sum(${usageEvents.outputTokens}), 0)`,
+      costUsd: sql<string>`coalesce(sum(${usageEvents.costUsd}), 0)`,
+    })
+    .from(usageEvents)
+    .where(and(...where))
+    .groupBy(column)
+    .orderBy(sql`coalesce(sum(${usageEvents.costUsd}), 0) desc`)
+    .limit(200);
+  return rows.map((row) => ({
+    key: row.key ?? "",
+    calls: Number(row.calls),
+    inputTokens: Number(row.inputTokens),
+    outputTokens: Number(row.outputTokens),
+    costUsd: Number(row.costUsd),
+  }));
+}
+
+/** What a workspace, a person or a bot has spent since a moment. */
+export async function spentBy(
+  db: Db,
+  workspaceId: string,
+  subject: { type: "workspace" | "user" | "bot"; id?: string | null },
+  since: Date | null,
+): Promise<number> {
+  const where = [eq(usageEvents.workspaceId, workspaceId)];
+  if (subject.type !== "workspace" && subject.id) {
+    where.push(eq(usageEvents.actorId, subject.id));
+  }
+  if (since) where.push(gte(usageEvents.ts, sql.param(since, usageEvents.ts)));
+  const [row] = await db
+    .select({ total: sql<string>`coalesce(sum(${usageEvents.costUsd}), 0)` })
+    .from(usageEvents)
+    .where(and(...where));
+  return Number(row?.total ?? 0);
+}

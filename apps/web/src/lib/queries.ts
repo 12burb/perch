@@ -199,6 +199,29 @@ export function burndownQuery(cycleId: string) {
   });
 }
 
+/** What a workspace has spent, and the ceilings on it (task 4.2). */
+export function usageQuery(workspaceId: string, groupBy: "model" | "provider" | "actor" | "day") {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "usage", groupBy],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/usage", {
+          params: { path: { ws: workspaceId }, query: { group_by: groupBy } },
+        }),
+      ),
+  });
+}
+
+export function budgetsQuery(workspaceId: string) {
+  return queryOptions({
+    queryKey: ["workspace", workspaceId, "budgets"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/workspaces/{ws}/budgets", { params: { path: { ws: workspaceId } } }),
+      ),
+  });
+}
+
 export function deployKeyQuery(workspaceId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "deploy-key"],

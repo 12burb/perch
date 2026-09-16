@@ -160,9 +160,44 @@ Every call through the gateway writes a row in `usage_events`: the workspace, wh
 key, the provider and model, the tokens, and what it cost. `usage.recorded` goes out on the bus
 with the same facts. Budgets are counted from it, and the usage dashboard is drawn from it.
 
+## Budgets
+
+A ceiling for the workspace, for a person, or for a bot:
+
+```
+PUT    /api/workspaces/{ws}/budgets  {subject_type, subject_id?, limit_usd, period, warn_at?}
+GET    /api/workspaces/{ws}/budgets
+DELETE /api/workspaces/{ws}/budgets/{id}
+```
+
+`period` is `day`, `month` or `total`, counted from the ledger. `warn_at` is the fraction worth a
+word before the limit is reached — 0.8 by default, and `budget.warning` goes out on the bus when
+the spend crosses it.
+
+Every ceiling above a spender applies, and the tightest one wins: a bot inside its own budget is
+still inside its owner's, and both are inside the workspace's. What a budget stops is the **next**
+call, not the one in flight:
+
+- a `/v1` request gets `402 budget_exceeded` before any provider is called;
+- a bot says so in the thread where it was asked, because silence looks like a broken bot.
+
+A bot also has its own budget in its spec (`dailyUsd`, `perRunUsd`, `perThreadUsd`) and the
+workspace's `policy.yaml` can cap that; those narrow a bot and never widen it.
+
+## What it cost, on one screen
+
+**Settings → Spending** draws the ledger: what the workspace has spent, grouped by model, by
+provider, by who, or by day, with the budgets and where each one stands underneath. The same
+question over REST:
+
+```
+GET /api/workspaces/{ws}/usage?from&to&group_by=model|provider|actor|day|key
+→ {group_by, total_usd, slices: [{key, calls, input_tokens, output_tokens, cost_usd}]}
+```
+
 ## Not here yet
 
-Per-brain parameters (temperature and the rest), tool policy, and cost caps have columns in the
-schema and nothing reading them. `/v1` does not run tools for a caller — a request with `tools` is
-answered as if it had none. Budgets beyond a key's own (per workspace, per person, per bot) and the
-dashboard that draws the ledger are task 4.2.
+Per-brain parameters (temperature and the rest) and tool policy have columns in the schema and
+nothing reading them. `/v1` does not run tools for a caller — a request with `tools` is answered as
+if it had none. Coding sessions do not write to the ledger yet: an engine runs on the provider's own
+credential and reports its own usage, which task 4.10's reliability work folds in.

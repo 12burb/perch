@@ -269,6 +269,11 @@ export const LIST_SURFACES = [
     },
   },
   {
+    file: "apps/web/src/components/usage-section.tsx",
+    list: "what the workspace spent, by model, provider, person or day",
+    how: { capped: 200, in: "apps/api/src/repos/virtual-keys.ts", proof: "limit(200)" },
+  },
+  {
     file: "apps/web/src/inbox/inbox.tsx",
     list: "the inbox's own scroller around that list",
     how: { capped: 100, in: "apps/web/src/lib/queries.ts", proof: "limit: 100" },

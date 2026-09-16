@@ -103,9 +103,11 @@ import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
 import { ids, spanUnder, tracer } from "../telemetry/tracing.ts";
 import type { BrainsService } from "./brains.ts";
+import type { BudgetsService } from "./budgets.ts";
 import type { ConnectionsService } from "./connections.ts";
 import type { LocalMcpService } from "./local-mcp.ts";
 import type { McpGateway } from "./mcp.ts";
+import type { ModelGatewayService } from "./model-gateway.ts";
 import type { PolicyService } from "./policy.ts";
 
 export type BotsDeps = {
@@ -128,6 +130,10 @@ export type BotsDeps = {
   localMcp?: Pick<LocalMcpService, "tools" | "call"> | undefined;
   /** What an agent bot opens a session with (spec §5.3 "Agent bots"; task 3.7). */
   agents?: AgentSessions | undefined;
+  /** The workspace's ceilings, above this bot's own (task 4.2). */
+  budgets?: Pick<BudgetsService, "check"> | undefined;
+  /** The ledger every model call is written to, so one query answers what a workspace spent. */
+  usage?: Pick<ModelGatewayService, "record"> | undefined;
 };
 
 /**
@@ -1613,7 +1619,21 @@ export class BotsService {
     // A workspace's ceilings narrow a bot's own budget and never widen it (spec §5.7; task 2.11).
     const ceilings = (await this.deps.policy.policyFor({ workspaceId: channel.workspaceId }))
       .budgets;
-    const verdict = withinBudget(capped(bot.budget, ceilings), state);
+    let verdict = withinBudget(capped(bot.budget, ceilings), state);
+    // And the workspace's own ceilings, counted from the ledger rather than from this bot's runs
+    // (task 4.2): a bot inside its own budget is still inside the workspace's.
+    if (verdict.ok && this.deps.budgets) {
+      const ledger = await this.deps.budgets.check(
+        channel.workspaceId,
+        [
+          { type: "workspace" },
+          { type: "bot", id: bot.id },
+          ...(bot.ownerId ? [{ type: "user" as const, id: bot.ownerId }] : []),
+        ],
+        input.by,
+      );
+      if (!ledger.ok) verdict = { ok: false, reason: ledger.reason };
+    }
 
     const run = await startRun(this.deps.db, {
       workspaceId: channel.workspaceId,
@@ -1769,6 +1789,20 @@ export class BotsService {
         outputTokens: result.outputTokens,
         costUsd: result.costUsd,
         modelId: profile.modelId,
+      });
+      // The same ledger the gateway writes: what a workspace spent is one query, whoever spent it
+      // (task 4.2).
+      await this.deps.usage?.record({
+        workspaceId: channel.workspaceId,
+        actorType: "bot",
+        actorId: bot.id,
+        botRunId: run.id,
+        provider: profile.provider,
+        modelId: profile.modelId,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        costUsd: result.costUsd,
+        by: input.by,
       });
       if (input.chain) {
         await finishHop(this.deps.db, input.chain.id, {

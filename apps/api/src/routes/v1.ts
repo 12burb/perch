@@ -82,7 +82,10 @@ export function registerV1(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     return key;
   };
 
-  /** Nothing is called until the key has room to pay for it (spec §7.4's `402`). */
+  /**
+   * Nothing is called until there is room to pay for it (spec §7.4's `402`): the key's own budget,
+   * and the workspace's and the subject's ceilings above it (task 4.2). The tightest wins.
+   */
   const afford = async (
     c: Context<AppEnv>,
     key: ResolvedKey,
@@ -98,7 +101,20 @@ export function registerV1(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         "budget_exceeded",
       );
     }
-    return remaining;
+    const subjects =
+      key.subjectType === "user" || key.subjectType === "bot"
+        ? ([{ type: "workspace" as const }, { type: key.subjectType, id: key.subjectId }] as const)
+        : ([{ type: "workspace" as const }] as const);
+    const verdict = await deps.budgets.check(key.workspaceId, subjects, {
+      actor: { type: "system" },
+      meta: {},
+    });
+    if (!verdict.ok) {
+      c.header("Perch-Budget-Remaining", "0");
+      return refuse(c, 402, verdict.reason, "insufficient_quota", "budget_exceeded");
+    }
+    if (verdict.remainingUsd === null) return remaining;
+    return remaining === null ? verdict.remainingUsd : Math.min(remaining, verdict.remainingUsd);
   };
 
   app.get("/v1/models", async (c: Context<AppEnv>) => {

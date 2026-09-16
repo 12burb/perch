@@ -5833,3 +5833,37 @@ Two smaller shapes, for the same reason:
 `/v1` is not in the OpenAPI document and its errors are OpenAI's shape rather than §7.8's. The
 contract there is somebody else's: a client holding an OpenAI SDK should not have to learn Perch's
 error model to read a refusal.
+
+## ADR-0148: One ledger, and the tightest ceiling wins
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 4.2
+
+### Context
+Before this, three things counted money in three ways: a bot's spend came from its own `bot_runs`
+rows, a virtual key's from `usage_events`, and a workspace had no number at all. §10's Phase 4 line
+asks for "budgets, usage dashboard", and a dashboard that adds up two tables is a dashboard that
+will disagree with itself.
+
+§6 has no `budgets` table. It gives a budget to a virtual key and §5.3 gives one to a bot's spec,
+and neither is the ceiling a workspace sets for itself or for one person.
+
+### Decision
+**One ledger.** `usage_events` is where every model call lands, whoever made it: the gateway writes
+one, and a bot run now writes one too. Budgets, the dashboard, and "what did this work item cost"
+all read the same table. A bot's own `dailyUsd` still comes from its runs, because that is a cap on
+*its* behaviour rather than a question about the workspace's money.
+
+**A `budgets` table**, with one row per subject: the workspace, a person, or a bot. `subject_id` is
+never null — a unique index over a nullable column lets two rows for the same subject exist, and
+one subject with two ceilings is a question rather than a rule — so a workspace's own budget names
+the workspace.
+
+**Every ceiling applies and the tightest wins.** A spender is checked against all of the budgets
+above it, in order, and the first one that is reached is the one said out loud. A warning is about
+the next call being close; a stop refuses the next call, never the one in flight. A bot says its
+refusal in the thread; `/v1` answers `402`.
+
+**A budget never widens anything.** The bot spec's own caps and `policy.yaml`'s ceilings still
+narrow a bot; a workspace budget is another ceiling above them, not a permission.

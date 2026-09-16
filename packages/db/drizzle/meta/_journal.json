@@ -267,6 +267,13 @@
       "when": 1789589609137,
       "tag": "0037_virtual_keys_and_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789591600197,
+      "tag": "0038_budgets",
+      "breakpoints": true
     }
   ]
 }

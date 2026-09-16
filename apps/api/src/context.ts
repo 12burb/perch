@@ -14,6 +14,7 @@ import type { BackgroundService } from "./services/background.ts";
 import type { BotApiService } from "./services/bot-api.ts";
 import type { BotsService } from "./services/bots.ts";
 import type { BrainsService } from "./services/brains.ts";
+import type { BudgetsService } from "./services/budgets.ts";
 import type { ConnectionsService } from "./services/connections.ts";
 import type { DbBrowser } from "./services/db-browser.ts";
 import type { DeployService } from "./services/deploys.ts";
@@ -77,6 +78,8 @@ export type Deps = {
   /** The `/v1` gateway and the keys it is reached with (task 4.1). */
   modelGateway: ModelGatewayService;
   virtualKeys: VirtualKeysService;
+  /** The ceilings, and the ledger they are counted from (task 4.2). */
+  budgets: BudgetsService;
   /** Cycles, modules, saved views and relations (task 3.26). */
   planning: PlanningService;
   /** Branches landing one at a time, behind the project's own checks (task 3.15). */

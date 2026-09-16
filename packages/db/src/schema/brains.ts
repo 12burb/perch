@@ -230,3 +230,46 @@ export const usageEvents = pgTable(
   ],
 );
 export type UsageEvent = typeof usageEvents.$inferSelect;
+
+/**
+ * A budget (spec §10's Phase 4 line "budgets"; task 4.2). §6 gives a budget to a virtual key and
+ * to a bot's spec; this is the one a workspace sets for itself, for a person, or for a bot — the
+ * ceiling everything under it is counted against (ADR-0148).
+ */
+export const BUDGET_SUBJECTS = ["workspace", "user", "bot"] as const;
+export type BudgetSubject = (typeof BUDGET_SUBJECTS)[number];
+
+/** The stretch a limit is counted over. */
+export const BUDGET_PERIODS = ["day", "month", "total"] as const;
+export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
+
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    subjectType: text("subject_type").$type<BudgetSubject>().notNull(),
+    /**
+     * Who it is about: the person, the bot, or — for a workspace's own budget — the workspace.
+     * Never null, because a unique index over a nullable column lets two of them exist.
+     */
+    subjectId: uuid("subject_id").notNull(),
+    limitUsd: numeric("limit_usd", { precision: 12, scale: 6 }).notNull(),
+    period: text("period").$type<BudgetPeriod>().notNull().default("month"),
+    /**
+     * The fraction of the limit that is worth a word before it is reached — 0.8 is "tell me at
+     * eighty percent". Zero means no warning, only the stop.
+     */
+    warnAt: numeric("warn_at", { precision: 4, scale: 3 }).notNull().default("0.8"),
+    ...timestamps(),
+  },
+  (t) => [
+    // One budget per subject per workspace: two ceilings for one thing is a question, not a rule.
+    uniqueIndex("budgets_subject_idx").on(t.workspaceId, t.subjectType, t.subjectId),
+    check("budgets_subject_check", sql`${t.subjectType} in ('workspace', 'user', 'bot')`),
+    check("budgets_period_check", sql`${t.period} in ('day', 'month', 'total')`),
+  ],
+);
+export type Budget = typeof budgets.$inferSelect;

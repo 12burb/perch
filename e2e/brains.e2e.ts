@@ -128,3 +128,36 @@ test("a key and an endpoint each become a brain that runs a session", async ({ p
     timeout: 30_000,
   });
 });
+
+/**
+ * Task 4.2: the spending screen. What a workspace's models cost is read from the same ledger the
+ * gateway and the bots write, and a ceiling is set beside it.
+ */
+test("spending shows what went where, and a budget is set beside it", async ({ page }) => {
+  test.setTimeout(120_000);
+  await signUp(page, "Book Keeper", uniqueEmail("spend"));
+  const slug = await createWorkspace(page, "Spend Nest");
+
+  await page.goto(`/${slug}/settings`);
+  const spending = page.getByRole("region", { name: "Spending" });
+  await expect(spending).toBeVisible();
+  // Nothing has been spent yet, and the screen says so rather than drawing an empty chart.
+  await expect(spending.getByTestId("usage-total")).toContainText("$0.0000");
+  await expect(spending.getByRole("status")).toContainText("Nothing spent yet.");
+
+  // The same ledger, asked a different way.
+  await spending.getByTestId("usage-group").selectOption("day");
+  await expect(spending.getByTestId("usage-group")).toHaveValue("day");
+
+  // A ceiling for the workspace, which is what a budget is when nobody is named.
+  await expect(spending.getByText("No ceilings set.")).toBeVisible();
+  await spending.getByLabel("Limit (USD)").fill("25");
+  await spending.getByRole("button", { name: "Set a budget" }).click();
+  const list = spending.getByTestId("budget-list");
+  await expect(list).toContainText("$0.0000 of $25.00 spent");
+  await expect(list).toContainText("$25.00 left");
+
+  // And it can be taken away again.
+  await spending.getByRole("button", { name: "Remove the The workspace budget" }).click();
+  await expect(spending.getByText("No ceilings set.")).toBeVisible();
+});

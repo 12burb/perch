@@ -31,6 +31,7 @@ import { BackgroundService } from "./services/background.ts";
 import { BotApiService } from "./services/bot-api.ts";
 import { BotsService } from "./services/bots.ts";
 import { BrainsService } from "./services/brains.ts";
+import { BudgetsService } from "./services/budgets.ts";
 import { ConnectionsService } from "./services/connections.ts";
 import { DbBrowser } from "./services/db-browser.ts";
 import { DeployService } from "./services/deploys.ts";
@@ -212,6 +213,11 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
     runners: { db: db.db, registry: runners },
   });
+  // The gateway at /v1, and the keys it is reached with (task 4.1).
+  const modelGateway = new ModelGatewayService({ db, bus, log, brains });
+  const virtualKeys = new VirtualKeysService({ db, bus, log });
+  // What may be spent, counted from the same ledger the gateway writes (task 4.2).
+  const budgets = new BudgetsService({ db, bus, log });
   const bots = new BotsService({
     db: db.db,
     bus,
@@ -227,6 +233,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     localMcp,
     // A mention that opens a coding session (spec §5.3 "Agent bots"; task 3.7).
     agents: agentBots,
+    // The workspace's ceilings and the ledger under them (task 4.2).
+    budgets,
+    usage: modelGateway,
     ...(env.search ? { search: env.search } : {}),
   });
   // The Nest as members (spec §5.3; task 3.9): a roster an admin installs, each entry becoming an
@@ -249,9 +258,6 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
   });
   // Work items, and the board that follows the sessions doing them (task 3.13).
-  // The gateway at /v1, and the keys it is reached with (task 4.1).
-  const modelGateway = new ModelGatewayService({ db, bus, log, brains });
-  const virtualKeys = new VirtualKeysService({ db, bus, log });
   const work = new WorkService({ db, bus, log, sessions });
   // What the work is planned into: cycles, modules, saved views, relations (task 3.26).
   const planning = new PlanningService({ db, bus, log });
@@ -314,6 +320,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     planning,
     modelGateway,
     virtualKeys,
+    budgets,
     mergeQueue,
     races,
     background,

@@ -6,6 +6,7 @@ import { BotsSection } from "../../../components/bots-section.tsx";
 import { BrainsSection } from "../../../components/brains-section.tsx";
 import { ConnectionsSection } from "../../../components/connections-section.tsx";
 import { PolicySection } from "../../../components/policy-section.tsx";
+import { UsageSection } from "../../../components/usage-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
 import { connectOutcome } from "../../../lib/connect-outcome.ts";
 import { auditQuery, type Member, membersQuery } from "../../../lib/queries.ts";
@@ -40,6 +41,7 @@ function WorkspaceSettings() {
         />
         <MembersSection workspaceId={workspace.id} myId={me.id} myRole={workspace.role} />
         <BrainsSection workspaceId={workspace.id} canAdmin={canAdmin} />
+        <UsageSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <BotsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <ConnectionsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <PolicySection workspaceId={workspace.id} canAdmin={canAdmin} />
