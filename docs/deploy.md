@@ -24,6 +24,11 @@ perch init --dir ./perch --public-url https://perch.example.com
 Every variable is documented in [`../.env.example`](../.env.example). `DATABASE_URL` is derived by compose
 from `POSTGRES_PASSWORD`; set it explicitly to use an external Postgres (16+ with `vector` and `citext`).
 
+Compose mounts `./connectors` next to these files at `/data/connectors`, read-only. Put
+`<id>/manifest.yaml` files there and set `PERCH_CONNECTORS_DIR=/data/connectors` to add a service
+Perch does not ship, or to correct one it does — see [connections](./connections.md). Run
+`perch connectors check ./connectors` before you restart.
+
 ## 2. Start
 
 ```sh

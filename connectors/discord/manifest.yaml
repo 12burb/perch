@@ -1,0 +1,25 @@
+# Discord (spec §5.5 seed list; task 3.11).
+#
+# A bot token is pasted, and goes on the wire as `Bot <token>` rather than `Bearer` — which is why
+# this connector is REST-only for now and not wired to the gateway. Discord signs its interaction
+# requests with Ed25519 (`x-signature-ed25519` over `<timestamp><body>`), which is not the
+# HMAC-SHA256 shape this schema describes, so Perch cannot verify a delivery here yet.
+id: discord
+name: Discord
+summary: Post to a Discord channel and read a guild's channels.
+docs_url: https://discord.com/developers/docs/reference
+auth:
+  - oauth2
+  - token
+api_base: https://discord.com/api/v10
+test_path: /users/@me
+account_field: username
+oauth:
+  authorize_url: https://discord.com/oauth2/authorize
+  token_url: https://discord.com/api/oauth2/token
+  scopes:
+    - bot
+    - identify
+  scope_separator: " "
+  refresh: true
+webhook_signature: none

@@ -4793,3 +4793,82 @@ that fans out looking silent for a minute.
 
 `wait_for_replies` and `mention` still work exactly as they did, and a non-orchestrator can still
 consult one bot at a time. What it cannot do is run three at once on somebody else's budget.
+
+## ADR-0127: A manifest says how a provider is spoken to; the harness proves it
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.11
+
+### Context
+Task 1.16's manifest schema was written against four providers that all look alike: a bearer token,
+a JSON API, a hex HMAC over the raw body with the delivery's id and type in headers of their own.
+§5.5's seed list is not like that. Slack signs `v0:<timestamp>:<body>` and puts the event id in the
+body. Stripe sends `t=<ts>,v1=<hex>` in one header, so the timestamp is an entry inside the
+signature rather than a header beside it. Linear wants the token with no `Bearer` in front of it and
+has no GET that proves a key works, because its API is GraphQL over POST. Notion refuses every
+request that does not carry `Notion-Version`.
+
+Each of those is one line of YAML or a special case in TypeScript. The whole point of a manifest is
+that it is the first one, so the schema had to grow. And once a connector is a file that a person
+can write — which §5.5 says it is, and which this task makes true for files outside the repo — the
+file needs something that tells them it is wrong before a connection does.
+
+### Decision
+**Four additions to the manifest schema**, all optional and all defaulted to what the four original
+connectors already did:
+
+| Field | Means |
+|---|---|
+| `token_scheme: bearer \| raw` | whether the token goes behind `Bearer `. Default `bearer` |
+| `headers: {…}` | headers on every call Perch makes for this provider, REST and MCP alike |
+| `webhook.timestamp_prefix` | the entry prefix the timestamp is behind when the signature header is a list |
+| `webhook.id_header` / `event_header` now optional | a provider that puts neither in a header is normal, not a misconfiguration |
+
+Dropping the `x-github-delivery` / `x-github-event` defaults is the one change that is not purely
+additive: a manifest that relied on them now has no id header. Every connector that signs sets both
+explicitly, and the alternative — a Stripe delivery looked up under GitHub's header name — is worse
+than a missing field. Deliveries without an id are already deduplicated by a hash of the body, so
+nothing regresses.
+
+**A refresh happens on use, not on a timer.** `tokenFor` is the only place a connection's token
+leaves the vault, so it is the place that knows a call is about to happen. A token expiring within
+a minute is swapped first, on the same client the connection was made with, and the call goes out
+with the new one. §3.5's words are "refresh jobs on the Postgres queue"; this is the same promise
+without the queue, and it is a deliberate deviation. A job would refresh tokens nobody is using, run
+on a clock that a laptop closing the lid stops, and still have to check expiry at the point of use
+for the connection that expired between ticks. A refresh the provider refuses marks the connection
+invalid, which is what the timer would have done.
+
+**A connector can be a file the repo has never seen.** `PERCH_CONNECTORS_DIR` is read at boot, on
+top of the built-ins, keyed by directory name — so a file can add a provider or replace one that
+ships badly, without a fork and without waiting for a release. An unreadable file is logged and
+skipped; it never keeps an instance from starting.
+
+**The harness is a function, and `perch connectors check` is its terminal.** `checkManifest` parses
+the file and then exercises what it claims: it signs a delivery with the manifest's own scheme,
+verifies it, changes a byte, and signs with somebody else's secret. A scheme that cannot tell those
+apart is an error, because it is a door left open. Lanes that do not add up — `mcp_oauth` with no
+MCP server, a paste lane with no `test_path` — are checked the same way. Everything runs against
+the manifest alone, with no network and nothing stubbed, which is what lets the same function run
+over every built-in connector in CI and over a file somebody is writing.
+
+`webhook_signature: none` is a **warning, not an error**. Supabase's webhooks are Postgres triggers
+with whatever headers you give them; Notion verifies with a token you copy once; Discord signs with
+Ed25519, which is not this schema's shape. Those providers exist, and Perch accepts them with the
+endpoint's unguessable URL as its only protection. Refusing them would mean no connector; saying
+nothing would mean nobody knows. So it is said, once, in the harness and in the docs.
+
+### Consequences
+Six connectors join the four that shipped: Slack, Stripe, Linear, Notion, Sentry, Discord. Notion
+and Discord carry `webhook_signature: none` with a comment saying exactly which scheme Perch would
+need in order to do better, and Linear has no `test_path` because there is no call that would be
+one — both surface as warnings rather than being hidden.
+
+The rest of §5.5's seed list — Google Workspace, Jira, Cloudflare, Railway, Netlify, HeyGen, X — is
+not here. A manifest is only worth what its endpoints are, and a guessed `test_path` fails at the
+worst moment: after somebody has pasted a real credential. They are a follow-up task, one that
+verifies each provider's endpoints and signature scheme against its documentation first.
+
+Ed25519 webhook signatures are not supported. Adding them is a `webhook_signature` variant and a
+verify branch, and Discord is the reason it will happen; it is not this task.

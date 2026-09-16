@@ -6,6 +6,9 @@
  * or log line ever sees one. `tokenFor` is the single door, and everything that needs to call a
  * provider goes through it.
  */
+
+import { type Dirent, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Bus } from "@perch/bus";
 import {
   apiBaseOf,
@@ -24,6 +27,7 @@ import {
   parseManifest,
   protectedResource,
   type RegistrationLane,
+  refreshTokens,
   startAuthorization,
   startAuthorizationAt,
 } from "@perch/connect";
@@ -50,7 +54,9 @@ import {
   insertConnection,
   listConnections,
   listGrants,
+  markRefreshed,
   setConnectionStatus,
+  updateConnectionSecret,
   upsertGrant,
   upsertOauthClient,
 } from "../repos/connections.ts";
@@ -64,7 +70,39 @@ export type ConnectionsDeps = {
   publicUrl: string;
   /** Overridable so a test can stand in for a provider. */
   fetch?: FetchLike;
+  /**
+   * A directory of `<id>/manifest.yaml` to read on top of the built-in connectors (spec §5.5
+   * "Everything else via manifests"; task 3.11, PERCH_CONNECTORS_DIR).
+   */
+  connectorsDir?: string | undefined;
 };
+
+/**
+ * The manifests in a directory, by id (task 3.11). A self-hoster adds a provider by dropping a
+ * file in: no rebuild, and nothing about it is special afterwards. Anything unreadable is logged
+ * and skipped — one bad file does not cost an instance its other connectors.
+ */
+export function readConnectorsDir(dir: string | undefined, log: Logger): Record<string, string> {
+  if (!dir) return {};
+  const out: Record<string, string> = {};
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    log.warn({ err: error, dir }, "the connectors directory could not be read");
+    return out;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const file = join(dir, entry.name, "manifest.yaml");
+    try {
+      out[entry.name] = readFileSync(file, "utf8");
+    } catch (error) {
+      log.warn({ err: error, connector: entry.name }, "a connector manifest could not be read");
+    }
+  }
+  return out;
+}
 
 /** A connection as a caller may see it: everything except the secret. */
 export type ConnectionView = {
@@ -95,18 +133,23 @@ export type AppSecret = { appId: string; privateKey: string };
 
 const AAD = (workspaceId: string) => `connection:${workspaceId}`;
 
+/** How close to expiry a token is refreshed at: a minute, so a call in flight does not run out. */
+const REFRESH_SKEW_MS = 60_000;
+
 export class ConnectionsService {
   private readonly manifests = new Map<string, Manifest>();
   /** Authorizations in flight, by state (see Pending below). */
   private readonly pending = new Map<string, Pending>();
 
   constructor(private readonly deps: ConnectionsDeps) {
-    for (const [id, source] of Object.entries(MANIFESTS)) {
+    // The ones this build ships, then any this instance was given a directory of. A manifest that
+    // does not parse is a build problem, not a request problem: say so loudly and carry on without
+    // that provider rather than refusing to boot.
+    const sources = { ...MANIFESTS, ...readConnectorsDir(deps.connectorsDir, deps.log) };
+    for (const [id, source] of Object.entries(sources)) {
       try {
         this.manifests.set(id, parseManifest(source));
       } catch (error) {
-        // A manifest that does not parse is a build problem, not a request problem: say so loudly
-        // and carry on without that provider rather than refusing to boot.
         deps.log.error({ err: error, connector: id }, "a connector manifest could not be read");
       }
     }
@@ -507,6 +550,72 @@ export class ConnectionsService {
   }
 
   /**
+   * A new access token, when the one stored is about to expire (spec §3.5 "refresh jobs on the
+   * Postgres queue"; task 3.11). Null when nothing needed doing, which is the usual answer.
+   *
+   * It happens on use rather than on a timer: a connection nobody is using does not need a live
+   * token, and one that is being used gets a fresh one at the moment it matters. A refresh that
+   * fails marks the connection invalid and says so rather than handing back a token that will be
+   * refused by the provider a moment later.
+   */
+  private async refreshed(
+    manifest: Manifest,
+    row: Connection,
+    pair: { access: string; refresh?: string },
+  ): Promise<string | null> {
+    if (!manifest.oauth?.refresh || !pair.refresh) return null;
+    const expires = row.expiresAt?.getTime();
+    if (expires === undefined || expires - Date.now() > REFRESH_SKEW_MS) return null;
+    const client = await findOauthClient(this.deps.db, row.workspaceId, row.provider);
+    const issuer = row.metadata.tokenEndpoint ?? manifest.oauth.token_url;
+    const clientId = row.metadata.clientId ?? client?.clientId;
+    if (!clientId) return null;
+    const clientSecret = client?.ciphertextSecret
+      ? await this.deps.vault
+          .decryptString(client.ciphertextSecret, AAD(row.workspaceId))
+          .catch(() => null)
+      : null;
+    try {
+      const tokens = await refreshTokens({
+        tokenUrl: issuer,
+        clientId,
+        clientSecret,
+        refreshToken: pair.refresh,
+        ...(this.deps.fetch ? { fetcher: this.deps.fetch } : {}),
+      });
+      await updateConnectionSecret(this.deps.db, row.id, {
+        ciphertext: await this.deps.vault.encrypt(
+          JSON.stringify({
+            access: tokens.accessToken,
+            // `refreshTokens` hands back the one it was given when the provider does not rotate,
+            // so this is always the refresh token to keep.
+            ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
+          }),
+          AAD(row.workspaceId),
+        ),
+        expiresAt: tokens.expiresAt ?? null,
+        ...(tokens.scopes.length > 0 ? { scopes: tokens.scopes } : {}),
+      });
+      await markRefreshed(this.deps.db, row.id);
+      await this.deps.bus.publish(
+        "connection.refreshed",
+        { workspaceId: row.workspaceId, connectionId: row.id, provider: row.provider },
+        { actor: { type: "system" }, meta: {} },
+      );
+      return tokens.accessToken;
+    } catch (error) {
+      // The provider said no: the connection needs somebody to sign in again, and a card that says
+      // "invalid" is more use than a call that fails a second later for a reason nobody sees.
+      await setConnectionStatus(this.deps.db, row.id, "invalid");
+      this.deps.log.warn(
+        { err: error, connectionId: row.id, provider: row.provider },
+        "a connection could not be refreshed",
+      );
+      throw this.upstream(error, manifest);
+    }
+  }
+
+  /**
    * The token to call this provider with, right now. For a pasted token that is what was pasted;
    * for an app it is an installation token minted for this call. The only place a secret leaves
    * the vault, and it is never returned to a caller — only handed to the code making the request.
@@ -515,8 +624,9 @@ export class ConnectionsService {
     const manifest = this.manifest(row.provider);
     const secret = await this.secret(row);
     if (row.kind === "oauth2") {
+      let pair: { access: string; refresh?: string };
       try {
-        return (JSON.parse(secret) as { access: string }).access;
+        pair = JSON.parse(secret) as { access: string; refresh?: string };
       } catch {
         throw new PerchError(
           "upstream_failed",
@@ -525,6 +635,8 @@ export class ConnectionsService {
           502,
         );
       }
+      const fresher = await this.refreshed(manifest, row, pair);
+      return fresher ?? pair.access;
     }
     if (row.kind !== "github_app") return secret;
     let app: AppSecret;
@@ -708,8 +820,10 @@ export class ConnectionsService {
       response = await call(`${base}${manifest.test_path}`, {
         headers: {
           accept: "application/json",
-          authorization: `Bearer ${token}`,
+          // A provider that wants the token by itself says so in its manifest (task 3.11).
+          authorization: manifest.token_scheme === "raw" ? token : `Bearer ${token}`,
           "user-agent": "perch",
+          ...manifest.headers,
         },
         signal: AbortSignal.timeout(15_000),
       });

@@ -1,0 +1,40 @@
+# Slack (spec §5.5 seed list; task 3.11).
+#
+# The paste lane is a bot token from an app you install yourself; Slack's OAuth is per-app, so an
+# instance that registers its own app uses the oauth2 lane with its own client. Slack publishes no
+# MCP server, so a bot reaches it through the REST API rather than the gateway.
+id: slack
+name: Slack
+summary: Post to a Slack channel, read history, and look somebody up.
+docs_url: https://docs.slack.dev/authentication/verifying-requests-from-slack/
+auth:
+  - oauth2
+  - token
+api_base: https://slack.com/api
+token_prefix:
+  - xoxb-
+  - xoxp-
+  - xoxe.xoxp-
+test_path: /auth.test
+account_field: user
+oauth:
+  authorize_url: https://slack.com/oauth/v2/authorize
+  token_url: https://slack.com/api/oauth.v2.access
+  scopes:
+    - chat:write
+    - channels:history
+    - channels:read
+    - users:read
+  scope_separator: ","
+  refresh: false
+webhook_signature: hmac_sha256
+# `v0:<timestamp>:<body>`, hex, behind `v0=`, with the time in its own header and five minutes of
+# tolerance. Slack puts the event's id and type in the body, not in a header, so a delivery cannot
+# be recognised as a repeat and a card is titled from what it carries.
+webhook:
+  header: x-slack-signature
+  prefix: "v0="
+  encoding: hex
+  signed: "v0:{timestamp}:{body}"
+  timestamp_header: x-slack-request-timestamp
+  tolerance_s: 300

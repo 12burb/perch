@@ -262,7 +262,9 @@ export class McpGateway {
     const url = mcpUrlOf(manifest, connection.metadata.mcpUrl);
     if (!url) throw PerchError.validation(`${manifest.name} publishes no MCP server`);
     const token = await this.deps.connections.tokenFor(connection);
-    return openUpstream({ url, token });
+    // Whatever else this provider asks for on a request, from its manifest (task 3.11): Notion
+    // refuses one without `Notion-Version`, and its MCP server is no different from its REST.
+    return openUpstream({ url, token, headers: manifest.headers });
   }
 
   private upstreamError(error: unknown): PerchError {

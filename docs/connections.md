@@ -107,6 +107,9 @@ on someone's personal login).
 - **Open a pull request.** `POST /api/workspaces/{ws}/projects/{p}/pull-request` pushes the branch
   and asks the provider to open the PR, both on the same short-lived credential. The Git panel's
   button for this arrives with task 1.20.
+- **Give an agent its tools.** A connection whose provider has an MCP server becomes one itself, at
+  `/mcp/{connectionId}`. Sessions you start reach it with a token of Perch's, never with yours —
+  see [the MCP gateway](./mcp-gateway.md).
 
 ## This instance as an OAuth client
 
@@ -126,14 +129,27 @@ because a self-hosted instance has none a provider could have issued it.
 | Register an app with a provider | ✅ | ✅ | ❌ |
 | Grant a connection you may use to a bot | ✅ | ✅ | ✅ |
 
-## Adding a connector
+## Tokens that expire
 
-A connector is a directory under `connectors/` with a `manifest.yaml`: the lanes it offers, its API
-base, the token prefixes a paste should have, the call that proves a connection works, its MCP
-server, and its OAuth endpoints. Add the directory, add its id to `connectors/src/index.ts`, and the
-service appears in the card. See `connectors/github/manifest.yaml`.
+A connection made through the **Sign in** lane usually comes with an access token that runs out in
+an hour and a refresh token that does not. Perch swaps it **on use**: when a call is about to go out
+on a connection that expires within the next minute, it asks the provider for a new one first, keeps
+it, and makes the call with it. A connection nobody is using is left alone — there is no timer and
+no queue to run (ADR-0127).
 
-Four ship today:
+The refresh goes out on the same app the connection was made with: your own registered client where
+there is one, else the client the provider issued through dynamic registration. If the provider
+refuses — a refresh token revoked, an app deleted — the connection is marked **Not accepted** and
+the call fails with that, rather than with whatever the provider says a moment later to a token it
+has already rejected.
+
+## Connectors
+
+A connector is a directory with a `manifest.yaml`: the lanes it offers, its API base, the token
+prefixes a paste should have, the call that proves a connection works, its MCP server, its OAuth
+endpoints, and how it signs a webhook. Nothing about it is code.
+
+Ten ship today:
 
 | Connector | Lanes | MCP server |
 |---|---|---|
@@ -141,17 +157,51 @@ Four ship today:
 | **Vercel** | Sign in through its MCP server, Paste a token | `https://mcp.vercel.com` |
 | **Supabase** | Sign in through its MCP server, Paste a token | `https://mcp.supabase.com/mcp` |
 | **Clerk** | Sign in through its MCP server, Paste a token | `https://mcp.clerk.com/mcp` |
+| **Slack** | Sign in, Paste a token | — |
+| **Stripe** | Paste a restricted key | — |
+| **Linear** | Sign in, Paste a token | — |
+| **Notion** | Sign in, Paste a token | — |
+| **Sentry** | Paste an org auth token | — |
+| **Discord** | Sign in, Paste a bot token | — |
 
-- **Give an agent its tools.** A connection whose provider has an MCP server becomes one itself, at
-  `/mcp/{connectionId}`. Sessions you start reach it with a token of Perch's, never with yours —
-  see [the MCP gateway](./mcp-gateway.md).
+### Adding one
 
-## Not here yet
+Two ways, and neither is a code change:
 
-A refresh job for tokens that expire: today a connection whose access token has run out is marked
-**Not accepted** and reconnected by hand, even where the provider issued a refresh token (Perch
-keeps it). The Deploy button and the schema browser that these connectors are for arrive with task
-2.15.
+- **In this repo**, for a connector you want everyone to have: add `connectors/<id>/manifest.yaml`,
+  add the id to `connectors/src/index.ts`, and it ships with the build.
+- **On your instance**, for one that is yours: point `PERCH_CONNECTORS_DIR` at a directory of
+  `<id>/manifest.yaml` files. Perch reads it at boot, and a file there with the id of a built-in
+  connector replaces it — which is how you correct one without waiting for a release. An unreadable
+  file is logged and skipped; it never stops the instance coming up.
+
+Either way, check it first:
+
+```
+perch connectors check ./connectors      # or a single manifest.yaml
+```
+
+This is the manifest harness. It parses the file, then exercises what it claims: a delivery signed
+by its own webhook scheme must verify, the same delivery with one byte changed must not, and
+somebody else's secret must not. It also says when a lane does not add up — an `mcp_oauth` lane with
+no MCP server, a paste lane with no `test_path`, a provider that signs nothing at all. Errors mean
+Perch would not work with the file and exit 1; warnings mean somebody should look. Every connector
+in this repo is put through it in CI.
+
+### What a manifest can say
+
+Beyond the obvious fields:
+
+| Field | For |
+|---|---|
+| `token_scheme: raw` | a provider that wants the token by itself rather than behind `Bearer` — Linear |
+| `headers:` | headers every call needs — Notion refuses a request without `Notion-Version` |
+| `webhook.timestamp_prefix` | a provider whose timestamp rides inside the signature header — Stripe's `t=<ts>,v1=<hex>` |
+| `webhook.id_header` | absent when the provider puts the delivery id in the body rather than a header — Slack, Stripe |
+| `account_field` | where the test call's answer says who the connection speaks as |
+
+`api_base` and `mcp_url` can be overridden per connection, which is how a self-hosted Sentry or
+GitLab uses the same manifest as the hosted one.
 
 ## Inbound webhooks
 
@@ -172,6 +222,17 @@ provider's scheme, taken from its manifest (ADR-0119):
 | GitHub | `X-Hub-Signature-256: sha256=<hex>` | the raw body |
 | Vercel | `x-vercel-signature: <hex>` | the raw body |
 | Clerk (Svix) | `svix-signature: v1,<base64>` | `<id>.<timestamp>.<body>`, within five minutes |
+| Slack | `x-slack-signature: v0=<hex>` | `v0:<timestamp>:<body>`, within five minutes |
+| Stripe | `stripe-signature: t=<ts>,v1=<hex>` | `<timestamp>.<body>`, within five minutes |
+| Linear | `linear-signature: <hex>` | the raw body |
+| Sentry | `sentry-hook-signature: <hex>` | the raw body |
+
+Three providers in the list above are not in this table. Notion verifies a webhook with a token you
+copy when the subscription is made rather than with an HMAC; Discord signs its interactions with
+Ed25519; Supabase's webhooks are Postgres triggers with whatever headers you give them. Their
+manifests say `webhook_signature: none`, which Perch takes literally: **the endpoint's only
+protection is that its URL is unguessable**, so treat it like a password, and prefer a connector
+that signs where you have the choice.
 
 `POST /hooks/{provider}/{id}` is the only unauthenticated write in Perch: the signature is the
 authentication. A delivery that is unsigned, signed with something else, signed over a different

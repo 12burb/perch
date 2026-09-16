@@ -216,3 +216,11 @@ export function workspaceConnections(db: Db, workspaceId: string): Promise<Conne
     .where(and(eq(connections.workspaceId, workspaceId), eq(connections.ownerType, "workspace")))
     .orderBy(asc(connections.provider));
 }
+
+/** When this connection's token was last swapped for a new one (task 3.11). */
+export async function markRefreshed(db: Db, id: string): Promise<void> {
+  await db
+    .update(connections)
+    .set({ lastRefreshedAt: new Date(), updatedAt: new Date() })
+    .where(eq(connections.id, id));
+}

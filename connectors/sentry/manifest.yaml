@@ -1,0 +1,21 @@
+# Sentry (spec §5.5 seed list; task 3.11).
+#
+# An organization auth token is what a workspace connection should carry: it belongs to the org
+# rather than to whoever made it. `api_base` is the one field a self-hosted Sentry overrides.
+id: sentry
+name: Sentry
+summary: Read issues and events, and post what broke into a channel.
+docs_url: https://docs.sentry.io/api/auth/
+auth:
+  - token
+api_base: https://sentry.io/api/0
+test_path: /organizations/
+webhook_signature: hmac_sha256
+# Sentry signs an integration's webhooks with `sentry-hook-signature`: a hex HMAC-SHA256 over the
+# raw body, with the resource in `sentry-hook-resource`.
+webhook:
+  header: sentry-hook-signature
+  prefix: ""
+  encoding: hex
+  signed: "{body}"
+  event_header: sentry-hook-resource

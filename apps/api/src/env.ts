@@ -54,6 +54,12 @@ const rawEnvSchema = z.object({
   PERCH_SEARCH_URL: z.string().optional(),
   PERCH_SEARCH_KEY: z.string().optional(),
   PERCH_DATA_DIR: z.string().min(1).optional(),
+  /**
+   * A directory of connector manifests (`<id>/manifest.yaml`) read at boot, on top of the ones
+   * this build ships (spec §5.5 "Everything else via manifests"; task 3.11). A provider added
+   * here needs no rebuild, and one whose id matches a built-in replaces it.
+   */
+  PERCH_CONNECTORS_DIR: z.string().min(1).optional(),
   PERCH_COMMIT: z.string().optional(),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   HOST: z.string().default("0.0.0.0"),
@@ -89,6 +95,8 @@ export type Env = {
   ollamaUrls: readonly string[];
   /** The search endpoint a bot's web_search uses; without one the tool says it is not configured. */
   search: { url: string; key: string | undefined } | undefined;
+  /** Where to read extra connector manifests from, when this instance has any (task 3.11). */
+  connectorsDir: string | undefined;
   /** Flags PERCH_FLAGS turned on. */
   flags: string[];
   otlpEndpoint: string | undefined;
@@ -197,6 +205,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
       .split(",")
       .map((url) => url.trim())
       .filter(Boolean),
+    connectorsDir: raw.PERCH_CONNECTORS_DIR,
     search: raw.PERCH_SEARCH_URL
       ? { url: raw.PERCH_SEARCH_URL, key: raw.PERCH_SEARCH_KEY }
       : undefined,

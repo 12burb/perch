@@ -20,6 +20,7 @@
     "@electric-sql/pglite": "0.5.8",
     "@electric-sql/pglite-pgvector": "0.0.9",
     "@perch/api": "workspace:*",
+    "@perch/connect": "workspace:*",
     "@perch/db": "workspace:*",
     "@perch/runner": "workspace:*",
     "@perch/vault": "workspace:*"

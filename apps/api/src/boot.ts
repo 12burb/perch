@@ -137,6 +137,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     vault,
     log,
     publicUrl: env.publicUrl,
+    // Connectors this instance was given rather than built with (spec §5.5; task 3.11).
+    connectorsDir: env.connectorsDir,
   });
   const mcp = new McpGateway({
     db: db.db,

@@ -30,6 +30,19 @@ function header(headers: Headers | Record<string, string>, name: string): string
   return null;
 }
 
+/**
+ * The time out of a header that may be a list. Stripe sends `t=1700000000,v1=<hex>` in one header,
+ * so the timestamp is an entry in it rather than a header of its own (task 3.11).
+ */
+function timeOf(raw: string, prefix: string | undefined): string {
+  if (!prefix) return raw.trim();
+  const found = raw
+    .split(/[\s,]+/)
+    .map((one) => one.trim())
+    .find((one) => one.startsWith(prefix));
+  return found ? found.slice(prefix.length) : "";
+}
+
 /** Constant time, so a wrong signature says nothing about how wrong it was. */
 function same(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -57,6 +70,46 @@ function offered(raw: string, prefix: string): string[] {
     .filter(Boolean);
 }
 
+/** The HMAC this scheme would put in its header, for the bytes it says it signs. */
+async function mac(scheme: WebhookScheme, signed: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return encode(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signed)),
+    scheme.encoding,
+  );
+}
+
+/**
+ * The header value this provider would have sent, for a delivery Perch is making up — which is
+ * what a test needs, and what the manifest harness checks a scheme with (task 3.11). It is the
+ * same bytes `verifyDelivery` recomputes, from the same manifest, so a scheme that signs nothing
+ * cannot pass both.
+ */
+export async function signDelivery(input: {
+  manifest: Pick<Manifest, "webhook_signature" | "webhook">;
+  headers: Headers | Record<string, string>;
+  body: string;
+  secret: string;
+}): Promise<string> {
+  const scheme = input.manifest.webhook;
+  const signed = scheme.signed
+    .replaceAll("{body}", input.body)
+    .replaceAll("{id}", scheme.id_header ? (header(input.headers, scheme.id_header) ?? "") : "")
+    .replaceAll(
+      "{timestamp}",
+      scheme.timestamp_header
+        ? timeOf(header(input.headers, scheme.timestamp_header) ?? "", scheme.timestamp_prefix)
+        : "",
+    );
+  return `${scheme.prefix}${await mac(scheme, signed, input.secret)}`;
+}
+
 /**
  * Whether this delivery is really from this provider. `secret` is the one Perch generated when the
  * webhook was made and the person pasted into the provider.
@@ -71,8 +124,8 @@ export async function verifyDelivery(input: {
 }): Promise<Verdict> {
   const scheme = input.manifest.webhook;
   const delivery: Delivery = {
-    id: header(input.headers, scheme.id_header),
-    event: header(input.headers, scheme.event_header),
+    id: scheme.id_header ? header(input.headers, scheme.id_header) : null,
+    event: scheme.event_header ? header(input.headers, scheme.event_header) : null,
   };
   if (input.manifest.webhook_signature === "none") return { ok: true, delivery };
 
@@ -81,7 +134,10 @@ export async function verifyDelivery(input: {
 
   let timestamp = "";
   if (scheme.timestamp_header) {
-    timestamp = header(input.headers, scheme.timestamp_header) ?? "";
+    timestamp = timeOf(
+      header(input.headers, scheme.timestamp_header) ?? "",
+      scheme.timestamp_prefix,
+    );
     const at = Number(timestamp) * (timestamp.length > 11 ? 1 : 1000);
     if (!Number.isFinite(at)) return { ok: false, reason: "that delivery has no readable time" };
     const drift = Math.abs((input.now ?? Date.now()) - at) / 1000;
@@ -92,17 +148,7 @@ export async function verifyDelivery(input: {
     .replaceAll("{body}", input.body)
     .replaceAll("{id}", delivery.id ?? "")
     .replaceAll("{timestamp}", timestamp);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(input.secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const mine = encode(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signed)),
-    scheme.encoding,
-  );
+  const mine = await mac(scheme, signed, input.secret);
   const candidates = offered(raw, scheme.prefix);
   if (!candidates.some((one) => same(one.toLowerCase(), mine.toLowerCase()))) {
     return { ok: false, reason: "that signature is not this instance's" };

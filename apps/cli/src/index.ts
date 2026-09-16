@@ -2,10 +2,12 @@
 /**
  * The perch binary (spec §2, §8): `init` writes a deployment; `dev` runs laptop mode; `doctor`,
  * `backup`, `restore` look after it; `runner connect` joins this machine to a Perch as one of your
- * environments. `migrate --to-compose` comes later.
+ * environments; `connectors check` puts a manifest through the harness. `migrate --to-compose`
+ * comes later.
  * Argument parsing is node:util's parseArgs; no dependency.
  */
 import { runBackup, runRestore } from "./commands/backup.ts";
+import { runConnectors } from "./commands/connectors.ts";
 import { runDev } from "./commands/dev.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runInit } from "./commands/init.ts";
@@ -16,13 +18,14 @@ export const packageName = "@perch/cli";
 const USAGE = `perch <command> [options]
 
 Commands:
-  dev       run api + web + the in-process runner on PGlite (laptop mode)
-  doctor    check this machine and the laptop-mode data directory
-  backup    write a backup directory of the laptop-mode data (stop perch dev first)
-  restore   restore a backup directory (stop perch dev first)
-  init      write .env, docker-compose.yml, and a Caddyfile for docker compose (team mode)
-  runner    connect this machine to a Perch as one of your environments (runner connect <url>)
-  help      show this help
+  dev         run api + web + the in-process runner on PGlite (laptop mode)
+  doctor      check this machine and the laptop-mode data directory
+  backup      write a backup directory of the laptop-mode data (stop perch dev first)
+  restore     restore a backup directory (stop perch dev first)
+  init        write .env, docker-compose.yml, and a Caddyfile for docker compose (team mode)
+  runner      connect this machine to a Perch as one of your environments (runner connect <url>)
+  connectors  check connector manifests before an instance loads them (connectors check <dir>)
+  help        show this help
 
 Run "perch <command> --help" for the options of a command.`;
 
@@ -41,6 +44,8 @@ export async function main(argv: string[]): Promise<number> {
       return runInit(rest);
     case "runner":
       return runRunner(rest);
+    case "connectors":
+      return runConnectors(rest);
     case undefined:
     case "help":
     case "--help":

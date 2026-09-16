@@ -71,12 +71,22 @@ const webhookSchema = z
      * A provider that signs the body alone leaves this as it is.
      */
     signed: z.string().default("{body}"),
-    /** The header carrying the delivery's own id, which is how a replay is spotted. */
-    id_header: z.string().default("x-github-delivery"),
-    /** The header naming what happened, which is what a card is titled with. */
-    event_header: z.string().default("x-github-event"),
-    /** The header carrying the time it was signed, when the scheme signs one. */
+    /**
+     * The header carrying the delivery's own id, which is how a replay is spotted. Absent when the
+     * provider does not put one in a header — Slack's event id is in the body — and then a
+     * delivery cannot be recognised as one Perch has already had (task 3.11).
+     */
+    id_header: z.string().optional(),
+    /** The header naming what happened, which is what a card is titled with. Absent for the same reason. */
+    event_header: z.string().optional(),
+    /**
+     * The header carrying the time it was signed, when the scheme signs one. Some providers put it
+     * in the signature header itself as a list — Stripe sends `t=<ts>,v1=<hex>` — and then this
+     * names that same header and `timestamp_prefix` says which entry is the time (task 3.11).
+     */
     timestamp_header: z.string().optional(),
+    /** The entry prefix the timestamp is behind, when the header carries a list. `t=` for Stripe. */
+    timestamp_prefix: z.string().optional(),
     /** How far out that timestamp may be, in seconds. */
     tolerance_s: z.number().int().min(1).max(3_600).default(300),
   })
@@ -105,6 +115,16 @@ const manifestSchema = z
     token_prefix: z.array(z.string()).default([]),
     /** The call that proves a connection works, relative to api_base. */
     test_path: z.string().default("/"),
+    /**
+     * How the token goes on the request (task 3.11). Most providers want `Authorization: Bearer
+     * <token>`; some — Linear, Notion's older tokens — want the token by itself.
+     */
+    token_scheme: z.enum(["bearer", "raw"]).default("bearer"),
+    /**
+     * Headers the provider needs beyond the token, on the test call and on every REST call Perch
+     * makes for it. Notion refuses a request without `Notion-Version` (task 3.11).
+     */
+    headers: z.record(z.string(), z.string()).default({}),
     /** Where the account name is in the test call's answer, so a card can show who it speaks as. */
     account_field: z.string().optional(),
     oauth: oauthSchema.optional(),

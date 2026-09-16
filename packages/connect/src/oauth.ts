@@ -197,3 +197,60 @@ export async function exchangeCodeAt(options: {
     scopes: scope.split(/[\s,]+/).filter(Boolean),
   };
 }
+
+/**
+ * A new access token from a refresh token (spec §3.5 "refresh jobs on the Postgres queue"; task
+ * 3.11). The same endpoint and the same client as the exchange that issued it — a provider that
+ * rotates the refresh token hands back a new one, and a provider that does not says nothing, so the
+ * caller keeps the one it had.
+ */
+export async function refreshTokens(options: {
+  tokenUrl: string;
+  clientId: string;
+  clientSecret?: string | null | undefined;
+  refreshToken: string;
+  scopes?: readonly string[] | undefined;
+  fetcher?: ((input: string, init?: RequestInit) => Promise<Response>) | undefined;
+}): Promise<OAuthTokens> {
+  const form = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: options.refreshToken,
+    client_id: options.clientId,
+  });
+  if (options.scopes?.length) form.set("scope", options.scopes.join(" "));
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  if (options.clientSecret) {
+    headers.authorization = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+  }
+  let response: Response;
+  try {
+    response = await (options.fetcher ?? fetch)(options.tokenUrl, {
+      method: "POST",
+      headers,
+      body: form.toString(),
+    });
+  } catch (error) {
+    throw new OAuthError(
+      `could not reach ${options.tokenUrl}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!response.ok) {
+    throw new OAuthError(`the token endpoint answered ${response.status}`, response.status);
+  }
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const access = typeof body?.access_token === "string" ? body.access_token : "";
+  if (!access) throw new OAuthError("the token endpoint answered without an access token");
+  const expiresIn = typeof body?.expires_in === "number" ? body.expires_in : undefined;
+  const scope = typeof body?.scope === "string" ? body.scope : "";
+  return {
+    accessToken: access,
+    // Kept, not dropped: a provider that does not rotate sends no refresh_token back.
+    refreshToken:
+      typeof body?.refresh_token === "string" ? body.refresh_token : options.refreshToken,
+    ...(expiresIn ? { expiresAt: new Date(Date.now() + expiresIn * 1000) } : {}),
+    scopes: scope.split(/[\s,]+/).filter(Boolean),
+  };
+}

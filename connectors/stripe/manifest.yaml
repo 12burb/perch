@@ -1,0 +1,31 @@
+# Stripe (spec §5.5 seed list; task 3.11).
+#
+# A restricted key is the right thing to paste: Stripe's `rk_` keys are scoped to the resources you
+# choose, and a shared connection should never carry a full secret key. Stripe publishes no MCP
+# server for the gateway to proxy.
+id: stripe
+name: Stripe
+summary: Read customers, subscriptions and payments, and watch events arrive.
+docs_url: https://docs.stripe.com/webhooks
+auth:
+  - token
+api_base: https://api.stripe.com
+token_prefix:
+  - rk_live_
+  - rk_test_
+  - sk_live_
+  - sk_test_
+test_path: /v1/account
+account_field: id
+webhook_signature: hmac_sha256
+# `Stripe-Signature: t=<seconds>,v1=<hex>` over `<timestamp>.<body>`. The time rides in the same
+# header as the signature, which is what `timestamp_prefix` is for. Five minutes of tolerance is
+# Stripe's own recommendation. The event's id is in the body, not a header.
+webhook:
+  header: stripe-signature
+  prefix: "v1="
+  encoding: hex
+  signed: "{timestamp}.{body}"
+  timestamp_header: stripe-signature
+  timestamp_prefix: "t="
+  tolerance_s: 300

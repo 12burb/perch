@@ -28,6 +28,12 @@ export {
   installUrl,
 } from "./github-app.ts";
 export {
+  checkManifest,
+  type Finding,
+  type ManifestReport,
+  reportLines,
+} from "./harness.ts";
+export {
   AUTH_KINDS,
   type AuthKind,
   apiBaseOf,
@@ -55,7 +61,14 @@ export {
   OAuthError,
   type OAuthStart,
   type OAuthTokens,
+  refreshTokens,
   startAuthorization,
   startAuthorizationAt,
 } from "./oauth.ts";
-export { type Delivery, type Verdict, verifyDelivery, webhookSecret } from "./webhooks.ts";
+export {
+  type Delivery,
+  signDelivery,
+  type Verdict,
+  verifyDelivery,
+  webhookSecret,
+} from "./webhooks.ts";

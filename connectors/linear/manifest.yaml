@@ -1,0 +1,34 @@
+# Linear (spec §5.5 seed list; task 3.11).
+#
+# Linear's API is GraphQL over POST, so there is no GET that proves a key works: Test connection
+# has nothing to call, and a key is checked the first time it is used. Linear wants the key by
+# itself rather than behind `Bearer`.
+id: linear
+name: Linear
+summary: Read and create issues, and hear about them when they change.
+docs_url: https://linear.app/developers/graphql
+auth:
+  - oauth2
+  - token
+api_base: https://api.linear.app
+token_scheme: raw
+token_prefix:
+  - lin_api_
+  - lin_oauth_
+oauth:
+  authorize_url: https://linear.app/oauth/authorize
+  token_url: https://api.linear.app/oauth/token
+  scopes:
+    - read
+    - write
+  scope_separator: ","
+  refresh: false
+webhook_signature: hmac_sha256
+# A bare hex HMAC over the raw body, with the event in its own header. Linear puts the delivery's
+# time in the payload rather than a header, so the tolerance check does not apply here.
+webhook:
+  header: linear-signature
+  prefix: ""
+  encoding: hex
+  signed: "{body}"
+  event_header: linear-event

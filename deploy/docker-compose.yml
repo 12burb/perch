@@ -34,6 +34,9 @@ services:
       PERCH_FILES_DIR: /data/files
     volumes:
       - files:/data/files
+      # Connector manifests of your own (task 3.11). Drop <id>/manifest.yaml files in ./connectors
+      # and set PERCH_CONNECTORS_DIR=/data/connectors in .env; unset, nothing is read.
+      - ./connectors:/data/connectors:ro
     depends_on:
       postgres:
         condition: service_healthy
