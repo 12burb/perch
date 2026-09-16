@@ -5552,3 +5552,54 @@ read into every client that renders the thread.
 
 What is not here: a diff between this run's pictures and the last one's. §5.6 does not ask for it,
 and a visual regression that nobody has a baseline for is a screenshot with an opinion.
+
+## ADR-0141: Tracing wraps the link, not the helper, and a work item's cost is added up on the way out
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.22
+
+### Context
+§5.7 asks for "OTel traces and cost per task: one trace per session and per bot run, spans for
+model calls, tool calls and runner RPCs, cost rolled up to the work item", and §8 pins the shape:
+"OpenTelemetry SDK, OTLP export off by default".
+
+Three things had to be decided that the spec does not settle: where a runner RPC becomes a span,
+how a span opened deep inside a round finds the round, and where a work item's cost lives.
+
+### Decision
+**Every runner RPC is traced where the registry hands out the link, not in the `runnerCall`
+helper.** The helper looked like the one door — it is what the services use and what its comment
+claims — but a project's setup, a terminal and a preview tunnel take the link out of the registry
+and call it directly. A helper traces the callers who remember to use it; `RunnerRegistry.attach`
+traces the link itself, so "every RPC is a span" means every one, including the ones written next
+year.
+
+**Nesting is by context, with the one parent that matters passed explicitly.** `session.round` and
+`bot.run` are active spans, so a runner call three layers below needs to know nothing about the
+round it is part of — the AsyncLocalStorage context manager the SDK installs carries it. Tool spans
+are the exception: they are opened from an event and closed by a later one, held in a map in
+between, so they are given their round as a parent rather than inheriting whatever context happened
+to be current. The tests install the same context manager the SDK does, so nesting is tested the
+way it ships.
+
+**Tracing off is the default and costs nothing.** With no `PERCH_OTLP_ENDPOINT` there is no SDK
+loaded at all — the import is lazy — and `span()` is a few allocations around the same call. A
+Perch with tracing off behaves exactly like a Perch with tracing on, minus the spans.
+
+**A work item's cost is computed, never stored.** `GET /api/work-items/{id}/cost` adds up the
+item's own sessions at the moment it is asked. A `work_items.cost_usd` column would be a second
+ledger that can disagree with the first, and the disagreement would always be discovered by
+somebody arguing about a bill. Two clocks come back rather than one: `elapsed_ms`, the item's own,
+and `working_ms`, the time an agent was actually running — larger than elapsed when a race (3.16)
+ran three engines at once, which is the honest answer rather than a rounding error.
+
+**Attributes are ids and small facts.** Never a prompt, a message, a file's contents or a tool's
+arguments — §9.1's rule for log lines, applied to spans, and asserted by a test that walks every
+attribute of every span the suite made.
+
+### Consequences
+A collector sees what an agent spent its time on, per round and per tool, on any instance whose
+operator points it somewhere. A board shows what a finished item cost without one. The cost of the
+computed rollup is a query per finished card, which is why the board asks only for the cards whose
+work is over.

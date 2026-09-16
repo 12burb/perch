@@ -9922,6 +9922,62 @@ export type paths = {
         };
         trace?: never;
     };
+    "/api/work-items/{id}/cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this item cost, and where its time went */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The rollup */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkItemCost"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-items/{id}/start-session": {
         parameters: {
             query?: never;
@@ -13770,6 +13826,21 @@ export type components = {
             labels?: string[];
             /** Format: uri */
             pr_url?: string | null;
+        };
+        WorkItemCost: {
+            cost_usd: number;
+            elapsed_ms: number;
+            working_ms: number;
+            turns: number;
+            sessions: {
+                /** Format: uuid */
+                id: string;
+                engine: string;
+                status: string;
+                cost_usd: number;
+                turns: number;
+                elapsed_ms: number;
+            }[];
         };
         WorkItemSessionStarted: {
             item: components["schemas"]["WorkItem"];

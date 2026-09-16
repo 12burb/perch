@@ -49,6 +49,7 @@ import { SpecBotsService } from "./services/spec-bots.ts";
 import { TestingLoopService } from "./services/testing-loop.ts";
 import { WebhooksService } from "./services/webhooks.ts";
 import { WorkService } from "./services/work.ts";
+import { startTracing } from "./telemetry/tracing.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
@@ -99,6 +100,8 @@ export type Booted = Deps & {
 export async function boot(options: BootOptions = {}): Promise<Booted> {
   const env = options.env ?? loadEnv();
   const log = options.log ?? createLogger({ level: env.logLevel, pretty: env.logPretty });
+  // Traces, when there is somewhere to send them (spec §8; task 3.22). Off is the default.
+  const tracing = await startTracing(env, log);
   const db = await createDb({
     url: env.databaseUrl,
     ...(options.pglite ? { pglite: options.pglite } : {}),
@@ -369,6 +372,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       // `running` for ever (task 2.6's note in ADR-0096, possible again since ADR-0109).
       await bots.settled();
       await db.close();
+      // Last: a span written while the exporter was shutting down is a span nobody gets.
+      await tracing?.shutdown().catch(() => undefined);
     },
   };
 }

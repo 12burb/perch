@@ -4,6 +4,7 @@ import { getBot } from "../src/repos/bots.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { fetchable, mentionsIn, readable } from "../src/services/bots.ts";
 import { bootTestApp } from "../src/testing.ts";
+import { captureSpans } from "./fixtures/spans.ts";
 
 /**
  * Task 2.6 (spec §5.3): the native bot runtime. The acceptance is the last test here — a bot
@@ -24,6 +25,8 @@ let channel = "";
 let robin = { cookie: "", id: "" };
 let wren = { cookie: "", id: "" };
 const asked: string[] = [];
+/** Task 3.22: a bot run is a trace, and this is where they land. */
+const spans = captureSpans();
 let reply = "The plan is to deploy on Friday.";
 
 beforeAll(async () => {
@@ -312,6 +315,38 @@ describe("a native bot (task 2.6)", () => {
       error: null,
     });
   }, 60_000);
+
+  test("the run is a trace: the model call inside it, and what it cost on it (task 3.22)", () => {
+    // Scoped to this bot: every file in the suite exports into the one process-wide exporter.
+    const made = spans.getFinishedSpans();
+    const run = made
+      .filter((one) => one.name === "bot.run" && one.attributes["perch.bot_id"] === botId)
+      .at(-1);
+    expect(run?.attributes["perch.trigger"]).toBe("mention");
+    expect(run?.attributes["perch.bot_id"]).toBe(botId);
+    // Usage lands on the run, which is where "what did this bot cost" is asked.
+    expect(run?.attributes["perch.input_tokens"]).toBe(120);
+    expect(run?.attributes["perch.output_tokens"]).toBe(30);
+    expect(run?.attributes["perch.model_id"]).toBe("stub-1");
+
+    // The model call is its own span, and it is inside the run rather than beside it.
+    const model = made
+      .filter(
+        (one) =>
+          one.name === "bot.model" && one.parentSpanContext?.spanId === run?.spanContext().spanId,
+      )
+      .at(-1);
+    expect(model?.attributes["perch.model_id"]).toBe("stub-1");
+    expect(model?.parentSpanContext?.spanId).toBe(run?.spanContext().spanId);
+
+    // And nothing traced carries what was said (§9.1's log rule).
+    for (const one of made) {
+      for (const [key, value] of Object.entries(one.attributes)) {
+        expect(key).not.toContain("prompt");
+        expect(String(value)).not.toContain("what is the plan?");
+      }
+    }
+  });
 
   test("it stays quiet when nobody named it, and never answers itself", async () => {
     const before = (await runs(botId)).length;

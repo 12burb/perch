@@ -89,6 +89,18 @@ export function projectsQuery(workspaceId: string) {
 }
 
 /** A project's board (spec §4 "Work (Plane)"; task 3.13). */
+/**
+ * What a finished item cost (task 3.22). Nothing is stored, so this is asked for per item and only
+ * where it is shown — a board of two hundred cards does not roll up two hundred sessions.
+ */
+export function workItemCostQuery(workItemId: string) {
+  return queryOptions({
+    queryKey: ["work-item", workItemId, "cost"],
+    queryFn: async () =>
+      unwrap(await api.GET("/api/work-items/{id}/cost", { params: { path: { id: workItemId } } })),
+  });
+}
+
 export function workItemsQuery(workspaceId: string, projectId: string) {
   return queryOptions({
     queryKey: ["workspace", workspaceId, "work", projectId],

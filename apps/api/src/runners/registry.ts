@@ -5,6 +5,7 @@
  */
 import type { Bus } from "@perch/bus";
 import type { RunnerLink } from "@perch/events";
+import { ids, span } from "../telemetry/tracing.ts";
 
 export type ListeningPort = { port: number; pid?: number };
 
@@ -22,12 +23,65 @@ export type RegisteredRunner = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Every runner RPC is a span (spec §5.7 "OTel traces and cost per task"; task 3.22). It is wrapped
+ * here rather than in `runnerCall` because "every RPC" has to mean every one: a project's setup and
+ * a terminal take the link out of the registry and call it directly, and a helper only traces the
+ * callers who remember to use it.
+ *
+ * The attributes are the call's ids and its method, never its parameters: an `fs.write` carries the
+ * file it is writing, and a trace is not a place to keep one (§9.1's log rule).
+ */
+function traced(link: RunnerLink): RunnerLink {
+  const wrapped: RunnerLink = {
+    get id() {
+      return link.id;
+    },
+    get info() {
+      return link.info;
+    },
+    call: (method, params) => {
+      const where = params as {
+        workspace_id?: string;
+        user_id?: string;
+        project?: string;
+        session_id?: string;
+      };
+      return span(
+        `runner.${method}`,
+        {
+          "perch.runner_id": link.id,
+          "rpc.method": method,
+          ...ids({
+            workspaceId: where.workspace_id,
+            userId: where.user_id,
+            projectId: where.project,
+            sessionId: where.session_id,
+          }),
+        },
+        () => link.call(method, params),
+      );
+    },
+    onNotification: (handler) => link.onNotification(handler),
+    close: () => link.close(),
+  };
+  // Optional by interface and checked for by presence (a tunnelled preview needs one), so the
+  // wrapper has it exactly when the link does.
+  if (link.openStream) wrapped.openStream = (token) => link.openStream?.(token) ?? never();
+  return wrapped;
+}
+
+function never(): never {
+  throw new Error("this runner stopped offering streams mid-call");
+}
+
 export class RunnerRegistry {
   private readonly runners = new Map<string, RegisteredRunner & { unsubscribe: () => void }>();
 
   constructor(private readonly bus: Bus) {}
 
-  attach(link: RunnerLink, options: { workspaceId?: string | null } = {}): RegisteredRunner {
+  attach(raw: RunnerLink, options: { workspaceId?: string | null } = {}): RegisteredRunner {
+    const link = traced(raw);
     const entry: RegisteredRunner & { unsubscribe: () => void } = {
       link,
       attachedAt: new Date(),

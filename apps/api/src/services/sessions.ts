@@ -5,6 +5,8 @@
  * session at a time; a permission request parks the round in needs_you until someone answers; an
  * engine that goes silent mid-round is cancelled after `silenceMs`.
  */
+
+import { context, type Span, trace } from "@opentelemetry/api";
 import type { Bus } from "@perch/bus";
 import type {
   CodingSession,
@@ -60,6 +62,7 @@ import {
 } from "../repos/sessions.ts";
 import { findWorkspaceById } from "../repos/workspaces.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
+import { ids, tracer } from "../telemetry/tracing.ts";
 import type { BrainsService } from "./brains.ts";
 import type { McpGateway } from "./mcp.ts";
 import { envFor, secretsOf } from "./project-env.ts";
@@ -276,6 +279,45 @@ export function engineFailure(error: unknown): PerchError {
     }
   }
   return new PerchError("upstream_failed", error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * One engine event, as trace (task 3.22). A tool call opens a span and its result closes it, so
+ * what a trace shows is the tool's own duration rather than the round's; usage lands on the round,
+ * which is where "what did this cost" is asked.
+ */
+function traceEvent(round: Span, tools: Map<string, Span>, event: SessionEvent): void {
+  if (event.type === "tool_call") {
+    // Hung off the round explicitly rather than off the active context: the context only carries
+    // the round where a context manager is installed, and a tool beside its round says nothing.
+    const under = trace.setSpan(context.active(), round);
+    tools.set(
+      event.id,
+      tracer.startSpan(`tool.${event.name}`, { attributes: { "perch.tool": event.name } }, under),
+    );
+    return;
+  }
+  if (event.type === "tool_result") {
+    const open = tools.get(event.id);
+    if (!open) return;
+    if (event.diff?.length) open.setAttribute("perch.files_changed", event.diff.length);
+    open.end();
+    tools.delete(event.id);
+    return;
+  }
+  if (event.type === "permission") {
+    round.addEvent("permission", { "perch.tool": event.tool });
+    return;
+  }
+  if (event.type === "usage") {
+    round.setAttributes({
+      "perch.input_tokens": event.input,
+      "perch.output_tokens": event.output,
+      "perch.cost_usd": event.costUsd,
+    });
+    return;
+  }
+  if (event.type === "error") round.addEvent("error", { "perch.message": event.message });
 }
 
 /**
@@ -1133,91 +1175,124 @@ export class SessionService {
     // watching, and whether the session lets itself go once the round is over.
     const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
     const background = project?.config.background ?? {};
-    try {
-      this.armSilence(session, round);
-      for await (const event of round.engine.send(session.id, turn, {
-        mode,
-        ...(reasoning === "auto" ? {} : { reasoning }),
-      })) {
-        const { seq } = await this.record(session, event);
-        if (event.type === "permission") {
-          if (unattended(background.unattended, event.tool)) {
-            // Answered by the project's own policy, and the transcript says so rather than
-            // pretending a person pressed Allow.
-            await this.record(session, {
-              type: "tool_result",
-              id: event.id,
-              output: `allowed without asking: ${event.tool} is unattended in this project`,
-            });
-            await round.engine.respondPermission(session.id, event.id, "allow").catch(() => {});
-            this.armSilence(session, round);
-            continue;
-          }
-          this.pending.set(session.id, { id: event.id, tool: event.tool, seq });
-          if (round.timer) clearTimeout(round.timer);
-          round.timer = null;
-          await this.setStatus(session, "needs_you");
-          continue;
-        }
-        this.armSilence(session, round);
-        if (event.type === "usage" && event.costUsd > 0) {
-          await addCost(this.deps.db, session.id, event.costUsd);
-        } else if (event.type === "done") {
-          ended = true;
-          await this.setStatus(session, "idle");
-          break;
-        } else if (event.type === "error") {
-          ended = true;
-          await this.setStatus(session, "error", event.message);
-          break;
-        }
-      }
-      if (!ended) {
-        await this.record(session, { type: "done" });
-        await this.setStatus(session, "idle");
-      }
-      // Auto-settle: a background run that finished with nothing waiting on a person lets its
-      // session go, so a runner is not held open by a conversation nobody is having.
-      //
-      // An unattended session always settles (ADR-0133). A session the board opened belongs to
-      // the card rather than to a person at a keyboard, and its ending is what moves the card to
-      // review — a session that never ends is a card that never moves. A race entrant is the same
-      // thing: its ending is what gets it measured and compared (task 3.16).
-      // The project's own tests on what this round wrote, with a failure fed back as the next
-      // turn (task 3.18). It answers before auto-settle, because a session that has ended cannot
-      // be told anything — and only for a round that finished cleanly: an agent that errored, or
-      // one parked on a permission, has a different problem from a failing test.
-      let held = false;
-      const after = await getSession(this.deps.db, session.id);
-      if (after?.status === "idle") {
+    const tools = new Map<string, Span>();
+    // One trace per round (task 3.22): the model call is this span, and every tool it asks for
+    // and every runner RPC underneath lands inside it — active, so a runner call three layers
+    // down needs to know nothing about the round it is part of.
+    await tracer.startActiveSpan(
+      "session.round",
+      {
+        attributes: {
+          "perch.engine": session.engine,
+          "perch.turn": session.turns + 1,
+          "perch.mode": mode,
+          ...ids({
+            workspaceId: session.workspaceId,
+            projectId: session.projectId,
+            sessionId: session.id,
+            userId: session.userId,
+            ...(session.workItemId ? { workItemId: session.workItemId } : {}),
+          }),
+        },
+      },
+      async (round_) => {
         try {
-          held = (await this.roundEnd?.(after)) ?? false;
+          this.armSilence(session, round);
+          for await (const event of round.engine.send(session.id, turn, {
+            mode,
+            ...(reasoning === "auto" ? {} : { reasoning }),
+          })) {
+            const { seq } = await this.record(session, event);
+            traceEvent(round_, tools, event);
+            if (event.type === "permission") {
+              if (unattended(background.unattended, event.tool)) {
+                // Answered by the project's own policy, and the transcript says so rather than
+                // pretending a person pressed Allow.
+                await this.record(session, {
+                  type: "tool_result",
+                  id: event.id,
+                  output: `allowed without asking: ${event.tool} is unattended in this project`,
+                });
+                await round.engine.respondPermission(session.id, event.id, "allow").catch(() => {});
+                this.armSilence(session, round);
+                continue;
+              }
+              this.pending.set(session.id, { id: event.id, tool: event.tool, seq });
+              if (round.timer) clearTimeout(round.timer);
+              round.timer = null;
+              await this.setStatus(session, "needs_you");
+              continue;
+            }
+            this.armSilence(session, round);
+            if (event.type === "usage" && event.costUsd > 0) {
+              await addCost(this.deps.db, session.id, event.costUsd);
+            } else if (event.type === "done") {
+              ended = true;
+              await this.setStatus(session, "idle");
+              break;
+            } else if (event.type === "error") {
+              ended = true;
+              await this.setStatus(session, "error", event.message);
+              break;
+            }
+          }
+          if (!ended) {
+            await this.record(session, { type: "done" });
+            await this.setStatus(session, "idle");
+          }
+          // Auto-settle: a background run that finished with nothing waiting on a person lets its
+          // session go, so a runner is not held open by a conversation nobody is having.
+          //
+          // An unattended session always settles (ADR-0133). A session the board opened belongs to
+          // the card rather than to a person at a keyboard, and its ending is what moves the card to
+          // review — a session that never ends is a card that never moves. A race entrant is the same
+          // thing: its ending is what gets it measured and compared (task 3.16).
+          // The project's own tests on what this round wrote, with a failure fed back as the next
+          // turn (task 3.18). It answers before auto-settle, because a session that has ended cannot
+          // be told anything — and only for a round that finished cleanly: an agent that errored, or
+          // one parked on a permission, has a different problem from a failing test.
+          let held = false;
+          const after = await getSession(this.deps.db, session.id);
+          if (after?.status === "idle") {
+            try {
+              held = (await this.roundEnd?.(after)) ?? false;
+            } catch (error) {
+              this.deps.log.warn(
+                { err: error, sessionId: session.id },
+                "the round-end hook failed",
+              );
+            }
+          }
+          const settles = background.autoSettle || session.unattended;
+          if (settles && !held && !this.pending.has(session.id)) {
+            const fresh = await getSession(this.deps.db, session.id);
+            if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
+          }
         } catch (error) {
-          this.deps.log.warn({ err: error, sessionId: session.id }, "the round-end hook failed");
+          const message = error instanceof Error ? error.message : String(error);
+          this.deps.log.warn({ err: error, sessionId: session.id }, "session round failed");
+          if (error instanceof EngineError && error.code === "unknown_session") {
+            this.known.delete(session.id);
+          }
+          try {
+            await this.record(session, { type: "error", message });
+            await this.setStatus(session, "error", message);
+          } catch (inner) {
+            this.deps.log.error(
+              { err: inner, sessionId: session.id },
+              "could not record the failure",
+            );
+          }
+        } finally {
+          // A tool the engine never finished is still a span that has to end.
+          for (const open of tools.values()) open.end();
+          round_.end();
+          if (round.timer) clearTimeout(round.timer);
+          this.rounds.delete(session.id);
+          this.pending.delete(session.id);
         }
-      }
-      const settles = background.autoSettle || session.unattended;
-      if (settles && !held && !this.pending.has(session.id)) {
-        const fresh = await getSession(this.deps.db, session.id);
-        if (fresh?.status === "idle") await this.setStatus(fresh, "ended");
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.log.warn({ err: error, sessionId: session.id }, "session round failed");
-      if (error instanceof EngineError && error.code === "unknown_session") {
-        this.known.delete(session.id);
-      }
-      try {
-        await this.record(session, { type: "error", message });
-        await this.setStatus(session, "error", message);
-      } catch (inner) {
-        this.deps.log.error({ err: inner, sessionId: session.id }, "could not record the failure");
-      }
-    } finally {
-      if (round.timer) clearTimeout(round.timer);
-      this.rounds.delete(session.id);
-      this.pending.delete(session.id);
-    }
+      },
+    );
   }
 
   private async setStatus(

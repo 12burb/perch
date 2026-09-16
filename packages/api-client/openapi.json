@@ -6071,6 +6071,65 @@
           }
         }
       },
+      "WorkItemCost": {
+        "type": "object",
+        "properties": {
+          "cost_usd": {
+            "type": "number"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          },
+          "working_ms": {
+            "type": "integer"
+          },
+          "turns": {
+            "type": "integer"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "engine": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "cost_usd": {
+                  "type": "number"
+                },
+                "turns": {
+                  "type": "integer"
+                },
+                "elapsed_ms": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "engine",
+                "status",
+                "cost_usd",
+                "turns",
+                "elapsed_ms"
+              ]
+            }
+          }
+        },
+        "required": [
+          "cost_usd",
+          "elapsed_ms",
+          "working_ms",
+          "turns",
+          "sessions"
+        ]
+      },
       "WorkItemSessionStarted": {
         "type": "object",
         "properties": {
@@ -20467,6 +20526,65 @@
           },
           "422": {
             "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/work-items/{id}/cost": {
+      "get": {
+        "tags": [
+          "work"
+        ],
+        "summary": "What this item cost, and where its time went",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rollup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkItemCost"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {

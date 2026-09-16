@@ -161,6 +161,48 @@ const patchRouteDef = createRoute({
   },
 });
 
+/**
+ * What it cost and where the time went (spec §5.7 "cost rolled up to the work item"; task 3.22).
+ * Nothing here is stored: it is the item's own sessions, added up at the moment you ask.
+ */
+const costRouteDef = createRoute({
+  method: "get",
+  path: "/api/work-items/{id}/cost",
+  tags: ["work"],
+  summary: "What this item cost, and where its time went",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: z.object({ id: z.uuid() }) },
+  responses: {
+    200: {
+      description: "The rollup",
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              cost_usd: z.number(),
+              elapsed_ms: z.number().int(),
+              working_ms: z.number().int(),
+              turns: z.number().int(),
+              sessions: z.array(
+                z.object({
+                  id: z.uuid(),
+                  engine: z.string(),
+                  status: z.string(),
+                  cost_usd: z.number(),
+                  turns: z.number().int(),
+                  elapsed_ms: z.number().int(),
+                }),
+              ),
+            })
+            .openapi("WorkItemCost"),
+        },
+      },
+    },
+    ...errorResponses(403, 404),
+  },
+});
+
 const startRouteDef = createRoute({
   method: "post",
   path: "/api/work-items/{id}/start-session",
@@ -267,6 +309,27 @@ export function registerWork(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       actorOf(c),
     );
     return c.json(viewWorkItem(updated, key), 200);
+  });
+  app.openapi(costRouteDef, async (c) => {
+    const { item } = await reach(c, c.req.valid("param").id, "work.read");
+    const rolled = await deps.work.cost(item.id);
+    return c.json(
+      {
+        cost_usd: rolled.costUsd,
+        elapsed_ms: rolled.elapsedMs,
+        working_ms: rolled.workingMs,
+        turns: rolled.turns,
+        sessions: rolled.sessions.map((one) => ({
+          id: one.id,
+          engine: one.engine,
+          status: one.status,
+          cost_usd: one.costUsd,
+          turns: one.turns,
+          elapsed_ms: one.elapsedMs,
+        })),
+      },
+      200,
+    );
   });
 
   app.openapi(startRouteDef, async (c) => {

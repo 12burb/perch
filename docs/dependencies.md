@@ -70,6 +70,8 @@ only the packages it declares.
 | `@opentelemetry/api` | 1.9.1 | apps/api | |
 | `@opentelemetry/sdk-node` | 0.222.0 | apps/api | OTLP export off by default |
 | `@opentelemetry/exporter-trace-otlp-http` | 0.222.0 | apps/api | |
+| `@opentelemetry/sdk-trace-base` | 2.11.0 | apps/api (dev) | The in-memory exporter task 3.22's trace test asserts against; already the resolved version under `sdk-node` |
+| `@opentelemetry/context-async-hooks` | 2.11.0 | apps/api (dev) | The AsyncLocalStorage context manager `sdk-node` installs at runtime; the trace tests install the same one so nesting is tested as it ships |
 | `dockerode` | 5.0.1 | apps/api | supervisor entrypoint only (spike 0.4.7); `@types/dockerode` 4.0.1 dev |
 | `yaml` | 2.9.1 | apps/api, packages/connect, packages/policy | manifests, bot.yaml, policy.yaml |
 | `ai` | 7.0.99 | packages/gateway | Vercel AI SDK 7 |

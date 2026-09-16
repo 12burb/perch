@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { SquareKanban } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
-import { projectsQuery, workItemsQuery } from "../lib/queries.ts";
+import { projectsQuery, workItemCostQuery, workItemsQuery } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
 
 /**
@@ -167,6 +167,43 @@ function Column(props: {
   );
 }
 
+/** States where the work is over, and the bill is the whole bill. */
+const FINISHED: Partial<Record<State, true>> = { done: true, cancelled: true };
+
+function minutes(ms: number): string {
+  const total = Math.round(ms / 60_000);
+  if (total < 60) return `${total}m`;
+  return `${Math.floor(total / 60)}h ${total % 60}m`;
+}
+
+/**
+ * What the item cost and where its time went (spec §5.7; task 3.22). Shown on a finished card,
+ * because that is the moment the question is asked — and the two clocks are different numbers: the
+ * time the item took, and the time an agent spent on it, which is larger when a race ran three at
+ * once.
+ */
+function Cost(props: { item: Item }) {
+  const rolled = useQuery({ ...workItemCostQuery(props.item.id), enabled: true }).data;
+  if (!rolled) return null;
+  const spent = rolled.cost_usd > 0 ? `$${rolled.cost_usd.toFixed(2)}` : t("work.free");
+  const turns = rolled.turns === 1 ? t("work.turn") : t("work.turns", { count: rolled.turns });
+  const time = minutes(rolled.elapsed_ms);
+  return (
+    <p className="text-sm text-fg-muted">
+      {/* Compact enough for a card at 390 px, read out in full by anything reading it aloud. */}
+      <span aria-hidden="true">{t("work.cost", { cost: spent, turns, time })}</span>
+      <span className="sr-only">
+        {t("work.costLabel", {
+          identifier: props.item.identifier,
+          cost: spent,
+          turns,
+          time: minutes(rolled.working_ms),
+        })}
+      </span>
+    </p>
+  );
+}
+
 function Card(props: {
   item: Item;
   states: State[];
@@ -244,6 +281,7 @@ function Card(props: {
       {props.item.thread_root_id ? (
         <span className="text-sm text-fg-muted">{t("work.fromThread")}</span>
       ) : null}
+      {FINISHED[props.item.state] ? <Cost item={props.item} /> : null}
 
       <label className="flex items-center gap-2 text-sm">
         <span className="sr-only">{t("work.moveTo", { identifier: props.item.identifier })}</span>

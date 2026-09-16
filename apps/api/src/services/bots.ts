@@ -10,6 +10,8 @@
  * answers them, and the bot's run goes on in the background — which is also why the answer arrives
  * as a message that fills in rather than a response somebody waited for.
  */
+
+import type { Span } from "@opentelemetry/api";
 import {
   type AttachedServer,
   type BotEvents,
@@ -98,6 +100,7 @@ import {
 } from "../repos/messages.ts";
 import { threadFactsOf, upsertThreadFacts } from "../repos/threads.ts";
 import { handleTaken } from "../repos/users.ts";
+import { ids, span, tracer } from "../telemetry/tracing.ts";
 import type { BrainsService } from "./brains.ts";
 import type { ConnectionsService } from "./connections.ts";
 import type { McpGateway } from "./mcp.ts";
@@ -570,15 +573,26 @@ export class BotsService {
         provider: connection.provider,
         tools: upstream.map((one) => ({ name: one.name, description: one.description })),
         needsPerson: (name: string) => needs.has(name),
+        // A span per tool the bot actually calls (task 3.22): the name and the provider, never
+        // the arguments — a tool's arguments are the conversation.
         call: async (name: string, args: Record<string, unknown>) =>
-          await this.deps.mcp?.call({
-            connection,
-            allowList,
-            tool: name,
-            args,
-            by: input.by,
-            callerId: bot.id,
-          }),
+          await span(
+            `tool.${name}`,
+            {
+              "perch.tool": name,
+              "perch.provider": connection.provider,
+              ...ids({ workspaceId: channel.workspaceId, botId: bot.id }),
+            },
+            async () =>
+              await this.deps.mcp?.call({
+                connection,
+                allowList,
+                tool: name,
+                args,
+                by: input.by,
+                callerId: bot.id,
+              }),
+          ),
         ask: async (name: string, args: Record<string, unknown>) =>
           await this.askPermission(bot, channel, input, connection, name, args),
       });
@@ -1586,6 +1600,35 @@ export class BotsService {
       return { run: ended ?? run, text: verdict.reason };
     }
 
+    // One trace per bot run (task 3.22), whichever lane answers it. Active for the length of the
+    // run, so the model call and every tool it reaches for land inside it.
+    return await tracer.startActiveSpan(
+      "bot.run",
+      {
+        attributes: {
+          "perch.trigger": input.trigger,
+          ...ids({ workspaceId: channel.workspaceId, botId: bot.id }),
+        },
+      },
+      async (traced) => {
+        try {
+          return await this.answered(bot, channel, input, run, state, traced);
+        } finally {
+          traced.end();
+        }
+      },
+    );
+  }
+
+  /** The run itself, inside its span. */
+  private async answered(
+    bot: Bot,
+    channel: Channel,
+    input: RunInput,
+    run: BotRun,
+    state: Awaited<ReturnType<typeof spending>>,
+    traced: Span,
+  ): Promise<RunOutcome> {
     // A code bot is its own answer: the file decides, not a model (spec §5.3; task 3.2).
     if (bot.code) return await this.runCode(bot, channel, input, run);
     // An agent bot does not answer from a model at all: it opens a session (spec §5.3; task 3.7).
@@ -1618,33 +1661,48 @@ export class BotsService {
 
       const stopper = new AbortController();
       this.stopping.set(run.id, stopper);
-      const result = await runBot({
-        signal: stopper.signal,
-        bot: { id: bot.id, name: bot.name, handle: bot.handle, spec: bot.spec },
-        model,
-        modelId: profile.modelId,
-        messages,
-        tools,
-        allowed,
-        capUsd: budgetLeft(bot.budget, state),
-        ...(this.options.editEveryMs === undefined
-          ? {}
-          : { editEveryMs: this.options.editEveryMs }),
-        placeholder: {
-          update: async (text) => {
-            if (placeholder) placeholder = await this.rewrite(bot, channel, placeholder, text);
-          },
-          finish: async (text) => {
-            if (placeholder) placeholder = await this.rewrite(bot, channel, placeholder, text);
-          },
+      const result = await span(
+        "bot.model",
+        {
+          "perch.model_id": profile.modelId,
+          "perch.provider": profile.provider,
+          ...ids({ workspaceId: channel.workspaceId, botId: bot.id }),
         },
-      });
+        async () =>
+          await runBot({
+            signal: stopper.signal,
+            bot: { id: bot.id, name: bot.name, handle: bot.handle, spec: bot.spec },
+            model,
+            modelId: profile.modelId,
+            messages,
+            tools,
+            allowed,
+            capUsd: budgetLeft(bot.budget, state),
+            ...(this.options.editEveryMs === undefined
+              ? {}
+              : { editEveryMs: this.options.editEveryMs }),
+            placeholder: {
+              update: async (text) => {
+                if (placeholder) placeholder = await this.rewrite(bot, channel, placeholder, text);
+              },
+              finish: async (text) => {
+                if (placeholder) placeholder = await this.rewrite(bot, channel, placeholder, text);
+              },
+            },
+          }),
+      );
 
       // The answer is already in the message; only a note about an overrun needs another write.
       const said = withNote(result.text, result.stopped);
       if (placeholder && result.stopped) {
         placeholder = await this.rewrite(bot, channel, placeholder, said);
       }
+      traced.setAttributes({
+        "perch.input_tokens": result.inputTokens,
+        "perch.output_tokens": result.outputTokens,
+        "perch.cost_usd": result.costUsd,
+        "perch.model_id": profile.modelId,
+      });
       const ended = await finishRun(this.deps.db, run.id, {
         status: "done",
         inputTokens: result.inputTokens,

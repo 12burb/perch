@@ -28,5 +28,10 @@
   "work.watching": "An agent is on it",
   "work.openSession": "Open the session",
   "work.openPr": "Open the pull request",
-  "work.fromThread": "From a thread"
+  "work.fromThread": "From a thread",
+  "work.cost": "{cost} · {turns} · {time}",
+  "work.costLabel": "{identifier} cost {cost} over {turns} in {time}",
+  "work.turns": "{count} turns",
+  "work.turn": "1 turn",
+  "work.free": "no cost recorded"
 }

@@ -95,6 +95,24 @@ export function branchOf(projectKey: string, number: number): string {
   return `perch/${projectKey.toLowerCase()}-${number}`;
 }
 
+/** What a work item cost, and where its time went (spec §5.7; task 3.22). */
+export type WorkItemCost = {
+  costUsd: number;
+  /** Wall clock from the item being made to its last session ending, or to now. */
+  elapsedMs: number;
+  /** The part of that a session was actually running; sessions overlap, so it can exceed it. */
+  workingMs: number;
+  turns: number;
+  sessions: {
+    id: string;
+    engine: string;
+    status: string;
+    costUsd: number;
+    turns: number;
+    elapsedMs: number;
+  }[];
+};
+
 export class WorkService {
   constructor(private readonly deps: WorkDeps) {}
 
@@ -279,6 +297,39 @@ export class WorkService {
 
   item(id: string): Promise<WorkItem | null> {
     return getWorkItem(this.db, id);
+  }
+
+  /**
+   * What it cost and where the time went (task 3.22). Everything here is already recorded — the
+   * sessions' own cost and their own clocks — because a second ledger of what an item cost is a
+   * second answer that can disagree with the first.
+   */
+  async cost(workItemId: string): Promise<WorkItemCost> {
+    const item = await getWorkItem(this.db, workItemId);
+    const sessions = await sessionsForWorkItem(this.db, workItemId);
+    const rows = sessions.map((one) => ({
+      id: one.id,
+      engine: one.engine,
+      status: one.status,
+      costUsd: one.costUsd,
+      turns: one.turns,
+      elapsedMs: Math.max(0, (one.endedAt ?? new Date()).getTime() - one.startedAt.getTime()),
+    }));
+    // The item's own clock stops at its last session, when it has one: an item that is done is not
+    // still spending time.
+    const last = sessions
+      .map((one) => one.endedAt?.getTime() ?? Date.now())
+      .reduce((a, b) => Math.max(a, b), 0);
+    const from = item?.createdAt.getTime() ?? Date.now();
+    return {
+      costUsd: rows.reduce((sum, one) => sum + one.costUsd, 0),
+      elapsedMs: Math.max(0, (last || Date.now()) - from),
+      // Sessions can overlap (a race runs several at once), so this is time spent rather than time
+      // passed, and the two are different numbers on purpose.
+      workingMs: rows.reduce((sum, one) => sum + one.elapsedMs, 0),
+      turns: rows.reduce((sum, one) => sum + one.turns, 0),
+      sessions: rows,
+    };
   }
 
   /**
