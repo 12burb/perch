@@ -349,3 +349,26 @@ export async function botsByHandles(
     .from(bots)
     .where(and(eq(bots.workspaceId, workspaceId), inArray(bots.handle, handles)));
 }
+
+/** Every bot that came from one project's repository (task 3.1). */
+export async function listSpecBots(db: Db, projectId: string): Promise<Bot[]> {
+  return db
+    .select()
+    .from(bots)
+    .where(eq(bots.sourceProjectId, projectId))
+    .orderBy(asc(bots.sourcePath));
+}
+
+/** One workspace's bot by handle, whatever it came from: what a sync has to not collide with. */
+export async function findBotByHandle(
+  db: Db,
+  workspaceId: string,
+  handle: string,
+): Promise<Bot | null> {
+  const [row] = await db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.workspaceId, workspaceId), eq(bots.handle, handle)))
+    .limit(1);
+  return row ?? null;
+}

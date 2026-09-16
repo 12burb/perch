@@ -17,7 +17,7 @@
     },
     "apps/api": {
       "name": "@perch/api",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@better-auth/passkey": "1.7.4",
         "@electric-sql/pglite": "0.5.8",
@@ -59,7 +59,7 @@
     },
     "apps/cli": {
       "name": "@perch/cli",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "perch": "./src/index.ts",
       },
@@ -74,7 +74,7 @@
     },
     "apps/desktop": {
       "name": "@perch/desktop",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "perch-desktop": "./src/index.ts",
       },
@@ -85,7 +85,7 @@
     },
     "apps/runner": {
       "name": "@perch/runner",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "1.4.0",
         "@modelcontextprotocol/sdk": "1.30.0",
@@ -101,7 +101,7 @@
     },
     "apps/web": {
       "name": "@perch/web",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@better-auth/passkey": "1.7.4",
         "@codemirror/commands": "6.11.0",
@@ -150,11 +150,11 @@
     },
     "connectors": {
       "name": "@perch/connectors",
-      "version": "0.0.0",
+      "version": "0.1.0",
     },
     "packages/api-client": {
       "name": "@perch/api-client",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "openapi-fetch": "0.17.0",
       },
@@ -165,29 +165,30 @@
     },
     "packages/bot-sdk": {
       "name": "@perch/bot-sdk",
-      "version": "0.0.0",
+      "version": "0.1.0",
     },
     "packages/bots": {
       "name": "@perch/bots",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@perch/db": "workspace:*",
         "@perch/gateway": "workspace:*",
         "ai": "7.0.99",
         "quickjs-emscripten": "0.32.0",
+        "yaml": "2.9.1",
         "zod": "4.6.3",
       },
     },
     "packages/bus": {
       "name": "@perch/bus",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@perch/events": "workspace:*",
       },
     },
     "packages/connect": {
       "name": "@perch/connect",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0",
         "@perch/connectors": "workspace:*",
@@ -198,7 +199,7 @@
     },
     "packages/db": {
       "name": "@perch/db",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@electric-sql/pglite": "0.5.8",
         "@electric-sql/pglite-pgvector": "0.0.9",
@@ -212,7 +213,7 @@
     },
     "packages/engines": {
       "name": "@perch/engines",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "1.4.0",
         "@opencode-ai/sdk": "1.18.30",
@@ -222,14 +223,14 @@
     },
     "packages/events": {
       "name": "@perch/events",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "zod": "4.6.3",
       },
     },
     "packages/gateway": {
       "name": "@perch/gateway",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/anthropic": "4.0.53",
         "@ai-sdk/google": "4.0.69",
@@ -244,11 +245,11 @@
     },
     "packages/inspector": {
       "name": "@perch/inspector",
-      "version": "0.0.0",
+      "version": "0.1.0",
     },
     "packages/jobs": {
       "name": "@perch/jobs",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@perch/db": "workspace:*",
         "croner": "10.0.1",
@@ -257,7 +258,7 @@
     },
     "packages/policy": {
       "name": "@perch/policy",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "yaml": "2.9.1",
         "zod": "4.6.3",
@@ -265,18 +266,18 @@
     },
     "packages/preview": {
       "name": "@perch/preview",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "zod": "4.6.3",
       },
     },
     "packages/repo": {
       "name": "@perch/repo",
-      "version": "0.0.0",
+      "version": "0.1.0",
     },
     "packages/ui": {
       "name": "@perch/ui",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@perch/events": "workspace:*",
         "@tanstack/react-virtual": "3.14.12",

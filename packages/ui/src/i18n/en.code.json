@@ -321,5 +321,8 @@
   "codebase.draft": "Draft AGENTS.md",
   "codebase.draftHint": "Written from what this repository shows. The TODOs are the judgement calls, which are yours.",
   "codebase.draftLabel": "AGENTS.md draft",
-  "codebase.draftSave": "Save to the project"
+  "codebase.draftSave": "Save to the project",
+  "git.reloadBots": "Reload bots",
+  "git.botsSynced": "Bots: {added} added, {updated} updated, {removed} removed",
+  "git.botsFailed": "{handle}: {error}"
 }

@@ -7,7 +7,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./templates": "./src/templates.ts"
+    "./templates": "./src/templates.ts",
+    "./spec": "./src/spec.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -18,6 +19,7 @@
     "@perch/gateway": "workspace:*",
     "ai": "7.0.99",
     "quickjs-emscripten": "0.32.0",
+    "yaml": "2.9.1",
     "zod": "4.6.3"
   }
 }

@@ -4,9 +4,9 @@ Spec §5.3, §5.4, §7.3. A bot is a member of the workspace that happens not to
 handle people type after an `@`, a spec that says how it behaves, an owner who answers for it, and a
 ledger of everything it has done and spent.
 
-Task 2.6 ships the **native runtime** — the one that runs inside Perch on a brain you have
-configured. Spec bots (`bot.yaml`), code bots (`@perch/bot-sdk` in a sandbox) and external bots over
-the Bot API arrive with the rest of Phase 2.
+Three of the four ways to make one are here: the **Forge** (a form, task 2.8), a **spec bot** that
+lives in a repository (`bots/<handle>/bot.yaml`, below), and an **external bot** over the
+[Bot API](bot-api.md). Code bots — `@perch/bot-sdk` in a sandbox — arrive with task 3.2.
 
 ## Making one
 
@@ -86,6 +86,69 @@ its persona.
 **Memory.** `window` is how much of the thread it is shown. `remember` and `recall` keep short facts
 between turns; with an embedding model configured they are matched by meaning, and without one by
 the words themselves (ADR-0096).
+
+## A bot that lives in a repository
+
+A spec bot is a directory in one of your projects. Nothing about it is clicked:
+
+```
+bots/
+  scribe/
+    bot.yaml
+    SYSTEM.md
+    skills/
+      headlines/
+        SKILL.md
+```
+
+`bot.yaml` is written the way spec §5.3 writes it:
+
+```yaml
+handle: grok            # optional; the folder's name otherwise
+name: Grok
+persona: ./SYSTEM.md    # or the text itself, inline
+brain:
+  model: Newsroom brain # the name of a model profile in this workspace
+  temperature: 0.7
+tools: [web_search, http_fetch]
+triggers:
+  - dm
+  - mention
+  - schedule: "0 9 * * 1-5"
+    prompt: Post today's gaming + crypto headlines
+    channel: newsroom
+scope:
+  channels: [newsroom, general]
+memory: {window: 30, long_term: false}
+budget: {daily_usd: 5}
+visibility: workspace
+```
+
+Keys are written in the file the way the spec writes them (`daily_usd`, `long_term`, `max_steps`)
+and stored the way §6 stores them. `model:` names a **model profile**, not a vendor's model id: a
+self-hosted Perch reaches every model through a profile, which is where the credential and the
+policy live (ADR-0116).
+
+`SYSTEM.md` is the persona — what the bot was told about itself. Each `skills/**/SKILL.md` is one
+skill in the Agent Skills format: YAML frontmatter with `name` and `description`, then the
+instructions. A skill with no frontmatter takes its name from its folder.
+
+### Reading them
+
+```
+POST /api/workspaces/{ws}/projects/{project}/bots/reload
+→ {added: [...], updated: [...], removed: [...], failed: [{handle, error}]}
+```
+
+A **push from the Git panel does this on its own** (spec §5.3's "hot-reload on push"), and the
+panel's **Reload bots** button does it after a pull or an edit. The repository is the source of
+truth: a new directory becomes a bot, a changed one is rewritten, and a directory that is gone
+takes its bot with it. A bot made in the Forge is never touched — the sync only ever looks at rows
+that name this project.
+
+A directory Perch cannot read does not stop the rest. Its bot is **paused**, the reason is kept on
+the row and shown in the panel, and every other bot in the repository still syncs. A handle another
+bot already has is refused the same way, because a handle is a name people type.
 
 ## Budgets and rate limits
 

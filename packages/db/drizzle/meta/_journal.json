@@ -169,6 +169,13 @@
       "when": 1789521616411,
       "tag": "0023_bot_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789529692495,
+      "tag": "0024_spec_bots",
+      "breakpoints": true
     }
   ]
 }

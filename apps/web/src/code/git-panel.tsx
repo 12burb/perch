@@ -50,6 +50,8 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<SecretFinding[]>([]);
+  /** Bot directories the last sync could not read (task 3.1). */
+  const [botErrors, setBotErrors] = useState<{ handle: string; error: string }[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [newBranch, setNewBranch] = useState("");
   const [prTitle, setPrTitle] = useState("");
@@ -123,6 +125,32 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
       setNote(t("git.pushed", { remote: pushed.remote }));
       setError(null);
       await refresh();
+    },
+    onError: (err: unknown) => setError(message(err)),
+  });
+
+  /**
+   * A push hot-reloads this project's spec bots on its own (spec §5.3; task 3.1). This is for when
+   * the files changed without one — a pull, an edit in the editor — and for seeing what went wrong
+   * with a bot the repository defines.
+   */
+  const reloadBots = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/projects/{project}/bots/reload", {
+          params: { path: { ws: props.workspaceId, project: props.projectId } },
+        }),
+      ),
+    onSuccess: (synced) => {
+      setError(null);
+      setNote(
+        t("git.botsSynced", {
+          added: synced.added.length,
+          updated: synced.updated.length,
+          removed: synced.removed.length,
+        }),
+      );
+      setBotErrors(synced.failed);
     },
     onError: (err: unknown) => setError(message(err)),
   });
@@ -317,7 +345,24 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
           <Button size="sm" variant="ghost" disabled={push.isPending} onClick={() => push.mutate()}>
             {t("git.push")}
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={reloadBots.isPending}
+            onClick={() => reloadBots.mutate()}
+          >
+            {t("git.reloadBots")}
+          </Button>
         </div>
+        {botErrors.length > 0 ? (
+          <ul aria-label={t("git.reloadBots")} className="flex flex-col gap-1">
+            {botErrors.map((one) => (
+              <li key={one.handle} data-testid="bot-sync-error" className="text-sm text-danger">
+                {t("git.botsFailed", { handle: one.handle, error: one.error })}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <form
           className="flex flex-wrap items-end gap-2"
           onSubmit={(event: FormEvent) => {

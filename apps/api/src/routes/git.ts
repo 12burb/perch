@@ -367,6 +367,11 @@ export function registerGit(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       ...(auth ? { auth } : {}),
     });
     const pushed = gitPushResultSchema.parse(raw);
+    // Spec §5.3: a bot that lives in this repository hot-reloads on push. The sync reads files on
+    // the runner, so it never fails the push — the panel's Reload bots says what went wrong.
+    await deps.specBots.sync(link, project, user.id).catch((error: unknown) => {
+      deps.log.warn({ err: error, projectId: project.id }, "spec bots did not sync after a push");
+    });
     return c.json({ pushed: true, remote: pushed.remote, branch: pushed.branch }, 200);
   });
 

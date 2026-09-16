@@ -4263,3 +4263,55 @@ found because a project's setup is the slowest thing a person watches; channels,
 inbox are refetched on the same socket and would show the same staleness for a shorter time. The
 honest next step is not to poll them all, but to make a reconnect refetch what it subscribed to —
 which is a change to `apps/web/src/lib/ws.ts` and a task of its own, not a fix on a red `main`.
+
+## ADR-0116: A bot in a repository is the repository's, and `model:` names a profile
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.1
+
+### Context
+Spec §5.3 lists spec bots as one of the four ways to make a bot: "spec bots
+`bots/<handle>/bot.yaml` + `SYSTEM.md` + `skills/` in the Agent Skills format, hot-reload on push",
+with an example whose keys are `daily_usd`, `long_term`, and `model: xai/grok-4.3`. §6's `bots` row
+stores a camel-cased `BotSpec` and has no column saying where a bot came from.
+
+### Decision
+**The repository is the source of truth, and a sync makes the workspace match it.** A new directory
+becomes a bot, a changed one is rewritten, a directory that is gone takes its bot with it. Rows
+carry `source_project_id` and `source_path` (migration 0024), and the sync only ever looks at rows
+that name the project it is syncing — a bot made in the Forge is never touched by a `git pull`.
+
+**`model:` in `bot.yaml` names a model profile, not a vendor's model id.** The spec's example says
+`model: xai/grok-4.3`, which reads as a provider and a model. Perch has no way to run that: a
+self-hosted instance reaches every model through a profile, which is where the credential, the
+policy's per-channel allow-list and the budget live (ADR-0064). A raw vendor id in a file anybody can
+commit would be a credential nobody granted. So the value is read as the profile's name, and the
+file can still say `profile:` if it prefers. Recorded as a spec deviation.
+
+**The file is written the spec's way; the column keeps §6's.** `daily_usd`, `long_term` and
+`max_steps` are what a person writes; `dailyUsd`, `longTerm` and `maxSteps` are what is stored.
+Triggers take any of three forms — a bare word (`dm`), a shorthand block (`{schedule: …}`,
+`{keyword: …}`), or the long form the column stores — because the spec's own example uses two of
+them in one list.
+
+**One bad directory does not lose the rest.** A `bot.yaml` that stops parsing pauses that bot and
+keeps the reason on its row; every other bot in the repository still syncs. A handle another bot
+already holds is refused with a reason rather than taken, because a handle is a name people type and
+two bots cannot share one.
+
+**A push hot-reloads, and it cannot fail the push.** `git.push` syncs after the push succeeds and
+swallows what the sync throws into the log, because a repository whose bots stopped parsing is still
+a repository somebody is entitled to push. The Git panel's Reload bots button is the same sync,
+asked for by hand, and it is where the errors are shown.
+
+### Consequences
+Syncing reads files on the runner, so it needs the project to be ready and its runner online — the
+route answers 409 otherwise, like every other file call.
+
+A synced bot's `schedule` triggers become cron jobs through the same `BotsService.reschedule` a Forge
+bot uses, so a bot that arrives by `git pull` can wake up on a timer. Removing its directory
+unschedules it before the row goes.
+
+The idempotence check compares the spec and budget order-insensitively, because jsonb hands back its
+own key order: a repository nobody touched must not look like one that changed.

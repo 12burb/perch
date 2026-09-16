@@ -23,6 +23,7 @@ import { citext, id, timestamps, timestamptz } from "../columns.ts";
 import type { BotBudget, BotInstallScopes, BotMemoryMetadata, BotSpec } from "../shapes/index.ts";
 import { channels, messages } from "./chat.ts";
 import { users } from "./identity.ts";
+import { projects } from "./projects.ts";
 import { workspaces } from "./tenancy.ts";
 
 /** How a bot was made (spec §5.3 "four ways to make one"). */
@@ -56,10 +57,22 @@ export const bots = pgTable(
     orchestrator: boolean("orchestrator").notNull().default(false),
     budget: jsonb("budget").$type<BotBudget>().notNull().default({}),
     status: text("status").$type<BotStatus>().notNull().default("active"),
+    /**
+     * A spec bot lives in a repository rather than in a form (spec §5.3; task 3.1): which project,
+     * and the folder under `bots/` that is the bot. A bot made in the Forge has neither.
+     */
+    sourceProjectId: uuid("source_project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    sourcePath: text("source_path"),
+    /** What was wrong with its files the last time they were read; null when they were fine. */
+    sourceError: text("source_error"),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("bots_workspace_handle_idx").on(t.workspaceId, t.handle),
+    // A sync reads every bot of one project, so that is the index it needs.
+    index("bots_source_project_idx").on(t.sourceProjectId),
     check("bots_level_check", sql`${t.level} in ('ui', 'spec', 'code', 'external')`),
     check("bots_visibility_check", sql`${t.visibility} in ('private', 'workspace')`),
     check("bots_status_check", sql`${t.status} in ('active', 'paused', 'disabled')`),

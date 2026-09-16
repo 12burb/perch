@@ -20,6 +20,7 @@ import type { PolicyService } from "./services/policy.ts";
 import type { PreviewService } from "./services/previews.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
+import type { SpecBotsService } from "./services/spec-bots.ts";
 
 /** What every handler can reach through the Hono context. */
 export type AppVariables = {
@@ -65,6 +66,8 @@ export type Deps = {
   dbBrowser: DbBrowser;
   /** What Perch knows about a repository: the index behind @codebase (task 2.17). */
   repoIndex: RepoIndexService;
+  /** Bots that live in a project's repository (spec §5.3; task 3.1). */
+  specBots: SpecBotsService;
   /** The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told. */
   botApi: BotApiService;
   /** Feature flags (spec §9.1), default off. */

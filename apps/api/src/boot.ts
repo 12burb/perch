@@ -36,6 +36,7 @@ import { PolicyService } from "./services/policy.ts";
 import { PreviewService } from "./services/previews.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
 import { SessionService, type SessionServiceOptions } from "./services/sessions.ts";
+import { SpecBotsService } from "./services/spec-bots.ts";
 import { createWsServer, type WsServer } from "./ws/server.ts";
 
 function packageVersion(): string {
@@ -165,6 +166,9 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     log,
     ...(env.search ? { search: env.search } : {}),
   });
+  // Bots that live in a project's repository (spec §5.3; task 3.1): the sync needs the bot service
+  // for the cron triggers a synced bot brings with it.
+  const specBots = new SpecBotsService({ db: db.db, bots, log });
   const sessions = new SessionService(
     { db: db.db, bus, registry: runners, engines, flags, brains, mcp, vault, log },
     options.sessions ?? {},
@@ -191,6 +195,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     deploys,
     dbBrowser,
     repoIndex,
+    specBots,
     botApi,
     flags,
     log,

@@ -37,6 +37,7 @@ import { registerRunners } from "./routes/runners.ts";
 import { registerSearch } from "./routes/search.ts";
 import { registerSessions } from "./routes/sessions.ts";
 import { registerSetup } from "./routes/setup.ts";
+import { registerSpecBots } from "./routes/spec-bots.ts";
 import { registerTerminal } from "./routes/terminal.ts";
 import { registerUnfurl } from "./routes/unfurl.ts";
 import { registerVersion } from "./routes/version.ts";
@@ -148,6 +149,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerProjectEnv(app, deps);
   registerDeploys(app, deps);
   registerRepoIndex(app, deps);
+  registerSpecBots(app, deps);
   registerPush(app, deps);
   registerSearch(app, deps);
 
