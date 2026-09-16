@@ -40,12 +40,12 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: /(phase1|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|push)\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
       name: "mobile",
-      testIgnore: /(phase1|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|push)\.e2e\.ts$/,
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },
     // Web push (task 2.3) needs a browser that has the Push API, and the headless shell Playwright
@@ -65,6 +65,13 @@ export default defineConfig({
       metadata: { lane },
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     })),
+    // Phase 2's exit criterion, once (task 2.21): three people in three browsers, and a phone for
+    // the inbox. The spec opens the phone's context itself, so this one runs on a laptop.
+    {
+      name: "phase2",
+      testMatch: /phase2\.e2e\.ts$/,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
   ],
   webServer: {
     command: "bun scripts/e2e-server.ts",

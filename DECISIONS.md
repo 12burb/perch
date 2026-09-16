@@ -4182,3 +4182,50 @@ which is the point: the alternative is a rule in a document that nothing enforce
 `PALETTE_SHOWN = 50` caps ⌘K's commands per group, which is new. Nothing reaches it today; the
 palette takes commands from whatever screen is open (ADR-0111), so it is the one list whose length
 is decided by code rather than by data.
+
+## ADR-0114: Phase 2's exit criterion is one afternoon, not seven specs
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 2.21
+
+### Context
+Spec §2's Phase 2 exit is seven clauses: a team of three uses it daily; @grok answers in #general; a
+Vercel deploy posts its preview URL in a thread; clicking a button in Preview and typing "make this
+primary" lands the right edit; a permission is approved from the phone inbox; a channel pinned to
+local models refuses a cloud model; three bots complete a fan-out and a ping-pong pair trips the
+breaker. Six of the seven already have a spec of their own. Task 2.21 asks for the criterion "as
+Playwright specs" and an "axe sweep on Home, Code, Inbox".
+
+### Decision
+**`e2e/phase2.e2e.ts` is one test, not seven.** Task 1.22 did the same for Phase 1, for the same
+reason: the clauses passing separately is what the feature specs already prove. What the exit
+criterion asks is whether they hold *together*, in one workspace, with the state each one leaves
+behind — and the first clause, "a team of three uses it daily", is not a feature at all. It is the
+sentence the other six are in.
+
+**Three browsers and a phone.** Ada sets the nest up and ships it, Grace joins by invitation and
+asks a bot in the channel the policy pins, Linus points at the page in Preview, and Grace's
+permission is approved from a phone context opened from her own storage state — the same account on
+a 390 px viewport, which is what "the phone inbox" means. One Playwright project, `phase2`, at a
+laptop's viewport, because the spec opens the phone itself; the phone is where the criterion says it
+has to work, not where the whole afternoon happens.
+
+**The axe sweep runs where the person is.** Home after the nest is set up, Code with the project
+open, Inbox on the phone. Each sweep names the screen in its failure message, because a violation
+that says only `color-contrast` in a 400-line spec is a worse bug report than one that says where.
+
+**The bots' words are scripted in the stand-in provider, by handle.** `SCRIPTED` in
+`scripts/e2e-server.ts` gives `desk` two specialists to tag, `crypto` and `gaming` their pieces, and
+`ping`/`pong` each other. Anything not in that map still answers with what it was asked, which is
+what the other specs rely on. The fan-out and the breaker were covered by `apps/api/test/chains.test.ts`
+from the model's side; this is the first time they run in a browser.
+
+### Consequences
+`bun run e2e` gains one project and about twenty seconds. The `desktop` and `mobile` projects ignore
+`phase2.e2e.ts` the way they already ignore `phase1.e2e.ts`, so the afternoon runs once rather than
+at two viewports.
+
+A spec this long fails in more places than a short one, and each failure is now a claim about the
+whole phase rather than one feature. That is the point, and it is also the cost: when it goes red,
+the feature spec beside it says which clause.

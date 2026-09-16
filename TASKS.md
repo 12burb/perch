@@ -83,7 +83,7 @@ the phase, ADR-0018); each line names the commit that carries its evidence.
 - [x] **2.18** Custom actions, reasoning level, background and auto-settle policies per project (a custom action runs from the session pane and from ⌘K) — commit `feat(actions): a project says what its buttons are, and how hard its agent thinks` (ADR-0111; every `run` command is a quick action and `.perch/project.json`'s own `actions` add to them, a prompt action sends a turn in its own mode and level while a run action is typed into the terminal, the reasoning level is a session column that the ACP adapter maps onto the agent's `thought_level` session config rather than asking in prose, `background.unattended` answers a named tool's permission itself and says so in the transcript while `autoSettle` ends a finished round's session, and §7.6 gains `project.config` so the checked-in file can be re-read without re-cloning; apps/api/test/actions.test.ts covers all four and e2e/actions.e2e.ts runs the acceptance from the pane and from ⌘K at both viewports)
 - [x] **2.19** Bot API v1: endpoints and socket mode per §7.3 with scopes and rate limits; bot-sdk published (an external script posts a message and receives an app_mention)
 - [x] **2.20** Perf audit script in CI: WS payload budget, bundle size budget, list virtualization check (budgets enforced)
-- [ ] **2.21** Phase 2 e2e: the exit criterion as Playwright specs; axe sweep on Home, Code, Inbox (all green)
+- [x] **2.21** Phase 2 e2e: the exit criterion as Playwright specs; axe sweep on Home, Code, Inbox (all green)
 
 ## Phase 3 — Bot platform + the loop
 

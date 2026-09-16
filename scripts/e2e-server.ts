@@ -43,6 +43,22 @@ if (!process.env.E2E_SKIP_BUILD) {
  * A stand-in provider: it answers the OpenAI-compatible model list, and only with a key on the
  * paths that ask for one, so a spec can prove a credential was accepted or rejected.
  */
+/**
+ * What a bot says when it is named, by handle. Anything not here answers with what it was asked,
+ * which is what most specs want; these are the ones whose words have to tag somebody.
+ */
+const SCRIPTED: Record<string, string> = {
+  // Task 2.7: a lead tags one desk, and the thread's header counts two hops.
+  lead: "<@gamma> what do you have?",
+  // Task 2.21: three bots complete a fan-out — the desk tags two, and both answer.
+  desk: "Asking the desk: <@crypto> <@gaming> what do you have?",
+  crypto: "Crypto has the crypto piece.",
+  gaming: "Gaming has the gaming piece.",
+  // Task 2.21: a pair that will not stop, until the breaker stops them.
+  ping: "<@pong> your turn",
+  pong: "<@ping> no, yours",
+};
+
 const providerPort = Number(process.env.E2E_PROVIDER_PORT ?? "3998");
 const provider = Bun.serve({
   port: providerPort,
@@ -58,11 +74,11 @@ const provider = Bun.serve({
       const handle = /writing @([a-z0-9_-]+)/.exec(String(system?.content ?? ""))?.[1] ?? "";
       // How much of the conversation it was shown, which is what proves a fresh chat (task 2.9).
       const turns = (body.messages ?? []).filter((one) => one.role !== "system").length;
-      // A lead tags the desk, which is what makes a chain in the browser (task 2.7).
+      // A lead tags the desk, which is what makes a chain in the browser (task 2.7); the desk,
+      // the two specialists and the arguing pair are Phase 2's exit criterion (task 2.21).
       const reply =
-        handle === "lead"
-          ? "<@gamma> what do you have?"
-          : `Reading you (${turns} shown). You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
+        SCRIPTED[handle] ??
+        `Reading you (${turns} shown). You said: ${asked.replace(/^[^:]*:\s*/, "")}`;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const send = (payload: unknown) =>
