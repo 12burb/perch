@@ -21,6 +21,7 @@ import type { PreviewService } from "./services/previews.ts";
 import type { RepoIndexService } from "./services/repo-index.ts";
 import type { SessionService } from "./services/sessions.ts";
 import type { SpecBotsService } from "./services/spec-bots.ts";
+import type { WebhooksService } from "./services/webhooks.ts";
 
 /** What every handler can reach through the Hono context. */
 export type AppVariables = {
@@ -68,6 +69,8 @@ export type Deps = {
   repoIndex: RepoIndexService;
   /** Bots that live in a project's repository (spec §5.3; task 3.1). */
   specBots: SpecBotsService;
+  /** What a provider posts when something happens (spec §3.5; task 3.4). */
+  webhooks: WebhooksService;
   /** The Bot API seam (spec §7.3; task 2.19): what an external bot may do, and what it is told. */
   botApi: BotApiService;
   /** Feature flags (spec §9.1), default off. */

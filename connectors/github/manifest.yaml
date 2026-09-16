@@ -30,3 +30,10 @@ oauth:
   refresh: false
 mcp_url: https://api.githubcopilot.com/mcp/
 webhook_signature: hmac_sha256
+webhook:
+  header: x-hub-signature-256
+  prefix: "sha256="
+  encoding: hex
+  signed: "{body}"
+  id_header: x-github-delivery
+  event_header: x-github-event

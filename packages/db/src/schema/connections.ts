@@ -10,6 +10,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -17,6 +18,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { bytea, id, timestamps, timestamptz } from "../columns.ts";
+import { channels } from "./chat.ts";
 import { users } from "./identity.ts";
 import { workspaces } from "./tenancy.ts";
 
@@ -153,3 +155,70 @@ export const oauthClients = pgTable(
   (t) => [uniqueIndex("oauth_clients_workspace_provider_idx").on(t.workspaceId, t.provider)],
 );
 export type OauthClient = typeof oauthClients.$inferSelect;
+
+/**
+ * An inbound webhook (spec §3.5 "inbound webhooks at /hooks/:provider/:id with signature
+ * verification → channel cards"; task 3.4).
+ *
+ * The row is the endpoint: a provider, a channel to post in, and the secret Perch generated for
+ * whoever pasted it into the provider. The secret is vaulted like every other, because a webhook
+ * secret is what lets somebody speak as the provider.
+ */
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The manifest this delivery is verified against. */
+    provider: text("provider").notNull(),
+    /** What a person called it, so a list of endpoints is readable. */
+    name: text("name").notNull(),
+    /** Where the card goes. */
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** The connection this belongs to, when it came from one; a webhook can stand on its own. */
+    connectionId: uuid("connection_id").references(() => connections.id, { onDelete: "set null" }),
+    /** The signing secret, vault-encrypted, shown to a person exactly once. */
+    ciphertext: bytea("ciphertext").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    lastDeliveryAt: timestamptz("last_delivery_at"),
+    /** How many deliveries it has taken, which is the first thing anybody wants to know. */
+    deliveries: integer("deliveries").notNull().default(0),
+    status: text("status").$type<"active" | "paused">().notNull().default("active"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("webhooks_workspace_idx").on(t.workspaceId),
+    check("webhooks_status_check", sql`${t.status} in ('active', 'paused')`),
+  ],
+);
+
+export type Webhook = typeof webhooks.$inferSelect;
+export type NewWebhook = typeof webhooks.$inferInsert;
+
+/**
+ * What has already been delivered, so the same delivery twice is one card (task 3.4). A provider
+ * that never heard the 200 will send again; the second one is not news.
+ */
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: id(),
+    webhookId: uuid("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    /** The provider's own id for it. */
+    deliveryId: text("delivery_id").notNull(),
+    event: text("event"),
+    receivedAt: timestamptz("received_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("webhook_deliveries_idx").on(t.webhookId, t.deliveryId),
+    index("webhook_deliveries_received_idx").on(t.receivedAt),
+  ],
+);
+
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;

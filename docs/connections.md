@@ -147,3 +147,46 @@ A refresh job for tokens that expire: today a connection whose access token has 
 **Not accepted** and reconnected by hand, even where the provider issued a refresh token (Perch
 keeps it). The Deploy button and the schema browser that these connectors are for arrive with task
 2.15.
+
+## Inbound webhooks
+
+A provider can tell Perch when something happens. Make an endpoint in **Settings → Connections**, or
+over REST:
+
+```
+POST /api/workspaces/{ws}/webhooks  {provider, name, channel_id, connection_id?}
+→ {webhook: {…, url}, secret}
+```
+
+The answer carries the URL to paste into the provider and a secret **shown exactly once** — paste it
+into the provider's own "secret" field. Perch verifies every delivery against it, with that
+provider's scheme, taken from its manifest (ADR-0119):
+
+| Provider | Header | Signed |
+|---|---|---|
+| GitHub | `X-Hub-Signature-256: sha256=<hex>` | the raw body |
+| Vercel | `x-vercel-signature: <hex>` | the raw body |
+| Clerk (Svix) | `svix-signature: v1,<base64>` | `<id>.<timestamp>.<body>`, within five minutes |
+
+`POST /hooks/{provider}/{id}` is the only unauthenticated write in Perch: the signature is the
+authentication. A delivery that is unsigned, signed with something else, signed over a different
+body, or too old is a `403` and nothing is posted. An endpoint that is not there is a `404` whatever
+it was signed with, and the wrong provider on the right id is the same answer.
+
+A delivery that passes becomes a **card in the channel** the endpoint was wired to: what happened,
+who did it, and a link. The same delivery twice is one card — a provider that never heard the `200`
+sends again, and that is not news. A provider that sends no delivery id gets the same protection
+from a hash of what it sent.
+
+And a bot can be waiting for it. A `webhook` trigger fires on a delivery in a channel the bot is in:
+
+```yaml
+triggers:
+  - on: webhook            # anything
+  - on: webhook
+    match: github          # only GitHub
+  - on: webhook
+    match: github:push     # only a push
+```
+
+The bot answers in the card's own thread, so what it says sits under what happened.

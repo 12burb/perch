@@ -37,6 +37,7 @@ export {
   ManifestError,
   mcpUrlOf,
   parseManifest,
+  type WebhookScheme,
 } from "./manifest.ts";
 export {
   allowed,
@@ -57,3 +58,4 @@ export {
   startAuthorization,
   startAuthorizationAt,
 } from "./oauth.ts";
+export { type Delivery, type Verdict, verifyDelivery, webhookSecret } from "./webhooks.ts";

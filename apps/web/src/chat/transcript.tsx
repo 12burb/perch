@@ -170,6 +170,9 @@ function Blocks(props: {
         if (block.type === "deploy_card") {
           return <DeployCard key={key} block={block as Record<string, unknown>} />;
         }
+        if (block.type === "webhook_card") {
+          return <WebhookCard key={key} block={block as Record<string, unknown>} />;
+        }
         if (block.type === "code") {
           return (
             <pre
@@ -970,6 +973,51 @@ const DEPLOY_TONE: Record<DeployState, "accent" | "neutral" | "danger" | "succes
   error: "danger",
   canceled: "neutral",
 };
+
+/** What a provider said happened (spec §3.5; task 3.4). */
+function WebhookCard(props: { block: Record<string, unknown> }) {
+  const provider = String(props.block.provider ?? "");
+  const event = String(props.block.event ?? "");
+  const title = String(props.block.title ?? "");
+  const text = typeof props.block.text === "string" ? props.block.text : "";
+  const url = typeof props.block.url === "string" ? props.block.url : "";
+  const fields = Array.isArray(props.block.fields)
+    ? (props.block.fields as { label?: unknown; value?: unknown }[])
+    : [];
+  return (
+    <div
+      data-testid="webhook-card"
+      className="my-1 flex flex-col gap-1 rounded border border-border bg-raised p-2"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge>{provider}</Badge>
+        <span className="text-sm text-fg-muted">{event}</span>
+        <span className="font-medium">{title}</span>
+      </div>
+      {text ? <p className="whitespace-pre-wrap break-words text-sm">{text}</p> : null}
+      {fields.length > 0 ? (
+        <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          {fields.map((field) => (
+            <div key={String(field.label)} className="flex gap-1">
+              <dt className="text-fg-subtle">{String(field.label ?? "")}</dt>
+              <dd className="font-mono">{String(field.value ?? "")}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {url ? (
+        <a
+          className="break-all text-sm text-accent underline"
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {url}
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
 function DeployCard(props: { block: Record<string, unknown> }) {
   const raw = String(props.block.state ?? "building");

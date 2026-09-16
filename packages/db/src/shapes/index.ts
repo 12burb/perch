@@ -213,6 +213,28 @@ export const messageBlockSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   /**
+   * What a provider said happened (spec §3.5 "inbound webhooks … → channel cards"; task 3.4). One
+   * card per delivery: what it was, who did it, and where to go and look.
+   */
+  z
+    .object({
+      ...blockBase,
+      type: z.literal("webhook_card"),
+      provider: z.string().min(1).max(64),
+      /** What the provider calls it: `push`, `deployment.succeeded`, `user.created`. */
+      event: z.string().min(1).max(120),
+      title: z.string().max(300),
+      text: z.string().max(2_000).optional(),
+      /** Where to go and look, when the payload said. */
+      url: z.string().max(2_000).optional(),
+      /** A few facts worth reading without opening anything. */
+      fields: z
+        .array(z.object({ label: z.string().max(60), value: z.string().max(300) }).strict())
+        .max(6)
+        .optional(),
+    })
+    .strict(),
+  /**
    * What a deploy came to (spec §5.5 "preview-URL cards"; task 2.15). The card is the record: it is
    * rewritten in place as the build moves, so the thread always shows where the deploy got to.
    */

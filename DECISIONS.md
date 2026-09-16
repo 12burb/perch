@@ -4402,3 +4402,52 @@ UI from task 2.14 is where that is done.
 message's bot author, and task 2.19's socket forwards it. What was missing was a test that a button
 press crosses all of it — the person's press, the socket, and `chat.update` rewriting the message in
 place rather than saying it twice.
+
+## ADR-0119: A provider's signature scheme is a line in its manifest
+
+- Status: accepted
+- Date: 2026-09-16
+- Task: 3.4
+
+### Context
+Spec §3.5: "inbound webhooks at /hooks/:provider/:id with signature verification → channel cards",
+and a manifest field `webhook_signature` that says only `hmac_sha256` or `none`. That is not enough
+to check one: GitHub sends `X-Hub-Signature-256: sha256=<hex>` over the body, Vercel sends a bare hex
+digest in its own header, and Clerk uses Svix — `v1,<base64>` over `<id>.<timestamp>.<body>`, valid
+for five minutes. Three providers, three schemes, one field.
+
+### Decision
+**The manifest says where the signature is and what was signed.** A `webhook:` block gives the
+header, the prefix, the encoding, a `signed` template (`{body}`, `{id}`, `{timestamp}`), the headers
+carrying the delivery's id and event name, and a tolerance. The three schemes above are three blocks
+of YAML, and a fourth provider is a fourth file — which is the rule the connectors have followed
+since task 1.16.
+
+**Verification is pure.** `verifyDelivery` takes headers, a body and a secret and returns a verdict;
+it reads nothing and writes nothing. That is what lets it be tested against real signatures, and it
+is why the route hands it the body exactly as it arrived rather than anything re-serialized.
+
+**The same delivery twice is one card.** `webhook_deliveries` has a unique index on
+`(webhook_id, delivery_id)` and the insert decides: a second delivery is a `200` saying `duplicate`,
+not a second card. A provider that sends no id is deduplicated on a hash of its body instead — which
+is weaker, and is the best that can be done for a provider that will not identify itself.
+
+**Every refusal answers the same way.** A wrong id, a wrong provider on a right id, and a paused
+endpoint are all `404`; a bad signature is `403`. Nothing says which part was wrong in a way that
+helps somebody guessing.
+
+**A delivery is a card, not a message from anybody.** The card is posted as `system`, because a
+webhook is not a person and not a bot. Perch reads a handful of fields it knows — a push's ref,
+commits, pusher and compare link — and titles the card from them; anything else is titled with the
+provider's own event name, which is still worth a card.
+
+### Consequences
+`/hooks/:provider/:id` is the only unauthenticated write in Perch. It reads the raw body, caps it at
+a megabyte, and does nothing at all before the signature checks out.
+
+`webhook` joins the trigger kinds a bot can fire on, with `match:` narrowing to a provider or to
+`provider:event`. The bot answers in the card's thread, so its reply sits under what happened.
+
+`webhook_card` is a new message block. It renders in the transcript beside `deploy_card`, and every
+string in it is the provider's — clipped, never executed, and wrapped as untrusted before any model
+sees it, like every other tool output.

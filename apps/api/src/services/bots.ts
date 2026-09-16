@@ -409,6 +409,36 @@ export class BotsService {
   }
 
   /**
+   * A provider said something happened, and a bot may have been waiting for it (spec §3.5, §5.3's
+   * `webhook` trigger; task 3.4). The card the webhook posted is the message the run answers in,
+   * so the bot's reply lands in the thread under it rather than loose in the channel.
+   */
+  async onWebhook(input: {
+    workspaceId: string;
+    channelId: string;
+    provider: string;
+    event: string | null;
+    messageId: string;
+    payload: Record<string, unknown>;
+    by: ActorContext;
+  }): Promise<void> {
+    const channel = await getChannel(this.deps.db, input.channelId);
+    if (!channel || channel.archivedAt) return;
+    const message = await getMessage(this.deps.db, input.messageId);
+    if (!message) return;
+    await this.offer(
+      channel,
+      {
+        kind: "webhook",
+        channelId: channel.id,
+        provider: input.provider,
+        event: input.event,
+      },
+      message,
+    );
+  }
+
+  /**
    * Every bot in the channel is offered what happened; the ones whose triggers fire answer — unless
    * the thread's rails say otherwise (spec §5.4). A person's word always gets through; a bot's is a
    * hop, and hops are counted, paired and paid for.

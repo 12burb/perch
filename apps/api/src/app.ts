@@ -41,6 +41,7 @@ import { registerSpecBots } from "./routes/spec-bots.ts";
 import { registerTerminal } from "./routes/terminal.ts";
 import { registerUnfurl } from "./routes/unfurl.ts";
 import { registerVersion } from "./routes/version.ts";
+import { registerWebhooks } from "./routes/webhooks.ts";
 import { registerWorkspaces } from "./routes/workspaces.ts";
 import type { RunnerChannel } from "./runners/channel.ts";
 import { isSetupComplete } from "./services/setup.ts";
@@ -150,6 +151,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerDeploys(app, deps);
   registerRepoIndex(app, deps);
   registerSpecBots(app, deps);
+  registerWebhooks(app, deps);
   registerPush(app, deps);
   registerSearch(app, deps);
 

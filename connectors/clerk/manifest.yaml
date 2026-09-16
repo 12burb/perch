@@ -17,3 +17,12 @@ token_prefix:
 test_path: /v1/users?limit=1
 mcp_url: https://mcp.clerk.com/mcp
 webhook_signature: hmac_sha256
+webhook:
+  header: svix-signature
+  prefix: "v1,"
+  encoding: base64
+  signed: "{id}.{timestamp}.{body}"
+  id_header: svix-id
+  event_header: svix-event-type
+  timestamp_header: svix-timestamp
+  tolerance_s: 300

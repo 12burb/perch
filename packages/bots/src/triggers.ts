@@ -27,6 +27,14 @@ export type TriggerEvent =
       emoji: string;
       authorType: "user" | "bot";
       authorId: string;
+    }
+  | {
+      /** A provider said something happened (spec §3.5, §5.3 `webhook`; task 3.4). */
+      kind: "webhook";
+      channelId: string;
+      provider: string;
+      /** What the provider calls it, which is what `match:` narrows on. */
+      event: string | null;
     };
 
 export type TriggerMatch = { on: BotTriggerKind; trigger: BotTrigger };
@@ -111,6 +119,15 @@ function fires(
       if (event.kind !== "reaction") return false;
       const want = trigger.match?.trim();
       return !want || want === event.emoji;
+    }
+    case "webhook": {
+      if (event.kind !== "webhook") return false;
+      // `match:` narrows to one provider, or to `provider:event` when a bot wants only one thing.
+      const want = trigger.match?.trim().toLowerCase();
+      if (!want) return true;
+      const [provider, named] = want.split(":");
+      if (provider && provider !== event.provider.toLowerCase()) return false;
+      return !named || named === (event.event ?? "").toLowerCase();
     }
     default:
       return false;

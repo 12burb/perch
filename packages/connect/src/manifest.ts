@@ -48,6 +48,43 @@ const dbSchema = z
 
 export type DbManifest = z.infer<typeof dbSchema>;
 
+/**
+ * How one provider signs what it sends (spec §3.5 "inbound webhooks at /hooks/:provider/:id with
+ * signature verification"; task 3.4). Three shapes cover every provider Perch ships:
+ *
+ * - GitHub: `X-Hub-Signature-256: sha256=<hex>` over the raw body;
+ * - Vercel: `x-vercel-signature: <hex>` over the raw body, no prefix;
+ * - Clerk (Svix): `svix-signature: v1,<base64>` over `<id>.<timestamp>.<body>`, with the id and
+ *   the timestamp in their own headers and a tolerance either side of now.
+ *
+ * Writing them down here rather than in code is what keeps a connector a file (ADR-0119).
+ */
+const webhookSchema = z
+  .object({
+    /** The header carrying the signature. */
+    header: z.string().min(1).default("x-hub-signature-256"),
+    /** What the signature is prefixed with, when it is. `sha256=` for GitHub, `v1,` for Svix. */
+    prefix: z.string().default(""),
+    encoding: z.enum(["hex", "base64"]).default("hex"),
+    /**
+     * What is signed. `{body}` is the raw body; `{id}` and `{timestamp}` are the headers below.
+     * A provider that signs the body alone leaves this as it is.
+     */
+    signed: z.string().default("{body}"),
+    /** The header carrying the delivery's own id, which is how a replay is spotted. */
+    id_header: z.string().default("x-github-delivery"),
+    /** The header naming what happened, which is what a card is titled with. */
+    event_header: z.string().default("x-github-event"),
+    /** The header carrying the time it was signed, when the scheme signs one. */
+    timestamp_header: z.string().optional(),
+    /** How far out that timestamp may be, in seconds. */
+    tolerance_s: z.number().int().min(1).max(3_600).default(300),
+  })
+  .strict()
+  .prefault({});
+
+export type WebhookScheme = z.infer<typeof webhookSchema>;
+
 const manifestSchema = z
   .object({
     /** The id used in routes, connections.provider, and the connectors index. */
@@ -75,8 +112,10 @@ const manifestSchema = z
     mcp_url: z.url().optional(),
     /** How to browse this provider's database, when it has one (task 2.15). */
     db: dbSchema.optional(),
-    /** How inbound webhooks are signed, when this provider sends them (task 2.x). */
+    /** How inbound webhooks are signed, when this provider sends them (task 3.4). */
     webhook_signature: z.enum(["hmac_sha256", "none"]).default("none"),
+    /** Where the signature and the delivery's own identity are, in this provider's headers. */
+    webhook: webhookSchema,
   })
   .strict();
 
