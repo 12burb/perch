@@ -133,7 +133,7 @@ install and out of both images (task 4.7, ADR-0153).
 |---|---|---|
 | `astro` | `7.3.3` | `docs/site/package.json` |
 | `@astrojs/starlight` | `0.42.1` | `docs/site/package.json` (search is its own Pagefind index, built at build time) |
-| `sharp` | `0.34.5` | `docs/site/package.json` (Astro's image pipeline) |
+| `sharp` | `0.35.4` | `docs/site/package.json` (Astro's image pipeline) |
 
 | Image / tool | Pin | Where |
 |---|---|---|
