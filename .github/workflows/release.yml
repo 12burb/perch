@@ -92,19 +92,25 @@ jobs:
       - uses: sigstore/cosign-installer@v4.1.2
       - name: Sign the checksums (keyless, Sigstore)
         working-directory: dist/cli
-        # cosign 3 made the Sigstore bundle its default, under which --output-signature and
-        # --output-certificate are ignored and --bundle is required — which broke a release the day
-        # the installer's default moved. The detached pair is what `install.sh` and `perch upgrade`
-        # already in the wild verify with, so it is asked for by name; the bundle is published
-        # beside it for verifiers that want one.
+        # cosign 3 signs into a Sigstore bundle and refuses the old --output-signature /
+        # --output-certificate pair outright. The pair is still what `install.sh` and `perch
+        # upgrade` verify with — including the copies already on people's machines — so it is taken
+        # out of the bundle, and then cosign is asked to verify both forms before anything is
+        # published: a signature nobody checked is not a signature.
         run: |
           set -euo pipefail
-          cosign sign-blob --yes --new-bundle-format=false \
-            --output-signature SHA256SUMS.sig \
-            --output-certificate SHA256SUMS.pem \
-            SHA256SUMS
           cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
+          bun "$GITHUB_WORKSPACE/scripts/sigstore-pair.ts" SHA256SUMS.bundle SHA256SUMS.sig SHA256SUMS.pem
           test -s SHA256SUMS.sig && test -s SHA256SUMS.pem && test -s SHA256SUMS.bundle
+          identity='^https://github\.com/${{ github.repository }}/\.github/workflows/release\.yml@'
+          cosign verify-blob --bundle SHA256SUMS.bundle \
+            --certificate-identity-regexp "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+          cosign verify-blob --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+            --certificate-identity-regexp "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
       - name: Package-manager manifests (Homebrew, winget, AUR, nix)
         run: bun scripts/packaging.ts --version v${{ needs.meta.outputs.version }} --sums dist/cli/SHA256SUMS --out dist/packaging --repo ${{ github.repository }}
       - uses: actions/upload-artifact@v7
