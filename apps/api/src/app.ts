@@ -22,6 +22,7 @@ import { registerDeploys } from "./routes/deploys.ts";
 import { registerFiles } from "./routes/files.ts";
 import { registerGit } from "./routes/git.ts";
 import { registerHealth } from "./routes/health.ts";
+import { registerHub } from "./routes/hub.ts";
 import { registerInbox } from "./routes/inbox.ts";
 import { registerInstance } from "./routes/instance.ts";
 import { registerMcp } from "./routes/mcp.ts";
@@ -146,6 +147,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerRunners(app, deps);
   registerProjects(app, deps);
   registerTemplates(app);
+  registerHub(app, deps);
   registerProjectFs(app, deps);
   registerGit(app, deps);
   registerSessions(app, deps);

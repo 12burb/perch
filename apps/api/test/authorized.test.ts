@@ -47,6 +47,8 @@ const EXEMPT: Record<string, string> = {
   "GET /api/connect/callback/{provider}": "the OAuth state parameter is the authorization",
   "GET /api/templates":
     "the starter stacks (task 4.8): files in the build, the same for every workspace, with no resource to authorize against",
+  "GET /api/hub":
+    "the Hub's index (task 4.12): what this build ships, the same for every workspace; installing one of them is authorized as whatever it does",
   "GET {CIMD_PATH}":
     "the CIMD document (spec §3.5): this instance as an OAuth client, public by design",
 };

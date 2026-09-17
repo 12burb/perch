@@ -43,7 +43,11 @@ function WorkspaceSettings() {
         <MembersSection workspaceId={workspace.id} myId={me.id} myRole={workspace.role} />
         <BrainsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <UsageSection workspaceId={workspace.id} canAdmin={canAdmin} />
-        <BotsSection workspaceId={workspace.id} canAdmin={canAdmin} />
+        <BotsSection
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          canAdmin={canAdmin}
+        />
         <ConnectionsSection workspaceId={workspace.id} canAdmin={canAdmin} />
         <PolicySection workspaceId={workspace.id} canAdmin={canAdmin} />
         {canAdmin ? <InviteSection workspaceId={workspace.id} myRole={workspace.role} /> : null}

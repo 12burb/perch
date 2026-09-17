@@ -72,6 +72,7 @@
   "forge.emptyTitle": "No bots yet",
   "forge.emptyHint": "Pick a template below, or fill in the form.",
   "forge.templates": "Start from a template",
+  "forge.browseHub": "Browse the Hub",
   "nest.title": "The Nest",
   "nest.hint": "A team of agents that join as members: Birbus runs the Nest, the specialists do the work. Installing them makes ordinary bots you can edit or delete.",
   "nest.install": "Install the Nest",

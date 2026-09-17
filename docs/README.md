@@ -21,6 +21,7 @@
 | [`mcp-gateway.md`](mcp-gateway.md) | The MCP gateway: a connection's tools for an agent, without the credential |
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
 | [`templates.md`](templates.md) | Starter stacks, a project made from one, the preview's Start button, and the demo workspace |
+| [`hub.md`](hub.md) | The Hub: one index of the connectors, bots, skills and templates this build ships, and what Install does |
 | [`security.md`](security.md) | What gets scanned and when, what a release says about itself, and the disclosure drill |
 | [`reliability.md`](reliability.md) | The reliability bar: a hundred sessions at once, an upgrade with no data loss, a runner killed mid-turn |
 | [`accessibility.md`](accessibility.md) | The accessibility bar: axe on every screen, keyboard-only flows, focus and live regions |

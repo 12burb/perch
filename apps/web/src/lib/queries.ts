@@ -655,6 +655,30 @@ export function connectionsQuery(workspaceId: string) {
  * The starter stacks a project can be made from (task 4.8). They are files in the build rather
  * than rows, so this never goes stale within a version and is fetched once.
  */
+/**
+ * The Hub's index (task 4.12). It is the same for everybody on this instance and cannot change
+ * while the server is up — it is built from what the build ships — so it is fetched once.
+ */
+export function hubQuery(filter: { kind?: string; q?: string } = {}) {
+  return queryOptions({
+    queryKey: ["hub", filter.kind ?? "", filter.q ?? ""],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/hub", {
+          params: {
+            query: {
+              ...(filter.kind
+                ? { kind: filter.kind as "connector" | "bot" | "skill" | "template" }
+                : {}),
+              ...(filter.q ? { q: filter.q } : {}),
+            },
+          },
+        }),
+      ),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
 export function templatesQuery() {
   return queryOptions({
     queryKey: ["templates"],

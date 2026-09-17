@@ -1424,6 +1424,98 @@
           "files"
         ]
       },
+      "HubItem": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "connector",
+              "bot",
+              "skill",
+              "template"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "blurb": {
+            "type": "string"
+          },
+          "installs": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "auth": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "docs_url": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "blurb",
+          "installs",
+          "tags",
+          "from"
+        ]
+      },
+      "HubInstall": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/HubItem"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "bot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "item",
+          "installed",
+          "detail"
+        ]
+      },
       "GitStatus": {
         "type": "object",
         "properties": {
@@ -12664,6 +12756,220 @@
           },
           "403": {
             "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hub": {
+      "get": {
+        "tags": [
+          "hub"
+        ],
+        "summary": "Everything this build ships that a workspace can take on",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "connector",
+                "bot",
+                "skill",
+                "template"
+              ]
+            },
+            "required": false,
+            "name": "kind",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "q",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HubItem"
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "connector": {
+                          "type": "integer"
+                        },
+                        "bot": {
+                          "type": "integer"
+                        },
+                        "skill": {
+                          "type": "integer"
+                        },
+                        "template": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "counts"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{ws}/hub/install": {
+      "post": {
+        "tags": [
+          "hub"
+        ],
+        "summary": "Take one Hub item on in this workspace",
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "ws",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "connector",
+                      "bot",
+                      "skill",
+                      "template"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "bot": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "channel": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What happened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HubInstall"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
             "content": {
               "application/json": {
                 "schema": {

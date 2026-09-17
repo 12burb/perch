@@ -11,6 +11,7 @@ import "@perch/ui/i18n/settings";
 import { BOT_TEMPLATES, type BotTemplate } from "@perch/bots/templates";
 import { Badge, BotBadge, Button, EmptyState, Field, Input, Textarea, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import {
@@ -114,7 +115,11 @@ function bodyOf(draft: Draft) {
   };
 }
 
-export function BotsSection(props: { workspaceId: string; canAdmin: boolean }) {
+export function BotsSection(props: {
+  workspaceId: string;
+  workspaceSlug: string;
+  canAdmin: boolean;
+}) {
   const bots = useQuery(botsQuery(props.workspaceId));
   const [draft, setDraft] = useState<Draft | null>(null);
   return (
@@ -139,7 +144,10 @@ export function BotsSection(props: { workspaceId: string; canAdmin: boolean }) {
       )}
 
       <Nest workspaceId={props.workspaceId} canAdmin={props.canAdmin} />
-      <Templates onPick={(template) => setDraft(fromTemplate(template))} />
+      <Templates
+        workspaceSlug={props.workspaceSlug}
+        onPick={(template) => setDraft(fromTemplate(template))}
+      />
       <BotForm
         workspaceId={props.workspaceId}
         canAdmin={props.canAdmin}
@@ -237,10 +245,20 @@ function Nest(props: { workspaceId: string; canAdmin: boolean }) {
 }
 
 /** The six starting points (spec §5.3). Picking one fills the form in; nothing is created yet. */
-function Templates(props: { onPick: (template: BotTemplate) => void }) {
+function Templates(props: { onPick: (template: BotTemplate) => void; workspaceSlug: string }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold text-fg-muted">{t("forge.templates")}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-fg-muted">{t("forge.templates")}</h3>
+        {/* The same templates are in the Hub, beside the connectors, skills and stacks (task 4.12). */}
+        <Link
+          to="/$workspace/hub"
+          params={{ workspace: props.workspaceSlug }}
+          className="ml-auto text-sm text-accent underline-offset-2 hover:underline"
+        >
+          {t("forge.browseHub")}
+        </Link>
+      </div>
       <ul className="grid gap-2 sm:grid-cols-2">
         {BOT_TEMPLATES.map((template) => (
           <li key={template.id}>

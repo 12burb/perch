@@ -2433,6 +2433,148 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/hub": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything this build ships that a workspace can take on */
+        get: {
+            parameters: {
+                query?: {
+                    kind?: "connector" | "bot" | "skill" | "template";
+                    q?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The index */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["HubItem"][];
+                            counts: {
+                                connector?: number;
+                                bot?: number;
+                                skill?: number;
+                                template?: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{ws}/hub/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take one Hub item on in this workspace */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ws: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        kind: "connector" | "bot" | "skill" | "template";
+                        id: string;
+                        bot?: string;
+                        /** Format: uuid */
+                        channel?: string;
+                        name?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description What happened */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HubInstall"];
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{ws}/projects/{project}/fs/list": {
         parameters: {
             query?: never;
@@ -15014,6 +15156,31 @@ export type components = {
             port: number;
             dev: string;
             files: number;
+        };
+        HubItem: {
+            /** @enum {string} */
+            kind: "connector" | "bot" | "skill" | "template";
+            id: string;
+            name: string;
+            blurb: string;
+            installs: string;
+            tags: string[];
+            from: string;
+            handle?: string;
+            parent?: string;
+            auth?: string[];
+            docs_url?: string;
+            port?: number;
+        };
+        HubInstall: {
+            item: components["schemas"]["HubItem"];
+            installed: boolean;
+            detail: string;
+            href?: string;
+            /** Format: uuid */
+            bot_id?: string;
+            /** Format: uuid */
+            project_id?: string;
         };
         GitStatus: {
             branch: string | null;

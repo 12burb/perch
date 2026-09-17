@@ -55,6 +55,7 @@ export const SCREENS: Screen[] = [
     path: "/{ws}/environments",
     settled: heading(/Environments/i),
   },
+  { route: "_app/$workspace/hub.tsx", path: "/{ws}/hub", settled: heading(/Hub/i) },
   { route: "_app/settings/profile.tsx", path: "/settings/profile", settled: heading(/Profile/i) },
   {
     route: "_app/settings/security.tsx",

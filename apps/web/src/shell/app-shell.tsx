@@ -235,6 +235,13 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
                   params: { workspace: workspace.slug },
                 }),
             },
+            {
+              id: "hub",
+              label: t("hub.title"),
+              group: t("palette.workspace"),
+              run: () =>
+                void navigate({ to: "/$workspace/hub", params: { workspace: workspace.slug } }),
+            },
           ]
         : []),
       {

@@ -6302,3 +6302,44 @@ contrast, focus order and scroll containers need a real layout). Manual activati
 arrows move focus, Enter selects (rejected: with routed tabs it means two keys for every mode change
 and a focused tab that disagrees with the page; automatic activation is the ARIA pattern's own
 recommendation when switching is cheap).
+
+## ADR-0158: The Hub v1 indexes the build, not the internet
+
+**Status:** accepted · **Task:** 4.12 · **Spec:** §10 Phase 4 ("Hub v1"), §5.3, §5.5
+
+The task asks for "an index of connectors, bots, skills and templates, installable from inside
+Perch". It does not say where the index comes from, and that is the decision.
+
+**v1 indexes this build.** `packages/hub` reads `connectors/` (the manifests), `@perch/bots`
+(the Forge's templates and the skills they carry) and `@perch/templates` (the starter stacks) — the
+three places those things already live — and turns them into one shape with one Install. There is no
+registry to fetch, no manifest to verify, no publisher to trust and nothing that can change between
+the moment somebody reads a row and the moment they press it: everything offered came out of the
+same commit as the Perch offering it. Upgrading Perch is what changes what the Hub has.
+
+The alternative — a remote index — is the thing the spec calls the Hub *marketplace* and puts in
+"Later", and it is a supply chain: it needs signing, provenance, revocation, a review posture and a
+story for what happens when a listed bot turns hostile. Shipping half of that behind an Install
+button would be worse than shipping none of it, so v1 ships none of it and says so on the page.
+
+**Four kinds, four different meanings of Install.** A bot is created, a project is created from a
+stack, a skill is added to a bot that already exists. A *connection* cannot be installed by a
+server at all — it is an OAuth round trip or a pasted token, and both need the person — so its
+install returns `installed: false` and the URL of the Connections card, and the row says
+"Opens the Connections card for this provider" before it is pressed. An Install button that quietly
+did nothing, or that claimed to have connected something it had not, would be the worst of the
+options; sending somebody to the right screen is the honest one.
+
+**No new permissions.** Installing from the Hub is authorized as the thing it does: `bots.write`
+for a bot or a skill, `projects.create` for a template, `connections.read` for the connector
+redirect. The Hub is a front door, not a capability — there is deliberately no `hub.install`
+action, because a Hub install that could do something the equivalent screen could not is a way
+around the policy rather than a feature.
+
+**Installing twice is not an error.** A handle that is taken, a skill a bot already has: the Hub
+reports `installed: false` with a sentence saying so. The alternative (a 409) makes the common case
+— two people pressing the same button, or one person pressing it twice — look like a failure.
+
+**The index is sorted and cached in the process.** The sources are compiled in, so the answer cannot
+change while the server is up; the page does not sort, and the counts in the filter row are the
+index's rather than the current filter's, so narrowing never makes it look like things disappeared.

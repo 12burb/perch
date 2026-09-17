@@ -20,6 +20,7 @@ import { Route as AppWelcomeRouteImport } from './routes/_app/welcome'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as AppWorkspaceModeRouteImport } from './routes/_app/$workspace/$mode'
 import { Route as AppWorkspaceEnvironmentsRouteImport } from './routes/_app/$workspace/environments'
+import { Route as AppWorkspaceHubRouteImport } from './routes/_app/$workspace/hub'
 import { Route as AppWorkspaceSettingsRouteImport } from './routes/_app/$workspace/settings'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings/profile'
 import { Route as AppSettingsSecurityRouteImport } from './routes/_app/settings/security'
@@ -81,6 +82,11 @@ const AppWorkspaceEnvironmentsRoute =
     path: '/environments',
     getParentRoute: () => AppWorkspaceRoute,
   } as any)
+const AppWorkspaceHubRoute = AppWorkspaceHubRouteImport.update({
+  id: '/hub',
+  path: '/hub',
+  getParentRoute: () => AppWorkspaceRoute,
+} as any)
 const AppWorkspaceSettingsRoute = AppWorkspaceSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/$workspace/$mode': typeof AppWorkspaceModeRoute
   '/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
+  '/$workspace/hub': typeof AppWorkspaceHubRoute
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/$workspace/$mode': typeof AppWorkspaceModeRoute
   '/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
+  '/$workspace/hub': typeof AppWorkspaceHubRoute
   '/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/settings/security': typeof AppSettingsSecurityRoute
@@ -154,6 +162,7 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/_app/$workspace/$mode': typeof AppWorkspaceModeRoute
   '/_app/$workspace/environments': typeof AppWorkspaceEnvironmentsRoute
+  '/_app/$workspace/hub': typeof AppWorkspaceHubRoute
   '/_app/$workspace/settings': typeof AppWorkspaceSettingsRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/_app/settings/security': typeof AppSettingsSecurityRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/$workspace/$mode'
     | '/$workspace/environments'
+    | '/$workspace/hub'
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
@@ -190,6 +200,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/$workspace/$mode'
     | '/$workspace/environments'
+    | '/$workspace/hub'
     | '/$workspace/settings'
     | '/settings/profile'
     | '/settings/security'
@@ -208,6 +219,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/_app/$workspace/$mode'
     | '/_app/$workspace/environments'
+    | '/_app/$workspace/hub'
     | '/_app/$workspace/settings'
     | '/_app/settings/profile'
     | '/_app/settings/security'
@@ -304,6 +316,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceEnvironmentsRouteImport
       parentRoute: typeof AppWorkspaceRoute
     }
+    '/_app/$workspace/hub': {
+      id: '/_app/$workspace/hub'
+      path: '/hub'
+      fullPath: '/$workspace/hub'
+      preLoaderRoute: typeof AppWorkspaceHubRouteImport
+      parentRoute: typeof AppWorkspaceRoute
+    }
     '/_app/$workspace/settings': {
       id: '/_app/$workspace/settings'
       path: '/settings'
@@ -345,6 +364,7 @@ declare module '@tanstack/react-router' {
 interface AppWorkspaceRouteChildren {
   AppWorkspaceModeRoute: typeof AppWorkspaceModeRoute
   AppWorkspaceEnvironmentsRoute: typeof AppWorkspaceEnvironmentsRoute
+  AppWorkspaceHubRoute: typeof AppWorkspaceHubRoute
   AppWorkspaceSettingsRoute: typeof AppWorkspaceSettingsRoute
   AppWorkspaceCodeProjectRoute: typeof AppWorkspaceCodeProjectRoute
   AppWorkspaceHomeChannelRoute: typeof AppWorkspaceHomeChannelRoute
@@ -353,6 +373,7 @@ interface AppWorkspaceRouteChildren {
 const AppWorkspaceRouteChildren: AppWorkspaceRouteChildren = {
   AppWorkspaceModeRoute: AppWorkspaceModeRoute,
   AppWorkspaceEnvironmentsRoute: AppWorkspaceEnvironmentsRoute,
+  AppWorkspaceHubRoute: AppWorkspaceHubRoute,
   AppWorkspaceSettingsRoute: AppWorkspaceSettingsRoute,
   AppWorkspaceCodeProjectRoute: AppWorkspaceCodeProjectRoute,
   AppWorkspaceHomeChannelRoute: AppWorkspaceHomeChannelRoute,
