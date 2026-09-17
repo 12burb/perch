@@ -92,11 +92,19 @@ jobs:
       - uses: sigstore/cosign-installer@v4.1.2
       - name: Sign the checksums (keyless, Sigstore)
         working-directory: dist/cli
+        # cosign 3 made the Sigstore bundle its default, under which --output-signature and
+        # --output-certificate are ignored and --bundle is required — which broke a release the day
+        # the installer's default moved. The detached pair is what `install.sh` and `perch upgrade`
+        # already in the wild verify with, so it is asked for by name; the bundle is published
+        # beside it for verifiers that want one.
         run: |
-          cosign sign-blob --yes \
+          set -euo pipefail
+          cosign sign-blob --yes --new-bundle-format=false \
             --output-signature SHA256SUMS.sig \
             --output-certificate SHA256SUMS.pem \
             SHA256SUMS
+          cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
+          test -s SHA256SUMS.sig && test -s SHA256SUMS.pem && test -s SHA256SUMS.bundle
       - name: Package-manager manifests (Homebrew, winget, AUR, nix)
         run: bun scripts/packaging.ts --version v${{ needs.meta.outputs.version }} --sums dist/cli/SHA256SUMS --out dist/packaging --repo ${{ github.repository }}
       - uses: actions/upload-artifact@v7
@@ -108,6 +116,7 @@ jobs:
             dist/cli/SHA256SUMS
             dist/cli/SHA256SUMS.sig
             dist/cli/SHA256SUMS.pem
+            dist/cli/SHA256SUMS.bundle
             dist/cli/npm
       - uses: actions/upload-artifact@v7
         with:
@@ -273,6 +282,7 @@ jobs:
             release/cli/SHA256SUMS
             release/cli/SHA256SUMS.sig
             release/cli/SHA256SUMS.pem
+            release/cli/SHA256SUMS.bundle
             release/packaging/homebrew/perch.rb
             release/packaging/winget/*.yaml
             release/packaging/aur/PKGBUILD

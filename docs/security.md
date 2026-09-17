@@ -35,6 +35,9 @@ Each release carries:
   the release workflow's own GitHub OIDC identity. The installer and `perch upgrade` verify the
   checksum always, and the signature wherever `cosign` is on the machine
   (`PERCH_REQUIRE_SIGNATURE=1` / `--require-signature` makes the signature mandatory too).
+- `SHA256SUMS.bundle` — the same signature as a Sigstore bundle, which is what newer `cosign`
+  produces by default and what `cosign verify-blob --bundle` wants. The detached pair above is kept
+  because that is what the installers already on people's machines verify with.
 - `sbom-perch-<version>.spdx.json` — an **SPDX SBOM of the source tree the binaries were built
   from**. It is listed in `SHA256SUMS`, so the one signature covers it: a tampered SBOM fails the
   same check a tampered binary does.
@@ -51,6 +54,12 @@ sha256sum -c SHA256SUMS --ignore-missing
 # The signature: it must be this repository's release workflow, and nobody else's.
 cosign verify-blob \
   --certificate SHA256SUMS.pem --signature SHA256SUMS.sig \
+  --certificate-identity-regexp '^https://github\.com/12burb/perch/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+
+# …or the same thing from the bundle, which newer cosign prefers.
+cosign verify-blob --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp '^https://github\.com/12burb/perch/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS
