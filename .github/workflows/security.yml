@@ -1,0 +1,68 @@
+# Task 4.9: the scan that runs when nobody has pushed.
+#
+# CI scans every push, which catches a vulnerable dependency somebody *adds*. It does not catch the
+# far more common case: a dependency that was fine on Monday and has an advisory on Thursday. This
+# runs daily over the same targets — every lockfile in the repository, and the images the last
+# release published — so a new advisory turns something red within a day instead of waiting for a
+# push. CodeQL (codeql.yml) covers Perch's own code weekly; this covers what Perch depends on.
+name: Security scan
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # daily, 05:00 UTC — an hour after CodeQL's weekly slot
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: Dependencies (every lockfile in the repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # Fixed vulnerabilities only: an advisory with no fix is not something a bump can answer, and
+      # a scan that cannot be made green is a scan people learn to ignore.
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
+  images:
+    name: The published images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, runner]
+    steps:
+      # A published image may not exist yet on a fresh fork or before the first release; that is
+      # not a failure, it is nothing to scan.
+      - name: Is there an image to scan?
+        id: published
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/${{ github.repository_owner }}/perch-${{ matrix.image }}:latest"
+          if docker manifest inspect "$ref" > /dev/null 2>&1; then
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "no image at $ref yet"
+          fi
+      - uses: aquasecurity/trivy-action@v0.36.0
+        if: steps.published.outputs.ref != ''
+        with:
+          image-ref: ${{ steps.published.outputs.ref }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

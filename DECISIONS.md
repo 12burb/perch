@@ -6159,3 +6159,48 @@ seeding has its own test. A stack's `.perch/project.json` is validated by `proje
 `templates/test/stacks.test.ts`, so a stack that Perch would reject cannot ship. A dev server the
 runner holds does not survive the runner restarting — the api can start it again, and a runner that
 goes down took the dev server with it either way.
+
+## ADR-0155: The scan that runs when nobody has pushed, one signature over everything, and a drill that is a test
+
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Task:** 4.9 (security scanning, SBOMs, signatures, the disclosure drill)
+- **Spec:** §8 (CI), §1.6 (the invariants), §9.2 (governance)
+
+### Context
+Most of what task 4.9 asks for was already here: Trivy on the api image and the repository on every
+push, CodeQL weekly, cosign keyless over `SHA256SUMS`, SPDX SBOMs attached to each image, and an
+installer that checks the checksum always and the signature wherever cosign is. Four things were
+not, and this session produced the argument for the first of them: a `main` went red on a `sharp`
+advisory published *after* the dependency was merged. A per-push scan cannot catch that.
+
+### Decision
+**A daily scan, not only a per-push one.** `security.yml` runs Trivy over every lockfile in the
+repository and over the published `:latest` images, daily and on demand. The failure mode it covers
+is the common one — a dependency that was fine when it was merged. Every scan is `ignore-unfixed`
+at CRITICAL and HIGH: an advisory with no fix is not something a bump can answer, and a check that
+cannot be made green is a check people learn to ignore.
+
+**The runner image is scanned too.** CI looked only at the api image. The runner is the one that
+runs other people's code, so the `agents` layer — which is `base` plus the four CLIs — is scanned
+in the job that already builds it, at no extra build cost.
+
+**One signature, over the binaries and the SBOM together.** The binaries had no bill of materials;
+only the images did. The release now builds an SPDX SBOM of the source tree with syft, writes it
+into `SHA256SUMS` beside the binaries, and signs that one file. A separate signature per artifact
+would have been more machinery for less: this way a tampered SBOM fails exactly the check a
+tampered binary fails, and the installer needed no change at all.
+
+**The drill is a test, not a page.** A written procedure nobody walks decays silently. Everything in
+`docs/security.md` that can be checked without an actual vulnerability is checked by
+`scripts/disclosure-drill.ts`, and `scripts/disclosure-drill.test.ts` runs the same steps on every
+`bun run check` — each negative case breaking exactly one thing and asserting exactly one step goes
+red, so a case that broke the fixture instead cannot pass. What the script cannot check is the human
+half: that somebody reads the mailbox. `docs/security.md` names the owner, the cadence, and the date
+the fork rehearsal was last run, and the drill fails if that date is missing.
+
+### Consequences
+A new advisory turns `security.yml` red within a day rather than waiting for a push, which is how
+the `sharp` finding should have arrived. Removing the signature, the SBOM, the scans or either
+tamper test now fails the local gate rather than a future disclosure. The scheduled run costs two
+short jobs a day; a fork with no published image scans what it has and says so rather than failing.

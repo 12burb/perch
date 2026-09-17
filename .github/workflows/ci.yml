@@ -209,6 +209,16 @@ jobs:
             done
             for bridge in codex-acp claude-agent-acp; do command -v "$bridge"; done
           '
+      # The runner image is scanned too (task 4.9): it is the one that runs other people's code,
+      # and until now only the api image was looked at.
+      - name: Trivy (the runner image's agents layer)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: perch-runner-agents:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
 
   compose-smoke:
     name: Compose smoke (docker compose up → wizard → sign in)

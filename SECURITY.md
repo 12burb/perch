@@ -34,6 +34,13 @@ confused deputy) is described in `docs/spec/PERCH-PLAN.md` §7 and enforced by t
 
 Reports that show a violation of any invariant above are treated as high severity.
 
+## What Perch does about it
+
+What gets scanned and when, what a release carries (signatures, SBOMs), how to verify a download by
+hand, and the disclosure drill this policy is rehearsed with: [`docs/security.md`](docs/security.md).
+The scripted half of the drill runs on every `bun run check`, so the reporting path, the signature,
+the SBOMs and the tamper tests cannot quietly disappear.
+
 ## Supported versions
 
 Until 1.0, only the latest release and `main` receive fixes.

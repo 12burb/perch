@@ -57,6 +57,11 @@ cosign verify-blob SHA256SUMS \
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+`SHA256SUMS` covers one more file: `sbom-perch-<version>.spdx.json`, an SPDX bill of materials for
+the source tree the binaries were built from (task 4.9). It is under the same signature as the
+binaries, so a tampered SBOM fails the same check. The images carry their own, as cosign
+attestations — see [what a release says about itself](security.md).
+
 ## Package managers
 
 Every release publishes the manifests for these, generated from that release's own checksums by

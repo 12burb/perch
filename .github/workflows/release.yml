@@ -75,9 +75,20 @@ jobs:
           (cd docs/site && bun install --frozen-lockfile && bun run build)
           mkdir -p dist/docs
           tar -czf "dist/docs/docs-site-${{ needs.meta.outputs.version }}.tar.gz" -C docs/site/dist .
+      # The source SBOM (task 4.9): the images carry their own (below); this one is the dependency
+      # graph the binaries were built from, which is what somebody auditing a downloaded `perch`
+      # actually needs. It is checksummed with them, so the one signature covers it too.
+      - name: SBOM for the binaries (SPDX, from the source tree)
+        uses: anchore/sbom-action@v0.24.2
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/cli/sbom-perch-${{ needs.meta.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Checksums
         working-directory: dist/cli
-        run: sha256sum perch-* > SHA256SUMS
+        run: sha256sum perch-* sbom-perch-*.spdx.json > SHA256SUMS
       - uses: sigstore/cosign-installer@v4.1.2
       - name: Sign the checksums (keyless, Sigstore)
         working-directory: dist/cli
@@ -93,6 +104,7 @@ jobs:
           name: cli
           path: |
             dist/cli/perch-*
+            dist/cli/sbom-perch-*.spdx.json
             dist/cli/SHA256SUMS
             dist/cli/SHA256SUMS.sig
             dist/cli/SHA256SUMS.pem
@@ -257,6 +269,7 @@ jobs:
           generate_release_notes: true
           files: |
             release/cli/perch-*
+            release/cli/sbom-perch-*.spdx.json
             release/cli/SHA256SUMS
             release/cli/SHA256SUMS.sig
             release/cli/SHA256SUMS.pem
