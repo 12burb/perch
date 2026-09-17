@@ -319,7 +319,11 @@ export function WorkMain(props: { workspaceId: string; workspaceSlug: string }) 
 
       {layout === "board" ? (
         // Columns scroll sideways on a phone and sit side by side on a desk.
-        <div className="flex min-h-0 gap-3 overflow-x-auto pb-2">
+        /* biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls on its own has to
+           be reachable by a keyboard as well as a thumb (axe: scrollable-region-focusable), and an
+           empty board holds nothing focusable to reach it by. Unnamed on purpose: a second landmark
+           inside the board's own would be a violation of its own (task 4.11). */
+        <div className="flex min-h-0 gap-3 overflow-x-auto pb-2" tabIndex={0}>
           {states.map((state) => (
             <Column
               key={state}

@@ -12,7 +12,7 @@ import {
   Settings,
   SquareKanban,
 } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 import { Tooltip } from "../components/overlays.tsx";
 import { Avatar, Badge } from "../components/primitives.tsx";
 import { type MessageKey, t } from "../i18n/index.ts";
@@ -41,6 +41,13 @@ export type RailTabProps = {
   tabIndex: number;
   className: string;
   children: ReactNode;
+  /**
+   * Arrow, Home and End move between the modes (task 4.11). It belongs to every tab rather than to
+   * the built-in button, because a tablist with a roving tabindex leaves exactly one tab reachable
+   * by Tab: an app that renders its tabs as links and forgets this leaves a keyboard with no way to
+   * change mode at all.
+   */
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
 };
 
 export type RailProps = {
@@ -56,7 +63,35 @@ export type RailProps = {
   renderTab?: (mode: RailMode, tabProps: RailTabProps) => ReactNode;
 };
 
+/** The mode an arrow, Home or End moves to from `mode`, or null for any other key. */
+export function railStep(key: string, mode: RailMode): RailMode | null {
+  const index = RAIL_MODES.findIndex((one) => one.mode === mode);
+  const last = RAIL_MODES.length - 1;
+  const next =
+    key === "Home"
+      ? RAIL_MODES[0]
+      : key === "End"
+        ? RAIL_MODES[last]
+        : key === "ArrowDown"
+          ? RAIL_MODES[(index + 1) % RAIL_MODES.length]
+          : key === "ArrowUp"
+            ? RAIL_MODES[(index + last) % RAIL_MODES.length]
+            : null;
+  return next?.mode ?? null;
+}
+
 export function Rail(props: RailProps) {
+  // Automatic activation (the ARIA tabs pattern): moving focus selects, because each mode is a
+  // route and arriving on it is the point of moving.
+  const onTabKeyDown = (event: KeyboardEvent<HTMLElement>, mode: RailMode) => {
+    const next = railStep(event.key, mode);
+    const to = next ? RAIL_MODES.find((one) => one.mode === next) : undefined;
+    if (!to) return;
+    event.preventDefault();
+    props.onSelect(to.mode);
+    const list = event.currentTarget.closest('[role="tablist"]');
+    list?.querySelector<HTMLElement>(`[aria-label="${t(to.labelKey)}"]`)?.focus();
+  };
   return (
     <div className="flex h-full flex-col items-center gap-1 py-2">
       <Tooltip label={`${props.workspace.name} · ${t("ui.switchWorkspace")}`}>
@@ -113,31 +148,14 @@ export function Rail(props: RailProps) {
             tabIndex: active ? 0 : -1,
             className,
             children: child,
+            onKeyDown: (event: KeyboardEvent<HTMLElement>) => onTabKeyDown(event, mode),
           };
           return (
             <Tooltip key={mode} label={label}>
               {props.renderTab ? (
                 props.renderTab(mode, tabProps)
               ) : (
-                <button
-                  type="button"
-                  {...tabProps}
-                  onClick={() => props.onSelect(mode)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-                    event.preventDefault();
-                    const index = RAIL_MODES.findIndex((m) => m.mode === mode);
-                    const step = event.key === "ArrowDown" ? 1 : RAIL_MODES.length - 1;
-                    const next = RAIL_MODES[(index + step) % RAIL_MODES.length];
-                    if (!next) return;
-                    props.onSelect(next.mode);
-                    const list = event.currentTarget.parentElement;
-                    const target = list?.querySelector<HTMLElement>(
-                      `[aria-label="${t(next.labelKey)}"]`,
-                    );
-                    target?.focus();
-                  }}
-                />
+                <button type="button" {...tabProps} onClick={() => props.onSelect(mode)} />
               )}
             </Tooltip>
           );

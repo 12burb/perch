@@ -156,11 +156,13 @@ export function PaletteDemo() {
     },
   ];
   return (
-    <div className="p-4">
+    // A `main`, because that is where focus goes when a palette opened by ⌘K closes and there was
+    // nothing to go back to (task 4.11).
+    <main className="p-4">
       <Button onClick={onOpen}>Open palette</Button>
       <p data-testid="ran">{ran ?? "nothing"}</p>
       <CommandPalette open={open} onOpenChange={setOpen} commands={commands} />
-    </div>
+    </main>
   );
 }
 
@@ -267,6 +269,31 @@ export function PrimitivesDemo() {
           actionLabel="Create channel"
           onAction={() => undefined}
         />
+      </div>
+    </TooltipProvider>
+  );
+}
+
+/**
+ * The rail as an app that routes per mode renders it: every tab an anchor, spread with `tabProps`
+ * (task 4.11). The roving tabindex leaves one tab reachable by Tab, so the arrow keys are the only
+ * way through — and they have to work here, not only on the built-in button.
+ */
+export function RailLinksDemo() {
+  const [mode, setMode] = useState<RailMode>("home");
+  return (
+    <TooltipProvider>
+      <div className="flex h-dvh bg-base text-fg">
+        <nav aria-label="Rail" className="flex w-rail shrink-0 flex-col border-border border-r">
+          <Rail
+            active={mode}
+            onSelect={setMode}
+            workspace={{ name: "Perch" }}
+            user={{ name: "Ada" }}
+            renderTab={(target, tabProps) => <a key={target} href={`#${target}`} {...tabProps} />}
+          />
+        </nav>
+        <main className="p-4">Mode: {mode}</main>
       </div>
     </TooltipProvider>
   );

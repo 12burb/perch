@@ -6255,3 +6255,50 @@ The first version of the chaos drill passed for the wrong reason — the session
 anything was killed, because it defaulted to an engine with no server behind it. The drill now
 asserts the turn *was* running before the machine disappeared, which is why the defect surfaced at
 all. A drill that cannot fail is not a drill.
+
+## ADR-0157: The accessibility bar is a sweep that cannot miss a route, and two real defects it found
+
+**Status:** accepted · **Task:** 4.11 · **Spec:** §1.7, §4
+
+Task 4.11 asks for axe on every screen at 390 px and 1440 px, keyboard-only walkthroughs, focus
+order and live regions. Three choices were not in the spec.
+
+**The sweep is one signed-in session, and a unit test keeps its list honest.** Running axe per
+screen in the spec that happens to test that screen leaves the screens nobody is testing this week.
+`e2e/a11y.e2e.ts` instead signs up once, makes a channel and a project so the two detail routes have
+something on them, walks every route in turn, then clears its cookies and walks the signed-out ones.
+The risk in a hand-written list is that it goes stale, so `apps/web/test/screens.test.ts` reads the
+spec as text and asserts every file under `apps/web/src/routes/**` is either in `SCREENS` or in
+`NOT_SCREENS` with a reason longer than a shrug — and that nothing is in both, and that no entry
+names a route that no longer exists. A route added next year is audited without anybody remembering.
+Both viewports come free: `playwright.config.ts` already runs every spec as `desktop` and `mobile`.
+
+**Arrow keys belong to the tab, not to the built-in button.** The rail is a tablist with a roving
+tabindex — correct, and it means Tab reaches exactly one of the six modes. The arrow handling lived
+on `Rail`'s own `<button>`, so an app that passes `renderTab` (which `apps/web` does, to render each
+mode as a router `Link`) got tabs with no arrow keys: a keyboard could not change mode in Perch at
+all. The handler now travels on `RailTabProps`, so every rendering gets it, and it covers Home and
+End as well as the arrows. Moving focus selects — automatic activation — because each mode is a
+route and arriving on it is the point of moving. `railStep` is exported and unit-tested; the link
+rendering, which is the one that was broken, is covered by `packages/ui/src/shell/rail.ct.tsx`.
+
+**The command palette remembers where focus was, rather than asking Radix.** There is no
+`Dialog.Trigger` in this composition — ⌘K opens it, and so do buttons all over the app — so Radix's
+own restore has nothing to restore to and focus lands on `<body>`, where the next Tab starts the
+document over. The palette now listens for `focusin` while it is closed and keeps the last element
+that was not inside a dialog; on a close it puts focus back once the unmount has settled (100 ms,
+deliberately late: the dialog's own focus handling on the way out is finished, not fought). When
+nothing had focus, `<main>` gets `tabindex="-1"` and takes it.
+
+**What the sweep found.** Two real defects, both fixed here: the Work board's column strip scrolled
+without being focusable (axe `scrollable-region-focusable`, so a keyboard could not scroll what a
+thumb could), and the palette focus loss above. The rail defect came out of the keyboard walkthrough
+rather than axe — axe cannot tell that a correct tablist has no way to move between its tabs, which
+is the argument for a walkthrough with no `.click()` in it alongside the automated audit.
+
+**Alternatives considered.** A per-screen axe assertion in every spec (rejected: that is what we
+had, and it leaves gaps). `jest-axe` over rendered components instead of a browser (rejected:
+contrast, focus order and scroll containers need a real layout). Manual activation on the rail —
+arrows move focus, Enter selects (rejected: with routed tabs it means two keys for every mode change
+and a focused tab that disagrees with the page; automatic activation is the ARIA pattern's own
+recommendation when switching is cheap).

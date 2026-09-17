@@ -5,7 +5,7 @@
 import { Command } from "cmdk";
 import { Search } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { Kbd } from "../components/primitives.tsx";
 import { t } from "../i18n/index.ts";
 
@@ -37,6 +37,64 @@ export function CommandPalette(props: {
     if (list.length < PALETTE_SHOWN) list.push(command);
     groups.set(command.group, list);
   }
+  /**
+   * Where focus goes when it closes (task 4.11).
+   *
+   * A dialog must give focus back to whatever opened it, and land it *somewhere* even when nothing
+   * did — a palette opened with ⌘K on a page nobody has tabbed into came from `document.body`, and
+   * leaving it there makes the next Tab start the document over. Radix's own restore does not fire
+   * for this composition (there is no `Dialog.Trigger`: the palette is opened from a shortcut and
+   * from buttons elsewhere), so the last focused element is remembered here instead, by listening
+   * while the palette is closed — which is exactly when focus is moving around the page.
+   */
+  const cameFrom = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (props.open) {
+      wasOpen.current = true;
+      return;
+    }
+    const justClosed = wasOpen.current;
+    wasOpen.current = false;
+
+    // While it is closed, keep track of where focus is: that is where it goes back to. Anything
+    // inside a dialog is not an answer — least of all the palette's own input on the way out,
+    // which is where focus still is at the moment a close is committed.
+    const remember = () => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active === document.body) return;
+      if (active.closest('[role="dialog"]')) return;
+      cameFrom.current = active;
+    };
+    if (!justClosed) remember();
+    document.addEventListener("focusin", remember);
+
+    // …and just after a close, put focus back. Late on purpose: the dialog is still unmounting, and
+    // whatever it does with focus on the way out should not be fought, only finished.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (justClosed) {
+      timer = setTimeout(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body) return;
+        const back = cameFrom.current;
+        if (back?.isConnected) {
+          back.focus();
+          return;
+        }
+        // Nothing opened it — a shortcut on a page nobody had tabbed into. Focus has to land
+        // somewhere all the same, or the next Tab starts the document over.
+        const main = document.querySelector("main");
+        if (!(main instanceof HTMLElement)) return;
+        if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+        main.focus();
+      }, 100);
+    }
+    return () => {
+      document.removeEventListener("focusin", remember);
+      if (timer) clearTimeout(timer);
+    };
+  }, [props.open]);
+
   return (
     <RadixDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <RadixDialog.Portal>

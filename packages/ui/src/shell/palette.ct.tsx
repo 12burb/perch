@@ -27,6 +27,36 @@ test.describe("CommandPalette", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("closing it gives focus back to whatever opened it", async ({ mount, page }) => {
+    await mount(<PaletteDemo />);
+    // Tabbed to the button and opened with Enter, which is how a keyboard gets here. Closing it
+    // must give focus back to the button, or that keyboard has lost its place.
+    const button = page.getByRole("button", { name: "Open palette" });
+    await button.focus();
+    await expect(button).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
+  test("opened by ⌘K with nothing focused, it still leaves focus on the page", async ({
+    mount,
+    page,
+  }) => {
+    // Nothing has been tabbed to on this page, so there is nowhere to go back to. Focus has to
+    // land on the page all the same, or the next Tab starts the document over from the top.
+    await mount(<PaletteDemo />);
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.tagName ?? ""))
+      .toBe("MAIN");
+  });
+
   test("passes axe while open", async ({ mount, page }) => {
     await mount(<PaletteDemo />, { hooksConfig: { theme: "dark" } });
     await page.getByRole("button", { name: "Open palette" }).click();
