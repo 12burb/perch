@@ -45,6 +45,7 @@ import { registerSearch } from "./routes/search.ts";
 import { registerSessions } from "./routes/sessions.ts";
 import { registerSetup } from "./routes/setup.ts";
 import { registerSpecBots } from "./routes/spec-bots.ts";
+import { registerTemplates } from "./routes/templates.ts";
 import { registerTerminal } from "./routes/terminal.ts";
 import { registerUnfurl } from "./routes/unfurl.ts";
 import { registerUsage } from "./routes/usage.ts";
@@ -144,6 +145,7 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   registerWorkspaces(app, deps);
   registerRunners(app, deps);
   registerProjects(app, deps);
+  registerTemplates(app);
   registerProjectFs(app, deps);
   registerGit(app, deps);
   registerSessions(app, deps);

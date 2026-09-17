@@ -8,6 +8,7 @@
  */
 import { runBackup, runRestore } from "./commands/backup.ts";
 import { runConnectors } from "./commands/connectors.ts";
+import { runDemo } from "./commands/demo.ts";
 import { runDev } from "./commands/dev.ts";
 import { runDoctor } from "./commands/doctor.ts";
 import { runInit } from "./commands/init.ts";
@@ -20,6 +21,7 @@ const USAGE = `perch <command> [options]
 
 Commands:
   dev         run api + web + the in-process runner on PGlite (laptop mode)
+  demo        the same, with a workspace already full of channels, bots and a project
   doctor      check this machine and the laptop-mode data directory
   backup      write a backup directory of the laptop-mode data (stop perch dev first)
   restore     restore a backup directory (stop perch dev first)
@@ -36,6 +38,8 @@ export async function main(argv: string[]): Promise<number> {
   switch (command) {
     case "dev":
       return runDev(rest);
+    case "demo":
+      return runDemo(rest);
     case "doctor":
       return runDoctor(rest);
     case "backup":

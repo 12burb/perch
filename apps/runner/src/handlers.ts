@@ -18,6 +18,7 @@ import { McpHost } from "./mcp.ts";
 import type { Notify } from "./notify.ts";
 import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
 import { listPorts } from "./ports.ts";
+import { PreviewManager, type PreviewOptions } from "./preview.ts";
 import {
   type ProjectsOptions,
   projectConfig,
@@ -47,6 +48,8 @@ export type HandlerOptions = {
   streams?: StreamOpener;
   /** Session options (the ACP agents this runner may launch, the default agent, idle reaping). */
   sessions?: Omit<SessionsOptions, "root" | "policy" | "notify" | "homes">;
+  /** Dev servers this runner starts for projects (task 4.8). */
+  previews?: Omit<PreviewOptions, "root" | "policy">;
 };
 
 /** Handlers plus what the runner must shut down with them (shells, agent sessions, tunnels). */
@@ -58,6 +61,8 @@ export type RunnerServices = {
   tunnel: HttpTunnel;
   /** The MCP servers this runner hosts (task 3.24), on their own streams. */
   mcp: McpHost;
+  /** The dev servers this runner started (task 4.8). */
+  previews: PreviewManager;
   close(): void;
 };
 
@@ -105,6 +110,7 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     policy,
     ...(options.streams ? { streams: options.streams } : {}),
   });
+  const previews = new PreviewManager({ root: projects.root, policy, ...options.previews });
   const handlers: RunnerHandlers = {
     "ports.list": async () => ({ ports: await listPorts() }),
     "http.open": (params) => tunnel.open(params),
@@ -113,6 +119,10 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     "mcp.spawn": async (params) => mcp.spawn(params),
     // The visit rather than the picture (task 3.21): the caller gets both, and preflight is the
     // one that reads the console. A panel asking for a screenshot ignores the rest.
+    // The project's own dev server (task 4.8): started here so it outlives the tab that asked.
+    "preview.start": (params) => previews.start(params),
+    "preview.stop": (params) => previews.stop(params),
+    "preview.status": (params) => previews.status(params),
     "preview.screenshot": (params) =>
       visit({
         port: params.port,
@@ -157,10 +167,12 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     sessions,
     tunnel,
     mcp,
+    previews,
     close: () => {
       ptys.closeAll();
       tunnel.close();
       mcp.closeAll();
+      previews.closeAll();
       void sessions.closeAll();
     },
   };

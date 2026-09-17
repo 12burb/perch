@@ -1,0 +1,2 @@
+ALTER TABLE "projects" DROP CONSTRAINT "projects_source_check";--> statement-breakpoint
+ALTER TABLE "projects" ADD CONSTRAINT "projects_source_check" CHECK ("projects"."source" in ('empty', 'upload', 'clone', 'template'));

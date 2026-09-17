@@ -2,13 +2,17 @@
   "name": "@perch/templates",
   "version": "0.0.0",
   "private": true,
-  "description": "Bot templates, starter stacks, and the demo workspace seed (spec §5.3).",
+  "description": "Bot templates, starter stacks, and the demo workspace seed (spec \u00a75.3).",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@perch/db": "workspace:*"
   }
 }

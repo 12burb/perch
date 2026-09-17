@@ -21,7 +21,8 @@ import type {
 import { users } from "./identity.ts";
 import { workspaces } from "./tenancy.ts";
 
-export const PROJECT_SOURCES = ["empty", "upload", "clone"] as const;
+/** `template` is task 4.8: a starter stack written into a project that was otherwise empty. */
+export const PROJECT_SOURCES = ["empty", "upload", "clone", "template"] as const;
 export type ProjectSource = (typeof PROJECT_SOURCES)[number];
 /** pending → setting_up (on a runner) → ready | error (task 1.4, ADR-0069). */
 export const PROJECT_STATUSES = ["pending", "setting_up", "ready", "error"] as const;
@@ -62,7 +63,7 @@ export const projects = pgTable(
   },
   (t) => [
     uniqueIndex("projects_workspace_key_idx").on(t.workspaceId, t.key),
-    check("projects_source_check", sql`${t.source} in ('empty', 'upload', 'clone')`),
+    check("projects_source_check", sql`${t.source} in ('empty', 'upload', 'clone', 'template')`),
     check("projects_status_check", sql`${t.status} in ('pending', 'setting_up', 'ready', 'error')`),
   ],
 );

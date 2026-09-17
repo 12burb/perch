@@ -74,6 +74,106 @@ function withTicket(url: string, ticket: string): string {
   }
 }
 
+/**
+ * Start and stop the project's dev server (task 4.8). The command is the project's own — Perch
+ * sends nothing but "start it" — so this button runs what `.perch/project.json` already says.
+ */
+function RunControl(props: {
+  workspaceId: string;
+  projectId: string;
+  running: boolean;
+  command: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [log, setLog] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["workspace", props.workspaceId, "project", props.projectId, "previews"],
+    });
+  const start = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/projects/{project}/previews/start", {
+          params: { path: { ws: props.workspaceId, project: props.projectId } },
+        }),
+      ),
+    onSuccess: async (run) => {
+      setLog(run.serving ? null : run.log.slice(-2000));
+      setNotice(
+        run.serving && run.port !== null ? t("preview.started", { port: String(run.port) }) : null,
+      );
+      await refresh();
+    },
+    onError: (error: unknown) => {
+      setNotice(null);
+      setLog(error instanceof Error ? error.message : String(error));
+    },
+  });
+  const stop = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/projects/{project}/previews/stop", {
+          params: { path: { ws: props.workspaceId, project: props.projectId } },
+        }),
+      ),
+    onSuccess: async () => {
+      setLog(null);
+      setNotice(t("preview.stopped"));
+      await refresh();
+    },
+  });
+  if (!props.command) return null;
+  const busy = start.isPending || stop.isPending;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        {props.running ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              stop.mutate();
+            }}
+          >
+            {stop.isPending ? t("preview.stopping") : t("preview.stop")}
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setNotice(null);
+              setLog(null);
+              start.mutate();
+            }}
+          >
+            {start.isPending ? t("preview.starting") : t("preview.start")}
+          </Button>
+        )}
+        <code className="truncate font-mono text-xs text-fg-muted">{props.command}</code>
+      </div>
+      {notice ? (
+        <p role="status" className="text-sm text-fg-muted">
+          {notice}
+        </p>
+      ) : null}
+      {log ? (
+        <div className="flex flex-col gap-1">
+          <p role="alert" className="text-sm text-danger">
+            {t("preview.startFailed")}
+          </p>
+          <pre className="max-h-40 overflow-auto rounded border border-border bg-surface p-2 font-mono text-xs">
+            {log}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function PreviewPane(props: {
   workspaceId: string;
   projectId: string;
@@ -85,10 +185,20 @@ export function PreviewPane(props: {
   const previews = useQuery(previewsQuery(props.workspaceId, props.projectId));
   const channels = useQuery(channelsQuery(props.workspaceId));
   const ports = useMemo(() => previews.data?.ports ?? [], [previews.data]);
-  const chosen = useMemo(
-    () => ports.find((p) => p.port === props.port) ?? ports.find((p) => p.runner_id !== "") ?? null,
-    [ports, props.port],
-  );
+  /** What `.perch/project.json` says starts this project's dev server, when it says (task 4.8). */
+  const command = previews.data?.config.command ?? null;
+  /**
+   * Which port this pane is showing. A port asked for by name wins; then the project's own, the
+   * one its config named. Only a project that does not say how to start itself falls back to
+   * whatever else the runner is serving — on a laptop that is every port on the machine, and none
+   * of them is what somebody opening the Preview tab meant.
+   */
+  const chosen = useMemo(() => {
+    const up = (port: (typeof ports)[number]) => port.runner_id !== "";
+    const asked = props.port ? ports.find((p) => p.port === props.port && up(p)) : undefined;
+    const own = ports.find((p) => p.configured && up(p));
+    return asked ?? own ?? (command ? null : (ports.find(up) ?? null));
+  }, [ports, props.port, command]);
   // Our own history, because the iframe's is not ours to read: in wildcard mode the preview has an
   // origin of its own — which is the point — and `contentWindow.history` is then off limits. Back
   // and forward walk the addresses this tab visited; the dev server's own in-page navigations are
@@ -107,6 +217,21 @@ export function PreviewPane(props: {
   // every address, which is exactly when the page it was talking to stopped existing.
   const inspector = useInspector(frame, nonce);
   const addChip = useContextChips((store) => store.add);
+  const queryClient = useQueryClient();
+  // Stopping it from the toolbar (task 4.8); starting it is the empty state's button, because a
+  // preview that is showing does not need one.
+  const stopPreview = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/projects/{project}/previews/stop", {
+          params: { path: { ws: props.workspaceId, project: props.projectId } },
+        }),
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["workspace", props.workspaceId, "project", props.projectId, "previews"],
+      }),
+  });
   const base = chosen?.url ?? "";
   // The ticket rides on the iframe's URL once and becomes a cookie on the preview's own origin,
   // where Perch's session cookie does not reach (ADR-0084).
@@ -155,18 +280,22 @@ export function PreviewPane(props: {
   }, [inspector.toggle]);
 
   if (previews.isLoading) return <p className="p-4 text-sm text-fg-muted">{t("common.loading")}</p>;
-  if (ports.length === 0) {
+  const stopping = stopPreview.isPending;
+  if (!chosen) {
+    // The same region either way: what changes is whether there is a dev server inside it.
     return (
-      <div className="p-4">
+      <section aria-label={t("preview.title")} className="flex flex-col gap-3 p-4">
         <EmptyState
           title={t("preview.emptyTitle")}
-          hint={
-            previews.data?.config.command
-              ? t("preview.startHint", { command: previews.data.config.command })
-              : t("preview.emptyHint")
-          }
+          hint={command ? t("preview.startHint", { command }) : t("preview.emptyHint")}
         />
-      </div>
+        <RunControl
+          workspaceId={props.workspaceId}
+          projectId={props.projectId}
+          running={false}
+          command={command}
+        />
+      </section>
     );
   }
 
@@ -285,6 +414,18 @@ export function PreviewPane(props: {
           channels={channels.data ?? []}
           onChip={(chip) => addChip(props.projectId, chip)}
         />
+        {command ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={stopping}
+            onClick={() => {
+              stopPreview.mutate();
+            }}
+          >
+            {stopping ? t("preview.stopping") : t("preview.stop")}
+          </Button>
+        ) : null}
         <Button variant="ghost" size="sm" onClick={() => setSharing((value) => !value)}>
           {t("preview.share")}
         </Button>

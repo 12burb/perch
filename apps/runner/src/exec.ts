@@ -3,7 +3,7 @@
  * command with a budget and capped output, confined by the policy hook (denied patterns; cwd inside
  * the projects root unless the policy says anywhere).
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { platform } from "node:os";
 import { resolve } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
@@ -34,8 +34,34 @@ function shell(command: string): { argv: string[]; group: boolean } {
     : { argv: ["sh", "-c", command], group: false };
 }
 
+/** Children of a pid from /proc, where a machine has one and may not have pgrep (task 4.8). */
+function childrenFromProc(pid: number): number[] | null {
+  let entries: string[];
+  try {
+    entries = readdirSync("/proc").filter((name) => /^\d+$/.test(name));
+  } catch {
+    return null;
+  }
+  const out: number[] = [];
+  for (const entry of entries) {
+    try {
+      // `comm` can contain spaces and parentheses; the fields after it start at the last `)`.
+      const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      if (Number(fields[1]) === pid) out.push(Number(entry));
+    } catch {
+      // the process went away between the listing and the read
+    }
+  }
+  return out;
+}
+
 /** Children of a pid on a POSIX system without process groups (macOS): pgrep, best effort. */
-function childrenOf(pid: number): number[] {
+export function childrenOf(pid: number): number[] {
+  if (platform() === "linux") {
+    const fromProc = childrenFromProc(pid);
+    if (fromProc) return fromProc;
+  }
   try {
     const result = Bun.spawnSync(["pgrep", "-P", String(pid)]);
     return result.stdout
@@ -48,11 +74,25 @@ function childrenOf(pid: number): number[] {
   }
 }
 
+/** Everything below a pid, deepest last: a shell's children, their children, and so on. */
+export function descendantsOf(pid: number): number[] {
+  const pending = [pid];
+  const seen = new Set<number>();
+  while (pending.length > 0) {
+    const next = pending.pop();
+    if (next === undefined || seen.has(next)) continue;
+    seen.add(next);
+    pending.push(...childrenOf(next));
+  }
+  seen.delete(pid);
+  return [...seen];
+}
+
 /**
  * Kills the shell and everything it started: the process group on Linux, taskkill's tree on
  * Windows (a lingering child would keep the directory busy), pgrep descendants elsewhere.
  */
-function killTree(
+export function killTree(
   proc: { pid: number; kill: (signal?: NodeJS.Signals | number) => void },
   group: boolean,
 ): void {
@@ -72,16 +112,7 @@ function killTree(
       // the group is already gone
     }
   } else {
-    const pending = [proc.pid];
-    const seen = new Set<number>();
-    while (pending.length > 0) {
-      const pid = pending.pop();
-      if (pid === undefined || seen.has(pid)) continue;
-      seen.add(pid);
-      pending.push(...childrenOf(pid));
-    }
-    for (const pid of [...seen].reverse()) {
-      if (pid === proc.pid) continue;
+    for (const pid of descendantsOf(proc.pid).reverse()) {
       try {
         process.kill(pid, "SIGKILL");
       } catch {

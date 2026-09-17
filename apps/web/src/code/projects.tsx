@@ -10,6 +10,7 @@ import {
   type ProjectRow,
   projectEnvQuery,
   projectsQuery,
+  templatesQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
 
@@ -160,7 +161,7 @@ export function ProjectList(props: {
   );
 }
 
-type Source = "empty" | "clone" | "upload";
+type Source = "empty" | "clone" | "upload" | "template";
 type Auth = "none" | "token" | "connection" | "deploy_key";
 
 function DeployKeyCard(props: { workspaceId: string; canRotate: boolean }) {
@@ -254,6 +255,7 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
   const [source, setSource] = useState<Source>("empty");
   const [auth, setAuth] = useState<Auth>("none");
   const [connectionId, setConnectionId] = useState("");
+  const [templateId, setTemplateId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -262,6 +264,8 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
   // The services this workspace is connected to (task 1.16): cloning through one is how a private
   // repository arrives without anybody pasting a token into Perch a second time.
   const connections = useQuery(connectionsQuery(props.workspaceId));
+  // The starter stacks (task 4.8): the same list for every workspace, so it is fetched once.
+  const templates = useQuery(templatesQuery());
 
   const create = useMutation({
     mutationFn: async (form: FormData) => {
@@ -285,6 +289,18 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
               repo_url: String(form.get("repo_url") ?? "").trim(),
               ...(branch ? { branch } : {}),
               ...(authBody ? { auth: authBody } : {}),
+            },
+          }),
+        );
+      }
+      if (source === "template") {
+        return unwrap(
+          await api.POST("/api/workspaces/{ws}/projects/template", {
+            params: { path: { ws: props.workspaceId } },
+            body: {
+              name,
+              template: templateId || (templates.data?.[0]?.id ?? ""),
+              ...(branch ? { default_branch: branch } : {}),
             },
           }),
         );
@@ -336,7 +352,7 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
     setFiles(Array.from(event.currentTarget.files ?? []));
   }
 
-  const sources: Source[] = ["empty", "clone", "upload"];
+  const sources: Source[] = ["empty", "template", "clone", "upload"];
   const auths: Auth[] = ["none", "token", "connection", "deploy_key"];
   const authKey = (value: Auth) => (value === "deploy_key" ? "deployKey" : value);
   return (
@@ -447,6 +463,31 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
               <DeployKeyCard workspaceId={props.workspaceId} canRotate={props.canRotateKey} />
             ) : null}
           </>
+        ) : null}
+        {source === "template" ? (
+          <Field
+            id="project-template"
+            label={t("projects.template")}
+            hint={t("projects.templateHint")}
+          >
+            {(control) => (
+              <select
+                {...control}
+                name="template"
+                required
+                value={templateId}
+                onChange={(event) => setTemplateId(event.currentTarget.value)}
+                className="min-h-row rounded border border-border bg-surface px-2 text-md"
+              >
+                <option value="">{t("projects.templatePick")}</option>
+                {(templates.data ?? []).map((one) => (
+                  <option key={one.id} value={one.id}>
+                    {one.name} — {one.description}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
         ) : null}
         {source === "upload" ? (
           <Field id="project-files" label={t("projects.files")} hint={t("projects.filesHint")}>

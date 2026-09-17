@@ -5,7 +5,7 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { boot } from "@perch/api/boot";
+import { type Booted, boot } from "@perch/api/boot";
 import { loadEnv } from "@perch/api/env";
 import { repoIndexJobHandlers } from "@perch/api/jobs";
 import { serve } from "@perch/api/server";
@@ -35,6 +35,8 @@ export type Laptop = {
   url: string;
   dataDir: string;
   runnerName: string;
+  /** The booted instance, for a command that does more than serve it (`perch demo`, task 4.8). */
+  booted: Booted;
   /** Stops the jobs worker and the server; idempotent. */
   stop(): Promise<void>;
 };
@@ -100,6 +102,7 @@ export async function startLaptop(options: LaptopOptions = {}): Promise<Laptop> 
     url,
     dataDir: layout.dataDir,
     runnerName: runner.info.name,
+    booted,
     stop() {
       stopping ??= (async () => {
         await worker.stop();

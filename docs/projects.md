@@ -14,6 +14,7 @@ From Code mode ("New project") or the API:
 | Empty | `POST /api/workspaces/{ws}/projects` `{name, key?, default_branch?}` | `git init --initial-branch <branch>` (default `main`) |
 | Upload | `POST …/projects` `{name, source: "upload"}`, then `POST …/projects/{p}/files` (multipart) | `git init`, then each part is written at the path its filename carries |
 | Clone | `POST …/projects/clone` `{name, key?, repo_url, branch?, auth?}` | `git clone`, with credentials through git's own helpers (below) |
+| Template | `POST …/projects/template` `{name, key?, template, default_branch?}` | `git init`, then the starter stack's files are written in ([templates.md](templates.md)) |
 
 `key` is the project's slug in the workspace (`[a-z0-9-]`, unique, case-insensitive); it is derived
 from the name when omitted. Every route needs `projects.read` / `projects.create` / `projects.update`

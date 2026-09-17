@@ -8,7 +8,12 @@
  */
 import type { Bus } from "@perch/bus";
 import type { Db, PreviewShare, Project, Workspace } from "@perch/db";
-import type { RunnerLink } from "@perch/events";
+import {
+  type PreviewProcess,
+  portsListResultSchema,
+  previewProcessSchema,
+  type RunnerLink,
+} from "@perch/events";
 import {
   hashShareToken,
   mintPreviewTicket,
@@ -20,6 +25,7 @@ import {
   shareUrl,
   TICKET_MS,
 } from "@perch/preview";
+import type { Vault } from "@perch/vault";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import {
@@ -30,6 +36,9 @@ import {
 } from "../repos/previews.ts";
 import { findWorkspaceById, findWorkspaceBySlug } from "../repos/workspaces.ts";
 import type { RegisteredRunner, RunnerRegistry } from "../runners/registry.ts";
+import { envFor } from "./project-env.ts";
+import { projectRunnerLink } from "./projects.ts";
+import { runnerCall } from "./runners.ts";
 
 export type PreviewDeps = {
   db: Db;
@@ -274,4 +283,139 @@ export function configPath(project: Project): string {
 /** The command that starts the dev server, when the project names one. */
 export function previewCommand(project: Project): string | undefined {
   return project.config?.preview?.command;
+}
+
+/**
+ * Start a project's dev server (task 4.8, ADR-0154). Perch could watch a port; this is what puts
+ * something on it. The command is the project's own `preview.command` — never anything a caller
+ * sends — so pressing Start cannot run something the project did not already say it runs.
+ */
+export type PreviewRunDeps = Pick<PreviewDeps, "db" | "registry"> & {
+  vault: Vault;
+  bus: Bus;
+};
+
+/** How long Start waits for the port to answer before it reports what the log says instead. */
+export const PREVIEW_START_MS = 45_000;
+
+export type PreviewRunState = PreviewProcess & { port: number | null; serving: boolean };
+
+/** Is the port up, asked of the runner rather than of the registry's last notification? */
+async function serving(
+  link: RunnerLink,
+  project: Project,
+  userId: string,
+  port: number | null,
+): Promise<boolean> {
+  if (port === null) return false;
+  const raw = await runnerCall(link, "ports.list", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+  });
+  const ports = portsListResultSchema.parse(raw);
+  return ports.ports.some((p) => p.port === port);
+}
+
+async function runState(
+  link: RunnerLink,
+  project: Project,
+  userId: string,
+  process: PreviewProcess,
+): Promise<PreviewRunState> {
+  const port = configuredPort(project) ?? null;
+  return { ...process, port, serving: await serving(link, project, userId, port) };
+}
+
+export async function previewStatus(
+  deps: PreviewRunDeps,
+  project: Project,
+  userId: string,
+): Promise<PreviewRunState> {
+  const link = await projectRunnerLink(deps, project, userId);
+  const raw = await runnerCall(link, "preview.status", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+  });
+  return runState(link, project, userId, previewProcessSchema.parse(raw));
+}
+
+export async function startPreview(
+  deps: PreviewRunDeps,
+  project: Project,
+  userId: string,
+  by: ActorContext,
+  options: { waitMs?: number } = {},
+): Promise<PreviewRunState> {
+  const command = previewCommand(project);
+  if (!command) {
+    throw PerchError.validation(
+      "this project does not say how to start its dev server; add preview.command to .perch/project.json",
+      { field: "preview.command" },
+    );
+  }
+  const link = await projectRunnerLink(deps, project, userId);
+  const port = configuredPort(project) ?? null;
+  // Already serving: Start is a no-op with a truthful answer, not a second dev server.
+  if (await serving(link, project, userId, port)) {
+    const raw = await runnerCall(link, "preview.status", {
+      workspace_id: project.workspaceId,
+      user_id: userId,
+      project: project.id,
+    });
+    return { ...previewProcessSchema.parse(raw), port, serving: true };
+  }
+  const env = await envFor({ db: deps.db, vault: deps.vault }, project);
+  const raw = await runnerCall(link, "preview.start", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+    command,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+  });
+  const process = previewProcessSchema.parse(raw);
+  await deps.bus.publish(
+    "project.updated",
+    { workspaceId: project.workspaceId, projectId: project.id, changes: ["preview"] },
+    by,
+  );
+  // Wait for the port, so "Start" means the preview is there when the button comes back.
+  const deadline = Date.now() + (options.waitMs ?? PREVIEW_START_MS);
+  for (;;) {
+    if (await serving(link, project, userId, port)) break;
+    if (Date.now() >= deadline) break;
+    await Bun.sleep(400);
+  }
+  const latest = await runnerCall(link, "preview.status", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+  });
+  const after = previewProcessSchema.parse(latest);
+  return {
+    ...after,
+    started: process.started,
+    port,
+    serving: await serving(link, project, userId, port),
+  };
+}
+
+export async function stopPreview(
+  deps: PreviewRunDeps,
+  project: Project,
+  userId: string,
+  by: ActorContext,
+): Promise<PreviewRunState> {
+  const link = await projectRunnerLink(deps, project, userId);
+  const raw = await runnerCall(link, "preview.stop", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+  });
+  await deps.bus.publish(
+    "project.updated",
+    { workspaceId: project.workspaceId, projectId: project.id, changes: ["preview"] },
+    by,
+  );
+  return runState(link, project, userId, previewProcessSchema.parse(raw));
 }

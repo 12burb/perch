@@ -6099,3 +6099,63 @@ files, which is the only kind of search a static site should have to run.
 attaches `docs-site-<version>.tar.gz`, so every release has the documentation it shipped with.
 Publishing to GitHub Pages is one setting and one step away; nothing here assumes it, because a
 docs deploy that fails must never fail a release.
+
+## ADR-0154: Starter stacks are files in the build, a dev server is the runner's to hold, and the demo is the real thing
+
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Task:** 4.8 (one-click templates, starter stacks and a demo workspace)
+- **Spec:** §5.1, §5.6, §7.6, §10's Phase 4 line
+
+### Context
+Task 4.8 asks for `templates/` filled in, `perch demo`, and "a template becomes a project with its
+preview running, in one click". Perch could already *watch* a port; nothing started one, `templates/`
+held only a package name, and a fresh instance was a set of empty states.
+
+### Decision
+Four choices.
+
+**A starter stack is TypeScript in `@perch/templates`, not files on disk.** The stacks are string
+maps in `templates/src/stacks.ts`: typechecked with everything else, in the binary a stranger
+downloads, and with no second packaging step between the repository and a new project. Every
+version in them is pinned exactly, for the same reason every other version in this repository is,
+and a test asserts it. `GET /api/templates` serves the catalogue; it is the same for every
+workspace and every instance, so it is behind `requireUser` with nothing to authorize against —
+an exemption in `apps/api/test/authorized.test.ts` with that reason written down.
+
+**A project made from a template is an empty checkout the stack is written into.** `source` gains
+a fourth value, `template` (migration 0039 widens the check constraint), and `project.setup` still
+runs the `empty` path: the runner is not told about stacks at all. Perch writes the files with
+`fs.write` — the same call an upload uses — and then re-reads the `.perch/project.json` the stack
+brought with it, so a new project arrives with its run commands and its preview already known. The
+alternative, teaching the runner about templates, would have put the catalogue in two places and
+made every stack change a runner release.
+
+**A dev server is a process the runner holds, not a command typed into somebody's shell.**
+`preview.start`, `preview.stop` and `preview.status` are additive to §7.6, for the same reason
+`preview.screenshot` is (ADR-0108): the process belongs on the machine the port is on. The runner
+keeps one per project with its log, so Start twice is one dev server and closing the tab is not
+none, and a start that never comes up answers with the tail of its own output instead of silence.
+Two alternatives were rejected: `exec`, which has a budget and would need a detached-background
+shell incantation per platform; and `pty.open`, which under tmux shares one session per person and
+directory — typing a command into a shell somebody may be using is not a button. The api never
+sends a command: it sends "start it", and the runner runs what `.perch/project.json` already said.
+Stopping reads the process tree *before* killing anything, because a shell killed first leaves its
+children reparented and unfindable.
+
+**The demo workspace is made through the services, not seeded into the database.** `seedDemo`
+creates three channels, two bots from the Forge's own templates and a project from the `bun-api`
+stack by calling `createChannel`, `bots.create` and `createProject` — the same paths a person's
+clicks take — so nothing in the demo is a fixture that only exists in the demo. It is idempotent:
+what is already there is left alone and reported as skipped. It runs behind the setup wizard's
+response when `PERCH_DEMO_WORKSPACE` is on (spec §4 "first run"), never in front of it, because a
+wizard that hangs for two minutes waiting for a runner is a worse first run than an empty one. And
+`perch demo` is laptop mode that sets itself up without a wizard and seeds itself, printing the
+account it made: one command from a downloaded binary to a Perch with something in it.
+
+### Consequences
+The e2e server sets `PERCH_DEMO_WORKSPACE=false`: every spec asserts what it made itself, and the
+seeding has its own test. A stack's `.perch/project.json` is validated by `projectConfigSchema` in
+`templates/test/stacks.test.ts`, so a stack that Perch would reject cannot ship. A dev server the
+runner holds does not survive the runner restarting — the api can start it again, and a runner that
+goes down took the dev server with it either way.

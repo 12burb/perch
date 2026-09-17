@@ -71,7 +71,12 @@ export type SetupInput = {
   telemetry: boolean;
 };
 
-export type SetupResult = { userId: string; workspaceSlug: string; headers: Headers };
+export type SetupResult = {
+  userId: string;
+  workspaceId: string;
+  workspaceSlug: string;
+  headers: Headers;
+};
 
 /**
  * Runs the wizard's single step. `publicUrl` must equal the configured PERCH_PUBLIC_URL: the value is
@@ -108,5 +113,10 @@ export async function completeSetup(
   await setSetting(deps.db, SETTING_KEYS.telemetry, input.telemetry);
   await setSetting(deps.db, SETTING_KEYS.publicUrl, deps.publicUrl);
   await setSetting(deps.db, SETTING_KEYS.setupCompleted, true);
-  return { userId: profile.id, workspaceSlug: workspace.slug, headers: signedUp.headers };
+  return {
+    userId: profile.id,
+    workspaceId: workspace.id,
+    workspaceSlug: workspace.slug,
+    headers: signedUp.headers,
+  };
 }

@@ -315,6 +315,22 @@ export const apiToRunnerParams = {
     height: z.number().int().min(200).max(4000).optional(),
   }),
   /**
+   * Start a project's dev server (task 4.8, ADR-0154). Additive to §7.6, for the same reason
+   * `preview.screenshot` is: the process belongs on the machine the port is on. The runner holds it
+   * and its log, so pressing Start twice is not two dev servers and closing the tab is not none.
+   */
+  "preview.start": z.object({
+    ...ctx,
+    project: z.uuid(),
+    command: z.string().min(1),
+    /** The project's own environment (spec §5.7), the way pty.open takes it. */
+    env: z.record(z.string(), z.string()).optional(),
+  }),
+  /** Stop it again, with everything it started (task 4.8). */
+  "preview.stop": z.object({ ...ctx, project: z.uuid() }),
+  /** Is it running, and what has it said (task 4.8)? */
+  "preview.status": z.object({ ...ctx, project: z.uuid() }),
+  /**
    * An MCP server that runs inside the runner (spec §7.6 "mcp.spawn {command, args} → stream
    * token"; task 3.24). `project` is the same optional shape `exec` takes (ADR-0135): named, the
    * server runs in that project's directory, which is where a project's own tools expect to be.
@@ -383,6 +399,24 @@ export const screenshotResultSchema = z
   })
   .strict();
 export type ScreenshotResult = z.infer<typeof screenshotResultSchema>;
+
+/**
+ * What preview.start, preview.stop and preview.status all answer with (task 4.8): whether a dev
+ * server is running for the project, and the tail of what it has written. `started` says whether
+ * this call was the one that started it — pressing Start on a project that is already serving is
+ * not an error, it is a no-op with a truthful answer.
+ */
+export const previewProcessSchema = z.object({
+  running: z.boolean(),
+  started: z.boolean(),
+  pid: z.number().int().positive().nullable(),
+  command: z.string().nullable(),
+  started_at: z.string().nullable(),
+  exit_code: z.number().int().nullable(),
+  /** The last few KiB of the dev server's output, so a failure to start says why. */
+  log: z.string(),
+});
+export type PreviewProcess = z.infer<typeof previewProcessSchema>;
 
 /** What project.setup returns: the checkout facts and the two files, parsed but not yet validated. */
 export const projectSetupResultSchema = z

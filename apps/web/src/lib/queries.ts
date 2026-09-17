@@ -651,6 +651,18 @@ export function connectionsQuery(workspaceId: string) {
   });
 }
 
+/**
+ * The starter stacks a project can be made from (task 4.8). They are files in the build rather
+ * than rows, so this never goes stale within a version and is fetched once.
+ */
+export function templatesQuery() {
+  return queryOptions({
+    queryKey: ["templates"],
+    queryFn: async () => unwrap(await api.GET("/api/templates", {})).templates,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
 /** The ports a project is serving and the links shared from them (task 1.18). */
 /**
  * Everything working right now (task 3.19). The socket is how this normally hears about a change;

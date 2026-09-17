@@ -20,6 +20,7 @@
 | [`brains.md`](brains.md) | Brains: provider credentials, model profiles, the live catalog, Ollama auto-detect |
 | [`mcp-gateway.md`](mcp-gateway.md) | The MCP gateway: a connection's tools for an agent, without the credential |
 | [`previews.md`](previews.md) | Previews: the two URL shapes, HMR, who gets in, and share links |
+| [`templates.md`](templates.md) | Starter stacks, a project made from one, the preview's Start button, and the demo workspace |
 | [`inspector.md`](inspector.md) | The inspector: the dev plugins, the injected client, context chips, screenshots |
 | [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
 | [`bot-api.md`](bot-api.md) | The Bot API: a token, the Slack-shaped endpoints, socket mode, and `perch-bot-sdk` |

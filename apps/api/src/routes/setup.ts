@@ -1,6 +1,8 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv, Deps } from "../context.ts";
+import { demoDepsFrom, seedDemo } from "../services/demo.ts";
 import { completeSetup } from "../services/setup.ts";
+import { projectDeps } from "./projects.ts";
 import { errorResponses } from "./shared.ts";
 
 const setupBodySchema = z
@@ -38,10 +40,7 @@ const setupRoute = createRoute({
   },
 });
 
-export function registerSetup(
-  app: OpenAPIHono<AppEnv>,
-  deps: Pick<Deps, "db" | "bus" | "auth" | "env">,
-): void {
+export function registerSetup(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   app.openapi(setupRoute, async (c) => {
     const body = c.req.valid("json");
     const result = await completeSetup(
@@ -53,6 +52,18 @@ export function registerSetup(
         telemetry: body.telemetry,
       },
     );
+    // The demo workspace (spec §4 first run, PERCH_DEMO_WORKSPACE): channels, bots and a project
+    // from a starter stack. It waits for a runner, so it runs behind the response rather than in
+    // front of it — a wizard that hangs for two minutes is a worse first run than an empty one.
+    if (deps.env.demoWorkspace) {
+      void seedDemo(demoDepsFrom(projectDeps(deps), deps.bots), {
+        workspaceId: result.workspaceId,
+        userId: result.userId,
+        by: { actor: { type: "user", id: result.userId }, meta: {} },
+      }).catch((error: unknown) => {
+        deps.log.warn({ err: error }, "seeding the demo workspace failed");
+      });
+    }
     c.set("userId", result.userId);
     for (const cookie of result.headers.getSetCookie())
       c.header("set-cookie", cookie, { append: true });

@@ -52,6 +52,11 @@ const ADDITIVE_API_TO_RUNNER = [
   // them racing from the api side is what a queue exists to prevent (task 3.15, ADR-0131).
   "git.merge",
   "preview.screenshot",
+  // The project's own dev server, held by the runner because that is where the port is
+  // (task 4.8, ADR-0154).
+  "preview.start",
+  "preview.stop",
+  "preview.status",
 ];
 /**
  * Events beyond the spec's catalog, each with an ADR: session.turn / session.status (ADR-0074),

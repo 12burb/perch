@@ -39,6 +39,7 @@ import m35 from "../../drizzle/0035_runner_local_mcp_servers.sql" with { type: "
 import m36 from "../../drizzle/0036_work_views_and_relations.sql" with { type: "text" };
 import m37 from "../../drizzle/0037_virtual_keys_and_usage.sql" with { type: "text" };
 import m38 from "../../drizzle/0038_budgets.sql" with { type: "text" };
+import m39 from "../../drizzle/0039_project_template_source.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -106,4 +107,11 @@ export const migrationSources: MigrationSource[] = [
   },
   { idx: 37, tag: "0037_virtual_keys_and_usage", when: 1789589609137, breakpoints: true, sql: m37 },
   { idx: 38, tag: "0038_budgets", when: 1789591600197, breakpoints: true, sql: m38 },
+  {
+    idx: 39,
+    tag: "0039_project_template_source",
+    when: 1789604291080,
+    breakpoints: true,
+    sql: m39,
+  },
 ];

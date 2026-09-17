@@ -12,7 +12,11 @@
     "./env": "./src/env.ts",
     "./logging": "./src/logging.ts",
     "./jobs": "./src/jobs/repo-index.ts",
-    "./services/repo-index": "./src/services/repo-index.ts"
+    "./services/repo-index": "./src/services/repo-index.ts",
+    "./services/demo": "./src/services/demo.ts",
+    "./services/setup": "./src/services/setup.ts",
+    "./routes/projects": "./src/routes/projects.ts",
+    "./repos/workspaces": "./src/repos/workspaces.ts"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
@@ -42,6 +46,7 @@
     "@perch/policy": "workspace:*",
     "@perch/preview": "workspace:*",
     "@perch/repo": "workspace:*",
+    "@perch/templates": "workspace:*",
     "@perch/vault": "workspace:*",
     "better-auth": "1.7.4",
     "dockerode": "5.0.1",

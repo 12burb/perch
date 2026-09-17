@@ -8,6 +8,7 @@
 import type { Bus } from "@perch/bus";
 import { type Db, type Project, projectConfigSchema } from "@perch/db";
 import {
+  type ProjectConfigResult,
   type ProjectSetupResult,
   projectConfigResultSchema,
   projectSetupResultSchema,
@@ -15,6 +16,7 @@ import {
   type RunnerLink,
 } from "@perch/events";
 import type { Queue } from "@perch/jobs";
+import { stackById, stackFiles } from "@perch/templates";
 import type { Vault } from "@perch/vault";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -61,7 +63,9 @@ export type CloneAuth =
 export type ProjectSourceInput =
   | { kind: "empty"; defaultBranch?: string }
   | { kind: "upload" }
-  | { kind: "clone"; repoUrl: string; branch?: string; auth?: CloneAuth };
+  | { kind: "clone"; repoUrl: string; branch?: string; auth?: CloneAuth }
+  /** A starter stack (task 4.8): set up empty, then the stack's files are written into it. */
+  | { kind: "template"; templateId: string; defaultBranch?: string };
 
 export type CreateProjectInput = {
   workspaceId: string;
@@ -183,8 +187,11 @@ export async function createProject(
   }
   const source = input.source;
   const repoUrl = source.kind === "clone" ? validateRepoUrl(source.repoUrl) : null;
+  if (source.kind === "template" && !stackById(source.templateId)) {
+    throw PerchError.validation(`no such template: ${source.templateId}`, { field: "template" });
+  }
   const defaultBranch =
-    source.kind === "empty"
+    source.kind === "empty" || source.kind === "template"
       ? source.defaultBranch
       : source.kind === "clone"
         ? source.branch
@@ -274,6 +281,9 @@ async function runnerSource(
   userId: string,
 ): Promise<RunnerSource> {
   switch (source.kind) {
+    // A template is an empty checkout until its files are written into it (task 4.8): git is set
+    // up the same way, and the stack arrives on top.
+    case "template":
     case "empty":
       return { kind: "empty", defaultBranch: project.defaultBranch };
     case "upload":
@@ -412,6 +422,36 @@ export function applySetupResult(project: Project, result: ProjectSetupResult) {
   };
 }
 
+/**
+ * Writes a starter stack into a checkout that was just set up, and reads back the
+ * `.perch/project.json` it brought (task 4.8).
+ */
+async function writeStack(
+  project: Project,
+  templateId: string,
+  link: RunnerLink,
+  userId: string,
+): Promise<ProjectConfigResult> {
+  const stack = stackById(templateId);
+  if (!stack) throw new Error(`no such template: ${templateId}`);
+  for (const file of stackFiles(stack)) {
+    await link.call("fs.write", {
+      workspace_id: project.workspaceId,
+      user_id: userId,
+      project: project.id,
+      path: validateProjectPath(file.path),
+      content: file.content,
+      encoding: "utf8",
+    });
+  }
+  const raw = await link.call("project.config", {
+    workspace_id: project.workspaceId,
+    user_id: userId,
+    project: project.id,
+  });
+  return projectConfigResultSchema.parse(raw);
+}
+
 async function runSetup(
   deps: ProjectDeps,
   project: Project,
@@ -456,7 +496,14 @@ async function runSetup(
       source: params,
     });
     const result = projectSetupResultSchema.parse(raw);
-    const row = await updateProject(deps.db, project.id, applySetupResult(project, result));
+    // A starter stack lands on the empty checkout before anything is told the project is ready,
+    // and the `.perch/project.json` it brought is read in the same breath: "ready" has to mean the
+    // files are there and Perch knows the run commands, or the Preview tab opens on nothing.
+    const settled =
+      source.kind === "template"
+        ? { ...result, ...(await writeStack(project, source.templateId, link, userId)) }
+        : result;
+    const row = await updateProject(deps.db, project.id, applySetupResult(project, settled));
     await publish(["status", "head", "config"]);
     return row;
   } catch (error) {

@@ -19,13 +19,24 @@ import { getShare } from "../repos/previews.ts";
 import { findWorkspaceById } from "../repos/workspaces.ts";
 import { editElement } from "../services/element-edit.ts";
 import { storeUpload } from "../services/files.ts";
-import { configPath, previewCommand } from "../services/previews.ts";
+import {
+  configPath,
+  type PreviewRunDeps,
+  previewCommand,
+  startPreview,
+  stopPreview,
+} from "../services/previews.ts";
 import { getProject, projectRunnerLink } from "../services/projects.ts";
 import { runnerCall } from "../services/runners.ts";
 import { projectDeps } from "./projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
 const projectParam = z.object({ ws: z.uuid(), project: z.uuid() });
+
+/** What starting and stopping a dev server needs: the project's runner, its env, and the bus. */
+function previewRunDeps(deps: Deps): PreviewRunDeps {
+  return { db: deps.db.db, bus: deps.bus, registry: deps.runners, vault: deps.vault };
+}
 const portParam = projectParam.extend({ port: z.coerce.number().int().min(1).max(65535) });
 const shareParam = z.object({ id: z.uuid() });
 
@@ -296,6 +307,60 @@ const preflightRoute = createRoute({
   },
 });
 
+/**
+ * The project's own dev server (task 4.8). Perch could watch a port; this starts what answers on
+ * it. The command is never sent by the caller: it is the one `.perch/project.json` names.
+ */
+const previewRunSchema = z
+  .object({
+    running: z.boolean(),
+    /** True when this call was the one that started it, rather than finding it already up. */
+    started: z.boolean(),
+    serving: z.boolean(),
+    port: z.number().int().nullable(),
+    pid: z.number().int().nullable(),
+    command: z.string().nullable(),
+    started_at: z.string().nullable(),
+    exit_code: z.number().int().nullable(),
+    /** The tail of the dev server's output, so a start that failed says why. */
+    log: z.string(),
+  })
+  .openapi("PreviewRun");
+
+const startRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/previews/start",
+  tags: ["previews"],
+  summary: "Start the project's dev server on its runner",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: projectParam },
+  responses: {
+    200: {
+      description: "The dev server, once its port answers or the wait runs out",
+      content: { "application/json": { schema: previewRunSchema } },
+    },
+    ...errorResponses(403, 404, 409, 422, 502),
+  },
+});
+
+const stopRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/{project}/previews/stop",
+  tags: ["previews"],
+  summary: "Stop the project's dev server",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: { params: projectParam },
+  responses: {
+    200: {
+      description: "The dev server, stopped",
+      content: { "application/json": { schema: previewRunSchema } },
+    },
+    ...errorResponses(403, 404, 409, 502),
+  },
+});
+
 export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   app.openapi(preflightRoute, async (c) => {
     const { ws, project: projectId } = c.req.valid("param");
@@ -522,6 +587,24 @@ export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       },
       200,
     );
+  });
+
+  app.openapi(startRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const state = await startPreview(previewRunDeps(deps), project, currentUser(c).id, actorOf(c));
+    return c.json(state, 200);
+  });
+
+  app.openapi(stopRoute, async (c) => {
+    const { ws, project: projectId } = c.req.valid("param");
+    await authorize(c, deps, "projects.update", { type: "workspace", id: ws });
+    const project = await getProject(deps.db.db, ws, projectId);
+    if (!project) throw PerchError.notFound("project");
+    const state = await stopPreview(previewRunDeps(deps), project, currentUser(c).id, actorOf(c));
+    return c.json(state, 200);
   });
 
   app.openapi(createShareRoute, async (c) => {

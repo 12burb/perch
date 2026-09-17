@@ -58,7 +58,7 @@ export const projectSchema = z
     workspace_id: z.uuid(),
     key: z.string(),
     name: z.string(),
-    source: z.enum(["empty", "upload", "clone"]),
+    source: z.enum(["empty", "upload", "clone", "template"]),
     status: z.enum(["pending", "setting_up", "ready", "error"]),
     status_message: z.string().nullable(),
     repo_url: z.string().nullable(),
@@ -188,6 +188,38 @@ const createProjectRoute = createRoute({
   responses: {
     201: {
       description: "The project; its directory is being set up (status pending → ready)",
+      content: { "application/json": { schema: projectSchema } },
+    },
+    ...errorResponses(403, 404, 409, 422),
+  },
+});
+
+const templateProjectRoute = createRoute({
+  method: "post",
+  path: "/api/workspaces/{ws}/projects/template",
+  tags: ["projects"],
+  summary: "Create a project from a starter stack",
+  middleware: [requireUser] as const,
+  security: SESSION_OR_BEARER,
+  request: {
+    params: wsParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            name: nameSchema,
+            key: keySchema,
+            /** A template id from `GET /api/templates`. */
+            template: z.string().trim().min(1).max(64),
+            default_branch: branchSchema,
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "The project; the stack is written on a runner (status pending → ready)",
       content: { "application/json": { schema: projectSchema } },
     },
     ...errorResponses(403, 404, 409, 422),
@@ -413,6 +445,26 @@ export function registerProjects(app: OpenAPIHono<AppEnv>, deps: Deps): void {
               kind: "empty",
               ...(body.default_branch ? { defaultBranch: body.default_branch } : {}),
             },
+      userId: user.id,
+      by: actorOf(c),
+    });
+    return c.json(projectBody(project), 201);
+  });
+
+  app.openapi(templateProjectRoute, async (c) => {
+    const { ws } = c.req.valid("param");
+    const body = c.req.valid("json");
+    await authorize(c, deps, "projects.create", { type: "workspace", id: ws });
+    const user = currentUser(c);
+    const { project } = await createProject(services, {
+      workspaceId: ws,
+      name: body.name,
+      ...(body.key ? { key: body.key } : {}),
+      source: {
+        kind: "template",
+        templateId: body.template,
+        ...(body.default_branch ? { defaultBranch: body.default_branch } : {}),
+      },
       userId: user.id,
       by: actorOf(c),
     });

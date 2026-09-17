@@ -45,6 +45,8 @@ const EXEMPT: Record<string, string> = {
   "GET /api/invites/{token}": "the invite token is the authorization",
   "POST /api/invites/{token}/accept": "the invite token is the authorization",
   "GET /api/connect/callback/{provider}": "the OAuth state parameter is the authorization",
+  "GET /api/templates":
+    "the starter stacks (task 4.8): files in the build, the same for every workspace, with no resource to authorize against",
   "GET {CIMD_PATH}":
     "the CIMD document (spec §3.5): this instance as an OAuth client, public by design",
 };

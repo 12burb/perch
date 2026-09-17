@@ -14,8 +14,11 @@ over the addresses you visited, reload, viewport presets (phone, tablet, desktop
 can see the phone layout without a phone, a link out to a real tab, and **Share**.
 
 A port the project's own config names — `preview.port` in `.perch/project.json` — is marked with a
-star and opens on `preview.path`. Nothing running yet? The tab tells you the `preview.command` to
-run; the terminal is one **⌘J** away.
+star and opens on `preview.path`. Nothing running yet? The tab shows the project's own
+`preview.command` and a **Start** button that runs it on the runner; **Stop** is in the toolbar once
+it is up. If it does not come up, the tail of its output is right there. See
+[templates.md](templates.md) for what Start does and the routes behind it. The terminal is still one
+**⌘J** away if you would rather run it yourself.
 
 ## Two shapes of URL
 

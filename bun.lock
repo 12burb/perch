@@ -40,6 +40,7 @@
         "@perch/policy": "workspace:*",
         "@perch/preview": "workspace:*",
         "@perch/repo": "workspace:*",
+        "@perch/templates": "workspace:*",
         "@perch/vault": "workspace:*",
         "better-auth": "1.7.4",
         "dockerode": "5.0.1",
@@ -396,6 +397,9 @@
     "templates": {
       "name": "@perch/templates",
       "version": "0.0.0",
+      "devDependencies": {
+        "@perch/db": "workspace:*",
+      },
     },
   },
   "trustedDependencies": [

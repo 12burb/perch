@@ -442,6 +442,10 @@ const api = Bun.spawn(
       PERCH_OPENCODE_URL: opencode.url,
       // Where the runner finds a headless browser for `preview.screenshot` (task 2.16).
       PERCH_CHROMIUM: chromiumPath(),
+      // The demo workspace (task 4.8) seeds channels, bots and a project behind the wizard's
+      // response. Every spec asserts what it made itself, so it is off here; the seeding has its
+      // own test in apps/api/test/demo.test.ts.
+      PERCH_DEMO_WORKSPACE: process.env.PERCH_DEMO_WORKSPACE ?? "false",
     },
   },
 );
