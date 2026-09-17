@@ -32,6 +32,7 @@ export {
   MIGRATIONS_TABLE,
   type MigrateResult,
   migrateOnOneConnection,
+  migrateTo,
   runMigrations,
 } from "./migrate.ts";
 export * as schema from "./schema/index.ts";

@@ -23,6 +23,7 @@
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "reliability": "bun test/reliability.ts",
     "openapi:export": "bun scripts/export-openapi.ts"
   },
   "dependencies": {

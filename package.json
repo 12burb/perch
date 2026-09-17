@@ -34,6 +34,7 @@
     "db:generate": "bun run --filter @perch/db generate",
     "db:migrate": "bun run --filter @perch/db migrate",
     "perf": "bun scripts/perf-budget.ts",
+    "reliability": "bun run --filter @perch/api reliability",
     "changeset": "changeset",
     "sdk:generate": "bun run --filter @perch/api openapi:export && bun run --filter @perch/api-client generate",
     "ct": "bun run --filter @perch/ui test:ct",

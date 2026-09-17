@@ -78,6 +78,27 @@ export async function migrateOnOneConnection(db: Db): Promise<MigrateResult> {
   }
 }
 
+/**
+ * Applies only the first `count` embedded migrations, leaving the database at the schema Perch had
+ * that many releases' worth of changes ago. Nothing in the product calls this: it is how the
+ * upgrade drill (task 4.10) gets a database at an older schema to migrate forward.
+ */
+export async function migrateTo(db: Db, count: number): Promise<MigrateResult> {
+  const migrations = embeddedMigrations().slice(0, count);
+  await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
+  try {
+    const before = (await migrationsTableExists(db)) ? await appliedCount(db) : 0;
+    const internal = db as unknown as MigratableDb;
+    await internal.dialect.migrate(migrations, internal.session, {
+      migrationsFolder: "embedded",
+      migrationsTable: MIGRATIONS_TABLE,
+    });
+    return { applied: (await appliedCount(db)) - before, total: migrations.length };
+  } finally {
+    await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
+  }
+}
+
 /** Runs the embedded migrations for a handle (boot-time entry point). */
 export function runMigrations(handle: DbHandle): Promise<MigrateResult> {
   return handle.migrate();

@@ -236,10 +236,19 @@ export function inlineEditPrompt(input: {
 type Round = {
   engine: Engine;
   timer: Timer | null;
+  /** The second timer: the one that ends a round its engine could not even be told to stop. */
+  giveUp: Timer | null;
   cancelled: boolean;
 };
 
 type PendingPermission = { id: string; tool: string; seq: number };
+
+/**
+ * How long a cancelled round is given to end itself before the session service ends it (task 4.10).
+ * A healthy engine answers a cancel in milliseconds; this is the window for one whose runner is
+ * gone, where nothing is ever going to answer.
+ */
+const GIVE_UP_MS = 5_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -569,7 +578,7 @@ export class SessionService {
     );
     await updateSession(this.deps.db, session.id, { turns: session.turns + 1 });
     const updated = await this.setStatus(session, "running", null, options.by);
-    const round: Round = { engine, timer: null, cancelled: false };
+    const round: Round = { engine, timer: null, giveUp: null, cancelled: false };
     this.rounds.set(session.id, round);
     const input: UserTurn = options.context
       ? { ...turn, text: `${options.context}\n\n${turn.text}` }
@@ -810,7 +819,7 @@ export class SessionService {
     );
     await updateSession(this.deps.db, session.id, { turns: session.turns + 1 });
     const running = await this.setStatus(session, "running", null, input.by);
-    const round: Round = { engine, timer: null, cancelled: false };
+    const round: Round = { engine, timer: null, giveUp: null, cancelled: false };
     this.rounds.set(session.id, round);
     let text = "";
     try {
@@ -1153,14 +1162,45 @@ export class SessionService {
 
   private armSilence(session: CodingSession, round: Round): void {
     if (round.timer) clearTimeout(round.timer);
+    if (round.giveUp) {
+      clearTimeout(round.giveUp);
+      round.giveUp = null;
+    }
     round.timer = setTimeout(() => {
       round.timer = null;
       if (this.pending.has(session.id)) return;
       this.deps.log.warn({ sessionId: session.id }, "session round went silent; cancelling");
       round.cancelled = true;
       void round.engine.cancel(session.id).catch(() => {});
+      // A cancel reaches the agent through its runner, so an engine whose runner has gone cannot
+      // be cancelled at all: the round would iterate for ever and the session would go on telling
+      // everybody it was running (task 4.10's chaos drill found exactly that). The cancel gets a
+      // moment to land, and then the round is ended from this side.
+      round.giveUp = setTimeout(() => {
+        void this.abandon(session, round);
+      }, GIVE_UP_MS);
+      round.giveUp.unref?.();
     }, this.silenceMs);
     round.timer.unref?.();
+  }
+
+  /**
+   * Ends a round nothing is going to end: the engine went quiet and would not be cancelled. The
+   * session says what happened rather than sitting at `running`, and the next turn can start.
+   */
+  private async abandon(session: CodingSession, round: Round): Promise<void> {
+    // It may have finished on its own while the grace ran; the round map is the arbiter.
+    if (this.rounds.get(session.id) !== round) return;
+    this.rounds.delete(session.id);
+    this.pending.delete(session.id);
+    const message = "the agent stopped answering and its runner could not be reached";
+    this.deps.log.warn({ sessionId: session.id }, "session round abandoned");
+    try {
+      await this.record(session, { type: "error", message });
+      await this.setStatus(session, "error", message);
+    } catch (error) {
+      this.deps.log.error({ err: error, sessionId: session.id }, "abandoning the round failed");
+    }
   }
 
   private async runRound(
@@ -1288,6 +1328,7 @@ export class SessionService {
           for (const open of tools.values()) open.end();
           round_.end();
           if (round.timer) clearTimeout(round.timer);
+          if (round.giveUp) clearTimeout(round.giveUp);
           this.rounds.delete(session.id);
           this.pending.delete(session.id);
         }

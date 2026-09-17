@@ -221,6 +221,21 @@ jobs:
           severity: CRITICAL,HIGH
           trivyignores: .trivyignore.yaml
 
+  reliability:
+    name: The reliability bar (task 4.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      # The published bar, not the smaller one `bun run check` affords: a hundred sessions at once,
+      # an upgrade with no data loss, and a runner killed mid-turn (docs/reliability.md).
+      - name: A hundred sessions, an upgrade, a runner killed mid-turn
+        run: bun run reliability
+
   compose-smoke:
     name: Compose smoke (docker compose up → wizard → sign in)
     runs-on: ubuntu-latest

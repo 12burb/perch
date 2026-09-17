@@ -6204,3 +6204,54 @@ A new advisory turns `security.yml` red within a day rather than waiting for a p
 the `sharp` finding should have arrived. Removing the signature, the SBOM, the scans or either
 tamper test now fails the local gate rather than a future disclosure. The scheduled run costs two
 short jobs a day; a fork with no published image scans what it has and says so rather than failing.
+
+## ADR-0156: The reliability bar is three drills with numbers, and the chaos drill is the one that found a bug
+
+- **Status:** accepted
+- **Date:** 2026-09-17
+- **Task:** 4.10 (load, upgrade and chaos tests with published targets)
+- **Spec:** §10's Phase 4 line, §3.3 (sessions), §8 (CI)
+
+### Context
+"A hundred sessions at once, an upgrade with no data loss, a runner killed mid-turn recovering" is
+three different questions, and each of them can be answered with a number or with a shrug. The
+repository already had budgets for the bundle and the WS envelope (`scripts/perf-budget.ts`); this
+is the same idea for the parts that are not bytes.
+
+### Decision
+**The engine is in-process for the load drill.** What "a hundred sessions" measures is Perch under
+concurrency — the api, the database, the bus, the session service, the WS fan-out. A hundred real
+agent CLIs would measure somebody else's startup time on a two-core runner and tell us nothing
+about Perch. The chaos drill uses a real agent process, because there the process *is* the subject.
+
+**Open latency is measured after the wave, not inside it.** A hundred opens fired in the same
+millisecond queue behind each other by definition; a p95 over that sample is a number about
+arithmetic. The drill measures the wave as a whole (7.3 s for a hundred) and then opens ten more
+sessions one at a time while the hundred are held (16 ms p50, 40 ms p95) — which is what the next
+person through the door actually feels, and the number worth defending.
+
+**The targets have room.** They are set where a slower machine still passes and a regression still
+fails. A target nobody can keep green gets deleted; a target that only fails on the fastest machine
+in the fleet never fires.
+
+**The bar runs twice, at two sizes.** `bun run reliability` is the published bar and a CI job on
+every push. `bun run check` runs the same drills at twelve sessions, so the gate catches a
+regression before the push rather than after it.
+
+**`migrateTo` is a new export on `@perch/db`.** The upgrade drill needs a database at an older
+schema, and reaching into drizzle's internals from a drill would have been worse than one documented
+function that nothing in the product calls.
+
+### Consequences
+The chaos drill found a real defect on its first honest run: a session whose runner died stayed
+`running` for ever. The silence watchdog cancelled the round by asking the engine to stop — and an
+engine whose runner is gone cannot be asked anything, so the round iterated on a stream that would
+never produce another event. `armSilence` now arms a second, shorter timer after the cancel, and
+`abandon()` ends the round from Perch's side: the transcript gets an error event, the session says
+"the agent stopped answering and its runner could not be reached", and the next turn can start. The
+drill measures eight seconds from the kill, which is the silence window plus that grace.
+
+The first version of the chaos drill passed for the wrong reason — the session had errored before
+anything was killed, because it defaulted to an engine with no server behind it. The drill now
+asserts the turn *was* running before the machine disappeared, which is why the defect surfaced at
+all. A drill that cannot fail is not a drill.
