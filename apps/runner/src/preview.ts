@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, openSync, statSync } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import type { PreviewProcess, RunnerRequestParams } from "@perch/events";
-import { descendantsOf, killTree } from "./exec.ts";
+import { cmdArgument, descendantsOf, killTree } from "./exec.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 
@@ -39,9 +39,17 @@ export function previewLogPath(root: string, projectId: string): string {
   return join(root, ".previews", `${projectId}.log`);
 }
 
-/** The shell a dev server is started in: the project's command, exactly as somebody would type it. */
-function shellFor(command: string): string[] {
-  return platform() === "win32" ? ["cmd.exe", "/d", "/s", "/c", command] : ["sh", "-c", command];
+/**
+ * The shell a dev server is started in: the project's command, exactly as somebody would type it.
+ *
+ * `cmd /s /c` strips the first and last quote of its argument, but only when the argument *begins*
+ * with one — so `"C:\Program Files\bun.exe" dev.ts` arrives as something nobody asked to run. A
+ * command in that shape is wrapped in one more pair, which is exactly what `/s` is for: it takes
+ * the outermost pair off and runs the rest verbatim. Anything else is passed as it always was.
+ */
+export function shellFor(command: string, os: string = platform()): string[] {
+  if (os !== "win32") return ["sh", "-c", command];
+  return ["cmd.exe", "/d", "/s", "/c", cmdArgument(command)];
 }
 
 /** A signal that does not care whether the process is still there. */

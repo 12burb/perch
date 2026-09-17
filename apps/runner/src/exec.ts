@@ -25,10 +25,22 @@ export type ExecResult = {
   durationMs: number;
 };
 
+/** What `cmd /s /c` must be handed for `command` to survive its quote-stripping rule. */
+export function cmdArgument(command: string): string {
+  return command.startsWith('"') ? `"${command}"` : command;
+}
+
 /** The shell, in its own process group where setsid exists so a timeout kills the whole tree. */
-function shell(command: string): { argv: string[]; group: boolean } {
-  if (platform() === "win32") return { argv: ["cmd.exe", "/d", "/s", "/c", command], group: false };
-  const setsid = platform() === "linux" ? Bun.which("setsid") : null;
+export function shell(
+  command: string,
+  os: string = platform(),
+): { argv: string[]; group: boolean } {
+  // A command that begins with a quote needs one more pair, or `/s` strips its first and last
+  // quote and cmd runs something else entirely (task 4.8; the rule is in `cmdArgument`).
+  if (os === "win32") {
+    return { argv: ["cmd.exe", "/d", "/s", "/c", cmdArgument(command)], group: false };
+  }
+  const setsid = os === "linux" ? Bun.which("setsid") : null;
   return setsid
     ? { argv: [setsid, "-w", "sh", "-c", command], group: true }
     : { argv: ["sh", "-c", command], group: false };
