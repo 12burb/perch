@@ -1,0 +1,44 @@
+# Findings Perch has looked at and accepted, each with a reason and a date it comes back (task 4.9).
+#
+# This is not a way to make a scan quiet. Every entry names one CVE, says why it is not something
+# Perch can fix today, and expires — after which the scan fails again and somebody looks. The
+# entries are scoped to `opt/node/lib/node_modules/**`, the tree the runner image's agent CLIs are
+# installed into, so the same CVE appearing in Perch's own dependencies still fails.
+#
+# `docs/security.md` carries the same list in prose, and the disclosure drill asserts that every
+# entry here has a statement and an expiry that has not passed.
+vulnerabilities:
+  - id: CVE-2026-14257
+    paths:
+      - "opt/node/lib/node_modules/**"
+    statement: >-
+      brace-expansion (DoS) inside the agent CLIs the runner image pins (deploy/agents.json,
+      ADR-0152). Perch does not depend on it; the fixed version is bundled by upstream or not at
+      all, and Codex, Claude Code, Gemini CLI and OpenCode are all at their newest published
+      version already. The runner is the sandbox — it runs agent code by design, in a container
+      per workspace with its own limits — so a denial of service inside one is bounded by what
+      that container was already allowed to spend.
+    expired_at: 2026-10-17
+  - id: CVE-2026-69152
+    paths:
+      - "opt/node/lib/node_modules/**"
+    statement: >-
+      brace-expansion again, bypassing CVE-2026-14257's mitigation. Same tree, same reasoning, same
+      date: it comes back when the pins are next moved.
+    expired_at: 2026-10-17
+  - id: CVE-2026-69192
+    paths:
+      - "opt/node/lib/node_modules/**"
+    statement: >-
+      ip-address (SSRF through inconsistent parsing) inside the agent CLIs. Perch's own outbound
+      requests do not go through it: the gateway and the connectors use their own clients, and no
+      credential is reachable from a runner (spec §1.6). Upstream has not shipped a CLI carrying
+      the fixed version.
+    expired_at: 2026-10-17
+  - id: CVE-2026-73566
+    paths:
+      - "opt/node/lib/node_modules/**"
+    statement: >-
+      node-tar (DoS on a crafted archive) inside the agent CLIs. Perch never hands one an archive;
+      what a CLI unpacks is what it fetched for itself, inside the runner's sandbox.
+    expired_at: 2026-10-17

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { runDrill, STEPS } from "./disclosure-drill.ts";
+import { parseAccepted, runDrill, STEPS } from "./disclosure-drill.ts";
 
 /**
  * The disclosure drill (task 4.9).
@@ -23,6 +23,7 @@ function scratch(): string {
     "docs/security.md",
     "docs/install.md",
     ".github/workflows/security.yml",
+    ".trivyignore.yaml",
     ".github/workflows/ci.yml",
     ".github/workflows/release.yml",
     "apps/cli/test/upgrade.test.ts",
@@ -155,6 +156,50 @@ describe("the disclosure drill (task 4.9)", () => {
       expect(theOneFailure(dir)).toBe(
         "Every image Perch publishes is scanned before it is published",
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the accepted findings are read: the CVE, the reason, and the date it comes back", () => {
+    const accepted = parseAccepted(readFileSync(join(REPO, ".trivyignore.yaml"), "utf8"));
+    expect(accepted.length).toBeGreaterThan(0);
+    for (const one of accepted) {
+      expect(one.id, one.id).toMatch(/^(CVE|GHSA)-/);
+      expect(one.statement.length, one.id).toBeGreaterThan(40);
+      expect(one.expiredAt, one.id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(one.expiredAt > new Date().toISOString().slice(0, 10), one.id).toBe(true);
+    }
+  });
+
+  test("an accepted finding that has run out of road fails the fix step", () => {
+    const dir = scratch();
+    try {
+      writeFileSync(
+        join(dir, ".trivyignore.yaml"),
+        [
+          "vulnerabilities:",
+          "  - id: CVE-2020-0001",
+          "    statement: >-",
+          "      Something we looked at once and never came back to, which is the failure mode this",
+          "      step exists to catch.",
+          "    expired_at: 2021-01-01",
+        ].join("\n"),
+      );
+      expect(theOneFailure(dir)).toBe("Every accepted finding says why, and comes back");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an accepted finding with no reason fails the same step", () => {
+    const dir = scratch();
+    try {
+      writeFileSync(
+        join(dir, ".trivyignore.yaml"),
+        ["vulnerabilities:", "  - id: CVE-2020-0002", "    expired_at: 2099-01-01"].join("\n"),
+      );
+      expect(theOneFailure(dir)).toBe("Every accepted finding says why, and comes back");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -219,6 +219,7 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
   compose-smoke:
     name: Compose smoke (docker compose up → wizard → sign in)
@@ -282,6 +283,7 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -290,3 +292,4 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml

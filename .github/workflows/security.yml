@@ -36,6 +36,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           scanners: vuln,secret
+          trivyignores: .trivyignore.yaml
 
   images:
     name: The published images
@@ -66,3 +67,4 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml

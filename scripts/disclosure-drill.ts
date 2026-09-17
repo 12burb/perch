@@ -35,6 +35,26 @@ function must(condition: boolean, wrong: string, right: string): string {
   return right;
 }
 
+/** One entry of `.trivyignore.yaml`: the CVE, why it is accepted, and when it comes back. */
+export type Accepted = { id: string; statement: string; expiredAt: string };
+
+/**
+ * The accepted findings, read without a YAML parser: this file is written by people, in one shape,
+ * and the drill has no business growing a dependency to read four fields.
+ */
+export function parseAccepted(raw: string): Accepted[] {
+  const out: Accepted[] = [];
+  for (const block of raw.split(/^\s*- id:\s*/m).slice(1)) {
+    const id = (block.split("\n")[0] ?? "").trim();
+    const expiredAt = /expired_at:\s*(\S+)/.exec(block)?.[1]?.trim() ?? "";
+    const statement = (/statement:[^\n]*\n([\s\S]*?)(?:\n\s*expired_at:|$)/.exec(block)?.[1] ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    out.push({ id, statement, expiredAt });
+  }
+  return out;
+}
+
 /** Every step, in the order a real disclosure runs them. */
 export const STEPS: DrillStep[] = [
   {
@@ -90,6 +110,34 @@ export const STEPS: DrillStep[] = [
         "",
       );
       return "security.yml scans every lockfile and the published images on a schedule";
+    },
+  },
+  {
+    phase: "fix",
+    name: "Every accepted finding says why, and comes back",
+    manual: "Re-read the entries in .trivyignore.yaml and either fix, re-date, or delete them.",
+    check: (repo) => {
+      let raw: string;
+      try {
+        raw = read(repo, ".trivyignore.yaml");
+      } catch {
+        // Nothing accepted is the best answer there is.
+        return "nothing is being ignored";
+      }
+      const accepted = parseAccepted(raw);
+      must(accepted.length > 0, ".trivyignore.yaml exists but accepts nothing", "");
+      const today = new Date().toISOString().slice(0, 10);
+      for (const one of accepted) {
+        must(one.statement.length > 40, `${one.id} is ignored without saying why`, "");
+        must(one.expiredAt !== "", `${one.id} is ignored with no date it comes back`, "");
+        must(
+          one.expiredAt > today,
+          `${one.id} was accepted until ${one.expiredAt}, which has passed`,
+          "",
+        );
+      }
+      const soonest = accepted.map((one) => one.expiredAt).sort()[0];
+      return `${accepted.length} accepted findings, each with a reason; the first returns ${soonest}`;
     },
   },
   {

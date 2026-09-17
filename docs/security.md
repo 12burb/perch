@@ -52,6 +52,28 @@ cosign verify-blob \
   SHA256SUMS
 ```
 
+## Findings Perch has accepted, with a date they come back
+
+A scan that cannot be made green is a scan people learn to ignore — and so is one that is quietly
+switched off. `.trivyignore.yaml` is the middle: each entry names one CVE, says why it is not
+something Perch can fix today, is scoped to the tree it was found in, and **expires**. When the date
+passes the scan fails again and somebody looks.
+
+| CVE | Where | Why it is accepted | Returns |
+|---|---|---|---|
+| CVE-2026-14257, CVE-2026-69152 | `brace-expansion`, inside the agent CLIs | Denial of service in a package Perch does not depend on. The four CLIs are pinned (`deploy/agents.json`, ADR-0152) and each is already at its newest published version; the fix has to come from upstream. | 2026-10-17 |
+| CVE-2026-69192 | `ip-address`, inside the agent CLIs | SSRF through inconsistent parsing. Perch's own outbound requests do not go through it — the gateway and the connectors use their own clients — and no credential is reachable from a runner (spec §1.6). | 2026-10-17 |
+| CVE-2026-73566 | `tar`, inside the agent CLIs | Denial of service on a crafted archive. Perch never hands a CLI an archive; what one unpacks is what it fetched for itself. | 2026-10-17 |
+
+All four live in `opt/node/lib/node_modules/**` — the tree the runner image installs Codex, Claude
+Code, Gemini CLI and OpenCode into. The entries are scoped to that path, so the same CVE appearing
+in Perch's own dependencies still fails the scan. And the runner is the sandbox: it runs agent code
+by design, one container per workspace, with the limits that container was given. A denial of
+service inside one is bounded by what it was already allowed to spend.
+
+The disclosure drill asserts that every entry here has a reason and a date that has not passed, so
+an exception cannot quietly become permanent.
+
 ## The disclosure drill
 
 A security policy nobody has walked through is a wish. The drill walks it. Everything that can be
@@ -65,8 +87,9 @@ It asserts, in the order a real disclosure would need them:
 
 1. **Report** — `SECURITY.md` offers a private advisory and says not to open an issue; it commits to
    an acknowledgement window and a disclosure window; and this page records who last ran the drill.
-2. **Fix** — a dependency advisory fails something without anybody pushing (`security.yml`), and
-   every image Perch publishes is scanned before it is published (`ci.yml`).
+2. **Fix** — a dependency advisory fails something without anybody pushing (`security.yml`), every
+   image Perch publishes is scanned before it is published (`ci.yml`), and every finding Perch has
+   accepted says why and has a date it comes back (`.trivyignore.yaml`).
 3. **Release** — the release carries an SBOM per image and one for the binaries; `cosign` signs
    `SHA256SUMS`, and that file covers the SBOM as well as the binaries; and there is a test that a
    tampered download installs nothing — for both `install.sh` and `perch upgrade`.
