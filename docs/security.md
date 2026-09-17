@@ -11,12 +11,16 @@ and the drill that keeps the reporting path from rusting (task 4.9).
 | Every push | The repository's lockfiles (`bun.lock`, `docs/site/bun.lock`) | `ci.yml` → Trivy `fs` |
 | Every push | The api image, and the runner image's agents layer | `ci.yml` → Trivy image |
 | Every push | Perch's own code, on a pull request | Biome, `tsc`, the route-authorization invariant (`docs/audit.md`) |
-| Daily | The same lockfiles, and the published `:latest` images | `security.yml` |
+| Daily | The same lockfiles, and the images this commit builds | `security.yml` |
 | Weekly | Perch's own code, deeply | `codeql.yml` (CodeQL, `security-and-quality`) |
 
 The daily run exists because of the failure mode a per-push scan cannot cover: a dependency that
 was fine when it was merged and has an advisory a week later. Nobody has to push for that to turn
-something red.
+something red. It builds the images from the current commit rather than pulling the published
+`:latest`: an advisory against the *last release's* image is real, but it is not something a change
+to `main` can answer, and a check that stays red between releases is a check people stop reading.
+The release's own images were scanned when they were built, and are re-scanned the next time one is
+cut.
 
 Every scan is set to **`ignore-unfixed`, CRITICAL and HIGH**. An advisory with no fix available is
 not something a version bump can answer, and a check that cannot be made green is a check people

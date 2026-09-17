@@ -14,6 +14,7 @@ on:
   push:
     paths:
       - ".github/workflows/security.yml"
+      - ".trivyignore.yaml"
 
 permissions:
   contents: read
@@ -39,30 +40,35 @@ jobs:
           trivyignores: .trivyignore.yaml
 
   images:
-    name: The published images
+    name: The images main builds
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        image: [api, runner]
+        include:
+          - name: api
+            dockerfile: deploy/Dockerfile.api
+            target: ""
+          # The agents layer: the base plus the four CLIs, without the Chromium download behind it.
+          - name: runner
+            dockerfile: deploy/Dockerfile.runner
+            target: agents
     steps:
-      # A published image may not exist yet on a fresh fork or before the first release; that is
-      # not a failure, it is nothing to scan.
-      - name: Is there an image to scan?
-        id: published
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # Built from this commit rather than pulled from the registry: a published `:latest` is the
+      # last release, and an advisory against it is not something a change to main can answer. What
+      # this run adds over CI's own scan is a fresh vulnerability database against the same code —
+      # which is exactly the advisory published after the merge.
+      - name: Build
         run: |
-          set -euo pipefail
-          ref="ghcr.io/${{ github.repository_owner }}/perch-${{ matrix.image }}:latest"
-          if docker manifest inspect "$ref" > /dev/null 2>&1; then
-            echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          else
-            echo "no image at $ref yet"
-          fi
+          docker build -f ${{ matrix.dockerfile }} \
+            ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
+            -t perch-${{ matrix.name }}:scan .
       - uses: aquasecurity/trivy-action@v0.36.0
-        if: steps.published.outputs.ref != ''
         with:
-          image-ref: ${{ steps.published.outputs.ref }}
+          image-ref: perch-${{ matrix.name }}:scan
           format: table
           exit-code: "1"
           ignore-unfixed: true

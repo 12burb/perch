@@ -121,6 +121,9 @@ export async function runDemo(argv: string[]): Promise<number> {
       userId,
       by: { actor: { type: "user", id: userId }, meta: {} },
       project: values["no-project"] !== true,
+      // The demo is the one place a dev server should already be running: it is what somebody ran
+      // this command to see.
+      preview: values["no-project"] !== true,
       ...(values.template ? { templateId: values.template } : {}),
     });
     console.log(

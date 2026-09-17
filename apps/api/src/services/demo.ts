@@ -69,7 +69,11 @@ export type SeedDemoInput = {
   templateId?: string;
   /** Make the project at all. Off in tests that only want the channels and the bots. */
   project?: boolean;
-  /** Start the project's dev server once it is ready (default: as `project`). */
+  /**
+   * Start the project's dev server once it is ready. Off by default: the seed runs behind the
+   * setup wizard, and a wizard that leaves a process running on a port nobody asked about is a
+   * surprise — `perch demo`, where somebody did ask, turns it on.
+   */
   preview?: boolean;
   /** How long to wait for the project to be set up before giving up on it. */
   projectWaitMs?: number;
@@ -184,7 +188,7 @@ export async function seedDemo(deps: DemoDeps, input: SeedDemoInput): Promise<De
       );
       const ready = await created.setup;
       project = { id: ready.id, key: ready.key, created: true, status: ready.status };
-      if ((input.preview ?? true) && ready.status === "ready") {
+      if ((input.preview ?? false) && ready.status === "ready") {
         try {
           const run = await startPreview(deps.previews, ready, input.userId, input.by);
           preview = { port: run.port, serving: run.serving };

@@ -82,8 +82,12 @@ shell. A runner that restarts takes its dev servers with it; press Start again.
 A Perch with nothing in it is a set of empty states. `PERCH_DEMO_WORKSPACE` (default on, spec §4
 "first run") seeds the first workspace just after the setup wizard: the channels `#general`,
 `#builds` and `#the-nest`, two bots from the Forge's own templates (`@helpdesk` and `@editor`), and
-a project made from the `bun-api` stack with its dev server running — plus a message in `#general`
-saying what is there.
+and a project made from the `bun-api` stack — plus a message in `#general` saying what is there and
+which button starts the project.
+
+The seed does not start the dev server: it runs behind the wizard's response, and a first run that
+leaves a process on a port nobody asked about is a surprise. `perch demo`, where somebody did ask,
+starts it.
 
 It is made through the same services your clicks go through, so nothing in it is a fixture. It is
 also idempotent: what is already there is left alone.

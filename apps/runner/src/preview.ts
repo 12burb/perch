@@ -9,7 +9,7 @@
  * It lives beside `exec` rather than inside it because `exec` has a budget and this has a lifetime,
  * and beside `pty` because a shell a person is typing in is not somewhere to type a command.
  */
-import { existsSync, mkdirSync, openSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, statSync } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import type { PreviewProcess, RunnerRequestParams } from "@perch/events";
@@ -128,13 +128,20 @@ export class PreviewManager {
     mkdirSync(dirname(log), { recursive: true });
     // Truncated on every start: the log is this run's, not every run's.
     const fd = openSync(log, "w");
-    const proc = Bun.spawn(shellFor(params.command), {
-      cwd,
-      stdin: "ignore",
-      stdout: fd,
-      stderr: fd,
-      env: { ...process.env, ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" },
-    });
+    let proc: Running["proc"];
+    try {
+      proc = Bun.spawn(shellFor(params.command), {
+        cwd,
+        stdin: "ignore",
+        stdout: fd,
+        stderr: fd,
+        env: { ...process.env, ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" },
+      });
+    } finally {
+      // The child has its own copy; this one would otherwise hold the file for as long as the
+      // runner lives, which on Windows is long enough to make the directory undeletable.
+      closeSync(fd);
+    }
     const entry: Running = {
       proc,
       command: params.command,

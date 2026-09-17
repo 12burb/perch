@@ -23,7 +23,7 @@ ended up is written to `E2E_MANIFEST` (ADR-0089). Run one with
 | `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), the backup and restore drill (a backup through `/api/admin/backup`, restored into an empty Postgres database beside the live one, task 4.4), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
 | `dco.yml` | `Signed-off-by` on every commit |
 | `codeql.yml` | weekly CodeQL (security-and-quality) |
-| `security.yml` | daily: Trivy over every lockfile in the repository and over the published `:latest` images — the advisory published after a merge, which no per-push scan can catch (task 4.9, `docs/security.md`) |
+| `security.yml` | daily: Trivy over every lockfile in the repository and over the images this commit builds, with a fresh vulnerability database — the advisory published after a merge, which no per-push scan can catch (task 4.9, `docs/security.md`) |
 | `changesets.yml` | manual: opens or refreshes a "Version Packages" pull request from the pending changesets (needs the "Allow GitHub Actions to create and approve pull requests" repository setting); the usual flow is `bun run version` on main and a Release run |
 
 ## On a tag `v<version>`, or a manual run with a version (`release.yml`)
