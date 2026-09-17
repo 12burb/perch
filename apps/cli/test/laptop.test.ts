@@ -6,6 +6,7 @@ import { within } from "../../../scripts/launch-bar.ts";
 import { createBackup, restoreBackup } from "../src/commands/backup.ts";
 import { collectChecks, formatChecks } from "../src/commands/doctor.ts";
 import { laptopLayout } from "../src/paths.ts";
+import { webAssets } from "../src/web-assets.gen.ts";
 
 /**
  * The laptop smoke test (task 0.14): `perch dev` starts on PGlite with the in-process runner, answers
@@ -107,6 +108,24 @@ describe("laptop mode (task 0.14)", () => {
     expect(byName["master key"]?.detail).toContain("master.key");
     expect(formatChecks(checks)).toContain("ok    bun");
     expect(checks.filter((c) => c.required && !c.ok)).toEqual([]);
+  }, 60_000);
+
+  test("doctor does not claim the web app is missing from a binary that carries it", async () => {
+    // A compiled `perch` embeds the web app, so there is no directory to stat; before v0.3.0 the
+    // check looked for one anyway and told everybody who downloaded a release that their web build
+    // was missing, on a binary that was serving it perfectly well.
+    const checks = await collectChecks({ dataDir, port: 0, host: "127.0.0.1" });
+    const web = checks.find((one) => one.name === "web build");
+    expect(web).toBeDefined();
+    const embedded = Object.keys(webAssets).length;
+    if (embedded > 0) {
+      expect(web?.ok).toBe(true);
+      expect(web?.detail).toContain(`embedded in this binary (${embedded} files)`);
+    } else {
+      // Running from the source tree: what it says depends on whether the app has been built, and
+      // either way it is never "embedded".
+      expect(web?.detail).not.toContain("embedded");
+    }
   }, 60_000);
 
   test("backup and restore round-trip the PGlite data, files, and master key", async () => {

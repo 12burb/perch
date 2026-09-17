@@ -14,6 +14,7 @@ import { runDoctor } from "./commands/doctor.ts";
 import { runInit } from "./commands/init.ts";
 import { runRunner } from "./commands/runner.ts";
 import { runUpgrade } from "./commands/upgrade.ts";
+import { currentVersion } from "./upgrade.ts";
 
 export const packageName = "@perch/cli";
 
@@ -29,6 +30,7 @@ Commands:
   runner      connect this machine to a Perch as one of your environments (runner connect <url>)
   connectors  check connector manifests before an instance loads them (connectors check <dir>)
   upgrade     replace this binary with the newest release, checksum and signature checked
+  version     print the version this binary was built as
   help        show this help
 
 Run "perch <command> --help" for the options of a command.`;
@@ -54,6 +56,12 @@ export async function main(argv: string[]): Promise<number> {
       return runConnectors(rest);
     case "upgrade":
       return runUpgrade(rest);
+    // The first thing anybody types at a binary they have just downloaded.
+    case "version":
+    case "--version":
+    case "-v":
+      console.log(currentVersion());
+      return 0;
     case undefined:
     case "help":
     case "--help":

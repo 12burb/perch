@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { createDb } from "@perch/db";
 import { dataDirFrom, laptopLayout, webDistDir } from "../paths.ts";
 import { pgliteRuntime } from "../pglite-runtime.ts";
+import { webAssets } from "../web-assets.gen.ts";
 
 export type Check = { name: string; ok: boolean; required: boolean; detail: string };
 
@@ -104,12 +105,19 @@ export async function collectChecks(options: {
       : "in use (pass --port to perch dev)",
   });
 
+  // A compiled binary carries the web app inside it (ADR-0060), so there is no directory to find
+  // and looking for one told everybody who downloaded a release that their web build was missing.
+  const embedded = Object.keys(webAssets).length;
   const web = webDistDir();
   checks.push({
     name: "web build",
-    ok: existsSync(web),
+    ok: embedded > 0 || existsSync(web),
     required: false,
-    detail: existsSync(web) ? web : `${web} missing: bun run --filter @perch/web build`,
+    detail: embedded
+      ? `embedded in this binary (${embedded} files)`
+      : existsSync(web)
+        ? web
+        : `${web} missing: bun run --filter @perch/web build`,
   });
 
   for (const tool of ["git", "docker"] as const) {

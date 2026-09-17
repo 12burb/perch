@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderInit, writeInit } from "../src/commands/init.ts";
 import { main } from "../src/index.ts";
+import { currentVersion } from "../src/upgrade.ts";
 
 const base = {
   dir: "",
@@ -93,5 +94,37 @@ describe("perch init (task 0.13)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
+  });
+});
+
+/**
+ * What a downloaded binary answers before it is asked to do anything (v0.3.0's own first minute):
+ * the version, and a diagnostic that does not cry wolf about the web app it is carrying.
+ */
+describe("the first thing anybody types", () => {
+  test("`perch --version`, `-v` and `version` all say the version", async () => {
+    for (const argv of [["--version"], ["-v"], ["version"]]) {
+      const said: string[] = [];
+      const log = console.log;
+      console.log = (line: string) => said.push(String(line));
+      try {
+        expect(await main(argv)).toBe(0);
+      } finally {
+        console.log = log;
+      }
+      expect(said.join("\n").trim()).toBe(currentVersion());
+    }
+  });
+
+  test("the help lists it, so it is discoverable from the binary itself", async () => {
+    const said: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => said.push(String(line));
+    try {
+      expect(await main(["help"])).toBe(0);
+    } finally {
+      console.log = log;
+    }
+    expect(said.join("\n")).toContain("version");
   });
 });

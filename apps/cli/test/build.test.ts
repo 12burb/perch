@@ -55,6 +55,26 @@ describe.skipIf(!hasWebBuild)("perch binary (task 0.15)", () => {
       const help = Bun.spawnSync([binary, "--help"], { stdout: "pipe", stderr: "pipe" });
       expect(help.stdout.toString()).toContain("perch <command>");
 
+      // The two questions a downloaded binary is asked first: what version is this, and is
+      // anything wrong with this machine. Neither may be answered with "unknown command", and
+      // doctor may not report the web app missing from a binary that is carrying it.
+      // The version is the one it was compiled with, not one the environment can claim.
+      const version = Bun.spawnSync([binary, "--version"], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, PERCH_VERSION: "9.9.9-not-this-one" },
+      });
+      expect(version.exitCode).toBe(0);
+      expect(version.stdout.toString().trim()).toBe("0.0.0-test");
+
+      const doctor = Bun.spawnSync([binary, "doctor", "--data-dir", dataDir], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const said = doctor.stdout.toString();
+      expect(said, said).toContain("embedded in this binary");
+      expect(said, said).not.toContain("web build missing");
+
       const proc = Bun.spawn(
         [binary, "dev", "--port", "0", "--data-dir", dataDir, "--log-level", "warn"],
         {

@@ -75,6 +75,16 @@ Every release publishes the manifests for these, generated from that release's o
 | **nix** | `nix run github:12burb/perch` with the release's `flake.nix`, or `nix profile install` it |
 | **npm** | `npx perch-dev@latest dev` — needs Bun, and is the one lane where the web app is copied beside the script rather than embedded |
 
+## Checking what you have
+
+```sh
+perch --version   # the version this binary was built as
+perch doctor      # Bun, the data directory, the database, the port, the web app, git and docker
+```
+
+`perch doctor` is the first thing to run when something is wrong: it says what it found and what to
+do about it, and it never needs an instance to be running.
+
 ## Upgrading
 
 ```sh
