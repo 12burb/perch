@@ -59,9 +59,14 @@ irm https://raw.githubusercontent.com/12burb/perch/main/install.ps1 | iex
 perch dev
 ```
 
-Or with nix: `nix run github:12burb/perch`. Every release also builds Homebrew, winget, AUR and npm
-manifests, but none of those are published to their registries yet —
-[`docs/install.md`](docs/install.md#package-managers) says which lanes work today.
+Or with nix — `nix run github:12burb/perch` — or Homebrew:
+
+```sh
+brew tap 12burb/perch https://github.com/12burb/perch && brew install 12burb/perch/perch
+```
+
+Every release also builds winget, AUR and npm manifests, but those are not published to their
+registries yet; [`docs/install.md`](docs/install.md#package-managers) says which lanes work today.
 
 Nothing is installed that the release did not vouch for: the binary must match the release's
 `SHA256SUMS`, and those checksums are signed by the release workflow with cosign (keyless,

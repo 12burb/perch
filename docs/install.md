@@ -67,12 +67,15 @@ attestations — see [what a release says about itself](security.md).
 Every release publishes the manifests for these, generated from that release's own checksums by
 `scripts/packaging.ts`, so none of them can drift from what was actually built. **Publishing a
 manifest to a registry is a separate step, and not all of them are done** — this table says which
-you can run today rather than which have a manifest:
+you can run today rather than which have a manifest. The two that need no registry, nix and
+Homebrew, read their manifest straight out of this repository (`flake.nix` and `Formula/perch.rb`),
+and the release workflow refreshes both on the default branch so they always name the newest
+release:
 
 | | Works today? | |
 |---|---|---|
-| **nix** | **yes** | `nix run github:12burb/perch` — or `nix profile install github:12burb/perch`. The flake at the root of this repository tracks the newest release |
-| **Homebrew** | not yet | the release builds `perch.rb`; there is no `12burb/homebrew-perch` tap carrying it, so `brew install 12burb/perch/perch` will not resolve |
+| **nix** | **yes** | `nix run github:12burb/perch` — or `nix profile install github:12burb/perch` |
+| **Homebrew** | **yes**, with the tap spelled out | `brew tap 12burb/perch https://github.com/12burb/perch` then `brew install 12burb/perch/perch`. The formula lives in this repository, so the tap needs its URL; the one-word `brew install 12burb/perch/perch` will only work once there is a `12burb/homebrew-perch` repository |
 | **winget** | not yet | the release builds the manifests; they have not been submitted to `microsoft/winget-pkgs`, so `winget install Perch.Perch` finds nothing |
 | **AUR** | not yet | the release builds a `PKGBUILD`; no package has been pushed to the AUR, so `yay -S perch-bin` finds nothing |
 | **npm** | not yet | the release can publish `perch-dev` and `perch-bot-sdk`, but only when the repository has an `NPM_TOKEN`; until then `npx perch-dev@latest` is a 404 |

@@ -97,9 +97,10 @@ describe("packaging manifests (task 4.3)", () => {
  * the one package-manager lane that needs no registry and no credential, and therefore the one
  * that has to be right.
  */
-describe("the flake at the root (nix run github:…)", () => {
+describe("the manifests on the default branch (nix run, brew tap)", () => {
   const root = resolve(import.meta.dir, "..");
   const committed = readFileSync(resolve(root, "flake.nix"), "utf8");
+  const formula = readFileSync(resolve(root, "Formula", "perch.rb"), "utf8");
 
   test("it names a released version and a checksum per platform", () => {
     const version = /version = "([^"]+)"/.exec(committed)?.[1] ?? "";
@@ -131,5 +132,27 @@ describe("the flake at the root (nix run github:…)", () => {
     ];
     expect(typeof regenerated).toBe("string");
     expect(committed).toBe(regenerated ?? "");
+  });
+
+  test("the formula names the same release as the flake", () => {
+    // `brew tap <user>/<name> <url>` clones this repository and reads Formula/, so the two lanes
+    // that need no registry are served from the same commit and must not drift apart.
+    const flakeVersion = /version = "([^"]+)"/.exec(committed)?.[1] ?? "";
+    const formulaVersion = /^ {2}version "([^"]+)"$/m.exec(formula)?.[1] ?? "";
+    expect(formulaVersion).toBe(flakeVersion);
+    expect(formula).toContain(`releases/download/v${formulaVersion}/perch-darwin-arm64`);
+    expect(formula).toContain(`releases/download/v${formulaVersion}/perch-linux-x64`);
+  });
+
+  test("the formula carries the same checksums, so one cannot be refreshed without the other", () => {
+    for (const [, asset, hash] of committed.matchAll(
+      /asset = "([^"]+)"; sha256 = "([0-9a-f]{64})"/g,
+    )) {
+      const inFormula = new RegExp(
+        `download/v[^/]+/${asset}"\\s+sha256 "([0-9a-f]{64})"`,
+        "m",
+      ).exec(formula);
+      expect(inFormula?.[1], asset).toBe(hash);
+    }
   });
 });

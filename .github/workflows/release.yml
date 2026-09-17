@@ -304,10 +304,11 @@ jobs:
             release/sdk/openapi.json
             release/docs/docs-site-*.tar.gz
             release/sbom-*/sbom-*.spdx.json
-      # `nix run github:12burb/perch` resolves the flake at the default branch, so the flake has to
-      # name the release that just happened rather than the one before it. It is generated from this
-      # release's own checksums, which only exist now, and pushed back to the branch this ran from.
-      - name: Refresh flake.nix on the default branch
+      # Two manifests live on the default branch rather than only on the release, because that is
+      # where the tools read them from: `nix run github:…` resolves the branch, and `brew tap <user>
+      # <url>` clones it. Both have to name the release that just happened rather than the one
+      # before it, and both are generated from this release's own checksums, which only exist now.
+      - name: Refresh flake.nix and Formula/perch.rb on the default branch
         if: ${{ needs.meta.outputs.prerelease != 'true' }}
         run: |
           set -euo pipefail
@@ -320,13 +321,14 @@ jobs:
             --out /tmp/packaging \
             --repo ${{ github.repository }}
           cp /tmp/packaging/nix/flake.nix flake.nix
-          if git diff --quiet -- flake.nix; then
-            echo "flake.nix already names v${{ needs.meta.outputs.version }}"
+          cp /tmp/packaging/homebrew/perch.rb Formula/perch.rb
+          if git diff --quiet -- flake.nix Formula/perch.rb; then
+            echo "flake.nix and Formula/perch.rb already name v${{ needs.meta.outputs.version }}"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -s -m "chore(release): flake.nix tracks v${{ needs.meta.outputs.version }}" -- flake.nix
+          git commit -s -m "chore(release): flake.nix and the formula track v${{ needs.meta.outputs.version }}" -- flake.nix Formula/perch.rb
           git push origin "$branch"
       - name: npm publish perch-dev (skipped without NPM_TOKEN)
         if: ${{ env.NPM_TOKEN != '' }}
@@ -355,8 +357,8 @@ jobs:
             else
               echo "- npm: **not published** — no \`NPM_TOKEN\` secret, so \`npx perch-dev@latest\` is a 404"
             fi
-            echo "- nix: \`flake.nix\` on the default branch now tracks this release"
-            echo "- Homebrew, winget, AUR: manifests are attached to the release, but **not published**"
+            echo "- nix and Homebrew: \`flake.nix\` and \`Formula/perch.rb\` on the default branch now track this release"
+            echo "- winget, AUR: manifests are attached to the release, but **not published**"
             echo ""
             echo "See \`docs/install.md\` for which lanes work today."
           } >> "$GITHUB_STEP_SUMMARY"
