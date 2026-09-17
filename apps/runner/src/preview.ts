@@ -145,21 +145,28 @@ export class PreviewManager {
   async stop(params: RunnerRequestParams<"preview.stop">): Promise<PreviewProcess> {
     const entry = this.running.get(params.project);
     if (entry && entry.exitCode === null) {
-      // The tree is read before anything is killed: a shell that dies first leaves its children
-      // reparented to init, and by then nothing on this side knows what they were.
-      const tree = descendantsOf(entry.proc.pid);
-      // Politely, and to all of them: a dev server told to stop closes its port and its children.
-      entry.proc.kill();
-      for (const pid of tree) signal(pid, "SIGTERM");
       const grace = this.options.stopGraceMs ?? 3000;
-      await Promise.race([entry.proc.exited, wait(grace)]);
-      // Then not politely, deepest first, including anything the shell started while we waited.
-      for (const pid of [...descendantsOf(entry.proc.pid), ...tree].reverse()) {
-        signal(pid, "SIGKILL");
-      }
-      if (entry.exitCode === null) {
+      if (platform() === "win32") {
+        // Windows has no polite signal and no way back to an orphan: take the whole tree in one
+        // go, while the shell is still there for taskkill to hang it on.
         killTree(entry.proc, false);
         await Promise.race([entry.proc.exited, wait(grace)]);
+      } else {
+        // The tree is read before anything is killed: a shell that dies first leaves its children
+        // reparented to init, and by then nothing on this side knows what they were.
+        const tree = descendantsOf(entry.proc.pid);
+        // Politely, and to all of them: a dev server told to stop closes its port and its children.
+        entry.proc.kill();
+        for (const pid of tree) signal(pid, "SIGTERM");
+        await Promise.race([entry.proc.exited, wait(grace)]);
+        // Then not politely, deepest first, including anything it started while we waited.
+        for (const pid of [...descendantsOf(entry.proc.pid), ...tree].reverse()) {
+          signal(pid, "SIGKILL");
+        }
+        if (entry.exitCode === null) {
+          killTree(entry.proc, false);
+          await Promise.race([entry.proc.exited, wait(grace)]);
+        }
       }
     }
     const view = await this.view(params.project, false);
@@ -175,9 +182,9 @@ export class PreviewManager {
   closeAll(): void {
     for (const entry of this.running.values()) {
       if (entry.exitCode === null) {
-        for (const pid of descendantsOf(entry.proc.pid).reverse()) signal(pid, "SIGKILL");
         try {
-          entry.proc.kill();
+          // The tree, not just the shell: on the way down there is nobody left to reap an orphan.
+          killTree(entry.proc, false);
         } catch {
           // already gone
         }

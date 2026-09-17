@@ -15,6 +15,12 @@ import { PreviewManager, previewLogPath } from "../src/preview.ts";
  */
 
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";
+/**
+ * The command a test starts. A program the shell only has to launch, because `cmd.exe` and `sh`
+ * agree on nothing else — and these tests have to hold on Windows too.
+ */
+const FIXTURE = join(import.meta.dir, "fixtures", "dev-server.ts");
+const devServer = (mode: string) => `"${process.execPath}" "${FIXTURE}" ${mode}`;
 /** The capability token every §7.6 call carries; the manager never reads it. */
 const CAP = "cap-for-tests";
 
@@ -60,12 +66,12 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
       cap: CAP,
       project: one.project,
       // Prints where it is and then stays up, which is what a dev server does.
-      command: "ls hello.txt && sleep 30",
+      command: devServer("--stay"),
     });
     expect(started.started).toBe(true);
     expect(started.running).toBe(true);
     expect(started.pid).toBeGreaterThan(0);
-    expect(started.command).toContain("hello.txt");
+    expect(started.command).toContain("dev-server.ts");
 
     const log = await settles(
       async () => (await previews.status({ ...one, project: one.project })).log,
@@ -80,7 +86,7 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
       user_id: one.user_id,
       cap: CAP,
       project: one.project,
-      command: "sleep 30",
+      command: devServer("--stay"),
     });
     expect(again.started).toBe(false);
     expect(again.running).toBe(true);
@@ -102,7 +108,7 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
       user_id: one.user_id,
       cap: CAP,
       project: one.project,
-      command: "echo 'port 3000 is taken' >&2; exit 7",
+      command: devServer("--fail"),
     });
     const state = await settles(
       () => previews.status({ ...one, project: one.project }),
@@ -118,14 +124,14 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
     const root = mkdtempSync(join(tmpdir(), "perch-preview-"));
     const previews = manager(root);
     const one = ctx(root, "66666666-6666-4666-8666-666666666666");
-    // The shell stays a shell and the dev server is its child — which is the shape npm, uv and
-    // every other runner script produce, and the shape a plain kill of the shell would leave behind.
+    // The dev server is a child of what the shell started — which is the shape npm, uv and every
+    // other runner script produce, and the shape a plain kill of the shell would leave behind.
     const started = await previews.start({
       workspace_id: one.workspace_id,
       user_id: one.user_id,
       cap: CAP,
       project: one.project,
-      command: "sleep 120 & echo child $! ; wait",
+      command: devServer("--child"),
     });
     const log = await settles(
       async () => (await previews.status({ ...one, project: one.project })).log,
@@ -155,7 +161,7 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
         user_id: "someone",
         cap: CAP,
         project: "44444444-4444-4444-8444-444444444444",
-        command: "sleep 1",
+        command: devServer("--stay"),
       }),
     ).rejects.toThrow(/not on this runner/);
     previews.closeAll();

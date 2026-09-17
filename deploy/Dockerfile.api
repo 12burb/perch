@@ -27,12 +27,13 @@ RUN bun run --filter @perch/web build
 # production dependencies only, installed fresh from the same lockfile (Bun's isolated store never
 # prunes in place). --omit=peer keeps better-auth's optional drizzle-kit peer, and esbuild with it, out;
 # every peer the api needs is one of its direct dependencies. connectors/ carries the provider
-# manifests the api imports as text (task 1.16), so its source ships too; the other workspaces
-# contribute only the manifests the frozen install requires.
+# manifests the api imports as text (task 1.16) and templates/ the starter stacks it serves (task
+# 4.8), so their source ships too; the other workspaces contribute only the manifests the frozen
+# install requires.
 RUN mkdir -p /prod \
  && find apps packages connectors templates spikes scripts -name package.json -not -path '*/node_modules/*' -exec cp --parents {} /prod/ \; \
  && cp package.json bun.lock tsconfig.base.json /prod/ \
- && tar cf - --exclude=node_modules apps/api packages connectors apps/web/dist | tar xf - -C /prod \
+ && tar cf - --exclude=node_modules apps/api packages connectors templates apps/web/dist | tar xf - -C /prod \
  && cd /prod \
  && bun install --frozen-lockfile --ignore-scripts --production --omit=peer --filter @perch/api
 
