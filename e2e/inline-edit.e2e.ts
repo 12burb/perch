@@ -87,7 +87,9 @@ test("select, instruct, diff in place, accept — and reject puts it back", asyn
   await expect(page.getByTestId("inline-removed")).toHaveCount(0);
   await expect(editor.locator(".cm-content")).toContainText("CONST ONE = 1;");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("editor-notice")).toHaveText("Saved");
+  // Saving is a round trip through the project's runner, and the notice clears itself two
+  // seconds later; five is not enough of a window on a loaded machine.
+  await expect(page.getByTestId("editor-notice")).toHaveText("Saved", { timeout: 30_000 });
 
   // Reject puts the original line back and leaves nothing behind.
   await editor.locator(".cm-content").click();

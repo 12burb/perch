@@ -66,6 +66,15 @@ jobs:
         run: bun run build:cli -- --version ${{ needs.meta.outputs.version }}
       - name: The perch-bot-sdk npm package
         run: bun run build:bot-sdk -- --version ${{ needs.meta.outputs.version }}
+      # The docs site, carrying this release's version in its title (task 4.7).
+      - name: The docs site
+        env:
+          PERCH_DOCS_VERSION: v${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          (cd docs/site && bun install --frozen-lockfile && bun run build)
+          mkdir -p dist/docs
+          tar -czf "dist/docs/docs-site-${{ needs.meta.outputs.version }}.tar.gz" -C docs/site/dist .
       - name: Checksums
         working-directory: dist/cli
         run: sha256sum perch-* > SHA256SUMS
@@ -96,6 +105,10 @@ jobs:
         with:
           name: bot-sdk
           path: dist/bot-sdk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs
+          path: dist/docs
       - uses: actions/upload-artifact@v7
         with:
           name: sdk
@@ -255,6 +268,7 @@ jobs:
             release/desktop-*/Perch-*.app.zip
             release/desktop-*/SHA256SUMS-desktop-*
             release/sdk/openapi.json
+            release/docs/docs-site-*.tar.gz
             release/sbom-*/sbom-*.spdx.json
       - name: npm publish perch-dev (skipped without NPM_TOKEN)
         if: ${{ env.NPM_TOKEN != '' }}

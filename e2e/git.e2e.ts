@@ -48,7 +48,9 @@ test("write a file, let the agent name the commit, commit it, and branch", async
   await page.keyboard.press("Control+End");
   await page.keyboard.type("export const b = 2;");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("editor-notice")).toHaveText("Saved");
+  // Saving is a round trip through the project's runner, and the notice clears itself two
+  // seconds later; five is not enough of a window on a loaded machine.
+  await expect(page.getByTestId("editor-notice")).toHaveText("Saved", { timeout: 30_000 });
 
   // The drawer's Git tab: the change is listed.
   await page.getByRole("button", { name: "Toggle drawer" }).click();

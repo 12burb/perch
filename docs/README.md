@@ -37,4 +37,10 @@
 | [`../DECISIONS.md`](../DECISIONS.md) | Architecture decision records |
 | [`../TASKS.md`](../TASKS.md) | The build queue |
 
-The docs site (Astro Starlight) arrives in Phase 4; until then these Markdown files are the docs.
+These Markdown files **are** the site: `bun scripts/docs-site.ts --sync` turns every page here into
+an [Astro Starlight](https://starlight.astro.build) site with search, and
+`cd docs/site && bun run build` builds it (task 4.7). Nothing is written twice — edit the Markdown.
+
+The build fails on a broken link, and a page that is not in the sidebar fails the tests, so every
+page here is reachable from the site. CI builds it on every push; a release attaches
+`docs-site-<version>.tar.gz`.

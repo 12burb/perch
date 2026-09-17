@@ -6060,3 +6060,42 @@ without fetching anything.
 **OpenCode is held at `@opencode-ai/sdk`'s version** rather than the newest published: the runner
 drives `opencode serve` with that SDK, and a client and a server that move independently is a bug
 report waiting to be written.
+
+## ADR-0153: The docs site is generated from the Markdown, and installs on its own
+
+- **Status:** accepted
+- **Date:** 2026-09-16
+- **Task:** 4.7 (the docs site)
+
+### Context
+`docs/` is thirty-eight Markdown files that read well in a pull request and badly in a browser: no
+search, no navigation, and links that only work on GitHub. The plan names Astro Starlight for the
+site (PERCH-PLAN §"Repo map"), which brings its own dependency tree — about 280 packages.
+
+Two things had to be decided: where those dependencies live, and what the site is generated *from*.
+
+### Decision
+**The Markdown stays the source.** `scripts/docs-site.ts` walks `docs/`, works out each file's
+route, rewrites the links between pages into routes (and the ones that leave `docs/` into GitHub
+blob links), and writes Starlight's content collection and sidebar. Nothing is authored twice: a
+contributor edits the Markdown, and the site follows. The page's own `# heading` becomes its title
+and its first paragraph its description, so the search results read like the pages do.
+
+**The site installs on its own.** `docs/site` is not a Bun workspace: it has its own
+`package.json` and lockfile, and CI installs it in its own job. A workspace would have put Astro in
+every `bun install --frozen-lockfile` — including the two Docker images, which copy the workspace
+manifests and would then have to carry a docs toolchain they never run.
+
+**The sidebar cannot miss a page, and a broken link cannot ship.** The sidebar is generated from
+the files that exist, and a test asserts every page is in it; `checkLinks` resolves every internal
+link and every anchor, and both `bun run check` (through `scripts/docs-site.test.ts`) and the CI
+job fail on a broken one. That is the task's acceptance, and it is enforced twice on purpose: the
+gate catches it before the push, the job catches it if the gate was skipped.
+
+**Search needs no service.** Starlight's Pagefind index is built at build time and served as static
+files, which is the only kind of search a static site should have to run.
+
+**A release carries the site.** The release workflow builds it with the version in its title and
+attaches `docs-site-<version>.tar.gz`, so every release has the documentation it shipped with.
+Publishing to GitHub Pages is one setting and one step away; nothing here assumes it, because a
+docs deploy that fails must never fail a release.

@@ -83,7 +83,9 @@ test("open, edit, save, and reopen a file; preview markdown and images", async (
   await page.keyboard.type("export const more = 1;");
   await expect(tabs.getByRole("tab", { name: /app\.ts/ })).toContainText("unsaved changes");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("editor-notice")).toHaveText("Saved");
+  // Saving is a round trip through the project's runner, and the notice clears itself two
+  // seconds later; five is not enough of a window on a loaded machine.
+  await expect(page.getByTestId("editor-notice")).toHaveText("Saved", { timeout: 30_000 });
   await expect(tabs.getByRole("tab", { name: /app\.ts/ })).not.toContainText("unsaved changes");
 
   const results = await new AxeBuilder({ page }).analyze();

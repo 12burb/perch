@@ -18,6 +18,7 @@ OpenAI-shaped provider, a real Vite dev server, and a stand-in `opencode serve`;
 ended up is written to `E2E_MANIFEST` (ADR-0089). Run one with
 `bunx playwright test --project=phase1-opencode`.
 | `laptop-smoke` | Linux, macOS, Windows: `bun test apps/cli apps/runner` — `perch dev` on PGlite with the in-process runner, doctor, backup, restore, and the compiled binary serving the embedded web app; then `bun test apps/desktop` (a real window on laptop mode, under xvfb on Linux, `PERCH_DESKTOP_NATIVE=1`) and the desktop binary's `--check` |
+| `docs-site` | `bun scripts/docs-site.ts` (every page, every link between them, the sidebar) and then the Astro Starlight build with its Pagefind search index; the built site is uploaded as an artifact (task 4.7) |
 | `runner-agents` | builds the runner image's `agents` stage and checks that Codex, Claude Code, Gemini CLI and OpenCode each report the version `deploy/agents.json` pins, and that both ACP bridges are on PATH (task 4.6) |
 | `compose-smoke` | builds the api and caddy images, `perch init`, `docker compose up`, the setup wizard and a sign-in through Caddy (`scripts/compose-smoke.ts`), the backup and restore drill (a backup through `/api/admin/backup`, restored into an empty Postgres database beside the live one, task 4.4), then Trivy on the image and the repository (CRITICAL and HIGH, unfixed ignored) |
 | `dco.yml` | `Signed-off-by` on every commit |
@@ -33,7 +34,7 @@ without the `v`: the tag is created at the chosen ref when it does not exist. Be
 1. `artifacts`: web build, SDK generation, `bun run build:cli` (binaries for linux x64/arm64, macOS arm64/x64, Windows x64 with the web app embedded; the `perch-dev` npm package), `SHA256SUMS`, a cosign keyless signature over those checksums (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and the package-manager manifests `scripts/packaging.ts` generates from them (Homebrew formula, the three winget files, an AUR `PKGBUILD`, a nix `flake.nix`).
 1b. `desktop`: one job per platform (ubuntu x64 and arm64, macOS arm64, Windows x64) builds `perch-desktop-<os>-<arch>` with `scripts/build-desktop.ts` (the macOS `.app` zip too), checks the native layer from the binary, and uploads checksums.
 2. `images`: `perch-api`, `perch-runner`, `perch-caddy` built for `linux/amd64` and `linux/arm64`, pushed to GHCR (`ghcr.io/<owner>/perch-<image>:<version>`, plus `<major>.<minor>` and `latest` for stable versions only), signed with cosign (keyless, Sigstore), with an SPDX SBOM attested and uploaded.
-3. `publish`: the GitHub release (pre-release when the tag has a suffix such as `v0.2.0-rc.1`) with the binaries, the desktop apps, checksums and their signature, the packaging manifests, `openapi.json`, and SBOMs; `npm publish perch-dev` when `NPM_TOKEN` is set (`--tag next` for pre-releases).
+3. `publish`: the GitHub release (pre-release when the tag has a suffix such as `v0.2.0-rc.1`) with the binaries, the desktop apps, checksums and their signature, the packaging manifests, `openapi.json`, the docs site (`docs-site-<version>.tar.gz`), and SBOMs; `npm publish perch-dev` when `NPM_TOKEN` is set (`--tag next` for pre-releases).
 
 Verify an image: `cosign verify ghcr.io/12burb/perch-api:<version> --certificate-identity-regexp 'github.com/12burb/perch' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 

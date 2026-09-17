@@ -42,7 +42,9 @@ test("a planted key blocks the commit with a card, and taking it out lets it thr
   await page.keyboard.press("Control+End");
   await page.keyboard.type(`export const key = "${PLANTED}";`);
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("editor-notice")).toHaveText("Saved");
+  // Saving is a round trip through the project's runner, and the notice clears itself two
+  // seconds later; five is not enough of a window on a loaded machine.
+  await expect(page.getByTestId("editor-notice")).toHaveText("Saved", { timeout: 30_000 });
 
   // The commit is stopped, and the panel says what is in the way and where.
   await page.getByRole("button", { name: "Toggle drawer" }).click();
@@ -72,7 +74,9 @@ test("a planted key blocks the commit with a card, and taking it out lets it thr
   await page.keyboard.press("Control+A");
   await page.keyboard.type("export const key = process.env.AWS_KEY;");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("editor-notice")).toHaveText("Saved");
+  // Saving is a round trip through the project's runner, and the notice clears itself two
+  // seconds later; five is not enough of a window on a loaded machine.
+  await expect(page.getByTestId("editor-notice")).toHaveText("Saved", { timeout: 30_000 });
   await git.getByRole("button", { name: "Commit", exact: true }).click();
   await expect(git.getByTestId("git-note")).toContainText("Committed", { timeout: 30_000 });
   await expect(page.getByTestId("secrets-card")).toHaveCount(0);

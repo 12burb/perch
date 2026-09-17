@@ -125,6 +125,16 @@ The four official agent CLIs are pinned in one place â€” `deploy/agents.json` â€
 image installs from and then ships at `/opt/perch/agents.json`, so what a runner reports is what
 was installed (task 4.6, ADR-0152).
 
+The docs site is a project of its own (`docs/site`) with its own lockfile: it is built in CI and at
+release time, never installed by the monorepo, so Astro's dependency tree stays out of every other
+install and out of both images (task 4.7, ADR-0153).
+
+| Docs site | Pin | Where |
+|---|---|---|
+| `astro` | `7.3.3` | `docs/site/package.json` |
+| `@astrojs/starlight` | `0.42.1` | `docs/site/package.json` (search is its own Pagefind index, built at build time) |
+| `sharp` | `0.34.5` | `docs/site/package.json` (Astro's image pipeline) |
+
 | Image / tool | Pin | Where |
 |---|---|---|
 | `oven/bun` | `1.3.11`, `1.3.11-slim` | `deploy/Dockerfile.api` |

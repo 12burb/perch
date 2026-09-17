@@ -1,0 +1,11 @@
+/* Perch's accent over Starlight's defaults; the rest of the theme is Starlight's own. */
+:root {
+  --sl-color-accent-low: #10231c;
+  --sl-color-accent: #2e7d5b;
+  --sl-color-accent-high: #b7e4cd;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #cfe9dc;
+  --sl-color-accent: #1f6a4a;
+  --sl-color-accent-high: #0d2b1f;
+}
