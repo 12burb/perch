@@ -29,6 +29,7 @@
     "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
     "test": "bun test",
     "e2e": "playwright test",
+    "launch": "bun scripts/launch-bar.ts",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "db:generate": "bun run --filter @perch/db generate",

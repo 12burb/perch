@@ -2,9 +2,19 @@
 /**
  * The compose smoke (spec §8, task 0.13's "fresh VM" criterion in CI): against a running stack, the
  * instance reports setup incomplete, the wizard endpoint creates the admin, and the admin signs in and
- * reads /api/me and the workspace. Usage: bun scripts/compose-smoke.ts http://localhost
+ * reads /api/me and the workspace.
+ *
+ * With `--since <epoch ms>` it also times one leg of the launch bar (task 4.13): from the moment
+ * the workflow ran `docker compose up` to a signed-in admin, which is the first of a stranger's two
+ * ways in. The workflow supplies the start, because the clock starts before this script does.
+ *
+ * Usage: bun scripts/compose-smoke.ts http://localhost [--since 1700000000000]
  */
+import { within } from "./launch-bar.ts";
+
 const base = (process.argv[2] ?? "http://localhost").replace(/\/$/, "");
+const sinceAt = process.argv.indexOf("--since");
+const since = sinceAt === -1 ? null : Number(process.argv[sinceAt + 1]);
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
@@ -73,3 +83,6 @@ if (!backups.backups.some((one) => one.id === backup.id)) {
 console.log(
   `compose smoke: setup, sign-in, /api/me, workspace, the web app, and a backup (${backup.id}, ${backup.rows} rows in ${backups.directory}) all answer`,
 );
+
+// The launch bar's first leg, measured where it happens (task 4.13).
+if (since !== null && Number.isFinite(since)) within("compose-up", Date.now() - since);

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { within } from "../../../scripts/launch-bar.ts";
 import { createBackup, restoreBackup } from "../src/commands/backup.ts";
 import { collectChecks, formatChecks } from "../src/commands/doctor.ts";
 import { laptopLayout } from "../src/paths.ts";
@@ -53,6 +54,9 @@ async function readUntil(
 
 describe("laptop mode (task 0.14)", () => {
   test("perch dev boots on PGlite with the in-process runner and stops cleanly", async () => {
+    // The other way in, and a leg of the launch bar (task 4.13): from the command to an instance
+    // that answers, with its runner already in it.
+    const started = performance.now();
     const proc = Bun.spawn(
       ["bun", cli, "dev", "--port", "0", "--data-dir", dataDir, "--log-level", "warn"],
       {
@@ -84,6 +88,7 @@ describe("laptop mode (task 0.14)", () => {
       expect([200, 404]).toContain(page.status);
       expect(existsSync(join(dataDir, "master.key"))).toBe(true);
       expect(existsSync(join(dataDir, "data"))).toBe(true);
+      within("laptop-boot", performance.now() - started);
     } finally {
       proc.kill("SIGTERM");
     }

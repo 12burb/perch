@@ -90,6 +90,8 @@ jobs:
           CI: "1"
           E2E_SETUP: wizard
           E2E_SKIP_BUILD: "1"
+      - name: The launch bar (task 4.13) — the legs this job measured
+        run: bun scripts/launch-bar.ts --from test-results/launch-bar.json
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -256,6 +258,8 @@ jobs:
       - name: docker compose up
         working-directory: /tmp/perch
         run: |
+          # The launch bar's clock for this leg starts here (task 4.13).
+          echo "COMPOSE_STARTED_AT=$(date +%s000)" >> "$GITHUB_ENV"
           docker compose up -d caddy api postgres
           for i in $(seq 1 60); do
             if curl -fsS http://localhost/api/health >/dev/null; then break; fi
@@ -263,7 +267,7 @@ jobs:
           done
           curl -fsS http://localhost/api/health
       - name: The setup wizard, then sign in
-        run: bun scripts/compose-smoke.ts http://localhost
+        run: bun scripts/compose-smoke.ts http://localhost --since "$COMPOSE_STARTED_AT"
       - name: The restore drill (task 4.4) — back this instance up, restore it into an empty database
         working-directory: /tmp/perch
         run: |

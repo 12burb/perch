@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { within } from "../../../scripts/launch-bar.ts";
 import { sha256 } from "../src/upgrade.ts";
 
 /**
@@ -60,6 +61,10 @@ async function install(env: Record<string, string>) {
 
 describe.skipIf(process.platform === "win32")("install.sh (task 4.3)", () => {
   test("installs the newest release, checksum checked, and says where it put it", async () => {
+    // One of the stranger's two ways in, and one leg of the launch bar (task 4.13): what this
+    // times is the installer itself — resolve the release, download, check the sum, put it on the
+    // path — against a release server on loopback, so what is measured is Perch's part of it.
+    const started = performance.now();
     const dir = mkdtempSync(join(tmpdir(), "perch-install-"));
     const binary = "#!/bin/sh\necho perch 0.3.0\n";
     const where = serve("v0.3.0", {
@@ -81,6 +86,7 @@ describe.skipIf(process.platform === "win32")("install.sh (task 4.3)", () => {
     // And it really runs.
     const ran = Bun.spawnSync([join(dir, "perch")], { stdout: "pipe" });
     expect(ran.stdout.toString().trim()).toBe("perch 0.3.0");
+    within("curl-sh", performance.now() - started);
   });
 
   test("a tampered binary installs nothing", async () => {

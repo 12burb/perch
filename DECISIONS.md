@@ -6343,3 +6343,40 @@ reports `installed: false` with a sentence saying so. The alternative (a 409) ma
 **The index is sorted and cached in the process.** The sources are compiled in, so the answer cannot
 change while the server is up; the page does not sort, and the counts in the filter row are the
 index's rather than the current filter's, so narrowing never makes it look like things disappeared.
+
+## ADR-0159: The launch bar is four numbers, each asserted where it is measured
+
+**Status:** accepted · **Task:** 4.13 · **Spec:** §2 (Phase 4 exit), §8 (CI)
+
+Phase 4's exit criterion is a promise about a stranger's first ten minutes. Task 4.13 asks for the
+two ways in to be green in CI and for time-to-first-agent-PR to be measured. Three choices.
+
+**The budgets live in one file; the assertions live where the paths run.** `scripts/launch-bar.ts`
+holds the table — the leg, what it times, what it costs, and where it is proved — and exports
+`within(id, ms)`, which the compose smoke, the installer test, the laptop-boot test and the Phase 4
+spec each call at the end of the thing they already do. The alternative, a reporting job that
+collects numbers from the others and judges them at the end, needs artifact plumbing between jobs
+and puts the failure a long way from its cause. This way a regression fails the job that caused it,
+with the number in the log; the aggregate view (`bun run launch`) is a convenience rather than the
+mechanism. A leg nobody measured in a given run is reported as unproved rather than as a pass,
+which is the distinction that makes the aggregate honest.
+
+**Ten minutes belongs to the loop, and the ways in are budgeted inside it.** The spec's number is
+for arriving at a pull request. `compose-up` gets ten minutes of its own and `curl-sh` five,
+deliberately loose: they run on whatever CI runner and whatever network the day provides, and a bar
+that goes red because GitHub's cache was cold teaches nobody anything. The tight number is on
+`first-agent-pr`, which is the part Perch controls end to end.
+
+**The Phase 4 spec starts where a stranger starts, and takes no shortcuts.** It opens `/sign-up` on
+an instance somebody else stood up and stops when the PR is open, driving every step through the
+screen a person would use — welcome, Hub, Connections, clone, session, permission prompt, diff, Git
+panel — at a 390 px viewport, because a stranger's first ten minutes with anything are increasingly
+spent on a phone. Seeding a workspace or calling the API to skip the middle would measure a
+different thing than the one the criterion is about. It runs as its own Playwright project
+(`phase4`) on its own stand-in GitHub, so it cannot see the other phases' work.
+
+**What this does not measure.** The criterion's other two clauses — "a T3 Code user joins with
+`perch runner connect` in under five minutes" and "first external contributor merged" — are not on
+the bar. The first is `perch runner connect`, which task 1.3 covers and which is bounded by a
+person's typing rather than by Perch; the second is a fact about the world that no test can assert.
+Putting either on the bar would make it a thing that is edited to stay green.

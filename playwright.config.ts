@@ -40,12 +40,12 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testIgnore: /(phase1|phase2|phase3|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|phase3|phase4|push)\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
       name: "mobile",
-      testIgnore: /(phase1|phase2|phase3|push)\.e2e\.ts$/,
+      testIgnore: /(phase1|phase2|phase3|phase4|push)\.e2e\.ts$/,
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },
     // Web push (task 2.3) needs a browser that has the Push API, and the headless shell Playwright
@@ -78,6 +78,14 @@ export default defineConfig({
       name: "phase3",
       testMatch: /phase3\.e2e\.ts$/,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    // Phase 4's exit criterion, once (task 4.13): a stranger arriving at a Perch that is already
+    // up, and the clock from there to their first agent's pull request. On a phone, because a
+    // stranger's first ten minutes with anything are increasingly spent on one.
+    {
+      name: "phase4",
+      testMatch: /phase4\.e2e\.ts$/,
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },
   ],
   webServer: {

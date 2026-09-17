@@ -323,6 +323,19 @@ const phase3 = await startStandInGitHub({
   },
 });
 
+/**
+ * Phase 4's own origin (task 4.13): the repository a stranger clones on their first afternoon. Its
+ * config is the plainest one there is, because what is being timed is Perch rather than the
+ * project — an engine to run on, and nothing else to go wrong.
+ */
+const phase4 = await startStandInGitHub({
+  files: {
+    "README.md": "# Firstflight\n\nThe repository a stranger's first agent works on.\n",
+    "notes.txt": "nothing yet\n",
+    ".perch/project.json": `${JSON.stringify({ engine: "acp" }, null, 2)}\n`,
+  },
+});
+
 const github = Object.fromEntries([
   ...LANES.map((lane, i) => {
     const origin = origins[i];
@@ -339,6 +352,15 @@ const github = Object.fromEntries([
       repoUrl: phase3.repoUrl,
       token: phase3.token,
       login: phase3.login,
+    },
+  ] as const,
+  [
+    "phase4",
+    {
+      url: phase4.url,
+      repoUrl: phase4.repoUrl,
+      token: phase4.token,
+      login: phase4.login,
     },
   ] as const,
 ]);

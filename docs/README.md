@@ -24,6 +24,7 @@
 | [`hub.md`](hub.md) | The Hub: one index of the connectors, bots, skills and templates this build ships, and what Install does |
 | [`security.md`](security.md) | What gets scanned and when, what a release says about itself, and the disclosure drill |
 | [`reliability.md`](reliability.md) | The reliability bar: a hundred sessions at once, an upgrade with no data loss, a runner killed mid-turn |
+| [`launch.md`](launch.md) | The launch bar: the stranger's two ways in, and ten minutes to the first agent pull request |
 | [`accessibility.md`](accessibility.md) | The accessibility bar: axe on every screen, keyboard-only flows, focus and live regions |
 | [`inspector.md`](inspector.md) | The inspector: the dev plugins, the injected client, context chips, screenshots |
 | [`chat.md`](chat.md) | Chat: channels, who can see them, joining and leaving, archiving, unread |
