@@ -77,6 +77,11 @@ you can run today rather than which have a manifest:
 | **AUR** | not yet | the release builds a `PKGBUILD`; no package has been pushed to the AUR, so `yay -S perch-bin` finds nothing |
 | **npm** | not yet | the release can publish `perch-dev` and `perch-bot-sdk`, but only when the repository has an `NPM_TOKEN`; until then `npx perch-dev@latest` is a 404 |
 
+The docs you are reading are published the same way: [`docs.yml`](../.github/workflows/docs.yml)
+puts them on GitHub Pages once the repository has Pages turned on (see
+[the CI notes](ci.md#the-docs-site-docsyml)); until then they live in `docs/` and in each release's
+`docs-site-<version>.tar.gz`.
+
 Until those land, the two ways in that are proved on every push are the
 [one-liners](#the-one-liners) above and [`docker compose up`](deploy.md) — both of them measured
 against the [launch bar](launch.md). If you want one of the others, the manifest is already on the

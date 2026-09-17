@@ -36,7 +36,24 @@ without the `v`: the tag is created at the chosen ref when it does not exist. Be
 1. `artifacts`: web build, SDK generation, `bun run build:cli` (binaries for linux x64/arm64, macOS arm64/x64, Windows x64 with the web app embedded; the `perch-dev` npm package), an SPDX SBOM of the source tree the binaries were built from (`sbom-perch-<version>.spdx.json`, task 4.9), `SHA256SUMS` over the binaries **and** that SBOM, a cosign keyless signature over those checksums (`SHA256SUMS.sig`, `SHA256SUMS.pem`), and the package-manager manifests `scripts/packaging.ts` generates from them (Homebrew formula, the three winget files, an AUR `PKGBUILD`, a nix `flake.nix`).
 1b. `desktop`: one job per platform (ubuntu x64 and arm64, macOS arm64, Windows x64) builds `perch-desktop-<os>-<arch>` with `scripts/build-desktop.ts` (the macOS `.app` zip too), checks the native layer from the binary, and uploads checksums.
 2. `images`: `perch-api`, `perch-runner`, `perch-caddy` built for `linux/amd64` and `linux/arm64`, pushed to GHCR (`ghcr.io/<owner>/perch-<image>:<version>`, plus `<major>.<minor>` and `latest` for stable versions only), signed with cosign (keyless, Sigstore), with an SPDX SBOM attested and uploaded.
-3. `publish`: the GitHub release (pre-release when the tag has a suffix such as `v0.2.0-rc.1`) with the binaries, the desktop apps, checksums and their signature, the packaging manifests, `openapi.json`, the docs site (`docs-site-<version>.tar.gz`), and SBOMs; `npm publish perch-dev` when `NPM_TOKEN` is set (`--tag next` for pre-releases).
+3. `publish`: the GitHub release (pre-release when the tag has a suffix such as `v0.2.0-rc.1`) with the binaries, the desktop apps, checksums and their signature, the packaging manifests, `openapi.json`, the docs site (`docs-site-<version>.tar.gz`), and SBOMs; `npm publish perch-dev` and `perch-bot-sdk` when the `NPM_TOKEN` secret is set (`--tag next` for pre-releases) — and the run's summary says which lanes it published to and which it did not.
+
+4. `flake.nix` on the default branch is regenerated from that release's checksums and pushed, so
+   `nix run github:12burb/perch` installs the release that just happened.
+
+## The docs site (`docs.yml`)
+
+CI builds the site on every push and every release attaches it as a tarball; publishing it to a URL
+is `docs.yml`, which runs on a published release or by hand (Actions → Docs site → Run workflow).
+
+It needs two repository settings and no secret:
+
+1. **Settings → Pages → Source: GitHub Actions**
+2. **Settings → Variables → Actions → `DOCS_PAGES` = `on`**
+
+Until `DOCS_PAGES` is `on` the job is skipped rather than failed, so a release does not go red over
+a site nobody has turned on. `DOCS_SITE` and `DOCS_BASE` override the URL when it is not
+`https://<owner>.github.io/<repo>/`.
 
 Verify an image: `cosign verify ghcr.io/12burb/perch-api:<version> --certificate-identity-regexp 'github.com/12burb/perch' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 

@@ -1,0 +1,62 @@
+name: Docs site
+
+# The docs site (task 4.7) is built on every push by CI and attached to every release as a
+# tarball — and until now it was hosted nowhere, so there was no URL where anyone could read it.
+#
+# This publishes it to GitHub Pages. It does nothing until the repository is set up for it, which
+# is two settings and no secret:
+#   1. Settings → Pages → Build and deployment → Source: **GitHub Actions**
+#   2. Settings → Variables → Actions → new repository variable `DOCS_PAGES` = `on`
+# Until `DOCS_PAGES` is `on` the job is skipped rather than failed, so a release does not go red
+# over a site nobody has enabled yet.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+concurrency:
+  group: docs-site
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and publish to Pages
+    # `workflow_dispatch` runs it anyway, so the first deploy can be driven by hand the moment
+    # Pages is enabled, before the variable is set.
+    if: ${{ vars.DOCS_PAGES == 'on' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Pages and links
+        run: bun scripts/docs-site.ts
+      - uses: actions/configure-pages@v5
+      - name: Build the site (Astro Starlight, with its Pagefind search index)
+        working-directory: docs/site
+        env:
+          # A project page lives under /<repo>/, which Astro has to know at build time or every
+          # link and asset on the site points at the domain root.
+          PERCH_DOCS_SITE: ${{ vars.DOCS_SITE || format('https://{0}.github.io', github.repository_owner) }}
+          PERCH_DOCS_BASE: ${{ vars.DOCS_BASE || format('/{0}/', github.event.repository.name) }}
+          PERCH_DOCS_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/site/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4

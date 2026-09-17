@@ -267,7 +267,6 @@ export function PreviewPane(props: {
   );
 
   // ⌘⇧C from the pane as well as from inside the page, so the shortcut works wherever focus is.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the toggle is stable per frame
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "c") {
