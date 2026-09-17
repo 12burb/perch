@@ -65,15 +65,22 @@ attestations — see [what a release says about itself](security.md).
 ## Package managers
 
 Every release publishes the manifests for these, generated from that release's own checksums by
-`scripts/packaging.ts`, so none of them can drift from what was actually built:
+`scripts/packaging.ts`, so none of them can drift from what was actually built. **Publishing a
+manifest to a registry is a separate step, and not all of them are done** — this table says which
+you can run today rather than which have a manifest:
 
-| | |
-|---|---|
-| **Homebrew** | `brew install 12burb/perch/perch` (the tap carries `perch.rb` from the release) |
-| **winget** | `winget install Perch.Perch` |
-| **AUR** | `yay -S perch-bin` (the release's `PKGBUILD`) |
-| **nix** | `nix run github:12burb/perch` with the release's `flake.nix`, or `nix profile install` it |
-| **npm** | `npx perch-dev@latest dev` — needs Bun, and is the one lane where the web app is copied beside the script rather than embedded |
+| | Works today? | |
+|---|---|---|
+| **nix** | **yes** | `nix run github:12burb/perch` — or `nix profile install github:12burb/perch`. The flake at the root of this repository tracks the newest release |
+| **Homebrew** | not yet | the release builds `perch.rb`; there is no `12burb/homebrew-perch` tap carrying it, so `brew install 12burb/perch/perch` will not resolve |
+| **winget** | not yet | the release builds the manifests; they have not been submitted to `microsoft/winget-pkgs`, so `winget install Perch.Perch` finds nothing |
+| **AUR** | not yet | the release builds a `PKGBUILD`; no package has been pushed to the AUR, so `yay -S perch-bin` finds nothing |
+| **npm** | not yet | the release can publish `perch-dev` and `perch-bot-sdk`, but only when the repository has an `NPM_TOKEN`; until then `npx perch-dev@latest` is a 404 |
+
+Until those land, the two ways in that are proved on every push are the
+[one-liners](#the-one-liners) above and [`docker compose up`](deploy.md) — both of them measured
+against the [launch bar](launch.md). If you want one of the others, the manifest is already on the
+release page and the [issue tracker](https://github.com/12burb/perch/issues) is the place to say so.
 
 ## Checking what you have
 

@@ -91,3 +91,45 @@ describe("packaging manifests (task 4.3)", () => {
     expect(workflow).toContain("release/packaging");
   });
 });
+
+/**
+ * The flake at the root of the repository, which is what `nix run github:12burb/perch` resolves —
+ * the one package-manager lane that needs no registry and no credential, and therefore the one
+ * that has to be right.
+ */
+describe("the flake at the root (nix run github:…)", () => {
+  const root = resolve(import.meta.dir, "..");
+  const committed = readFileSync(resolve(root, "flake.nix"), "utf8");
+
+  test("it names a released version and a checksum per platform", () => {
+    const version = /version = "([^"]+)"/.exec(committed)?.[1] ?? "";
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(committed).toContain(`releases/download/v${version}/`);
+    for (const asset of [
+      "perch-linux-x64",
+      "perch-linux-arm64",
+      "perch-darwin-x64",
+      "perch-darwin-arm64",
+    ]) {
+      const found = new RegExp(`asset = "${asset}"; sha256 = "([0-9a-f]{64})"`).exec(committed);
+      expect(found?.[1], asset).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  test("it is what the generator writes, so nobody has edited it by hand", () => {
+    // The header says not to, and a hand-edited hash is an install that fails for a stranger with
+    // a message about a hash mismatch and no way to tell which side is wrong.
+    const version = /version = "([^"]+)"/.exec(committed)?.[1] ?? "";
+    const sums = [...committed.matchAll(/asset = "([^"]+)"; sha256 = "([0-9a-f]{64})"/g)]
+      .map(([, asset, hash]) => `${hash}  ${asset}`)
+      .join("\n");
+    // The generator needs the Windows asset too; it does not appear in the flake, so it is only
+    // here to satisfy the reader, with a hash that cannot be mistaken for a real one.
+    const windows = `${"0".repeat(64)}  perch-windows-x64.exe`;
+    const regenerated = packagingFor(`v${version}`, parseSums(`${sums}\n${windows}\n`))[
+      "nix/flake.nix"
+    ];
+    expect(typeof regenerated).toBe("string");
+    expect(committed).toBe(regenerated ?? "");
+  });
+});

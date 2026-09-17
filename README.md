@@ -59,8 +59,9 @@ irm https://raw.githubusercontent.com/12burb/perch/main/install.ps1 | iex
 perch dev
 ```
 
-Or through a package manager: `brew install 12burb/perch/perch`, `winget install Perch.Perch`,
-`yay -S perch-bin`, `nix run github:12burb/perch`, `npx perch-dev@latest dev`.
+Or with nix: `nix run github:12burb/perch`. Every release also builds Homebrew, winget, AUR and npm
+manifests, but none of those are published to their registries yet —
+[`docs/install.md`](docs/install.md#package-managers) says which lanes work today.
 
 Nothing is installed that the release did not vouch for: the binary must match the release's
 `SHA256SUMS`, and those checksums are signed by the release workflow with cosign (keyless,

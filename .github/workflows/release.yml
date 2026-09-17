@@ -263,6 +263,11 @@ jobs:
     permissions:
       contents: write
       id-token: write # npm provenance
+    # At the job, not on the steps: a step's own `env:` is not in scope for that step's own `if:`,
+    # so `if: env.NPM_TOKEN != ''` beside a step-level NPM_TOKEN is always false and the publish is
+    # skipped even when the secret is set. That is how `npx perch-dev@latest` stayed a 404.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -299,17 +304,59 @@ jobs:
             release/sdk/openapi.json
             release/docs/docs-site-*.tar.gz
             release/sbom-*/sbom-*.spdx.json
+      # `nix run github:12burb/perch` resolves the flake at the default branch, so the flake has to
+      # name the release that just happened rather than the one before it. It is generated from this
+      # release's own checksums, which only exist now, and pushed back to the branch this ran from.
+      - name: Refresh flake.nix on the default branch
+        if: ${{ needs.meta.outputs.prerelease != 'true' }}
+        run: |
+          set -euo pipefail
+          branch=${{ github.event.repository.default_branch }}
+          git fetch origin "$branch"
+          git checkout "$branch"
+          bun scripts/packaging.ts \
+            --version v${{ needs.meta.outputs.version }} \
+            --sums release/cli/SHA256SUMS \
+            --out /tmp/packaging \
+            --repo ${{ github.repository }}
+          cp /tmp/packaging/nix/flake.nix flake.nix
+          if git diff --quiet -- flake.nix; then
+            echo "flake.nix already names v${{ needs.meta.outputs.version }}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -s -m "chore(release): flake.nix tracks v${{ needs.meta.outputs.version }}" -- flake.nix
+          git push origin "$branch"
       - name: npm publish perch-dev (skipped without NPM_TOKEN)
         if: ${{ env.NPM_TOKEN != '' }}
         working-directory: release/cli/npm
         run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: npm publish perch-bot-sdk (skipped without NPM_TOKEN)
         if: ${{ env.NPM_TOKEN != '' }}
         working-directory: release/bot-sdk
         run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # A release that quietly published less than it looks like it did is how a 404 goes unnoticed
+      # for two releases. This says, on the run's own summary, which lanes a stranger can use.
+      - name: What this release actually published
+        if: always()
+        run: |
+          {
+            echo "### What v${{ needs.meta.outputs.version }} published"
+            echo ""
+            echo "- GitHub release: binaries, desktop apps, SBOMs, \`SHA256SUMS\` + signature"
+            echo "- Images: \`ghcr.io/${{ github.repository_owner }}/perch-{api,runner,caddy}\`, signed"
+            if [ -n "$NPM_TOKEN" ]; then
+              echo "- npm: \`perch-dev\`, \`perch-bot-sdk\`"
+            else
+              echo "- npm: **not published** — no \`NPM_TOKEN\` secret, so \`npx perch-dev@latest\` is a 404"
+            fi
+            echo "- nix: \`flake.nix\` on the default branch now tracks this release"
+            echo "- Homebrew, winget, AUR: manifests are attached to the release, but **not published**"
+            echo ""
+            echo "See \`docs/install.md\` for which lanes work today."
+          } >> "$GITHUB_STEP_SUMMARY"
