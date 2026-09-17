@@ -1,5 +1,140 @@
 # @perch/runner
 
+## 0.2.0
+
+### Minor Changes
+
+- ab5b891: The agent's eyes. While a project's preview is actually serving, every session on it is handed a
+  Playwright MCP server spawned on the runner beside the agent — so it can navigate, snapshot, click
+  and screenshot the page it is working on, where the page is.
+  
+  Set `PERCH_PLAYWRIGHT_MCP` to the command that runs it; unset means off. Which build matches the
+  browser in your runner image is yours to pin, which is why this is a command rather than a version
+  Perch chose for you. A session with nothing to look at gets no browser.
+- 57eb0aa: The Hermes engine. A session can run on Hermes Agent (`engine: "hermes"`), the runtime the Nest
+  agents use. Hermes speaks ACP itself, so Perch runs it through the same client as any other agent:
+  permissions, modes, diffs, usage and cancellation all behave as they do everywhere else.
+  
+  What is Hermes' own stays Hermes': it reads its provider setup from the person's own home volume, so
+  a Nous Portal or Codex subscription signed in with `hermes` in the terminal serves only that
+  person's sessions and never reaches Perch's vault. The session's brain is passed as
+  `HERMES_INFERENCE_MODEL`; a session on the engine's own default lets Hermes choose. The runner image
+  installs it pinned, and a runner without it says which binary is missing.
+- 602fa1f: Runner-local MCP servers. A project can ship its own tools — a command in the repository — and
+  Perch runs them where the project is: the runner spawns the process, the api speaks MCP down the
+  stream it answers with, and `/mcp/{id}` looks exactly like a connection's server. A bot attaches
+  one by naming it in its spec. No port, no token, no vault entry: the gate is the workspace, the
+  spec, and the runner's own policy on the command.
+- c3fe0bd: A merge queue. Branches land one at a time, each rebased onto what landed before it and each held
+  to the project's own checks — whatever `.perch/project.json` calls `check`, `test`, `ci` or
+  `verify`. Three agents can now finish three branches at once and have them arrive in order rather
+  than in a heap.
+  
+  A branch that will not rebase, or whose checks go red, does not stop the queue: it is marked with
+  git's own words or the tail of the command's output, its work item goes to Needs you, and the
+  session that wrote it is asked to fix what it broke. The next branch lands meanwhile.
+  
+  The thread gets one queue card per branch, rewritten in place as it moves from waiting to landing
+  to landed — so a thread reads as a queue rather than four notifications.
+  
+  Under it: `git.merge` on the runner does the rebase and the fast-forward as one operation, because
+  two of those racing is what a queue exists to prevent, and `worktree.create` now answers with where
+  a branch already is rather than refusing to make a second one.
+- 7ccdff3: Starter stacks, one-click projects, and a Perch that starts with something in it.
+  
+  `templates/` now holds four starter stacks — a Bun API, a Next.js app, a FastAPI service and a
+  static site — served at `GET /api/templates` and pickable from Code mode's New project form.
+  Choosing one makes a project that arrives with the stack's files and its own `.perch/project.json`
+  already read, so Perch knows the run commands and the preview's port before you touch anything.
+  
+  The Preview tab can now start it: **Start** runs the project's own `preview.command` on its runner,
+  waits for the port, and shows the tail of the dev server's output if it does not come up. **Stop**
+  takes it down, along with everything it started.
+  
+  A fresh instance no longer opens on a set of empty states: `PERCH_DEMO_WORKSPACE` (on by default)
+  seeds the first workspace with three channels, two bots and a project from a starter stack just
+  after the setup wizard, and `perch demo` does the whole thing in one command on a laptop.
+- cf4673b: Preflight before push. Set `preview.preflight` in `.perch/project.json` and a push runs the
+  project's own lint, test and build, then opens each of its configured routes in the runner's browser
+  and looks at them. A console error or a request that did not come back is a failure — the half a
+  test suite cannot do, because a page that throws on load passes every unit test ever written.
+  
+  `block` refuses the push with the checklist; `warn` pushes and shows it anyway; absent is off. Run it
+  on its own with `POST …/preflight`, and with a channel it posts the checklist card: a row per check,
+  the reason for each failure, and the picture taken of each route.
+  
+  The runner now drives its browser over the DevTools protocol rather than `--screenshot`, because
+  that is the only way to know which console lines the page thought were errors. Screenshots are
+  unchanged; they just come back knowing more.
+- 925ac47: The four official agent CLIs now ship inside the runner image, pinned: Codex
+  (`@openai/codex`), Claude Code (`@anthropic-ai/claude-code`), Gemini CLI (`@google/gemini-cli`) and
+  OpenCode (`opencode-ai`), plus the `codex-acp` and `claude-agent-acp` bridges. A session starts on
+  any of them without fetching anything first.
+  
+  One file pins them — `deploy/agents.json` — and the image installs from it and then carries it at
+  `/opt/perch/agents.json`, so a runner reports the four and their versions in
+  `capabilities.versions` rather than guessing. A runner with no manifest (a laptop joined with
+  `perch runner connect`) asks each CLI itself and reports only what is really there.
+  
+  CI builds the image's `agents` layer on every push and checks that each CLI reports the version the
+  manifest pins.
+- 53b90b0: The testing loop. Put `background.testLoop` in `.perch/project.json` and the project's own tests run
+  after any round that wrote something — in the session's worktree, or its checkout — and a failure
+  goes straight back to the agent as the next turn, with the command and what it said. It gets two
+  tries by default (five at most); after that the session stops at **needs you** with what still
+  fails, where the inbox and the background card already look.
+  
+  A round that only answered a question is not tested, a round that errored is not told off for it,
+  and leaving `testLoop` out leaves everything as it was.
+
+### Patch Changes
+
+- 1235207: The runner now finds a Chromium that Playwright downloaded, on every platform it downloads one for.
+  A laptop that has run `playwright install chromium` needs nothing else for preflight or the agent's
+  eyes, and CI stopped depending on one hard-coded cache path — Playwright's layout is per platform
+  (`chrome-linux64` on linux-x64, `chrome-linux` on arm64), and the one that exists wins.
+- e0fa6ce: The demo workspace no longer starts a dev server behind the setup wizard.
+  
+  Seeding a project is one thing; leaving a process listening on a port nobody asked about, as part of
+  finishing a wizard, is another — and on Windows it outlived the instance that started it. The seed
+  now creates the project and stops there, and the welcome message says which button starts it.
+  `perch demo`, where somebody did ask to see a preview running, still starts one.
+  
+  The runner also closes its own copy of the dev server's log handle after handing it to the child: it
+  had no use for it, and on Windows it was enough to make the project's directory undeletable.
+- fe75ba9: Three fixes the Phase 3 end-to-end run found. A session in a worktree now runs in the directory
+  `worktree.create` made rather than in a path built by joining the branch name on, so an agent given
+  its own checkout no longer fails with "worktree … does not exist" — every branch with a slash in
+  it, which is all of them. Preflight no longer fails a page over the favicon the browser asked for
+  and nobody wrote. And a race refuses two entries from the same engine, which would have been two
+  entrants in one worktree, instead of failing halfway through starting them.
+- 3256729: The cli-harness waits for a CLI's output to end, not just for its process to exit. A `codex exec
+  --json` turn whose last JSONL lines were still in the pipe when the process went became a bare
+  `done` with no tools, no text and no usage — reliably enough on Windows to fail CI.
+- Updated dependencies [82cb101]
+- Updated dependencies [ab5b891]
+- Updated dependencies [4c5251d]
+- Updated dependencies [b579c03]
+- Updated dependencies [f519b64]
+- Updated dependencies [31b4dba]
+- Updated dependencies [fe0a09f]
+- Updated dependencies [c3fe0bd]
+- Updated dependencies [5549cfd]
+- Updated dependencies [a5fe8a8]
+- Updated dependencies [7ccdff3]
+- Updated dependencies [714f396]
+- Updated dependencies [cf4673b]
+- Updated dependencies [3ba2508]
+- Updated dependencies [00f1986]
+- Updated dependencies [c2a9d67]
+- Updated dependencies [3fdf6c1]
+- Updated dependencies [53b90b0]
+- Updated dependencies [4c68089]
+- Updated dependencies [50d8ab9]
+- Updated dependencies [fd812c8]
+  - @perch/db@0.2.0
+  - @perch/events@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

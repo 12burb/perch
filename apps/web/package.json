@@ -1,6 +1,6 @@
 {
   "name": "@perch/web",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "React 19 + Vite PWA: the Perch shell (spec \u00a74).",
   "license": "AGPL-3.0-only",

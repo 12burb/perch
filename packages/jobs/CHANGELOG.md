@@ -1,5 +1,38 @@
 # @perch/jobs
 
+## 0.1.0
+
+### Minor Changes
+
+- c2a9d67: A bot's schedule now means the hour you meant. `timezone: Europe/London` on a bot reads
+  `0 9 * * 1-5` as nine in the morning there, and follows it across a daylight-saving change; a zone
+  name that does not exist is refused when the bot is saved. A firing Perch was down for runs late by
+  default, up to an hour, and a bot whose message only makes sense on time can say `catch_up: false`.
+  And a new schedules endpoint says, for each one, when it next fires and when it last did.
+
+### Patch Changes
+
+- Updated dependencies [82cb101]
+- Updated dependencies [b579c03]
+- Updated dependencies [f519b64]
+- Updated dependencies [31b4dba]
+- Updated dependencies [fe0a09f]
+- Updated dependencies [c3fe0bd]
+- Updated dependencies [5549cfd]
+- Updated dependencies [a5fe8a8]
+- Updated dependencies [7ccdff3]
+- Updated dependencies [714f396]
+- Updated dependencies [cf4673b]
+- Updated dependencies [3ba2508]
+- Updated dependencies [00f1986]
+- Updated dependencies [c2a9d67]
+- Updated dependencies [3fdf6c1]
+- Updated dependencies [53b90b0]
+- Updated dependencies [4c68089]
+- Updated dependencies [50d8ab9]
+- Updated dependencies [fd812c8]
+  - @perch/db@0.2.0
+
 ## 0.0.2
 
 ### Patch Changes

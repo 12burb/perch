@@ -1,5 +1,93 @@
 # @perch/events
 
+## 0.2.0
+
+### Minor Changes
+
+- ab5b891: The agent's eyes. While a project's preview is actually serving, every session on it is handed a
+  Playwright MCP server spawned on the runner beside the agent — so it can navigate, snapshot, click
+  and screenshot the page it is working on, where the page is.
+  
+  Set `PERCH_PLAYWRIGHT_MCP` to the command that runs it; unset means off. Which build matches the
+  browser in your runner image is yours to pin, which is why this is a command rather than a version
+  Perch chose for you. A session with nothing to look at gets no browser.
+- 4c5251d: Agent presence. Bots mode's sidebar now opens on **Working now**: every coding session and every bot
+  run in the workspace that is actually going, oldest first, each saying what it is doing and what it
+  has cost, and each linking into the thing itself. It is live — a session changing status, a run
+  starting or finishing, a stop — with a poller behind it.
+  
+  Beside every row is **Stop**, and it is one button whatever the row is: a session's round is
+  cancelled, and a bot's model call is aborted so the run ends saying a person stopped it rather than
+  sitting there. Stopping something that just finished answers "nothing to stop" rather than an error.
+- fe0a09f: Bots can use an MCP server. A bot's spec names connections under `mcp:`, the grant decides which of
+  their tools it actually gets, and each one arrives in the turn as `mcp__<provider>__<tool>` with its
+  answer wrapped as untrusted. The call goes out through the MCP gateway on the connection's own
+  token — the credential never reaches the bot's context.
+  
+  A grant can mark tools `requires_permission`. Calling one of those parks the call instead of running
+  it: an Approve / Deny card appears in the thread and an item in the inbox of whoever set the bot
+  running. Approving runs it then, re-checking the grant first, and posts the result in the thread.
+  `GET /api/workspaces/{ws}/bot-tool-calls` lists what is waiting.
+- c3fe0bd: A merge queue. Branches land one at a time, each rebased onto what landed before it and each held
+  to the project's own checks — whatever `.perch/project.json` calls `check`, `test`, `ci` or
+  `verify`. Three agents can now finish three branches at once and have them arrive in order rather
+  than in a heap.
+  
+  A branch that will not rebase, or whose checks go red, does not stop the queue: it is marked with
+  git's own words or the tail of the command's output, its work item goes to Needs you, and the
+  session that wrote it is asked to fix what it broke. The next branch lands meanwhile.
+  
+  The thread gets one queue card per branch, rewritten in place as it moves from waiting to landing
+  to landed — so a thread reads as a queue rather than four notifications.
+  
+  Under it: `git.merge` on the runner does the rebase and the fast-forward as one operation, because
+  two of those racing is what a queue exists to prevent, and `worktree.create` now answers with where
+  a branch already is rather than refusing to make a second one.
+- 7ccdff3: Starter stacks, one-click projects, and a Perch that starts with something in it.
+  
+  `templates/` now holds four starter stacks — a Bun API, a Next.js app, a FastAPI service and a
+  static site — served at `GET /api/templates` and pickable from Code mode's New project form.
+  Choosing one makes a project that arrives with the stack's files and its own `.perch/project.json`
+  already read, so Perch knows the run commands and the preview's port before you touch anything.
+  
+  The Preview tab can now start it: **Start** runs the project's own `preview.command` on its runner,
+  waits for the port, and shows the tail of the dev server's output if it does not come up. **Stop**
+  takes it down, along with everything it started.
+  
+  A fresh instance no longer opens on a set of empty states: `PERCH_DEMO_WORKSPACE` (on by default)
+  seeds the first workspace with three channels, two bots and a project from a starter stack just
+  after the setup wizard, and `perch demo` does the whole thing in one command on a laptop.
+- cf4673b: Preflight before push. Set `preview.preflight` in `.perch/project.json` and a push runs the
+  project's own lint, test and build, then opens each of its configured routes in the runner's browser
+  and looks at them. A console error or a request that did not come back is a failure — the half a
+  test suite cannot do, because a page that throws on load passes every unit test ever written.
+  
+  `block` refuses the push with the checklist; `warn` pushes and shows it anyway; absent is off. Run it
+  on its own with `POST …/preflight`, and with a channel it posts the checklist card: a row per check,
+  the reason for each failure, and the picture taken of each route.
+  
+  The runner now drives its browser over the DevTools protocol rather than `--screenshot`, because
+  that is the only way to know which console lines the page thought were errors. Screenshots are
+  unchanged; they just come back knowing more.
+- 3ba2508: Race mode. Ask two to eight engines the same question at once, each in a worktree of its own, and
+  get back a comparison rather than an answer: what each one changed, what it cost, and what the
+  project's checks made of it. Press **Pick** on the row you want, or let the checks decide — they
+  take the cheapest entrant that passes, smallest diff breaking a tie. The winner's branch lands
+  through the merge queue like any other; every other entrant gives its directory back and keeps its
+  branch, so what the engine that lost was thinking is still there to read.
+  
+  Sessions that nobody opened by hand — a work item's, a race entrant's — now carry `unattended` and
+  settle when their round goes quiet, instead of holding a runner open for a next turn that is never
+  coming.
+- 53b90b0: The testing loop. Put `background.testLoop` in `.perch/project.json` and the project's own tests run
+  after any round that wrote something — in the session's worktree, or its checkout — and a failure
+  goes straight back to the agent as the next turn, with the command and what it said. It gets two
+  tries by default (five at most); after that the session stops at **needs you** with what still
+  fails, where the inbox and the background card already look.
+  
+  A round that only answered a question is not tested, a round that errored is not told off for it,
+  and leaving `testLoop` out leaves everything as it was.
+
 ## 0.1.0
 
 ### Minor Changes

@@ -1,5 +1,164 @@
 # @perch/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- f519b64: Backups you can trust. A Perch now takes one on a schedule — `PERCH_BACKUP_DIR` turns it on,
+  `PERCH_BACKUP_CRON` says when, `PERCH_BACKUP_KEEP` says how many to keep — and `/api/admin/backup`
+  takes one now and lists what is there. A backup is a directory: the database as a gzipped
+  JSON-lines dump, the files beside it, the project volumes added by the supervisor, and a manifest.
+  
+  The dump is Perch's own format rather than `pg_dump` or PGlite's data directory, so **a laptop
+  backup restores into a team instance on Postgres, and back**. Restoring is "migrate, then load",
+  which also means a backup restores into a later Perch:
+  
+  ```sh
+  docker compose exec api bun apps/api/src/index.ts backup
+  docker compose exec -e DATABASE_URL=…/perch_restore api bun apps/api/src/index.ts restore /data/backups/<id>
+  perch backup ./today && perch restore ./today --portable
+  ```
+  
+  The vault key is **not** in a backup unless you ask (`PERCH_BACKUP_INCLUDE_KEY=on`): its
+  fingerprint is, so a restore says plainly whether the key you have is the key those rows were
+  encrypted with. Restoring into an instance that already has rows is refused rather than merged.
+  
+  CI restores a backup on every push, in both modes — laptop on Linux, macOS and Windows, and team
+  into an empty Postgres database beside the live one.
+- 8362875: Connectors are files. Point `PERCH_CONNECTORS_DIR` at a directory of `<id>/manifest.yaml` and those
+  providers appear in Connections at the next boot, with the paste lane, the sign-in lane, the test
+  call, the MCP server and the webhook scheme all read off the file — a connector can now be added,
+  or a broken built-in one corrected, without a fork and without waiting for a release.
+  
+  Six more ship in the box: Slack, Stripe, Linear, Notion, Sentry and Discord, alongside GitHub,
+  Vercel, Supabase and Clerk. Making them work meant the manifest could say more: `token_scheme: raw`
+  for a provider that wants the token without `Bearer` in front of it, `headers:` for one that needs
+  its own on every call, and `webhook.timestamp_prefix` for Stripe's `t=<ts>,v1=<hex>`, where the
+  signed timestamp rides inside the signature header. `webhook.id_header` and `event_header` are now
+  optional, because a provider that puts neither in a header — Slack, Stripe — is normal.
+  
+  `perch connectors check <dir>` is the harness. It parses a manifest and then exercises what it
+  claims: a delivery signed by its own scheme must verify, the same delivery with a byte changed must
+  not, and somebody else's secret must not. It says when a lane does not add up, and it says out loud
+  when a provider signs nothing at all, which three of them really do. Every connector in this repo
+  goes through it in CI.
+  
+  OAuth tokens now refresh. A connection whose access token expires within the next minute is swapped
+  before the call that needed it goes out, on the same app it was made with; one nobody is using is
+  left alone. A refresh the provider refuses marks the connection Not accepted rather than failing a
+  moment later with something less useful.
+- 1d5af02: Install anywhere, and upgrade in place. `curl -fsSL .../install.sh | sh` on macOS and Linux, `irm
+  .../install.ps1 | iex` on Windows: one binary, on your PATH, in a few seconds. `perch upgrade`
+  replaces the binary that is running it with the newest release — `--check` to look first, `--force`
+  to reinstall the version already there.
+  
+  Nothing is installed that the release did not vouch for. The download must match the release's own
+  `SHA256SUMS`, and those checksums are now signed by the release workflow with cosign (keyless,
+  Sigstore): the signature is verified when cosign is on the machine, and
+  `PERCH_REQUIRE_SIGNATURE=1` (or `perch upgrade --require-signature`) refuses an install that cannot
+  be checked that far. A tampered binary installs nothing at all and leaves the Perch you had.
+  
+  Every release also publishes the package-manager manifests, generated from that release's own
+  checksums so they cannot drift from what was built: a Homebrew formula, the three winget files, an
+  AUR `PKGBUILD` and a nix `flake.nix`. `docs/install.md` has the lot, including how to check a
+  download by hand.
+- 7ccdff3: Starter stacks, one-click projects, and a Perch that starts with something in it.
+  
+  `templates/` now holds four starter stacks — a Bun API, a Next.js app, a FastAPI service and a
+  static site — served at `GET /api/templates` and pickable from Code mode's New project form.
+  Choosing one makes a project that arrives with the stack's files and its own `.perch/project.json`
+  already read, so Perch knows the run commands and the preview's port before you touch anything.
+  
+  The Preview tab can now start it: **Start** runs the project's own `preview.command` on its runner,
+  waits for the port, and shows the tail of the dev server's output if it does not come up. **Stop**
+  takes it down, along with everything it started.
+  
+  A fresh instance no longer opens on a set of empty states: `PERCH_DEMO_WORKSPACE` (on by default)
+  seeds the first workspace with three channels, two bots and a project from a starter stack just
+  after the setup wizard, and `perch demo` does the whole thing in one command on a laptop.
+
+### Patch Changes
+
+- 03efd44: Security scanning: the runner image's findings are tracked, not silenced.
+  
+  The new scan of the runner image found four HIGH advisories, all inside the agent CLIs that image
+  pins — `brace-expansion`, `ip-address` and `tar`, none of them something Perch depends on, and all
+  four CLIs already at their newest published version. `.trivyignore.yaml` accepts them one at a
+  time, each scoped to the tree it was found in, each with a reason, and each with a date it comes
+  back. `docs/security.md` carries the same list in prose, and the disclosure drill fails if an entry
+  loses its reason or its date passes.
+- e0fa6ce: The demo workspace no longer starts a dev server behind the setup wizard.
+  
+  Seeding a project is one thing; leaving a process listening on a port nobody asked about, as part of
+  finishing a wizard, is another — and on Windows it outlived the instance that started it. The seed
+  now creates the project and stops there, and the welcome message says which button starts it.
+  `perch demo`, where somebody did ask to see a preview running, still starts one.
+  
+  The runner also closes its own copy of the dev server's log handle after handing it to the child: it
+  had no use for it, and on Windows it was enough to make the project's directory undeletable.
+- 818fb81: Security: a scan that runs when nobody has pushed, an SBOM for the binaries, and a disclosure drill
+  that is a test.
+  
+  A daily `security.yml` runs Trivy over every lockfile in the repository and over the published
+  images — the advisory published a week after a dependency was merged is the one a per-push scan
+  cannot catch. CI now scans the runner image as well as the api image, in the job that already
+  builds it.
+  
+  Each release carries `sbom-perch-<version>.spdx.json`, an SPDX bill of materials for the source the
+  binaries were built from. It is listed in `SHA256SUMS`, so the existing cosign signature covers it:
+  a tampered SBOM fails the same check a tampered binary does.
+  
+  `docs/security.md` is the disclosure drill, and `bun run drill` walks it: the private reporting
+  path, the clock, the scans, the signature, the SBOMs and the tamper tests are all asserted on every
+  `bun run check`, so none of them can quietly disappear.
+- Updated dependencies [82cb101]
+- Updated dependencies [ab5b891]
+- Updated dependencies [4c5251d]
+- Updated dependencies [5f1a486]
+- Updated dependencies [b579c03]
+- Updated dependencies [f519b64]
+- Updated dependencies [0939d63]
+- Updated dependencies [1235207]
+- Updated dependencies [31b4dba]
+- Updated dependencies [8362875]
+- Updated dependencies [e0fa6ce]
+- Updated dependencies [df6e9aa]
+- Updated dependencies [d2ea19a]
+- Updated dependencies [57eb0aa]
+- Updated dependencies [6c38559]
+- Updated dependencies [602fa1f]
+- Updated dependencies [5b807c8]
+- Updated dependencies [fe0a09f]
+- Updated dependencies [c3fe0bd]
+- Updated dependencies [abed13a]
+- Updated dependencies [1762cca]
+- Updated dependencies [5549cfd]
+- Updated dependencies [10caeec]
+- Updated dependencies [a5fe8a8]
+- Updated dependencies [7ccdff3]
+- Updated dependencies [714f396]
+- Updated dependencies [4c77c5f]
+- Updated dependencies [cf4673b]
+- Updated dependencies [3ae0e07]
+- Updated dependencies [0f0e198]
+- Updated dependencies [e367481]
+- Updated dependencies [3ba2508]
+- Updated dependencies [00f1986]
+- Updated dependencies [925ac47]
+- Updated dependencies [c2a9d67]
+- Updated dependencies [fe75ba9]
+- Updated dependencies [3fdf6c1]
+- Updated dependencies [53b90b0]
+- Updated dependencies [4c68089]
+- Updated dependencies [3256729]
+- Updated dependencies [50d8ab9]
+- Updated dependencies [fd812c8]
+- Updated dependencies [6b96260]
+  - @perch/api@0.3.0
+  - @perch/db@0.2.0
+  - @perch/runner@0.2.0
+  - @perch/connect@0.2.0
+
 ## 0.2.0
 
 ### Minor Changes

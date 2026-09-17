@@ -1,6 +1,6 @@
 {
   "name": "@perch/jobs",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "private": true,
   "description": "Postgres job queue: SKIP LOCKED, retries with backoff, cron via croner.",
   "license": "AGPL-3.0-only",

@@ -1,5 +1,201 @@
 # @perch/db
 
+## 0.2.0
+
+### Minor Changes
+
+- 82cb101: Agent bots. A bot with an `engine` and `projects` in its spec no longer answers from a model: a
+  mention opens a coding session on that project and posts a session card in the thread, with a link
+  straight into Code mode. Permissions the engine asks for arrive as Approve / Deny cards in the same
+  thread, and answering one answers the engine.
+  
+  When the session finishes, what the agent left behind is put on a branch of its own, read for
+  secrets, committed, pushed and opened as a pull request — the thread gets a diff card with what
+  changed, Open in IDE, and the pull request. `pullRequest: false` leaves the work in the session, and
+  a project with no repository, no connection, or a change with a credential in it stops there and
+  says so rather than failing quietly.
+- b579c03: Background sessions. Start a run with `POST …/sessions/background` and a channel to report in, and
+  it works to a finish line while nobody watches — then settles, instead of holding a runner open for
+  a turn nobody is going to type. It keeps **one card** in that channel, rewritten in place rather
+  than a message per event: what it was asked, where it got to, the tool it is stuck on, and at the
+  end its turns, tool calls, files changed, cost and how long it took.
+  
+  Your phone hears only what needs you. `background.notify` in `.perch/project.json` is `needs_you`
+  by default — a permission it is waiting on, or a failure — and can be `always` or `never`.
+- f519b64: Backups you can trust. A Perch now takes one on a schedule — `PERCH_BACKUP_DIR` turns it on,
+  `PERCH_BACKUP_CRON` says when, `PERCH_BACKUP_KEEP` says how many to keep — and `/api/admin/backup`
+  takes one now and lists what is there. A backup is a directory: the database as a gzipped
+  JSON-lines dump, the files beside it, the project volumes added by the supervisor, and a manifest.
+  
+  The dump is Perch's own format rather than `pg_dump` or PGlite's data directory, so **a laptop
+  backup restores into a team instance on Postgres, and back**. Restoring is "migrate, then load",
+  which also means a backup restores into a later Perch:
+  
+  ```sh
+  docker compose exec api bun apps/api/src/index.ts backup
+  docker compose exec -e DATABASE_URL=…/perch_restore api bun apps/api/src/index.ts restore /data/backups/<id>
+  perch backup ./today && perch restore ./today --portable
+  ```
+  
+  The vault key is **not** in a backup unless you ask (`PERCH_BACKUP_INCLUDE_KEY=on`): its
+  fingerprint is, so a restore says plainly whether the key you have is the key those rows were
+  encrypted with. Restoring into an instance that already has rows is refused rather than merged.
+  
+  CI restores a backup on every push, in both modes — laptop on Linux, macOS and Windows, and team
+  into an empty Postgres database beside the live one.
+- 31b4dba: A bot can be code. Put a `bot.js` beside its `bot.yaml` in a repository and the bot answers with its
+  own JavaScript instead of a model: `export default bot({ onMessage, onSchedule, onWebhook })`, with
+  `perch.chat_post(…)` and the rest of the tools its spec allows. It runs in QuickJS with no network,
+  no filesystem and no host — and under a ceiling, so a bot that loops is stopped and says so where it
+  was asked rather than taking anything else with it.
+- fe0a09f: Bots can use an MCP server. A bot's spec names connections under `mcp:`, the grant decides which of
+  their tools it actually gets, and each one arrives in the turn as `mcp__<provider>__<tool>` with its
+  answer wrapped as untrusted. The call goes out through the MCP gateway on the connection's own
+  token — the credential never reaches the bot's context.
+  
+  A grant can mark tools `requires_permission`. Calling one of those parks the call instead of running
+  it: an Approve / Deny card appears in the thread and an item in the inbox of whoever set the bot
+  running. Approving runs it then, re-checking the grant first, and posts the result in the thread.
+  `GET /api/workspaces/{ws}/bot-tool-calls` lists what is waiting.
+- c3fe0bd: A merge queue. Branches land one at a time, each rebased onto what landed before it and each held
+  to the project's own checks — whatever `.perch/project.json` calls `check`, `test`, `ci` or
+  `verify`. Three agents can now finish three branches at once and have them arrive in order rather
+  than in a heap.
+  
+  A branch that will not rebase, or whose checks go red, does not stop the queue: it is marked with
+  git's own words or the tail of the command's output, its work item goes to Needs you, and the
+  session that wrote it is asked to fix what it broke. The next branch lands meanwhile.
+  
+  The thread gets one queue card per branch, rewritten in place as it moves from waiting to landing
+  to landed — so a thread reads as a queue rather than four notifications.
+  
+  Under it: `git.merge` on the runner does the rebase and the fast-forward as one operation, because
+  two of those racing is what a queue exists to prevent, and `worktree.create` now answers with where
+  a branch already is rather than refusing to make a second one.
+- 5549cfd: Budgets and the spending screen. Every model call — the gateway's and a bot's — now lands in one
+  ledger, so **Settings → Spending** can say what a workspace spent, by model, by provider, by who, or
+  by day. Set a ceiling for the workspace, a person or a bot, over a day, a month or forever: the
+  tightest one wins, a warning goes out as it is approached, and when it is reached the next `/v1`
+  call is a `402` and the next bot answer is the bot saying so in the thread.
+- a5fe8a8: The rest of Work mode. Cycles with a burndown that says what was left each day and who finished it
+  — an agent or a person — and a Close that carries the unfinished work into the next cycle rather
+  than pretending it is done. Modules. Saved views: a layout, what to filter by and what to show,
+  yours until you share them. The four layouts beside the board — list, calendar, timeline and
+  spreadsheet. The Intake triage queue, where anything that arrived rather than being typed waits to
+  be accepted (with the type and cycle you give it) or declined. Sub-items and relations, written
+  from both ends. And a work item's description is now a document, written in the panel beside
+  everything else about the item.
+- 7ccdff3: Starter stacks, one-click projects, and a Perch that starts with something in it.
+  
+  `templates/` now holds four starter stacks — a Bun API, a Next.js app, a FastAPI service and a
+  static site — served at `GET /api/templates` and pickable from Code mode's New project form.
+  Choosing one makes a project that arrives with the stack's files and its own `.perch/project.json`
+  already read, so Perch knows the run commands and the preview's port before you touch anything.
+  
+  The Preview tab can now start it: **Start** runs the project's own `preview.command` on its runner,
+  waits for the port, and shows the tail of the dev server's output if it does not come up. **Stop**
+  takes it down, along with everything it started.
+  
+  A fresh instance no longer opens on a set of empty states: `PERCH_DEMO_WORKSPACE` (on by default)
+  seeds the first workspace with three channels, two bots and a project from a starter stack just
+  after the setup wizard, and `perch demo` does the whole thing in one command on a laptop.
+- 714f396: Orchestrators can split a job. A bot with `orchestrator: true` and the `fan_out` tool takes a whole
+  plan in one call — who does what, and whether to wait for all of them, the first, or a quorum — and
+  the thread gets a plan card showing each specialist, what they were asked, and what they may spend,
+  rewritten in place as answers land.
+  
+  What is left of the thread's budget is divided evenly among the bots actually tagged, and each share
+  is that bot's alone: the first to run can no longer spend what the others were promised. Every reply
+  comes back to the orchestrator at once, wrapped as untrusted, for it to fold into one answer.
+  
+  A bot without the flag that calls `fan_out` is told so, and nobody is tagged.
+- cf4673b: Preflight before push. Set `preview.preflight` in `.perch/project.json` and a push runs the
+  project's own lint, test and build, then opens each of its configured routes in the runner's browser
+  and looks at them. A console error or a request that did not come back is a failure — the half a
+  test suite cannot do, because a page that throws on load passes every unit test ever written.
+  
+  `block` refuses the push with the checklist; `warn` pushes and shows it anyway; absent is off. Run it
+  on its own with `POST …/preflight`, and with a channel it posts the checklist card: a row per check,
+  the reason for each failure, and the picture taken of each route.
+  
+  The runner now drives its browser over the DevTools protocol rather than `--screenshot`, because
+  that is the only way to know which console lines the page thought were errors. Screenshots are
+  unchanged; they just come back knowing more.
+- 3ba2508: Race mode. Ask two to eight engines the same question at once, each in a worktree of its own, and
+  get back a comparison rather than an answer: what each one changed, what it cost, and what the
+  project's checks made of it. Press **Pick** on the row you want, or let the checks decide — they
+  take the cheapest entrant that passes, smallest diff breaking a tie. The winner's branch lands
+  through the merge queue like any other; every other entrant gives its directory back and keeps its
+  branch, so what the engine that lost was thinking is still there to read.
+  
+  Sessions that nobody opened by hand — a work item's, a race entrant's — now carry `unattended` and
+  settle when their round goes quiet, instead of holding a runner open for a next turn that is never
+  coming.
+- 00f1986: The reliability bar: a hundred sessions at once, an upgrade with no data loss, a runner killed
+  mid-turn.
+  
+  `bun run reliability` runs three drills against published targets (`docs/reliability.md`), and CI
+  runs it on every push. A hundred sessions open and answer in 7.3 seconds, and with all hundred held
+  the next session still opens in about sixteen milliseconds. A database one migration behind upgrades
+  with every row intact, and a backup restores into a database that was migrated a moment ago.
+  
+  The chaos drill found a real bug and this release fixes it: a session whose runner died stayed
+  `running` for ever. The watchdog cancelled the round by asking the engine to stop, and an engine
+  whose runner is gone cannot be asked anything. Perch now ends such a round itself and the session
+  says "the agent stopped answering and its runner could not be reached" instead of claiming to be
+  working.
+- c2a9d67: A bot's schedule now means the hour you meant. `timezone: Europe/London` on a bot reads
+  `0 9 * * 1-5` as nine in the morning there, and follows it across a daylight-saving change; a zone
+  name that does not exist is refused when the bot is saved. A firing Perch was down for runs late by
+  default, up to an hour, and a bot whose message only makes sense on time can say `catch_up: false`.
+  And a new schedules endpoint says, for each one, when it next fires and when it last did.
+- 3fdf6c1: A bot can live in a repository. Put `bots/<handle>/bot.yaml` next to a `SYSTEM.md` and a `skills/`
+  folder in any project, and Perch reads it: the bot appears in the workspace, answers where it is
+  installed, and keeps its persona and skills in version control where they can be reviewed like
+  anything else. Pushing from the Git panel reloads them; the panel's Reload bots button does the
+  same after a pull, and says which directory Perch could not read.
+- 53b90b0: The testing loop. Put `background.testLoop` in `.perch/project.json` and the project's own tests run
+  after any round that wrote something — in the session's worktree, or its checkout — and a failure
+  goes straight back to the agent as the next turn, with the command and what it said. It gets two
+  tries by default (five at most); after that the session stops at **needs you** with what still
+  fails, where the inbox and the background card already look.
+  
+  A round that only answered a question is not tested, a round that errored is not told off for it,
+  and leaving `testLoop` out leaves everything as it was.
+- 4c68089: The model gateway at `/v1`. Point an OpenAI client at your Perch, use a virtual key where the API
+  key goes and a brain's name where the model goes, and the workspace's credential does the work
+  without ever leaving the server — streamed or not, with `GET /v1/models` and `POST /v1/embeddings`
+  beside it.
+  
+  Keys are minted per workspace, person, bot or nobody-in-particular, shown exactly once, narrowed to
+  some brains if you like, given a budget over a day or a month, and revocable. Every call leaves a
+  row in the ledger and says what it cost in `Perch-Cost-Usd`; a key that has spent its budget is
+  refused with `402` before a provider is called. A brain can name others to fall back to when its
+  provider will not answer.
+- 50d8ab9: A provider can tell Perch when something happens. Make an endpoint for GitHub, Vercel or Clerk, paste
+  its URL and its one-time secret into the provider, and every signed delivery becomes a card in the
+  channel you wired it to — what happened, who did it, and a link. An unsigned delivery, or one signed
+  with anything else, is refused and posts nothing; the same delivery twice is one card. Bots can wait
+  for them too: a `webhook` trigger fires on a delivery and the bot answers in the card's own thread.
+- fd812c8: Work items and the board. Work mode is no longer an empty state: a project has a board with one
+  column per state, cards carrying `KEY-123`, and the two columns no other tracker has — **Running**
+  and **Needs you**.
+  
+  Nobody drags a card into either. **Hand to an agent** opens a coding session on the item's project,
+  and from then on the item follows it: running while the agent works, needs-you when it stops to
+  ask, and in review when it finishes — never straight to done, because an agent finishing is not a
+  person agreeing. A session opened from a card lets go of its runner when it is done, which is what
+  moves the card.
+  
+  An item can start as a message in a channel and keep the thread it came from, so the work and the
+  talking stay one thing. Bots hear `work_item.updated` over the Bot API with the identifier and
+  what moved. And `work.create` and `work.update` complete Perch's own MCP server at `/mcp/perch`,
+  so an agent outside can put something on the board and move it, naming items the way a person
+  would: `NEST-12`.
+  
+  The board is live, works at 390 px, and asks for at most 200 items at a time — past that the
+  useful answer is a filter rather than more cards.
+
 ## 0.1.0
 
 ### Minor Changes

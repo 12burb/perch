@@ -1,5 +1,97 @@
 # @perch/bots
 
+## 0.2.0
+
+### Minor Changes
+
+- 31b4dba: A bot can be code. Put a `bot.js` beside its `bot.yaml` in a repository and the bot answers with its
+  own JavaScript instead of a model: `export default bot({ onMessage, onSchedule, onWebhook })`, with
+  `perch.chat_post(…)` and the rest of the tools its spec allows. It runs in QuickJS with no network,
+  no filesystem and no host — and under a ceiling, so a bot that loops is stopped and says so where it
+  was asked rather than taking anything else with it.
+- fe0a09f: Bots can use an MCP server. A bot's spec names connections under `mcp:`, the grant decides which of
+  their tools it actually gets, and each one arrives in the turn as `mcp__<provider>__<tool>` with its
+  answer wrapped as untrusted. The call goes out through the MCP gateway on the connection's own
+  token — the credential never reaches the bot's context.
+  
+  A grant can mark tools `requires_permission`. Calling one of those parks the call instead of running
+  it: an Approve / Deny card appears in the thread and an item in the inbox of whoever set the bot
+  running. Approving runs it then, re-checking the grant first, and posts the result in the thread.
+  `GET /api/workspaces/{ws}/bot-tool-calls` lists what is waiting.
+- abed13a: The Nest. A roster of agents you can install as a team — Birbus, who runs it, and four specialists:
+  Dawn (code), Julius (finding things out), Paige (writing) and Kimi (what the data says). Workspace
+  settings → Bots → The Nest, or `POST /api/workspaces/{ws}/nest`.
+  
+  Each joins through one of two doors. A Bot API agent becomes an external bot with a token shown once
+  on the install, and runs wherever it already runs; a Hermes agent becomes an agent bot on the
+  `hermes` engine, which Perch runs on a project's runner. What comes out either way is ordinary bots:
+  edit them, install them in channels, delete them.
+  
+  Installing one grants it nothing. Kimi expects a Supabase connection and says so, but an admin still
+  has to grant it on the Connections page — until then the agent is refused.
+- 714f396: Orchestrators can split a job. A bot with `orchestrator: true` and the `fan_out` tool takes a whole
+  plan in one call — who does what, and whether to wait for all of them, the first, or a quorum — and
+  the thread gets a plan card showing each specialist, what they were asked, and what they may spend,
+  rewritten in place as answers land.
+  
+  What is left of the thread's budget is divided evenly among the bots actually tagged, and each share
+  is that bot's alone: the first to run can no longer spend what the others were promised. Every reply
+  comes back to the orchestrator at once, wrapped as untrusted, for it to fold into one answer.
+  
+  A bot without the flag that calls `fan_out` is told so, and nobody is tagged.
+- 3fdf6c1: A bot can live in a repository. Put `bots/<handle>/bot.yaml` next to a `SYSTEM.md` and a `skills/`
+  folder in any project, and Perch reads it: the bot appears in the workspace, answers where it is
+  installed, and keeps its persona and skills in version control where they can be reviewed like
+  anything else. Pushing from the Git panel reloads them; the panel's Reload bots button does the
+  same after a pull, and says which directory Perch could not read.
+- 50d8ab9: A provider can tell Perch when something happens. Make an endpoint for GitHub, Vercel or Clerk, paste
+  its URL and its one-time secret into the provider, and every signed delivery becomes a card in the
+  channel you wired it to — what happened, who did it, and a link. An unsigned delivery, or one signed
+  with anything else, is refused and posts nothing; the same delivery twice is one card. Bots can wait
+  for them too: a `webhook` trigger fires on a delivery and the bot answers in the card's own thread.
+- fd812c8: Work items and the board. Work mode is no longer an empty state: a project has a board with one
+  column per state, cards carrying `KEY-123`, and the two columns no other tracker has — **Running**
+  and **Needs you**.
+  
+  Nobody drags a card into either. **Hand to an agent** opens a coding session on the item's project,
+  and from then on the item follows it: running while the agent works, needs-you when it stops to
+  ask, and in review when it finishes — never straight to done, because an agent finishing is not a
+  person agreeing. A session opened from a card lets go of its runner when it is done, which is what
+  moves the card.
+  
+  An item can start as a message in a channel and keep the thread it came from, so the work and the
+  talking stay one thing. Bots hear `work_item.updated` over the Bot API with the identifier and
+  what moved. And `work.create` and `work.update` complete Perch's own MCP server at `/mcp/perch`,
+  so an agent outside can put something on the board and move it, naming items the way a person
+  would: `NEST-12`.
+  
+  The board is live, works at 390 px, and asks for at most 200 items at a time — past that the
+  useful answer is a filter rather than more cards.
+
+### Patch Changes
+
+- Updated dependencies [82cb101]
+- Updated dependencies [b579c03]
+- Updated dependencies [f519b64]
+- Updated dependencies [31b4dba]
+- Updated dependencies [fe0a09f]
+- Updated dependencies [c3fe0bd]
+- Updated dependencies [5549cfd]
+- Updated dependencies [a5fe8a8]
+- Updated dependencies [7ccdff3]
+- Updated dependencies [714f396]
+- Updated dependencies [cf4673b]
+- Updated dependencies [3ba2508]
+- Updated dependencies [00f1986]
+- Updated dependencies [c2a9d67]
+- Updated dependencies [3fdf6c1]
+- Updated dependencies [53b90b0]
+- Updated dependencies [4c68089]
+- Updated dependencies [50d8ab9]
+- Updated dependencies [fd812c8]
+  - @perch/db@0.2.0
+  - @perch/gateway@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

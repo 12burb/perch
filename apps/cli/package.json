@@ -1,6 +1,6 @@
 {
   "name": "@perch/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "The perch binary: init, dev (laptop mode), runner connect, doctor, backup, restore, migrate (spec \u00a72).",
   "license": "AGPL-3.0-only",

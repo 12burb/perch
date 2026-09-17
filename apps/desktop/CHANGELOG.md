@@ -1,5 +1,18 @@
 # @perch/desktop
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [03efd44]
+- Updated dependencies [f519b64]
+- Updated dependencies [8362875]
+- Updated dependencies [e0fa6ce]
+- Updated dependencies [1d5af02]
+- Updated dependencies [7ccdff3]
+- Updated dependencies [818fb81]
+  - @perch/cli@0.3.0
+
 ## 0.1.1
 
 ### Patch Changes

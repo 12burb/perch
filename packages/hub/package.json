@@ -1,6 +1,6 @@
 {
   "name": "@perch/hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "The Hub: one index of the connectors, bots, skills and templates this build ships (task 4.12).",
   "license": "AGPL-3.0-only",

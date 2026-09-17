@@ -1,6 +1,6 @@
 {
   "name": "@perch/inspector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Dev plugins (Vite, Next, webpack) and the injected inspector client (spec \u00a75.6).",
   "license": "AGPL-3.0-only",
