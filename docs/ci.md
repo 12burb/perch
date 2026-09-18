@@ -53,8 +53,7 @@ It needs two repository settings and no secret:
 
 Until `DOCS_PAGES` is `on` the job is skipped rather than failed, so a release does not go red over
 a site nobody has turned on. `DOCS_SITE` and `DOCS_BASE` override the URL when it is not
-`https://<owner>.github.io/<repo>/`. Step by step, with the other lanes that need a person once:
-[publishing the remaining install lanes](publishing.md).
+`https://<owner>.github.io/<repo>/`.
 
 Verify an image: `cosign verify ghcr.io/12burb/perch-api:<version> --certificate-identity-regexp 'github.com/12burb/perch' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
