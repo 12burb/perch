@@ -80,6 +80,9 @@ release:
 | **AUR** | not yet | the release builds a `PKGBUILD`; no package has been pushed to the AUR, so `yay -S perch-bin` finds nothing |
 | **npm** | not yet | the release can publish `perch-dev` and `perch-bot-sdk`, but only when the repository has an `NPM_TOKEN`; until then `npx perch-dev@latest` is a 404 |
 
+Each "not yet" is a credential or a setting rather than missing work: what to do about it, one
+runbook per lane, is [publishing the remaining install lanes](publishing.md).
+
 The docs you are reading are published the same way: [`docs.yml`](../.github/workflows/docs.yml)
 puts them on GitHub Pages once the repository has Pages turned on (see
 [the CI notes](ci.md#the-docs-site-docsyml)); until then they live in `docs/` and in each release's
