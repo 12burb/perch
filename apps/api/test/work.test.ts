@@ -89,6 +89,27 @@ type Item = {
 const itemNow = async (id: string): Promise<Item> =>
   ((await call(`/api/work-items/${id}`)) as { body: Item }).body;
 
+/**
+ * Waits for a project to finish setting up. `POST /projects` answers 201 with the row and sets the
+ * directory up on a runner afterwards (`pending → setting_up → ready`, ADR-0069), so anything that
+ * needs the runner — starting a session, most of all — is a 409 "the project is not ready yet"
+ * until this returns. On an idle machine it is ready within a test or two and nobody notices; on a
+ * loaded one it is not, which is what made the acceptance below fail about one CI run in ten.
+ */
+async function projectReady(id: string, ms = 60_000): Promise<void> {
+  const until = Date.now() + ms;
+  for (;;) {
+    const res = (await call(`/api/workspaces/${ws}/projects/${id}`)) as {
+      body: { status: string; status_message: string | null };
+    };
+    if (res.body.status === "ready") return;
+    if (res.body.status === "error" || Date.now() > until) {
+      throw new Error(`the project is ${res.body.status}: ${res.body.status_message}`);
+    }
+    await Bun.sleep(50);
+  }
+}
+
 /** Polls the item until it reaches a state, because the board follows the session on the bus. */
 async function reaches(id: string, state: string, ms = 15_000): Promise<Item> {
   const until = Date.now() + ms;
@@ -138,6 +159,8 @@ describe("work items and the board (task 3.13)", () => {
     expect(made.status, made.text).toBe(201);
     project = made.body.id;
     projectKey = made.body.key;
+    // Everything below needs its runner, so wait for the directory rather than only the row.
+    await projectReady(project);
 
     const bot = (await call(`/api/workspaces/${ws}/bots`, {
       method: "POST",
