@@ -31,6 +31,12 @@ test("a dev server runs in the Preview tab, hot-reloads, and shares by link", as
   // here only because the browser happens to share a machine with it.
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
+  // Every navigation of the preview's own frame: the member ticket the ports poll mints must not
+  // turn into a reload every four seconds (ADR-0169), and HMR is a change with no navigation.
+  const loads: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame.url().includes(`${VITE_PORT}--`)) loads.push(frame.url());
+  });
   const email = uniqueEmail("preview");
   await signUp(page, "Preview Owner", email);
   const slug = await createWorkspace(page, "Preview Nest");
@@ -62,8 +68,13 @@ test("a dev server runs in the Preview tab, hot-reloads, and shares by link", as
   // depends on what a previous run left behind, so the edit is always to the other one.
   const before = (await app.textContent())?.trim() ?? "";
   const after = before === "version one" ? "version two" : "version one";
+  const loaded = loads.length;
   writeFileSync(join(VITE_DIR, "src", "message.js"), `export const message = "${after}";\n`);
   await expect(app).toHaveText(after, { timeout: 30_000 });
+  // Two of the ports poll's four-second intervals with the frame left alone: a reload in that
+  // window is the poll's fresh ticket turning into a navigation, which is the bug ADR-0169 fixed.
+  await page.waitForTimeout(9_000);
+  expect(loads.slice(loaded), "the preview frame navigated after it had loaded").toEqual([]);
   // …and it came through Perch: the socket is on the preview's hostname, and the dev server was
   // never reached directly.
   expect(sockets.some((url) => url.includes(`${VITE_PORT}--${slug}.${DOMAIN}`))).toBe(true);

@@ -7,8 +7,10 @@ model gateway — in one TypeScript monorepo on Bun. The binding specification i
 rules), §2 (stack), §4 (UI/UX shell), §6 (schema), §7 (contracts), §8 (env, deploy, CI), §9 (conventions,
 DoD, spikes), §11 (tasks).
 
-Every session starts by reading this file and `TASKS.md`, then resumes from the first unchecked task whose
-prerequisites are checked. If a task is marked `[~]`, check whether its branch exists and resume it before
+Every session starts by reading this file, `docs/handoff.md` (where the last session left things, what
+bit it, and what is next), and `TASKS.md`, then resumes from the first unchecked task whose prerequisites
+are checked; when every task is checked, the handoff's "next" list is the queue. A session ends by
+updating the handoff. If a task is marked `[~]`, check whether its branch exists and resume it before
 starting anything new.
 
 ## 1. Ground rules (never break these)
@@ -50,8 +52,8 @@ the local gate before every push is the same one a PR would have had.
 1. Mark the task `[~]` in `TASKS.md` (commit it with the task's first change).
 2. Re-read the spec sections the task names. Write the acceptance test first when the criterion is testable
    (unit or Playwright), then implement.
-3. Run `bun run check` (Biome, typecheck, `bun test`) and the relevant Playwright spec. Both green before
-   every push.
+3. Run `bun run check` (Biome, typecheck, the tests) and the relevant Playwright spec. Both green before
+   every push; `bun run gate` runs all of it in CI's order.
 4. Update the docs the task touches (`docs/`, package READMEs, `.env.example`, OpenAPI).
 5. Add a changeset (`bun run changeset`) describing the user-visible change.
 6. Commit with a conventional commit message and DCO sign-off (`git commit -s`). One task per commit series,
@@ -68,10 +70,11 @@ Outside contributors keep the branch-and-PR flow of `CONTRIBUTING.md`, with the 
 | Command | Does |
 |---|---|
 | `bun install --frozen-lockfile` | install |
-| `bun run check` | Biome + typecheck + `bun test` across the workspace |
+| `bun run check` | Biome + typecheck + the tests, every workspace |
 | `bun run lint` / `bun run format` | Biome lint / Biome format (write) |
 | `bun run typecheck` | `tsc --noEmit` in every workspace |
-| `bun run test` | `bun test` across the workspace (PGlite in memory for db tests) |
+| `bun run test` | every workspace's tests, one `bun test` process per workspace (PGlite in memory for db tests) |
+| `bun run gate` | the whole local gate before a push, in CI's order: web build, check, ct, e2e, perf, SDK drift, drill, reliability (`scripts/gate.sh`, ~35 min) |
 | `bun run e2e` | Playwright against the laptop-mode server |
 | `bun run dev` | api + web + in-process runner in watch mode against PGlite |
 | `bun run build` | production builds for every app |

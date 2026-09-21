@@ -26,6 +26,7 @@ import { getSession, listEvents, updateSession } from "../repos/sessions.ts";
 import { findWorkspaceById } from "../repos/workspaces.ts";
 import { notify } from "./push.ts";
 import type { SessionService } from "./sessions.ts";
+import { WakeMemory } from "./wake-memory.ts";
 
 export type BackgroundDeps = {
   db: DbHandle;
@@ -217,9 +218,7 @@ export class BackgroundService {
     const needed = state === "needs_you" || state === "failed";
     if (!needed && !(when === "always" && state === "done")) return;
     // Once per state: a card that is rewritten five times while it waits is still one wait.
-    const already = this.woke.get(sessionId);
-    if (already === state) return;
-    this.woke.set(sessionId, state);
+    if (!this.woke.note(sessionId, state)) return;
 
     const session = await getSession(this.db, sessionId);
     if (!session) return;
@@ -248,8 +247,8 @@ export class BackgroundService {
     }
   }
 
-  /** What each session was last woken about, so one wait is one notification. */
-  private readonly woke = new Map<string, string>();
+  /** What each session was last woken about, so one wait is one notification (bounded, ADR-0168). */
+  private readonly woke = new WakeMemory();
 
   /** The card, counted from the transcript the session has written so far. */
   private async block(

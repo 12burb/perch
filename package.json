@@ -27,7 +27,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
-    "test": "bun test",
+    "test": "bun scripts/test-workspaces.ts",
     "e2e": "playwright test",
     "launch": "bun scripts/launch-bar.ts",
     "dev": "turbo run dev",
@@ -41,7 +41,8 @@
     "ct": "bun run --filter @perch/ui test:ct",
     "build:cli": "bun scripts/build-cli.ts",
     "build:bot-sdk": "bun scripts/build-bot-sdk.ts",
-    "version": "changeset version && bun install"
+    "version": "changeset version && bun install",
+    "gate": "bash scripts/gate.sh"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

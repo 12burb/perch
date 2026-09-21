@@ -234,8 +234,17 @@ export function PreviewPane(props: {
   });
   const base = chosen?.url ?? "";
   // The ticket rides on the iframe's URL once and becomes a cookie on the preview's own origin,
-  // where Perch's session cookie does not reach (ADR-0084).
-  const src = base ? withTicket(withPath(base, path), chosen?.ticket ?? "") : "";
+  // where Perch's session cookie does not reach (ADR-0084). Every poll of the ports mints a fresh
+  // one, and a fresh ticket is not a reason to navigate: the URL is fixed when the pane opens a
+  // port, a path or a reload, and holds until the next of those (ADR-0169).
+  const ticket = useRef(chosen?.ticket ?? "");
+  ticket.current = chosen?.ticket ?? "";
+  const hasTicket = ticket.current !== "";
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the ticket is read through a ref on purpose, see above
+  const src = useMemo(
+    () => (base ? withTicket(withPath(base, path), ticket.current) : ""),
+    [base, path, nonce, hasTicket],
+  );
 
   // A new port starts at the path the project's config named.
   useEffect(() => {

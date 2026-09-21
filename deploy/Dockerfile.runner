@@ -54,11 +54,28 @@ RUN set -eux; \
     rm -f "node-v${NODE_VERSION}-linux-${arch}.tar.xz" SHASUMS256.txt; \
     node --version
 
-# Bun, pinned.
-RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --version
+# Bun from its release, verified against the release's SHASUMS256; no install script runs.
+RUN set -eux; \
+    case "${TARGETARCH}" in amd64) arch=x64 ;; arm64) arch=aarch64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    curl -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${arch}.zip"; \
+    curl -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt"; \
+    grep " bun-linux-${arch}.zip\$" SHASUMS256.txt | sha256sum -c -; \
+    unzip -q "bun-linux-${arch}.zip"; \
+    mkdir -p "${BUN_INSTALL}/bin"; \
+    mv "bun-linux-${arch}/bun" "${BUN_INSTALL}/bin/bun"; \
+    ln -sf bun "${BUN_INSTALL}/bin/bunx"; \
+    rm -rf "bun-linux-${arch}" "bun-linux-${arch}.zip" SHASUMS256.txt; \
+    bun --version && bunx --version
 
-# uv (and through it, Python toolchains), pinned.
-RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && uv --version
+# uv (and through it, Python toolchains) from its release, verified against the checksum beside it.
+RUN set -eux; \
+    case "${TARGETARCH}" in amd64) target=x86_64-unknown-linux-gnu ;; arm64) target=aarch64-unknown-linux-gnu ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    curl -fsSLO "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"; \
+    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz.sha256" | sha256sum -c -; \
+    mkdir -p "${UV_INSTALL_DIR}"; \
+    tar -xzf "uv-${target}.tar.gz" -C "${UV_INSTALL_DIR}" --strip-components=1; \
+    rm -f "uv-${target}.tar.gz"; \
+    uv --version && uvx --version
 
 # The official agent CLIs (spec §3.3, §10's Phase 4 line; task 4.6), pinned by deploy/agents.json:
 # Codex, Claude Code, Gemini CLI and OpenCode, plus the two ACP bridges. They are installed here,

@@ -126,7 +126,9 @@ chose for their runner image, and the runner spawns it as given (`docs/inspector
 ## Container images (task 0.13, ADR-0058)
 
 Resolved from Docker Hub and PyPI on 2026-09-13 (Hermes Agent on 2026-09-16); Renovate keeps them
-current. Hermes Agent is installed from its own repository at a tag rather than from PyPI, because
+current. The runner image downloads Node, Bun and uv from their release pages and checks each against
+the checksums published with that release before anything runs; no install script is piped into a
+shell (ADR-0168). Hermes Agent is installed from its own repository at a tag rather than from PyPI, because
 upstream deprecated the `hermes-agent` PyPI package at v0.19.0 and the install path since is the
 repository checkout (task 3.8, ADR-0123).
 

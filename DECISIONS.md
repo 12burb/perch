@@ -6655,3 +6655,62 @@ excepted; a `${…}` selector inside a template string is not a label).
 **Consequences.** Switching sessions mid-replay shows the right transcript; a workspace with many
 projects or members loads a page rather than everything; a new literal string fails the unit tests
 rather than a review.
+
+## ADR-0168: One test process per workspace, binaries verified into the image, and a memory that forgets
+
+**Status:** accepted · **Task:** code audit, last mile · **Spec:** §1.3, §8, §9, ADR-0058, ADR-0165
+
+**One `bun test` process per workspace.** `bun test` at the root ran every file in one process,
+which held every PGlite instance the api's tests had booted until, once, a db test late in the run
+could not get memory (run 35637484106). `bun run test` is now `scripts/test-workspaces.ts`: the
+workspaces in the order the root `package.json` names them, each in its own `bun test`, sequential,
+with the failing workspaces named at the end. A repository invariant walks every test file and
+fails if one is outside a workspace the runner visits, so nothing is skipped by the split. The
+ceiling is what changed, not the clock; and a workspace's tests still run directly with `bun test
+<path>`. Turborepo was the other route and was not taken: its strict environment filtering would
+have had to be opened for every variable a test keys off, and a variable missed is a test that
+silently skips.
+
+**Third-party binaries come from their releases, verified.** The runner image ran `curl | bash`
+for Bun and `curl | sh` for uv, at pinned versions but through scripts fetched from a second origin
+and executed unread. Both now come from their GitHub releases the way Node already came from
+nodejs.org: the archive and the checksum file are downloaded, `sha256sum -c` gates the unpack, and
+the binaries land where the scripts used to put them (`/opt/bun/bin`, `/opt/uv`). This proves the
+transfer and pins the bytes to the release; it does not prove who cut the release. Signature
+verification (Bun and Node publish signed checksum files; uv publishes attestations) is the next
+step and is left open in `docs/handoff.md`.
+
+**A memory that forgets.** The background service remembered the last state it woke a phone about
+for every session, for the life of the process. It is `WakeMemory` now: the same once-per-state
+rule, bounded to ten thousand sessions, with the oldest forgotten first and an active session moved
+to the young end when its state changes. A session forgotten and then woken again in the same state
+wakes the phone once more, which is the right side to err on.
+
+**A committed gate.** Every session so far rebuilt the same shell script to run CI's steps locally
+in CI's order. `scripts/gate.sh` (`bun run gate`) is that script, with the Playwright browser
+detection the sandbox needs and a red/green summary at the end.
+
+## ADR-0169: A fresh preview ticket is not a reason to navigate
+
+**Status:** accepted · **Task:** code audit, last mile (found by the gate) · **Spec:** §5.6, ADR-0084
+
+The last-mile gate's preview spec failed once under load and passed alone. Its trace told the
+story before the code did: the preview's document loaded once, a new HMR socket opened every four
+seconds for a minute, and `#app` was never found. Four seconds is the ports poll. Every poll mints
+a member ticket for the preview's own origin (ADR-0084), the ticket carries `exp: now + 15 min`,
+so every poll's ticket is a different string; the pane put the ticket on the iframe's URL, and a
+new URL is a navigation. The Preview tab has been reloading its page every four seconds since
+task 1.18, keeping neither scroll nor state, and "hot reload" was a reload. On a quiet machine each
+load finished inside the interval and nobody saw it; under load a load outran the next one, and
+the page never finished.
+
+**Decision.** The ticket is read through a ref, and the iframe's URL is computed when the pane
+opens a port, a path or a reload (the `nonce`), and when a ticket first arrives; a poll's fresh
+ticket changes nothing on screen. The ticket in the URL is the one current at that moment; a
+reload after the ticket's fifteen minutes takes a fresh one because the reload is in the URL's
+inputs. The e2e spec counts the preview frame's navigations and asserts none across two poll
+intervals after the HMR edit, so the spec now tells a hot reload from a reload, which it could not.
+
+**Consequences.** A preview keeps its state between polls; HMR is meaningful; the tell for the
+next bug of this shape is in `docs/handoff.md`: read the trace before calling an e2e failure a
+flake.

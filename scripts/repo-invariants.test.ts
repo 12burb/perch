@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { workspaceDirs as runnerWorkspaceDirs, testFilesUnder } from "./test-workspaces.ts";
 
 /**
  * Repository invariants from the spec (§0 license split, §1 ground rules, §2 stack).
@@ -99,6 +100,16 @@ describe("repository invariants", () => {
       packageManager?: string;
     };
     expect(rootPkg.packageManager).toMatch(/^bun@\d+\.\d+\.\d+$/);
+  });
+
+  test("every test file is inside a workspace, so `bun run test` runs it (ADR-0168)", () => {
+    // The runner keeps the root package.json's order; the invariants sort. Same set either way.
+    const walked = runnerWorkspaceDirs(root);
+    expect([...walked].sort()).toEqual(dirs);
+    const everywhere = testFilesUnder(root);
+    expect(everywhere.length).toBeGreaterThan(100);
+    const orphans = everywhere.filter((file) => !walked.some((dir) => file.startsWith(`${dir}/`)));
+    expect(orphans).toEqual([]);
   });
 
   test("no workspace ships an .env file", () => {

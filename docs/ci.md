@@ -6,7 +6,7 @@ Spec §8. Everything runs on GitHub Actions; nothing needs a secret except the o
 
 | Job | What |
 |---|---|
-| `check` | `bun install --frozen-lockfile`, Biome, typecheck, `bun test` on PGlite **and** a `pgvector/pgvector` service container (`PERCH_TEST_DATABASE_URL`), then the SDK drift check (`bun run sdk:generate && git diff --exit-code`) |
+| `check` | `bun install --frozen-lockfile`, Biome, typecheck, `bun run test` (one `bun test` process per workspace, ADR-0168) on PGlite **and** a `pgvector/pgvector` service container (`PERCH_TEST_DATABASE_URL`), then the SDK drift check (`bun run sdk:generate && git diff --exit-code`) |
 | `e2e` | web build, `bun run perf` (bundle and WS envelope budgets), `bun run ct` (component tests with axe), `bun run e2e` from the setup wizard with axe on every page; reports uploaded on failure |
 
 `bun run e2e` runs every spec at a desktop and a phone viewport, and then Phase 1's exit criterion
