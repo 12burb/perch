@@ -35,7 +35,9 @@ there is nothing else to install.
 | `bot.connect()` / `bot.disconnect()` | socket mode; `connect()` resolves once Perch has said hello |
 
 A failed call throws `PerchBotError` with `status`, `code`, `details` and — on a `429` — `retryAfter`
-in seconds.
+in seconds. An answer that is not JSON (a proxy's error page in front of Perch, a cut-off body) is a
+`PerchBotError` too, with the HTTP status and the code `bad_response`; the SDK never throws from its
+own parsing.
 
 Where tokens come from, what each scope allows, and the rest of the protocol:
 [`docs/bot-api.md`](../../docs/bot-api.md) (spec §5.3, §7.3).

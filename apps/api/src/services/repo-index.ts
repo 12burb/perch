@@ -14,7 +14,7 @@
  */
 import type { Bus } from "@perch/bus";
 import type { Db, ModelProfile, Project, RepoChunk } from "@perch/db";
-import type { RunnerLink } from "@perch/events";
+import { fsListResultSchema, fsReadResultSchema, type RunnerLink } from "@perch/events";
 import { EmbeddingError, embed } from "@perch/gateway";
 import {
   agentsDraft,
@@ -79,21 +79,18 @@ async function listDir(
   input: { workspaceId: string; userId: string; projectId: string },
   at: string,
 ): Promise<Listed[]> {
-  const raw = (await runnerCall(link, "fs.list", {
-    workspace_id: input.workspaceId,
-    user_id: input.userId,
-    project: input.projectId,
-    path: at,
-  })) as { entries?: { name?: unknown; type?: unknown; size?: unknown }[] };
+  const raw = fsListResultSchema.parse(
+    await runnerCall(link, "fs.list", {
+      workspace_id: input.workspaceId,
+      user_id: input.userId,
+      project: input.projectId,
+      path: at,
+    }),
+  );
   const out: Listed[] = [];
-  for (const entry of raw.entries ?? []) {
-    const name = typeof entry.name === "string" ? entry.name : "";
-    if (!name) continue;
-    const type =
-      entry.type === "dir" || entry.type === "symlink" || entry.type === "other"
-        ? entry.type
-        : "file";
-    out.push({ name, type, size: typeof entry.size === "number" ? entry.size : 0 });
+  for (const entry of raw.entries) {
+    if (!entry.name) continue;
+    out.push({ name: entry.name, type: entry.type, size: entry.size });
   }
   return out;
 }
@@ -366,13 +363,15 @@ export class RepoIndexService {
     }
 
     const read = async (path: string): Promise<string | null> => {
-      const answer = (await runnerCall(input.link, "fs.read", {
+      const answer = await runnerCall(input.link, "fs.read", {
         workspace_id: project.workspaceId,
         user_id: input.userId,
         project: project.id,
         path,
-      }).catch(() => null)) as { content?: unknown } | null;
-      return typeof answer?.content === "string" ? answer.content : null;
+      })
+        .then((raw) => fsReadResultSchema.parse(raw))
+        .catch(() => null);
+      return answer?.content ?? null;
     };
 
     const facts: RepoFacts = {

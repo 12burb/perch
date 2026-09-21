@@ -82,10 +82,10 @@ describe("repository invariants", () => {
     }
   });
 
-  test("dependencies are pinned to exact versions (spec §1.3) except workspace links", () => {
+  test("dependencies and peers are pinned to exact versions (spec §1.3) except workspace links", () => {
     for (const dir of [root, ...dirs]) {
       const pkg = readPackage(dir);
-      for (const group of [pkg.dependencies, pkg.devDependencies]) {
+      for (const group of [pkg.dependencies, pkg.devDependencies, pkg.peerDependencies]) {
         for (const [name, version] of Object.entries(group ?? {})) {
           if (version.startsWith("workspace:")) continue;
           expect(version, `${pkg.name} → ${name}`).toMatch(EXACT_VERSION);

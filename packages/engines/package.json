@@ -2,7 +2,7 @@
   "name": "@perch/engines",
   "version": "0.1.1",
   "private": true,
-  "description": "Engine interface (spec \u00a73.3), registry, fake engine, and the runner-hosted engine bridge; adapters acp, opencode, cli-harness, native, hermes.",
+  "description": "Engine interface (spec §3.3), registry, fake engine, and the runner-hosted engine bridge; adapters acp, opencode, cli-harness, native, hermes.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -13,9 +13,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.4.0",
-    "@opencode-ai/sdk": "1.18.30",
-    "@perch/events": "workspace:*",
-    "zod": "4.6.3"
+    "@perch/events": "workspace:*"
   }
 }

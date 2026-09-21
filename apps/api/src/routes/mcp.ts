@@ -13,7 +13,7 @@
  * and describing JSON-RPC-over-POST as REST would describe it wrongly.
  */
 
-import type { OpenAPIHono } from "@hono/zod-openapi";
+import { type OpenAPIHono, z } from "@hono/zod-openapi";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -72,6 +72,9 @@ export function registerMcp(app: OpenAPIHono<AppEnv>, deps: Deps): void {
         : null);
     // MCP clients expect the challenge, so they know to go and get a token.
     if (!caller) return unauthorized(c, "a gateway token is required");
+    // Neither a connection nor a server has an id of any other shape, so anything else is not
+    // found rather than a question for the database (which would refuse the value with a 500).
+    if (!z.uuid().safeParse(connectionId).success) throw PerchError.notFound("connection");
     // A runner-local server is reached at the same shape and answers the same protocol; which of
     // the two an id names is Perch's business, not the caller's (spec §3.5; task 3.24).
     const local = await getMcpServer(deps.db.db, connectionId);

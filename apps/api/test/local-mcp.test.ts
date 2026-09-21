@@ -290,4 +290,27 @@ describe("MCP servers a runner hosts (task 3.24)", () => {
     expect(text).toContain("echo");
     expect(text).toContain("where");
   }, 120_000);
+
+  test("an id of a shape no connection or server has is not found, not a database error", async () => {
+    const minted = (await call("/api/me/tokens", {
+      method: "POST",
+      json: { name: "outside-agent-2", scopes: ["chat:read"], workspace_id: ws },
+    })) as { status: number; text: string; body: { token: string } };
+    expect(minted.status, minted.text).toBe(201);
+    for (const id of ["not-an-id", "perch-tools", "..", "00000000-0000-0000-0000-00000000000g"]) {
+      const res = await fetch(`${base}/mcp/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${minted.body.token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          origin: base,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+      const text = await res.text();
+      expect(res.status, `${id}: ${text}`).toBe(404);
+      expect(JSON.parse(text)).toMatchObject({ error: { code: "not_found" } });
+    }
+  }, 60_000);
 });

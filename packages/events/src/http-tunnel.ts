@@ -66,6 +66,24 @@ export function encodeTunnelFrame(frame: TunnelFrame): string {
   }
 }
 
+/** A status a Response can carry: an integer from 200 to 599 (a 1xx never reaches a fetch's answer). */
+function isStatus(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 200 && value <= 599;
+}
+
+/** The header pairs a head names, or null when any entry is not a pair of strings. */
+function headerPairs(value: unknown): [string, string][] | null {
+  if (!Array.isArray(value)) return null;
+  const pairs: [string, string][] = [];
+  for (const entry of value as unknown[]) {
+    if (!Array.isArray(entry) || entry.length !== 2) return null;
+    const [name, text] = entry as unknown[];
+    if (typeof name !== "string" || typeof text !== "string") return null;
+    pairs.push([name, text]);
+  }
+  return pairs;
+}
+
 /** Null for a frame this side does not understand: a tunnel drops what it cannot read. */
 export function decodeTunnelFrame(raw: string): TunnelFrame | null {
   const colon = raw.indexOf(":");
@@ -80,16 +98,17 @@ export function decodeTunnelFrame(raw: string): TunnelFrame | null {
         return { kind: "text", text: rest };
       case "h": {
         const head = JSON.parse(rest) as {
-          status: number;
-          statusText: string;
-          headers: [string, string][];
+          status?: unknown;
+          statusText?: unknown;
+          headers?: unknown;
         };
-        if (typeof head.status !== "number" || !Array.isArray(head.headers)) return null;
+        const headers = headerPairs(head.headers);
+        if (!isStatus(head.status) || !headers) return null;
         return {
           kind: "head",
           status: head.status,
           statusText: typeof head.statusText === "string" ? head.statusText : "",
-          headers: head.headers,
+          headers,
         };
       }
       case "o": {

@@ -6574,3 +6574,48 @@ workers), so a page could repeat or skip rows; pages are walked in primary-key o
 backed-up table has one (asserted). File-name search handed the person's text to `ilike` unescaped,
 so `%` and `_` were wildcards; they are the characters, as they already were on the board.
 
+
+## ADR-0166: A dependency is declared where it is used, and every pin is one Renovate can see
+
+**Status:** accepted · **Task:** code audit (dependencies and types lenses) · **Spec:** §1.3, §2, §7.3, §7.5, §7.6, ADR-0020, ADR-0021, ADR-0058
+
+Eleven findings about what the repository declares and what the code assumes of what arrives. Each
+is small; the rules behind them are three.
+
+**A `package.json` names what its package imports, and nothing else.** `apps/runner` declared
+`@playwright/mcp` and never imported it: the command an operator sets in `PERCH_PLAYWRIGHT_MCP` is
+spawned as given (task 3.21), so the pin was weight in the image and a version nobody ran.
+`packages/engines` still declared the ACP and OpenCode SDKs and zod from before the adapters moved
+into the runner. The api's auth test imported `oauth2-mock-server`, and the repository scripts `yaml`
+and `@playwright/test`, through the root's install; each workspace now declares its own, at the same
+pin. `packages/ui` gave its peers a range where the invariant test read only `dependencies` and
+`devDependencies`; the peers are exact and the invariant reads them (the package is private, so an
+exact peer costs no consumer anything). `bun.lock` still carried the workspace versions from before
+v0.3.0, which `--frozen-lockfile` does not compare for workspace packages; it is refreshed. The web
+app's tests sat outside every tsconfig, so `bun run typecheck` never read them; `apps/web/test/tsconfig.json`
+brings them in with Bun's types beside Vite's.
+
+**Every pin is one Renovate can see.** Renovate's own managers read `package.json`, `FROM` lines and
+workflow actions; the agent CLIs in `deploy/agents.json` and the Bun, Playwright and Hermes versions
+the runner image is built with were pins nothing watched. Regex managers cover them: npm for the CLIs
+and for Playwright, GitHub releases for Bun, GitHub tags for Hermes (in the Dockerfile and in
+`apps/runner/src/hermes.ts`: one dependency in two files, one PR). Two pairs are grouped so a PR never
+moves one without the other: OpenCode's SDK and binary (the client and the server it drives move
+together, task 1.10), and Playwright's test runner and the image's browser build (ADR-0020).
+
+**What arrives is checked at the boundary, in the shape the boundary declares.** Four sites cast the
+runner's answers to hand-written types (`git.push`, `git.branch`, `fs.list`, `fs.read`) where the
+schemas in `@perch/events` already say what an answer is; they parse now, as the element editor and
+the merge queue did. `/mcp/{id}` handed its path parameter to the database, which refuses a value that
+is not a uuid with an error the route turned into a 500; an id of another shape is `not_found`, after
+the token check, so a caller without a token still meets the challenge. A tunnel head's `status` and
+`headers` reached `new Response(…)` unchecked, which throws on a status outside 200–599 and on a
+header entry that is not a pair of strings; the decoder answers null for those and the tunnel drops
+the frame, as it drops every frame it cannot read. The bot SDK parsed every body with `JSON.parse`,
+so a proxy's HTML error page in front of Perch surfaced as a `SyntaxError` carrying no status; it is a
+`PerchBotError` with the status and the code `bad_response` (a code of the SDK's, not the wire's:
+the wire never answered).
+
+**Consequences.** The runner image loses a package it never ran. A test or script that imports a new
+package declares it in its own workspace. The repository invariant fails on a peer range. Renovate
+opens pull requests for the image's build arguments and the agent manifest, grouped as above.

@@ -72,6 +72,30 @@ describe("the preview tunnel's frames", () => {
     expect(decodeTunnelFrame("z:whatever")).toBeNull();
     expect(decodeTunnelFrame("h:not json")).toBeNull();
     expect(decodeTunnelFrame("h:{}")).toBeNull();
+  });
+
+  test("a head is checked field by field before a Response is built from it", () => {
+    const head = (status: unknown, headers: unknown) =>
+      decodeTunnelFrame(`h:${JSON.stringify({ status, statusText: "", headers })}`);
+    // A Response carries an integer status from 200 to 599; anything else would throw in the api.
+    expect(head(200, [])).toEqual({ kind: "head", status: 200, statusText: "", headers: [] });
+    expect(head(599, [["x-a", "1"]])).toMatchObject({ status: 599, headers: [["x-a", "1"]] });
+    expect(head(199, [])).toBeNull();
+    expect(head(600, [])).toBeNull();
+    expect(head(200.5, [])).toBeNull();
+    expect(head("200", [])).toBeNull();
+    // Every header is a pair of strings, or the head is not one.
+    expect(head(200, [["x-a"]])).toBeNull();
+    expect(head(200, [["x-a", 1]])).toBeNull();
+    expect(head(200, [[1, "x"]])).toBeNull();
+    expect(head(200, ["x-a: 1"])).toBeNull();
+    expect(head(200, [["x-a", "1", "2"]])).toBeNull();
+    expect(head(200, { "x-a": "1" })).toBeNull();
+    expect(head(200, null)).toBeNull();
+    // A status text of the wrong shape is dropped, not the head.
+    expect(
+      decodeTunnelFrame(`h:${JSON.stringify({ status: 204, statusText: 7, headers: [] })}`),
+    ).toEqual({ kind: "head", status: 204, statusText: "", headers: [] });
     // A close with nothing in it still means closed, on the default code.
     expect(decodeTunnelFrame("c:{}")).toEqual({ kind: "close", code: 1000, reason: "" });
   });

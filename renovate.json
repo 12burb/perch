@@ -29,10 +29,60 @@
       "description": "Pinned runtime versions in Dockerfiles and images",
       "matchDatasources": ["docker"],
       "pinDigests": true
+    },
+    {
+      "description": "OpenCode's SDK and the binary the runner image ships move together (docs/dependencies.md)",
+      "matchPackageNames": ["@opencode-ai/sdk", "opencode-ai"],
+      "groupName": "opencode"
+    },
+    {
+      "description": "The Playwright build in the runner image matches the test runner (ADR-0020)",
+      "matchPackageNames": ["playwright", "@playwright/test"],
+      "groupName": "playwright"
     }
   ],
   "postUpdateOptions": [],
   "vulnerabilityAlerts": {
     "labels": ["security"]
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The agent CLIs the runner image ships, pinned in deploy/agents.json (task 4.6)",
+      "managerFilePatterns": ["/^deploy/agents\\.json$/"],
+      "matchStrings": [
+        "\"package\": \"(?<depName>[^\"]+)\",\\s*(?:\"note\": \"[^\"]*\",\\s*)?\"version\": \"(?<currentValue>[^\"]+)\""
+      ],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Build arguments the runner image pins: Bun, Playwright, Hermes Agent",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/"],
+      "matchStrings": [
+        "ARG BUN_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)(?<depName>)(?<datasource>)(?<extractVersion>)"
+      ],
+      "depNameTemplate": "oven-sh/bun",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^bun-v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/"],
+      "matchStrings": ["ARG PLAYWRIGHT_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "playwright",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Hermes Agent is a git tag, pinned in the image and in the runner's manifest of what it ships",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/", "/^apps/runner/src/hermes\\.ts$/"],
+      "matchStrings": [
+        "ARG HERMES_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)",
+        "HERMES_VERSION = \"(?<currentValue>v\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "NousResearch/hermes-agent",
+      "datasourceTemplate": "github-tags"
+    }
+  ]
 }

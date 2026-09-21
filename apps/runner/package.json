@@ -2,7 +2,7 @@
   "name": "@perch/runner",
   "version": "0.2.0",
   "private": true,
-  "description": "Runner agent: PTY, engines, fs, git, ports, preview tunnel (spec \u00a73.2, \u00a77.6).",
+  "description": "Runner agent: PTY, engines, fs, git, ports, preview tunnel (spec §3.2, §7.6).",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
@@ -20,7 +20,6 @@
     "@opencode-ai/sdk": "1.18.30",
     "@perch/db": "workspace:*",
     "@perch/events": "workspace:*",
-    "@playwright/mcp": "0.0.80",
     "bun-pty": "0.4.10",
     "chokidar": "5.0.0",
     "simple-git": "3.36.0",

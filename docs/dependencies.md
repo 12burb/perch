@@ -18,11 +18,11 @@ only the packages it declares.
 | `typescript` | 7.0.2 | root (dev) | the native compiler; typecheck only (ADR-0019) |
 | `@changesets/cli` | 3.0.2 | root (dev) | versioning and changelog |
 | `@types/bun` | 1.4.2 | root (dev) | `types: ["bun"]` in server tsconfigs (TS 7 defaults `types` to `[]`) |
-| `@playwright/test` | 1.62.1 | root (dev), packages/ui (dev) | pinned to match component testing (ADR-0020) |
+| `@playwright/test` | 1.62.1 | root (dev), packages/ui (dev), scripts (dev) | pinned to match component testing (ADR-0020) |
 | `@playwright/experimental-ct-react` | 1.62.1 | packages/ui (dev) | Playwright component tests |
 | `@axe-core/playwright` | 4.13.0 | root (dev), packages/ui (dev) | accessibility assertions |
-| `oauth2-mock-server` | 9.2.0 | root (dev) | OIDC provider double for the better-auth generic OIDC test (ADR-0026) |
-| `react`, `react-dom` | 19.3.0 | apps/web; packages/ui (peer + dev) | |
+| `oauth2-mock-server` | 9.2.0 | root (dev), apps/api (dev) | OIDC provider double for the better-auth generic OIDC test (ADR-0026) |
+| `react`, `react-dom` | 19.3.0 | apps/web; packages/ui (peer + dev) | the peer pin is exact too (ADR-0166) |
 | `@types/react`, `@types/react-dom` | 19.3.0 | apps/web (dev), packages/ui (dev) | |
 | `vite` | 8.3.0 | apps/web (dev), packages/ui (dev) | Rolldown-based Vite 8 |
 | `@vitejs/plugin-react` | 6.1.1 | apps/web (dev), packages/ui (dev) | peer `vite ^8` |
@@ -75,7 +75,7 @@ only the packages it declares.
 | `@opentelemetry/exporter-trace-otlp-http` | 0.222.0 | apps/api | |
 | `@opentelemetry/sdk-trace-base` | 2.11.0 | apps/api (dev) | The in-memory exporter task 3.22's trace test asserts against; already the resolved version under `sdk-node` |
 | `dockerode` | 5.0.1 | apps/api | supervisor entrypoint only (spike 0.4.7); `@types/dockerode` 4.0.1 dev |
-| `yaml` | 2.9.1 | apps/api, packages/connect, packages/policy | manifests, bot.yaml, policy.yaml |
+| `yaml` | 2.9.1 | apps/api, packages/connect, packages/policy, scripts (dev) | manifests, bot.yaml, policy.yaml |
 | `ai` | 7.0.99 | packages/gateway | Vercel AI SDK 7 |
 | `@ai-sdk/openai` | 4.0.66 | packages/gateway | |
 | `@ai-sdk/anthropic` | 4.0.53 | packages/gateway | |
@@ -85,10 +85,9 @@ only the packages it declares.
 | `@ai-sdk/groq` | 4.0.41 | packages/gateway | |
 | `@ai-sdk/openai-compatible` | 3.0.48 | packages/gateway | Ollama, LM Studio, vLLM, llama.cpp, aggregators |
 | `@modelcontextprotocol/sdk` | 1.30.0 | packages/connect, apps/api, apps/runner | MCP client and server, client auth (CIMD, DCR, PKCE) |
-| `@agentclientprotocol/sdk` | 1.4.0 | packages/engines, apps/runner | the official ACP TypeScript SDK (ADR-0021) |
-| `@opencode-ai/sdk` | 1.18.30 | packages/engines, apps/runner | OpenCode server client; the binary is pinned in the runner image |
+| `@agentclientprotocol/sdk` | 1.4.0 | apps/runner | the official ACP TypeScript SDK (ADR-0021) |
+| `@opencode-ai/sdk` | 1.18.30 | apps/runner | OpenCode server client; the binary is pinned in the runner image |
 | `opencode-ai` | 1.18.30 | spikes only | the npm-distributed OpenCode binary, used by spike 0.4.3 |
-| `@playwright/mcp` | 0.0.80 | apps/runner | agent eyes inside the runner |
 | `bun-pty` | 0.4.10 | apps/runner, spikes/pty | the PTY on Bun: spike 0.4.1 showed node-pty failing on Bun (ADR-0029) |
 | `node-pty` | 1.1.0 | spikes/pty only | opt-in probe for the CI platform matrix; trusted install script (compiles from source on Linux) |
 | `@webviewjs/webview` | 0.4.5 | apps/desktop | the desktop window: N-API binding to tao/wry (WebView2, WebKit, WebKitGTK 4.1), prebuilt per platform, Rust stays upstream (ADR-0063) |
@@ -110,9 +109,19 @@ only the packages it declares.
 
 ## Version policy
 
-Exact pins everywhere (`scripts/repo-invariants.test.ts` fails on a range). Workspace links use
-`workspace:*`. Renovate groups minor and patch updates weekly and opens majors one at a time behind the
-dependency dashboard.
+Exact pins everywhere, peer dependencies included (`scripts/repo-invariants.test.ts` fails on a range).
+Workspace links use `workspace:*`. A package declares what it imports, in its own `package.json`, rather
+than reaching a root or sibling install by hoisting; and it declares nothing it does not import
+(ADR-0166). Renovate groups minor and patch updates weekly and opens majors one at a time behind the
+dependency dashboard. Its built-in managers read `package.json`, the Dockerfiles' `FROM` lines and the
+workflows; the regex managers in `renovate.json` cover the pins they cannot see: the agent CLIs in
+`deploy/agents.json` (npm), and the runner image's `BUN_VERSION`, `PLAYWRIGHT_VERSION` and
+`HERMES_VERSION` build arguments (the last together with the same constant in
+`apps/runner/src/hermes.ts`). OpenCode's SDK and binary are one group, as are Playwright's test runner
+and the image's browser build, so each pair moves together.
+
+Agent eyes are not a dependency: `PERCH_PLAYWRIGHT_MCP` names the `@playwright/mcp` command an operator
+chose for their runner image, and the runner spawns it as given (`docs/inspector.md`).
 
 ## Container images (task 0.13, ADR-0058)
 

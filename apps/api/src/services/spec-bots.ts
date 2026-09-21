@@ -23,7 +23,7 @@ import {
   type SpecBotFiles,
 } from "@perch/bots/spec";
 import type { Bot, Db, NewBot, Project } from "@perch/db";
-import type { RunnerLink } from "@perch/events";
+import { fsReadResultSchema, type RunnerLink } from "@perch/events";
 import type { Logger } from "../logging.ts";
 import { deleteBot, findBotByHandle, insertBot, listSpecBots, updateBot } from "../repos/bots.ts";
 import type { BotsService } from "./bots.ts";
@@ -82,13 +82,15 @@ export class SpecBotsService {
   }
 
   private async read(link: RunnerLink, ctx: Ctx, path: string): Promise<string | null> {
-    const raw = (await runnerCall(link, "fs.read", {
+    const raw = await runnerCall(link, "fs.read", {
       workspace_id: ctx.workspaceId,
       user_id: ctx.userId,
       project: ctx.projectId,
       path,
-    }).catch(() => null)) as { content?: unknown; encoding?: unknown } | null;
-    if (!raw || typeof raw.content !== "string" || raw.encoding === "base64") return null;
+    })
+      .then((answer) => fsReadResultSchema.parse(answer))
+      .catch(() => null);
+    if (!raw || raw.encoding === "base64") return null;
     return raw.content;
   }
 

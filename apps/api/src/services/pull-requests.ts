@@ -8,7 +8,7 @@
  */
 import { apiBaseOf, type FetchLike } from "@perch/connect";
 import type { Project } from "@perch/db";
-import type { RunnerLink } from "@perch/events";
+import { gitBranchResultSchema, gitPushResultSchema, type RunnerLink } from "@perch/events";
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -75,13 +75,15 @@ export async function openPullRequest(
   const token = await deps.connections.tokenFor(connection);
 
   // Push first: a pull request for a branch the remote has never seen is not a pull request.
-  const pushed = (await runnerCall(input.link, "git.push", {
-    workspace_id: project.workspaceId,
-    user_id: input.userId,
-    project: project.id,
-    ...(input.head ? { branch: input.head } : {}),
-    auth: { kind: "token", token, username: "x-access-token" },
-  })) as { branch?: string };
+  const pushed = gitPushResultSchema.parse(
+    await runnerCall(input.link, "git.push", {
+      workspace_id: project.workspaceId,
+      user_id: input.userId,
+      project: project.id,
+      ...(input.head ? { branch: input.head } : {}),
+      auth: { kind: "token", token, username: "x-access-token" },
+    }),
+  );
   const head = input.head ?? pushed.branch;
   if (!head) throw PerchError.validation("there is no branch to open a pull request from");
 
@@ -343,12 +345,14 @@ export class PullRequestsService {
     if (pr.comments.length === 0) {
       throw PerchError.validation("there is nothing to address: this review left no comments");
     }
-    const branches = (await runnerCall(input.link, "git.branch", {
-      workspace_id: where.project.workspaceId,
-      user_id: where.userId,
-      project: where.project.id,
-    })) as { branches?: string[] };
-    if (!(branches.branches ?? []).includes(pr.head.branch)) {
+    const branches = gitBranchResultSchema.parse(
+      await runnerCall(input.link, "git.branch", {
+        workspace_id: where.project.workspaceId,
+        user_id: where.userId,
+        project: where.project.id,
+      }),
+    );
+    if (!branches.branches.includes(pr.head.branch)) {
       throw PerchError.validation(
         `${pr.head.branch} is not on this runner, so there is nothing here to fix`,
         { branch: pr.head.branch },

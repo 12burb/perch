@@ -105,6 +105,19 @@ function seconds(value: unknown): number | undefined {
 }
 
 /** What the api answered when it would not do the thing (spec §7.8). */
+/** The JSON object an answer carries, `{}` for an empty body, null for anything else. */
+function parseBody(text: string): Record<string, unknown> | null {
+  if (!text) return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export class PerchBotError extends Error {
   constructor(
     readonly status: number,
@@ -281,7 +294,16 @@ export class PerchBot {
 
   private async read<T>(res: Response): Promise<T & { ok: true }> {
     const text = await res.text();
-    const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    const body = parseBody(text);
+    if (body === null) {
+      // Not Perch answering: a proxy's error page, a truncated body. The status is still the truth.
+      throw new PerchBotError(
+        res.status,
+        "bad_response",
+        `perch answered ${res.status} with a body that is not JSON`,
+        { body: text.slice(0, 200) },
+      );
+    }
     if (res.ok) return body as T & { ok: true };
     const error = (body.error ?? {}) as { code?: string; message?: string; details?: unknown };
     const details = (error.details as Record<string, unknown> | undefined) ?? undefined;
