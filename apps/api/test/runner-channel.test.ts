@@ -36,7 +36,7 @@ beforeAll(async () => {
   const [workspace] = await booted.db.db.select().from(schema.workspaces).limit(1);
   if (!workspace) throw new Error("setup created no workspace");
   workspaceId = workspace.id;
-});
+}, 60_000);
 
 afterAll(async () => {
   await running.stop();

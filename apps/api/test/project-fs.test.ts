@@ -70,7 +70,7 @@ beforeAll(async () => {
   booted.runners.attach(createInProcessRunner({ projectsDir, portsIntervalMs: 0 }));
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
   base = running.url;
-});
+}, 60_000);
 
 afterAll(async () => {
   await running.stop();

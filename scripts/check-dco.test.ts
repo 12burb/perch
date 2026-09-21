@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkDco } from "./check-dco.ts";
+import { checkDco, parentCounts } from "./check-dco.ts";
 
 /** Builds a throwaway repository with one signed-off commit and one unsigned commit. */
 function git(cwd: string, ...args: string[]): void {
@@ -53,10 +53,19 @@ describe("DCO check", () => {
     expect(result.failures[0]).toContain("missing a Signed-off-by trailer");
   });
 
+  // Two git calls for the whole history, however long it gets; the budget is for a loaded machine.
   test("this repository's own history is signed off", () => {
     const result = checkDco("HEAD");
     expect(result.checked).toBeGreaterThan(0);
     expect(result.failures).toEqual([]);
+  }, 30_000);
+
+  test("parents are counted from the raw objects, in one batch, and a missing name is no parent", () => {
+    const counts = parentCounts(["base", "HEAD", "0000000000000000000000000000000000000000"], repo);
+    expect(counts.get("base")).toBe(0);
+    expect(counts.get("HEAD")).toBe(1);
+    expect(counts.get("0000000000000000000000000000000000000000")).toBe(0);
+    expect(parentCounts([], repo).size).toBe(0);
   });
 });
 

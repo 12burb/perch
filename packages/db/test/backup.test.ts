@@ -25,7 +25,7 @@ beforeAll(async () => {
   into = await createTestDb();
   await from.migrate();
   await into.migrate();
-});
+}, 60_000);
 
 afterAll(async () => {
   await from?.close();

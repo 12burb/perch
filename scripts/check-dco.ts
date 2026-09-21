@@ -14,17 +14,47 @@ const FIELD = "";
 const SIGNED_OFF = /^Signed-off-by: .+ <[^>]+>$/m;
 
 /**
- * Merge commits are exempt (the DCO app skips them too). Counted from the raw commit object rather than
- * `git log --no-merges`: a shallow clone grafts the parents away at its boundary, so the synthetic merge
- * commit of a pull request checked out at depth 1 would otherwise look like a root commit.
+ * Merge commits are exempt (the DCO app skips them too). Counted from the raw commit objects rather
+ * than `git log --no-merges`: a shallow clone grafts the parents away at its boundary, so the
+ * synthetic merge commit of a pull request checked out at depth 1 would otherwise look like a root
+ * commit. One `git cat-file --batch` for the whole range, not one process per commit: a repository's
+ * own history is checked on every test run, and it only gets longer.
  */
-function parentCount(sha: string, cwd?: string): number {
-  const proc = Bun.spawnSync(["git", "cat-file", "commit", sha], { cwd });
+export function parentCounts(shas: string[], cwd?: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (shas.length === 0) return counts;
+  const proc = Bun.spawnSync(["git", "cat-file", "--batch"], {
+    cwd,
+    stdin: new TextEncoder().encode(`${shas.join("\n")}\n`),
+  });
   if (proc.exitCode !== 0) {
     throw new Error(`git cat-file failed: ${proc.stderr.toString().trim()}`);
   }
-  const header = proc.stdout.toString().split("\n\n", 1)[0] ?? "";
-  return header.split("\n").filter((line) => line.startsWith("parent ")).length;
+  // Answers come back in the order asked, one per name: "<sha> <type> <size>\n", the object's
+  // bytes, then "\n" — or "<name> missing\n" for a name git cannot resolve. Keyed by the name
+  // asked, since git answers with the object id it resolved to. Sizes are bytes, so the walk is
+  // over bytes, not characters.
+  const out = proc.stdout;
+  let at = 0;
+  for (const name of shas) {
+    const eol = out.indexOf(10, at);
+    if (eol === -1) break;
+    const [, type = "", size = ""] = out.subarray(at, eol).toString().split(" ");
+    at = eol + 1;
+    if (type === "missing") {
+      counts.set(name, 0);
+      continue;
+    }
+    const bytes = Number(size);
+    const header =
+      out
+        .subarray(at, at + bytes)
+        .toString()
+        .split("\n\n", 1)[0] ?? "";
+    counts.set(name, header.split("\n").filter((line) => line.startsWith("parent ")).length);
+    at += bytes + 1;
+  }
+  return counts;
 }
 
 export function checkDco(range: string, cwd?: string): DcoResult {
@@ -41,11 +71,18 @@ export function checkDco(range: string, cwd?: string): DcoResult {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
+  const parsed = records.map((raw) => {
+    const [sha = "", author = "", body = ""] = raw.split(FIELD);
+    return { sha, author, body };
+  });
+  const parents = parentCounts(
+    parsed.map((one) => one.sha),
+    cwd,
+  );
   const failures: string[] = [];
   let checked = 0;
-  for (const raw of records) {
-    const [sha = "", author = "", body = ""] = raw.split(FIELD);
-    if (parentCount(sha, cwd) > 1) continue;
+  for (const { sha, author, body } of parsed) {
+    if ((parents.get(sha) ?? 0) > 1) continue;
     checked++;
     if (!SIGNED_OFF.test(body)) {
       failures.push(`${sha.slice(0, 12)} (${author}) is missing a Signed-off-by trailer`);

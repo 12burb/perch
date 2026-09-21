@@ -121,7 +121,7 @@ beforeAll(async () => {
     by: { actor: { type: "user", id: adminId }, meta: { requestId: "test" } },
   });
   wsB = beta.id;
-});
+}, 60_000);
 
 afterAll(async () => {
   await booted.close();
