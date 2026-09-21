@@ -33,7 +33,7 @@ import { findRunnerById } from "../repos/runners.ts";
 import type { RunnerRegistry } from "../runners/registry.ts";
 import { requestRunner } from "../supervisor/queue.ts";
 import { decryptDeployKey } from "./deploy-keys.ts";
-import { runnerCall } from "./runners.ts";
+import { callBudget, runnerCall } from "./runners.ts";
 import { slugify } from "./workspaces.ts";
 
 export type ProjectDeps = {
@@ -489,11 +489,15 @@ async function runSetup(
   await publish(["status", "runner_id"]);
   try {
     const params = await runnerSource(deps, project, source, userId);
-    const raw = await link.call("project.setup", {
+    const setup = {
       workspace_id: project.workspaceId,
       user_id: userId,
       project: project.id,
       source: params,
+    };
+    // As long as a clone and a postCreateCommand can take, not the link's short default.
+    const raw = await link.call("project.setup", setup, {
+      timeoutMs: callBudget("project.setup", setup),
     });
     const result = projectSetupResultSchema.parse(raw);
     // A starter stack lands on the empty checkout before anything is told the project is ready,

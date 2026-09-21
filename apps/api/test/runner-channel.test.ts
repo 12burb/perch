@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { schema } from "@perch/db";
 import type { BusEvent } from "@perch/events";
 import { connectRunner } from "@perch/runner";
@@ -7,9 +10,11 @@ import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import {
   authenticateRunnerToken,
+  callBudget,
   createRunner,
   mintRunnerToken,
   revokeRunnerToken,
+  runnerCall,
 } from "../src/services/runners.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -133,6 +138,101 @@ describe("runner control channel (task 1.1)", () => {
     expect((await runnerRow(runner.id)).status).toBe("offline");
     expect(booted.runnerChannel.size).toBe(0);
   });
+
+  test("a runner that reconnects while its old socket lingers keeps the new registration (ADR-0163)", async () => {
+    const runner = await createRunner(booted.db.db, { workspaceId, kind: "hosted", name: "twice" });
+    const { token } = await mintRunnerToken(booted.db.db, runner.id);
+    const first = connectRunner({
+      apiUrl: running.url,
+      token,
+      name: "first-socket",
+      kind: "hosted",
+      reconnect: false,
+    });
+    await first.registered();
+    expect(booted.runners.get(runner.id)?.link.info.name).toBe("first-socket");
+
+    // The same runner again, on a new socket, before the old one has gone anywhere.
+    const second = connectRunner({
+      apiUrl: running.url,
+      token,
+      name: "second-socket",
+      kind: "hosted",
+      reconnect: false,
+    });
+    await second.registered();
+    expect(booted.runners.get(runner.id)?.link.info.name).toBe("second-socket");
+
+    // The old socket goes: the registry keeps the new link, and the row stays online.
+    await first.close();
+    await Bun.sleep(300);
+    expect(booted.runners.get(runner.id)?.link.info.name).toBe("second-socket");
+    expect((await runnerRow(runner.id)).status).toBe("online");
+    const userId = (await booted.db.db.select().from(schema.users).limit(1))[0]?.id ?? "";
+    await expect(
+      booted.runners
+        .get(runner.id)
+        ?.link.call("ports.list", { workspace_id: workspaceId, user_id: userId }),
+    ).resolves.toMatchObject({ ports: expect.any(Array) });
+
+    await second.close();
+    await until(() => booted.runners.get(runner.id) === undefined, 3_000);
+    expect((await runnerRow(runner.id)).status).toBe("offline");
+  }, 20_000);
+
+  test("a call waits as long as its work, not as long as the link's default (ADR-0163)", async () => {
+    const projectsDir = mkdtempSync(join(tmpdir(), "perch-long-call-"));
+    const before = process.env.PERCH_PROJECTS_DIR;
+    process.env.PERCH_PROJECTS_DIR = projectsDir;
+    const runner = await createRunner(booted.db.db, { workspaceId, kind: "hosted", name: "slow" });
+    const { token } = await mintRunnerToken(booted.db.db, runner.id);
+    const client = connectRunner({
+      apiUrl: running.url,
+      token,
+      name: "slow-runner",
+      kind: "hosted",
+      reconnect: false,
+    });
+    try {
+      await client.registered();
+      const link = booted.runners.get(runner.id)?.link;
+      if (!link) throw new Error("no link");
+      const userId = (await booted.db.db.select().from(schema.users).limit(1))[0]?.id ?? "";
+      // The link's default here is 2 s; the command takes 3 and says it may take 6.
+      const params = {
+        workspace_id: workspaceId,
+        user_id: userId,
+        command: "sleep 3; echo slept",
+        cwd: ".",
+        timeout: 6_000,
+      };
+      expect(callBudget("exec", params)).toBe(36_000);
+      expect(
+        callBudget("project.setup", {
+          workspace_id: workspaceId,
+          user_id: userId,
+          project: "x",
+          source: { kind: "empty" },
+        } as never),
+      ).toBeGreaterThan(1_200_000);
+      expect(
+        callBudget("ports.list", { workspace_id: workspaceId, user_id: userId }),
+      ).toBeUndefined();
+      const bare = await link.call("exec", params).catch((e: unknown) => e as Error);
+      expect((bare as Error).message).toContain("timed out after 2000 ms");
+      const answered = (await runnerCall(link, "exec", params)) as {
+        stdout: string;
+        timedOut: boolean;
+      };
+      expect(answered.timedOut).toBe(false);
+      expect(answered.stdout.trim()).toBe("slept");
+    } finally {
+      await client.close();
+      if (before === undefined) delete process.env.PERCH_PROJECTS_DIR;
+      else process.env.PERCH_PROJECTS_DIR = before;
+      rmSync(projectsDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("a wrong, revoked, or expired token is refused before the upgrade; a wrong kind is refused at registration", async () => {
     const res = await fetch(`${running.url}/api/runner`, {

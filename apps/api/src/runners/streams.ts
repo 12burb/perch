@@ -67,7 +67,12 @@ export class SocketStream implements RunnerStream {
   }
 }
 
-type Waiter = { runnerId: string; resolve: (s: RunnerStream) => void; timer: Timer };
+type Waiter = {
+  runnerId: string;
+  resolve: (s: RunnerStream) => void;
+  reject: (error: Error) => void;
+  timer: Timer;
+};
 type Early = { runnerId: string; stream: SocketStream; timer: Timer };
 
 export class StreamHub {
@@ -94,7 +99,7 @@ export class StreamHub {
         reject(new Error(`the runner did not open stream ${token} within ${this.waitMs} ms`));
       }, this.waitMs);
       timer.unref?.();
-      this.waiting.set(token, { runnerId, resolve, timer });
+      this.waiting.set(token, { runnerId, resolve, reject, timer });
     });
   }
 
@@ -139,6 +144,8 @@ export class StreamHub {
     for (const [token, waiter] of this.waiting) {
       clearTimeout(waiter.timer);
       this.waiting.delete(token);
+      // A handler awaiting the runner's socket fails now rather than hanging past the shutdown.
+      waiter.reject(new Error("the api is shutting down"));
     }
   }
 }

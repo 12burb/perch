@@ -38,12 +38,22 @@ export interface RunnerStream {
   readonly closed: boolean;
 }
 
+/**
+ * How long the api waits for one answer (ADR-0163). Unset means the link's default, which is
+ * sized for a short call; a clone, a check run or an exec with a budget of its own says so here.
+ */
+export type RunnerCallOptions = { timeoutMs?: number };
+
 export interface RunnerLink {
   /** Stable per connection; hosted runners use the runner row id, local ones the connect token id. */
   readonly id: string;
   readonly info: RunnerInfo;
   /** Sends an api→runner request; rejects with a RunnerRpcError on a JSON-RPC error. */
-  call<M extends ApiToRunnerMethod>(method: M, params: RunnerCallParams<M>): Promise<unknown>;
+  call<M extends ApiToRunnerMethod>(
+    method: M,
+    params: RunnerCallParams<M>,
+    options?: RunnerCallOptions,
+  ): Promise<unknown>;
   /** Runner→api notifications (heartbeats, port changes, session events, …). */
   onNotification(handler: (notification: RunnerNotification) => void): () => void;
   /** The stream a method answered with a stream token opens (task 1.7); absent before then. */

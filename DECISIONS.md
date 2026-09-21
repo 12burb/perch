@@ -6470,3 +6470,31 @@ but the workspace is in the path only on `/api/workspaces/{ws}/…` routes; `aut
 every handler already resolves the workspace a resource belongs to (AGENTS.md §5), so that is the
 one place the check cannot be forgotten.
 
+## ADR-0163: A runner call waits as long as its work, and a reconnect keeps the newer registration
+
+**Status:** accepted · **Task:** code audit (lifecycle lens) · **Spec:** §3.2, §7.6; ADR-0066, ADR-0069, ADR-0131
+
+Two things the audit found in the runner channel, both of the kind that only show on a real
+socket, which is why the in-process runner of laptop mode and of most tests never met them.
+
+**The wait is the work's.** `WsRunnerLink.call` rejected every RPC after one fixed
+`requestTimeoutMs` (30 s), whatever it was: a `project.setup` awaiting a clone and a
+`postCreateCommand` the runner gives ten minutes each, an `exec` carrying a fifteen-minute budget
+for a queue's checks. On a hosted or local runner the api gave up and marked the project error or
+the check failed while the runner went on working. `RunnerLink.call` takes an optional
+`{ timeoutMs }` (an additive change to the §7.6-adjacent contract in `packages/events`), and
+`runnerCall` sizes it: the params' own `timeout` plus thirty seconds of room to answer when there
+is one, a known length for `project.setup`, the link's default for everything else. The default
+stays short on purpose — a `ports.list` that takes thirty seconds is a runner that is gone — and
+the alternative, one long default for everything, would have every dead-runner detection wait
+twenty minutes.
+
+**A reconnect keeps the newer link.** The registry attached a runner by id, overwriting whatever
+was there, and a socket's teardown detached by id — so a runner that reconnected while the api
+still held its previous socket had its new registration removed and closed by the old socket's
+teardown, and was marked offline while online. `attach` now closes the previous link for the same
+id first, `detach(id, only)` removes an entry only when it is still the link asking, and a
+teardown that finds a newer registration under its runner id says so in the log and writes
+nothing. The stream hub, on the same lens, now rejects what was still waiting when it closes
+rather than leaving a `pty.open` or `mcp.spawn` handler pending past the shutdown.
+

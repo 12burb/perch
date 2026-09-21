@@ -8,6 +8,7 @@ import type { Db, Runner, RunnerCapabilities, RunnerToken } from "@perch/db";
 import {
   type ApiToRunnerMethod,
   JSON_RPC_ERRORS,
+  type RunnerCallOptions,
   type RunnerCallParams,
   type RunnerLink,
 } from "@perch/events";
@@ -119,14 +120,41 @@ export function runnerError(error: unknown): PerchError {
   }
 }
 
-/** Calls a runner and turns its refusals into PerchErrors (task 1.5). */
+/** Room for the runner to finish and answer once the work's own budget has run out. */
+const CALL_GRACE_MS = 30_000;
+/**
+ * Methods whose work is long and whose params carry no budget of their own (ADR-0163): a project's
+ * setup is a clone and a postCreateCommand, each given ten minutes on the runner.
+ */
+const LONG_CALLS: Partial<Record<ApiToRunnerMethod, number>> = {
+  "project.setup": 2 * 600_000 + CALL_GRACE_MS,
+};
+
+/**
+ * How long to wait for this call: the work's own budget plus room to answer when the params carry
+ * one (`exec`, the checks a queue or a race runs), a method's known length otherwise, else the
+ * link's default. The link's 30 s default was aborting clones and check runs on every
+ * socket-connected runner while the runner kept working.
+ */
+export function callBudget<M extends ApiToRunnerMethod>(
+  method: M,
+  params: RunnerCallParams<M>,
+): number | undefined {
+  const own = (params as { timeout?: unknown }).timeout;
+  if (typeof own === "number" && Number.isFinite(own)) return own + CALL_GRACE_MS;
+  return LONG_CALLS[method];
+}
+
+/** Calls a runner and turns its refusals into PerchErrors (task 1.5), waiting as long as the work. */
 export async function runnerCall<M extends ApiToRunnerMethod>(
   link: RunnerLink,
   method: M,
   params: RunnerCallParams<M>,
+  options: RunnerCallOptions = {},
 ): Promise<unknown> {
+  const timeoutMs = options.timeoutMs ?? callBudget(method, params);
   try {
-    return await link.call(method, params);
+    return await link.call(method, params, timeoutMs === undefined ? {} : { timeoutMs });
   } catch (error) {
     throw runnerError(error);
   }

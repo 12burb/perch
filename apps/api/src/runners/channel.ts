@@ -20,6 +20,7 @@ import {
   mintCap,
   RUNNER_HEARTBEAT_MS,
   RUNNER_REGISTER_TIMEOUT_MS,
+  type RunnerCallOptions,
   type RunnerCallParams,
   type RunnerInfo,
   type RunnerLink,
@@ -76,8 +77,10 @@ class WsRunnerLink implements RunnerLink {
   async call<M extends ApiToRunnerMethod>(
     method: M,
     params: RunnerCallParams<M>,
+    options: RunnerCallOptions = {},
   ): Promise<unknown> {
     const id = `${++this.seq}`;
+    const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
     const cap = await mintCap(this.capSecret, {
       ws: params.workspace_id,
       user: params.user_id,
@@ -88,12 +91,9 @@ class WsRunnerLink implements RunnerLink {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new RunnerRpcError(
-            JSON_RPC_ERRORS.internal,
-            `${method} timed out after ${this.requestTimeoutMs} ms`,
-          ),
+          new RunnerRpcError(JSON_RPC_ERRORS.internal, `${method} timed out after ${timeoutMs} ms`),
         );
-      }, this.requestTimeoutMs);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params: { ...params, cap } }));
     });
@@ -319,7 +319,14 @@ export function createRunnerChannel(
     const link = session.link;
     if (!link) return;
     session.link = null;
-    await deps.registry.detach(link.id);
+    // Only this socket's link: a runner that reconnected while this socket lingered has a newer
+    // one in the registry, and closing this one must not take that one down — nor mark the
+    // runner offline while it is, in fact, online (ADR-0163).
+    await deps.registry.detach(link.id, link);
+    if (deps.registry.get(session.runner.id)) {
+      session.log.info({ reason }, "runner socket closed; a newer registration stays");
+      return;
+    }
     await updateRunner(deps.db, session.runner.id, { status: "offline", lastSeenAt: new Date() });
     await deps.bus.publish(
       "runner.offline",

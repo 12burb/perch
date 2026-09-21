@@ -40,7 +40,7 @@ function traced(link: RunnerLink): RunnerLink {
     get info() {
       return link.info;
     },
-    call: (method, params) => {
+    call: (method, params, options) => {
       const where = params as {
         workspace_id?: string;
         user_id?: string;
@@ -59,7 +59,7 @@ function traced(link: RunnerLink): RunnerLink {
             sessionId: where.session_id,
           }),
         },
-        () => link.call(method, params),
+        () => link.call(method, params, options),
       );
     },
     onNotification: (handler) => link.onNotification(handler),
@@ -75,14 +75,25 @@ function never(): never {
   throw new Error("this runner stopped offering streams mid-call");
 }
 
+type Entry = RegisteredRunner & { raw: RunnerLink; unsubscribe: () => void };
+
 export class RunnerRegistry {
-  private readonly runners = new Map<string, RegisteredRunner & { unsubscribe: () => void }>();
+  private readonly runners = new Map<string, Entry>();
 
   constructor(private readonly bus: Bus) {}
 
   attach(raw: RunnerLink, options: { workspaceId?: string | null } = {}): RegisteredRunner {
+    // A runner that registers again while its previous socket lingers replaces it: the old link
+    // is closed here (its own teardown then finds a newer entry and leaves it be, ADR-0163).
+    const previous = this.runners.get(raw.id);
+    if (previous) {
+      previous.unsubscribe();
+      this.runners.delete(raw.id);
+      void previous.link.close().catch(() => {});
+    }
     const link = traced(raw);
-    const entry: RegisteredRunner & { unsubscribe: () => void } = {
+    const entry: Entry = {
+      raw,
       link,
       attachedAt: new Date(),
       lastHeartbeatAt: null,
@@ -120,9 +131,11 @@ export class RunnerRegistry {
     return entry;
   }
 
-  async detach(id: string): Promise<void> {
+  /** Removes a runner; with `only`, just when that is the link still registered under the id. */
+  async detach(id: string, only?: RunnerLink): Promise<void> {
     const entry = this.runners.get(id);
     if (!entry) return;
+    if (only && entry.raw !== only) return;
     entry.unsubscribe();
     this.runners.delete(id);
     await entry.link.close();
