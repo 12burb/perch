@@ -40,5 +40,6 @@ try {
   }
 } finally {
   host.closeAll();
-  rmSync(root, { recursive: true, force: true });
+  // Windows releases a directory a killed child was using a moment later: retry the cleanup.
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
