@@ -188,7 +188,18 @@ describe("checkpoints, diffs, and restores (task 1.13)", () => {
     const { root, dir } = await project();
     writeFileSync(join(dir, "keep.txt"), "one\n");
     git(dir, "add", "keep.txt");
-    git(dir, "commit", "-q", "-m", "first");
+    // A CI runner has no identity of its own; the commit carries one so the test is hermetic.
+    git(
+      dir,
+      "-c",
+      "user.name=Perch Test",
+      "-c",
+      "user.email=test@perch.invalid",
+      "commit",
+      "-q",
+      "-m",
+      "first",
+    );
     const elsewhere = join(root, "elsewhere.diff");
     await expect(
       diffRange({ root }, { ...ctx, from: `--output=${elsewhere}`, to: "HEAD" }),
