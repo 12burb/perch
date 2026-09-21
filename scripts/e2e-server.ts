@@ -492,14 +492,21 @@ if (process.env.E2E_SETUP !== "wizard") {
   // the browser uses, which is what the instance is configured with.
   const base = `http://127.0.0.1:${port}`;
   const publicUrl = process.env.E2E_BASE_URL ?? `http://perch.localhost:${port}`;
-  for (let attempt = 0; attempt < 120; attempt++) {
+  // The same budget Playwright gives this server (playwright.config.ts webServer.timeout), and a
+  // plain failure when it runs out, rather than a setup call thrown at an api that never came up.
+  const deadline = Date.now() + 240_000;
+  let up = false;
+  while (!up && Date.now() < deadline) {
     try {
-      const health = await fetch(`${base}/api/health`);
-      if (health.ok) break;
+      up = (await fetch(`${base}/api/health`)).ok;
     } catch {
       // not up yet
     }
-    await Bun.sleep(500);
+    if (!up) await Bun.sleep(500);
+  }
+  if (!up) {
+    console.error("e2e-server: the api never answered /api/health");
+    process.exit(1);
   }
   const res = await fetch(`${base}/api/setup`, {
     method: "POST",

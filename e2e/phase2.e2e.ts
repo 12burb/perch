@@ -141,6 +141,15 @@ test("a team of three uses Perch for an afternoon", async ({ page, browser }) =>
         key: "site",
         source: "empty",
       });
+      // Set up on a runner after the 201 (ADR-0069): nothing may write into it before "ready".
+      for (let i = 0; i < 600; i++) {
+        const row = (await (
+          await fetch(`/api/workspaces/${ws}/projects/${(project.body as { id: string }).id}`)
+        ).json()) as { status: string; status_message: string | null };
+        if (row.status === "ready") break;
+        if (row.status === "error") throw new Error(`the project is error: ${row.status_message}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
       const invite = async (email: string) =>
         (
           (await post(`/api/workspaces/${ws}/invites`, { email, role: "member" })).body as {

@@ -77,7 +77,7 @@ jobs:
         # It lives here rather than with the unit tests because it needs a real browser, and this
         # is the job that has one: the runner finds what `playwright install` put in the cache
         # above. `bun test` skips it where there is none, so the job says there must be one.
-        run: bun test apps/runner/test/screenshot.test.ts
+        run: bun test apps/runner/test/screenshot.test.ts apps/api/test/preflight.test.ts
         env:
           PERCH_REQUIRE_BROWSER: "1"
       - name: Perf budgets (bundle, WS envelope, long lists)

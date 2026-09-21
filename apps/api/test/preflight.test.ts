@@ -173,6 +173,12 @@ describe("preflight before push (task 3.21)", () => {
     expect(ran.body.passed).toBe(false);
   }, 180_000);
 
+  // Skipped where there is no browser, and CI says there must be one (PERCH_REQUIRE_BROWSER, set
+  // by the job that installs it), so the acceptance cannot go quietly missing from every run.
+  test.skipIf(!process.env.PERCH_REQUIRE_BROWSER)("the browser CI installed is found", () => {
+    expect(browser).not.toBeNull();
+  });
+
   test.skipIf(!browser)(
     "the acceptance: a page that throws is caught by looking at it, and the push is blocked",
     async () => {

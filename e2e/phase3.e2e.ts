@@ -232,19 +232,9 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
         }
         return Boolean(idOf("dawn") && idOf("kimi"));
       };
-      let how = "the button";
-      if (!(await settled(60))) {
-        how = `again (${
-          (
-            await fetch(`/api/workspaces/${input.ws}/nest`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({}),
-            })
-          ).status
-        })`;
-        await settled(60);
-      }
+      // The button is what is under test: it gets the same minute the rest of the UI gets, and
+      // no second try over the API, which would have let a button that did nothing pass.
+      const how = (await settled(120)) ? "the button" : "the button did not install the Nest";
       const dawn = idOf("dawn");
       const kimi = idOf("kimi");
       await patch(dawn, {
@@ -365,9 +355,19 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
           .filter((one) => one.title.startsWith("edit the "))
           .map((one) => `${one.title}: ${one.state}`);
       };
+      // Two waits, in order. A click resolves when it is dispatched, not when the start-session
+      // behind it has answered, so first every card has to have left the backlog — otherwise
+      // "nothing is queued or running" is true of a board nothing has touched yet, and the
+      // branches asserted below are counted before any session exists.
+      const started = (rows: string[]) =>
+        rows.length >= 3 && rows.every((row) => !/: backlog$/.test(row));
       const done = (rows: string[]) =>
         rows.length >= 3 && rows.every((row) => !/: (queued|running)$/.test(row));
       let rows = await states();
+      for (let i = 0; i < 120 && !started(rows); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        rows = await states();
+      }
       for (let i = 0; i < 600 && !done(rows); i++) {
         await new Promise((resolve) => setTimeout(resolve, 500));
         rows = await states();
@@ -377,6 +377,7 @@ test("the loop: a mention ships a pull request, three agents share a repo, and n
     { ws: ids.workspaceId, project: ids.projectId },
   );
   expect(landed.join(" | ")).not.toContain("running");
+  expect(landed.join(" | ")).not.toContain("backlog");
   expect(landed).toHaveLength(3);
 
   // Each one worked in its own checkout: three branches, three worktrees, and the project's own

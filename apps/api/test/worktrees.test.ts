@@ -135,9 +135,20 @@ describe("a worktree per task (task 3.14)", () => {
     project = made.body.id;
     projectKey = made.body.key;
 
-    // Wait for the runner to make it a repository, then put a commit in it: a worktree branches
-    // from something, and a repository with no commits has nothing to branch from.
-    await until(() => existsSync(join(checkout(), ".git")), 60_000);
+    // Wait for the project to be ready (ADR-0069: the runner sets it up after the 201, and a
+    // session on it is a 409 until then — a `.git` directory is the runner's first step, not its
+    // last), then put a commit in it: a worktree branches from something, and a repository with
+    // no commits has nothing to branch from.
+    for (const deadline = Date.now() + 60_000; ; await Bun.sleep(50)) {
+      const res = (await call(`/api/workspaces/${ws}/projects/${project}`)) as {
+        body: { status: string; status_message: string | null };
+      };
+      if (res.body.status === "ready") break;
+      if (res.body.status === "error" || Date.now() > deadline) {
+        throw new Error(`the project is ${res.body.status}: ${res.body.status_message}`);
+      }
+    }
+    expect(existsSync(join(checkout(), ".git"))).toBe(true);
     writeFileSync(join(checkout(), "README.md"), "# the site\n");
     git(checkout(), "add", ".");
     git(checkout(), "commit", "-m", "first");
