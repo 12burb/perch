@@ -193,6 +193,11 @@ a shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on
 `HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use. See
 [`terminal.md`](terminal.md).
 
+The same blanking applies to everything else the runner starts — `exec`, a project's dev server
+and `postCreateCommand`, MCP servers, git (so a repository's hooks see nothing either), agent
+version probes, ripgrep and the screenshot browser — through one helper, `childEnv`, and a test
+that fails on any process the runner starts without it (ADR-0160).
+
 ## Sessions on a runner (task 1.9)
 
 The `session.*` methods run agent sessions where the project is (spec §7.6); the runner answers

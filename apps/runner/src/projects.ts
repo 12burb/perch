@@ -17,6 +17,7 @@ import {
   RunnerRpcError,
 } from "@perch/events";
 import { simpleGit } from "simple-git";
+import { childEnv } from "./env.ts";
 
 export type ProjectsOptions = {
   /** Where projects live; PERCH_PROJECTS_DIR, else /data/projects (the runner image). */
@@ -40,8 +41,8 @@ export function cloneEnv(
   extra: Record<string, string>,
 ): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (value !== undefined && !STRIPPED_GIT_ENV.test(key)) env[key] = value;
+  for (const [key, value] of Object.entries(childEnv(base))) {
+    if (!STRIPPED_GIT_ENV.test(key)) env[key] = value;
   }
   return { ...env, GIT_TERMINAL_PROMPT: "0", ...extra };
 }
@@ -183,7 +184,7 @@ export async function runPostCreate(
     cwd: dir,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CI: "1", PERCH: "1" },
+    env: childEnv(process.env, { CI: "1", PERCH: "1" }),
   });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -258,13 +259,13 @@ export async function setupProject(
     }
   } else {
     mkdirSync(dir, { recursive: true });
-    const git = simpleGit({ baseDir: dir });
+    const git = simpleGit({ baseDir: dir }).env(cloneEnv(process.env, {}));
     await git.init([
       "--initial-branch",
       source.kind === "empty" ? (source.defaultBranch ?? "main") : "main",
     ]);
   }
-  const git = simpleGit({ baseDir: dir });
+  const git = simpleGit({ baseDir: dir }).env(cloneEnv(process.env, {}));
   let head: string | null = null;
   let defaultBranch: string | null = null;
   try {

@@ -11,6 +11,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
+import { childEnv } from "./env.ts";
 
 /** Where the image leaves it; `PERCH_AGENT_MANIFEST` moves it. */
 export const MANIFEST_PATH = "/opt/perch/agents.json";
@@ -80,7 +81,11 @@ export function probeAgentVersions(commands: Record<string, string>): Record<str
   for (const [id, command] of Object.entries(commands)) {
     if (!Bun.which(command)) continue;
     try {
-      const result = Bun.spawnSync([command, "--version"], { stdout: "pipe", stderr: "pipe" });
+      const result = Bun.spawnSync([command, "--version"], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: childEnv(),
+      });
       const line = result.stdout.toString().split("\n")[0] ?? "";
       const version = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/.exec(line)?.[1];
       if (result.exitCode === 0 && version) found[id] = version;

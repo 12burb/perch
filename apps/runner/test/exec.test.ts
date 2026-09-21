@@ -51,6 +51,30 @@ describe("exec (task 1.5)", () => {
     expect(relative.stdout.trim()).toBe("rel");
   });
 
+  test("the runner's own secrets never reach a command (AGENTS.md §1.6)", async () => {
+    const before = process.env.PERCH_RUNNER_TOKEN;
+    process.env.PERCH_RUNNER_TOKEN = "prt_leaked";
+    try {
+      const result = await exec(
+        { root, policy: runnerPolicy() },
+        {
+          ...ctx,
+          command: win ? "echo tok=[%PERCH_RUNNER_TOKEN%]" : "echo tok=[$PERCH_RUNNER_TOKEN]",
+          cwd: dir,
+          timeout: 10_000,
+        },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("tok=[");
+      expect(result.stdout).not.toContain("prt_leaked");
+      // Blanked, not dropped (ADR-0160): a POSIX shell expands it to nothing.
+      if (!win) expect(result.stdout.trim()).toBe("tok=[]");
+    } finally {
+      if (before === undefined) delete process.env.PERCH_RUNNER_TOKEN;
+      else process.env.PERCH_RUNNER_TOKEN = before;
+    }
+  });
+
   test("a project instead of a cwd runs in that project's directory (task 3.18)", async () => {
     const opts = { root, policy: runnerPolicy() };
     // The testing loop names the project rather than the directory: where a project lives is the

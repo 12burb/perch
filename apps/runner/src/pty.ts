@@ -14,6 +14,7 @@ import type { RunnerRequestParams, RunnerStream } from "@perch/events";
 import { STREAM_OPEN_TIMEOUT_MS } from "@perch/events";
 import type { IPty } from "bun-pty";
 import { spawn } from "bun-pty";
+import { childEnv } from "./env.ts";
 import type { Notify } from "./notify.ts";
 import type { StreamOpener } from "./streams.ts";
 
@@ -129,9 +130,7 @@ export function shellEnv(
   base: NodeJS.ProcessEnv = process.env,
   project: Record<string, string> = {},
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(base))
-    if (value !== undefined) env[key] = key.startsWith("PERCH_") ? "" : value;
+  const env = childEnv(base);
   // The project's own environment (task 2.13), after the runner's and before Perch's own names:
   // a project may set DATABASE_URL, and may not set PERCH_USER.
   for (const [key, value] of Object.entries(project))

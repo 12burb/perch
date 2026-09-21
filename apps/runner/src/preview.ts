@@ -13,6 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, statSync } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import type { PreviewProcess, RunnerRequestParams } from "@perch/events";
+import { childEnv } from "./env.ts";
 import { cmdArgument, descendantsOf, killTree } from "./exec.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
@@ -135,7 +136,7 @@ export class PreviewManager {
         stdin: "ignore",
         stdout: fd,
         stderr: fd,
-        env: { ...process.env, ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" },
+        env: childEnv(process.env, { ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" }),
       });
     } finally {
       // The child has its own copy; this one would otherwise hold the file for as long as the

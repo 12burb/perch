@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { platform } from "node:os";
 import type { RunnerNotification } from "@perch/events";
+import { childEnv } from "./env.ts";
 
 export type ListeningPort = { port: number; pid?: number };
 
@@ -83,7 +84,9 @@ export function parseLsof(text: string): ListeningPort[] {
 }
 
 function listDarwin(): ListeningPort[] {
-  const proc = Bun.spawnSync(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"]);
+  const proc = Bun.spawnSync(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"], {
+    env: childEnv(),
+  });
   return proc.exitCode === 0 ? parseLsof(proc.stdout.toString()) : [];
 }
 
@@ -101,7 +104,7 @@ export function parseNetstat(text: string): ListeningPort[] {
 }
 
 function listWindows(): ListeningPort[] {
-  const proc = Bun.spawnSync(["netstat", "-ano", "-p", "tcp"]);
+  const proc = Bun.spawnSync(["netstat", "-ano", "-p", "tcp"], { env: childEnv() });
   return proc.exitCode === 0 ? parseNetstat(proc.stdout.toString()) : [];
 }
 

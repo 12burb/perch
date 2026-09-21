@@ -12,6 +12,7 @@
  */
 import { existsSync } from "node:fs";
 import { type RunnerRequestParams, type RunnerStream, STREAM_OPEN_TIMEOUT_MS } from "@perch/events";
+import { childEnv } from "./env.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 import type { StreamOpener } from "./streams.ts";
@@ -63,6 +64,7 @@ export class McpHost {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
+      env: childEnv(),
     });
     const live: Live = { proc, stream: null, buffered: [] };
     this.live.add(live);

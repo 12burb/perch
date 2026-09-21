@@ -12,6 +12,7 @@ import {
   readProjectFiles,
   removeProject,
   resolveInside,
+  runPostCreate,
   scrubUrl,
   setupProject,
   writeProjectFile,
@@ -131,6 +132,35 @@ describe("projects on a runner", () => {
       "fatal: unable to access 'https://***@example.com/r.git/'",
     );
     expect(scrubUrl("ssh://git@example.com/r.git")).toBe("ssh://***@example.com/r.git");
+  });
+
+  test("git and postCreateCommand never see the runner's own secrets (AGENTS.md §1.6)", async () => {
+    // git: blanked underneath, so a repository's hooks cannot read them; what git is given on
+    // purpose (the credential helper's own names) stays.
+    const env = cloneEnv(
+      { PATH: "/usr/bin", PERCH_RUNNER_TOKEN: "prt_secret", PERCH_API_URL: "http://api.internal" },
+      { PERCH_GIT_SECRET: "ghp_for_the_helper" },
+    );
+    expect(env).toMatchObject({
+      PATH: "/usr/bin",
+      PERCH_RUNNER_TOKEN: "",
+      PERCH_API_URL: "",
+      PERCH_GIT_SECRET: "ghp_for_the_helper",
+      GIT_TERMINAL_PROMPT: "0",
+    });
+    // postCreateCommand: the same, from the runner's real environment.
+    const before = process.env.PERCH_RUNNER_TOKEN;
+    process.env.PERCH_RUNNER_TOKEN = "prt_leaked";
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "perch-post-create-"));
+      const result = await runPostCreate(dir, "echo tok=[$PERCH_RUNNER_TOKEN]", 10_000);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("tok=[");
+      expect(result.output).not.toContain("prt_leaked");
+    } finally {
+      if (before === undefined) delete process.env.PERCH_RUNNER_TOKEN;
+      else process.env.PERCH_RUNNER_TOKEN = before;
+    }
   });
 
   test("readProjectFiles reads JSON config and JSONC devcontainer, and reports parse errors", async () => {

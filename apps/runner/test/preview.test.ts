@@ -131,6 +131,36 @@ describe("the runner starts a project's dev server (task 4.8)", () => {
     previews.closeAll();
   }, 20_000);
 
+  test("the runner's own secrets never reach the dev server (AGENTS.md §1.6)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "perch-preview-"));
+    const previews = manager(root);
+    const one = ctx(root, "55555555-5555-4555-8555-555555555555");
+    const before = process.env.PERCH_RUNNER_TOKEN;
+    process.env.PERCH_RUNNER_TOKEN = "prt_leaked";
+    try {
+      await previews.start({
+        workspace_id: one.workspace_id,
+        user_id: one.user_id,
+        cap: CAP,
+        project: one.project,
+        command:
+          process.platform === "win32"
+            ? "echo tok=[%PERCH_RUNNER_TOKEN%]"
+            : "echo tok=[$PERCH_RUNNER_TOKEN]",
+      });
+    } finally {
+      if (before === undefined) delete process.env.PERCH_RUNNER_TOKEN;
+      else process.env.PERCH_RUNNER_TOKEN = before;
+    }
+    const log = await settles(
+      async () => (await previews.status({ ...one, project: one.project })).log,
+      (text) => text.includes("tok=["),
+    );
+    expect(log).toContain("tok=[");
+    expect(log).not.toContain("prt_leaked");
+    previews.closeAll();
+  }, 20_000);
+
   test("a command that fails leaves its reason in the log", async () => {
     const root = mkdtempSync(join(tmpdir(), "perch-preview-"));
     const previews = manager(root);

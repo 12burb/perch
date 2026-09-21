@@ -63,6 +63,25 @@ describe("an MCP server inside the runner (task 3.24)", () => {
     }
   }, 60_000);
 
+  test("the runner's own secrets never reach the server (AGENTS.md §1.6)", () => {
+    // From outside: a process started with no `env` inherits its parent's real environment, which
+    // is not the `process.env` a test can edit. The probe is that parent, with the token set.
+    const probe = Bun.spawnSync({
+      cmd: [process.execPath, join(import.meta.dir, "helpers", "mcp-env-probe.ts")],
+      env: { ...process.env, PERCH_RUNNER_TOKEN: "prt_leaked" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+    const line =
+      probe.stdout
+        .toString()
+        .split("\n")
+        .find((l) => l.startsWith("PROBE ")) ?? "";
+    expect(line).toContain("tok=[");
+    expect(line).not.toContain("prt_leaked");
+  }, 60_000);
+
   test("it runs in the project's directory when it is given one", async () => {
     const client = await connect(PROJECT);
     try {

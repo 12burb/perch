@@ -10,6 +10,7 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { childEnv } from "./env.ts";
 
 export class NoBrowser extends Error {
   constructor() {
@@ -187,7 +188,7 @@ export async function visit(
       `--window-size=${width},${height}`,
       "about:blank",
     ],
-    { stdout: "ignore", stderr: "pipe" },
+    { stdout: "ignore", stderr: "pipe", env: childEnv() },
   );
 
   let socket: WebSocket | null = null;

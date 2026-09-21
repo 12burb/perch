@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { platform } from "node:os";
 import { resolve } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
+import { childEnv } from "./env.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 
@@ -75,7 +76,7 @@ export function childrenOf(pid: number): number[] {
     if (fromProc) return fromProc;
   }
   try {
-    const result = Bun.spawnSync(["pgrep", "-P", String(pid)]);
+    const result = Bun.spawnSync(["pgrep", "-P", String(pid)], { env: childEnv() });
     return result.stdout
       .toString()
       .split("\n")
@@ -113,6 +114,7 @@ export function killTree(
       Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(proc.pid)], {
         stdout: "ignore",
         stderr: "ignore",
+        env: childEnv(),
       });
     } catch {
       // taskkill missing: fall through to the plain kill
@@ -191,7 +193,7 @@ export async function exec(
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, PERCH: "1", CI: process.env.CI ?? "1" },
+    env: childEnv(process.env, { PERCH: "1", CI: process.env.CI ?? "1" }),
   });
   const out = collect(proc.stdout);
   const err = collect(proc.stderr);

@@ -15,6 +15,7 @@ import {
 import { mkdir } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
+import { childEnv } from "./env.ts";
 import type { Notify } from "./notify.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir, resolveInside } from "./projects.ts";
@@ -215,7 +216,12 @@ async function searchWithRipgrep(
   if (params.glob) args.push("--glob", params.glob);
   // rg stops early on its own once every file has produced its matches; we cut at the limit.
   args.push("--max-count", String(limit), "--", ".");
-  const proc = Bun.spawn([rg, ...args], { cwd: dir, stdout: "pipe", stderr: "ignore" });
+  const proc = Bun.spawn([rg, ...args], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "ignore",
+    env: childEnv(),
+  });
   const matches: SearchMatch[] = [];
   let truncated = false;
   const decoder = new TextDecoder();

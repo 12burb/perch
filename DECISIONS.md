@@ -6380,3 +6380,41 @@ different thing than the one the criterion is about. It runs as its own Playwrig
 the bar. The first is `perch runner connect`, which task 1.3 covers and which is bounded by a
 person's typing rather than by Perch; the second is a fact about the world that no test can assert.
 Putting either on the bar would make it a thing that is edited to stay green.
+
+## ADR-0160: Every child of the runner starts from a blanked environment
+
+**Status:** accepted · **Task:** code audit (AGENTS.md §1.6) · **Spec:** §1.6, §7.6
+
+ADR-0073 gave a terminal's shell the runner's environment with every `PERCH_*` variable blanked,
+so the connect token (and in laptop mode the master key and the session secret) never reaches a
+shell or anything started from one. Sessions got the same through `shellEnv` when engines arrived.
+Nothing else did. An audit found `exec` spreading `process.env` into every project command, the
+dev server (`preview.start`) and `postCreateCommand` doing the same, `mcp.spawn` starting a
+project's MCP server with no environment at all (which inherits the runner's whole), and git's
+`cloneEnv` stripping the host's askpass and config overrides while passing `PERCH_RUNNER_TOKEN`
+straight through — to a repository's own hooks, which git runs with its environment. Each of these
+runs code the project chose, so each was a way for a repository to read the token that lets it
+speak to the api as the runner.
+
+**One helper, every child.** `childEnv(base, extra)` in `apps/runner/src/env.ts` is the runner's
+environment with every `PERCH_*` variable blanked, plus what the caller sets on purpose; `shellEnv`
+is built on it, and every process the runner starts — `exec`, previews, `postCreateCommand`, MCP
+servers, git (through `cloneEnv` and every `simpleGit`), agent version probes, ripgrep, the
+screenshot browser, even `pgrep` and `taskkill` — is given it. The alternative, blanking only the
+children that run project code, would mean deciding per call site which ones those are, and being
+wrong once; the uniform rule costs nothing and is checkable. It is checked: `env.test.ts` reads
+`apps/runner/src` and fails on any `Bun.spawn`, `spawn` or `simpleGit` call that is not given an
+environment, and on any spread of `process.env` outside `env.ts`.
+
+**Blanked, not dropped, and `extra` is applied as given.** The same reason as ADR-0073 (the PTY
+layer merges the real environment underneath), and one rule for every child rather than two. A
+caller's `extra` is not filtered: git's credential helper is fed through `PERCH_GIT_USERNAME` and
+`PERCH_GIT_SECRET` on purpose, and a helper that quietly dropped them would break every token clone
+in a way no test of the helper alone would show. A project's own environment (task 2.13) arrives
+on `preview.start` as `params.env` and is applied the same way, which is what it was before.
+
+**What this is not.** It is not a sandbox: a project's command still runs as the runner's user,
+with its files and its network. §1.6 is about credentials, and this closes the credential the
+runner itself holds; the ones it is handed for a session (a brain's key, a project's secrets) are
+already scoped to that session by `envOf` and never enter `process.env`.
+

@@ -140,7 +140,9 @@ Spec §1.6, repeated in `SECURITY.md`, and enforced in code:
   `docs/brains.md`).
 - `apps/api` never mounts the Docker socket; only the supervisor does (`docs/runners.md`).
 - Runners speak only the §7.6 protocol, and a local runner refuses requests for anybody but its
-  owner unless a grant is attached.
+  owner unless a grant is attached. Nothing a runner starts — a shell, a session, `exec`, a dev
+  server, `postCreateCommand`, an MCP server, git — sees the runner's own connect token, master
+  key or session secret (`docs/runners.md`, ADR-0160).
 - Perch never forwards a caller's bearer token upstream; each connection uses its own delegated
   token.
 - Every route names an action `authorize()` knows, and a test proves it (`docs/audit.md`).
