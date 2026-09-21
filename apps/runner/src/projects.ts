@@ -18,6 +18,7 @@ import {
 } from "@perch/events";
 import { simpleGit } from "simple-git";
 import { childEnv } from "./env.ts";
+import { realish } from "./paths.ts";
 
 export type ProjectsOptions = {
   /** Where projects live; PERCH_PROJECTS_DIR, else /data/projects (the runner image). */
@@ -87,13 +88,31 @@ export function projectDir(root: string, workspaceId: string, projectId: string)
   return join(root, workspaceId, projectId);
 }
 
-/** A path inside a project, refusing anything that escapes it. */
-export function resolveInside(dir: string, relativePath: string): string {
+/**
+ * A path inside a project, refusing anything that escapes it — as written, and as it resolves on
+ * disk: a symlink inside the project that points outside it is followed no further than the
+ * project's edge, and a caller that says so gets no symlink at all on the way (ADR-0164).
+ */
+export function resolveInside(
+  dir: string,
+  relativePath: string,
+  options: { throughSymlinks?: boolean } = {},
+): string {
   const target = resolve(dir, normalize(relativePath));
   const rel = relative(dir, target);
-  if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel)))
-    return target;
-  throw new Error(`path escapes the project: ${relativePath}`);
+  const insideAsWritten =
+    rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
+  if (!insideAsWritten) throw new Error(`path escapes the project: ${relativePath}`);
+  const realDir = realish(dir);
+  const realTarget = realish(target);
+  const realRel = relative(realDir, realTarget);
+  const insideOnDisk =
+    realRel === "" || (!realRel.startsWith(`..${sep}`) && realRel !== ".." && !isAbsolute(realRel));
+  if (!insideOnDisk) throw new Error(`path escapes the project through a link: ${relativePath}`);
+  if (options.throughSymlinks === false && realTarget !== resolve(realDir, rel)) {
+    throw new Error(`path goes through a link: ${relativePath}`);
+  }
+  return target;
 }
 
 type Setup = RunnerRequestParams<"project.setup">;

@@ -197,6 +197,8 @@ export async function diffRange(
     "-M",
     "--src-prefix=a/",
     "--dst-prefix=b/",
+    // What follows are revisions: a caller's `--output=…` is a bad revision, not a file written.
+    "--end-of-options",
     params.from,
     to,
   ]);

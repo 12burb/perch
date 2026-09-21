@@ -198,6 +198,13 @@ and `postCreateCommand`, MCP servers, git (so a repository's hooks see nothing e
 version probes, ripgrep and the screenshot browser — through one helper, `childEnv`, and a test
 that fails on any process the runner starts without it (ADR-0160).
 
+Everything a caller sends is a value on the runner's command lines, never an option (ADR-0164):
+a search query goes to ripgrep as the value of `--regexp`, git is told where its options end
+before any ref and given `--` before any path, and a branch name has to satisfy `BRANCH_NAME`
+(what `git check-ref-format --branch` accepts, minus anything that reads as an option or a
+refspec) on both ends of the protocol. A path is kept inside the project on disk too: a link that
+points outside it is not followed, and a write never goes through a link.
+
 ## Sessions on a runner (task 1.9)
 
 The `session.*` methods run agent sessions where the project is (spec §7.6); the runner answers

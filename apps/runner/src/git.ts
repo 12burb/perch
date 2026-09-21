@@ -8,7 +8,7 @@ import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type RunnerRequestParams, splitPatches } from "@perch/events";
+import { BRANCH_NAME, type RunnerRequestParams, splitPatches } from "@perch/events";
 import { type SimpleGit, simpleGit } from "simple-git";
 import { diffRange } from "./checkpoints.ts";
 import type { Notify } from "./notify.ts";
@@ -108,6 +108,11 @@ export async function gitDiff(options: GitOptions, params: RunnerRequestParams<"
   return { diff, files, patches: splitPatches(diff) };
 }
 
+/** The protocol's rule for a branch name (ADR-0164), applied again where argv is built. */
+export function assertBranchName(name: string): void {
+  if (!BRANCH_NAME.test(name)) throw new Error(`not a branch name: ${name}`);
+}
+
 export async function gitCommit(options: GitOptions, params: RunnerRequestParams<"git.commit">) {
   const dir = dirOf(options, params);
   enforce(options.policy, {
@@ -116,8 +121,10 @@ export async function gitCommit(options: GitOptions, params: RunnerRequestParams
     paths: params.paths ?? [],
   });
   const git = gitAt(dir, identity(params.author ?? undefined));
-  if (params.paths && params.paths.length > 0) await git.add(params.paths);
-  else await git.add(["-A", "."]);
+  // `--` first: a path is a path, never an option (`--force` would stage what .gitignore hides,
+  // past the secrets scan that only sees what git status shows; ADR-0164).
+  if (params.paths && params.paths.length > 0) await git.add(["--", ...params.paths]);
+  else await git.add(["-A", "--", "."]);
   const result = await git.commit(params.message);
   if (!result.commit) throw new Error("nothing to commit");
   return {
@@ -136,6 +143,9 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
   const git = gitAt(dir);
   const branch = params.branch ?? (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
   if (!branch || branch === "HEAD") throw new Error("no branch to push (detached HEAD)");
+  // A branch name, not a refspec and not an option: `+HEAD:refs/heads/main` or `--force` would
+  // be a force push nothing above could see (ADR-0164).
+  assertBranchName(branch);
   enforce(options.policy, { kind: "git.push", project: params.project, branch });
   let keyDir: string | null = null;
   try {
@@ -154,8 +164,9 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
         ...auth.config.flatMap((entry) => ["-c", entry]),
         "push",
         "--set-upstream",
+        "--end-of-options",
         "origin",
-        branch,
+        `refs/heads/${branch}:refs/heads/${branch}`,
       ],
       {
         cwd: dir,
@@ -173,9 +184,13 @@ export async function gitBranch(options: GitOptions, params: RunnerRequestParams
   const dir = dirOf(options, params);
   const git = gitAt(dir);
   if (params.name) {
+    // A name, never an option: `git checkout -f` resets the working tree (ADR-0164).
+    assertBranchName(params.name);
     enforce(options.policy, { kind: "git.branch", project: params.project, branch: params.name });
-    if (params.create) await git.checkoutLocalBranch(params.name);
-    else await git.checkout(params.name);
+    // A validated name cannot begin with a dash, so it is a name to git here too (checkout has no
+    // `--end-of-options` in the git versions runners carry; `--` would make it a pathspec).
+    if (params.create) await git.raw(["checkout", "-b", params.name]);
+    else await git.raw(["checkout", params.name]);
   }
   const summary = await git.branchLocal();
   return {
@@ -207,6 +222,7 @@ export async function worktreeCreate(
   options: GitOptions,
   params: RunnerRequestParams<"worktree.create">,
 ) {
+  assertBranchName(params.branch);
   const dir = dirOf(options, params);
   enforce(options.policy, {
     kind: "worktree.create",
@@ -220,8 +236,16 @@ export async function worktreeCreate(
   if (existsSync(path)) return { path, branch: params.branch };
   const existing = (await git.branchLocal()).all.includes(params.branch);
   const args = existing
-    ? ["worktree", "add", path, params.branch]
-    : ["worktree", "add", "-b", params.branch, path, ...(params.base ? [params.base] : [])];
+    ? ["worktree", "add", "--end-of-options", path, params.branch]
+    : [
+        "worktree",
+        "add",
+        "-b",
+        params.branch,
+        "--end-of-options",
+        path,
+        ...(params.base ? [params.base] : []),
+      ];
   await git.raw(args);
   return { path, branch: params.branch };
 }

@@ -3,17 +3,23 @@
  * path resolved inside the project directory, every call through the policy hook. Search is ripgrep
  * (`rg --json`) when the machine has it (the runner image does) and a walk in-process otherwise.
  */
+import { randomUUID } from "node:crypto";
 import {
+  closeSync,
   type Dirent,
   existsSync,
   lstatSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
 import { childEnv } from "./env.ts";
 import type { Notify } from "./notify.ts";
@@ -106,25 +112,27 @@ export async function fsRead(
   const stats = statSync(target);
   if (!stats.isFile()) throw new Error(`${params.path} is not a file`);
   const max = options.maxReadBytes ?? 2 * 1024 * 1024;
-  const whole = readFileSync(target);
-  const bytes = whole.length > max ? whole.subarray(0, max) : whole;
+  // Only as much as the cap: a build artifact or a dump in the project is not read whole into the
+  // runner's heap on every open, and `truncated` is answered from the size on disk.
+  const bytes = readAtMost(target, max);
+  const truncated = stats.size > max;
   if (looksBinary(bytes)) {
     return {
       content: Buffer.from(bytes).toString("base64"),
       encoding: "base64",
       size: stats.size,
-      truncated: whole.length > max,
+      truncated,
     };
   }
   try {
     const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return { content, encoding: "utf8", size: stats.size, truncated: whole.length > max };
+    return { content, encoding: "utf8", size: stats.size, truncated };
   } catch {
     return {
       content: Buffer.from(bytes).toString("base64"),
       encoding: "base64",
       size: stats.size,
-      truncated: whole.length > max,
+      truncated,
     };
   }
 }
@@ -134,7 +142,9 @@ export async function fsWrite(
   params: RunnerRequestParams<"fs.write">,
 ): Promise<{ bytes: number }> {
   const dir = dirOf(options, params);
-  const target = resolveInside(dir, params.path);
+  // Never through a symlink: a link committed in a repository or made from a shell could point a
+  // write at `.git` or outside the project, past the policy's paths (ADR-0164).
+  const target = resolveInside(dir, params.path, { throughSymlinks: false });
   const relPath = toPosix(relative(dir, target));
   enforce(options.policy, { kind: "fs.write", project: params.project, path: relPath });
   const existed = existsSync(target);
@@ -143,7 +153,7 @@ export async function fsWrite(
     params.encoding === "base64"
       ? Buffer.from(params.content, "base64")
       : Buffer.from(params.content, "utf8");
-  writeFileSync(target, bytes);
+  writeAtomically(target, bytes);
   options.notify?.({
     method: "fs.changed",
     params: { project: params.project, paths: [relPath], kind: existed ? "change" : "create" },
@@ -168,6 +178,44 @@ export async function fsStat(
     };
   } catch {
     return { exists: false };
+  }
+}
+
+/** The first `max` bytes of a file, without reading the rest. */
+function readAtMost(path: string, max: number): Buffer {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.alloc(max);
+    let filled = 0;
+    while (filled < max) {
+      const got = readSync(fd, buffer, filled, max - filled, filled);
+      if (got === 0) break;
+      filled += got;
+    }
+    return buffer.subarray(0, filled);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Whole or not at all: written beside the target and renamed over it, so a runner killed mid-write
+ * (an idle stop, a SIGTERM) or a reader racing the write (a dev server's watcher, an agent) never
+ * sees a truncated file. Where the rename is refused (a file held open on Windows) the write goes
+ * straight to the target, which is what it always did.
+ */
+function writeAtomically(target: string, bytes: Buffer): void {
+  const temporary = join(dirname(target), `.${basename(target)}.perch-${randomUUID().slice(0, 8)}`);
+  writeFileSync(temporary, bytes);
+  try {
+    renameSync(temporary, target);
+  } catch {
+    try {
+      rmSync(temporary, { force: true });
+    } catch {
+      // the temporary file is the least of it
+    }
+    writeFileSync(target, bytes);
   }
 }
 
@@ -202,18 +250,21 @@ async function searchWithRipgrep(
   params: RunnerRequestParams<"fs.search">,
   limit: number,
 ): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
+  // The query is always the value of --regexp (with --fixed-strings when it is a literal), never
+  // a bare argument: a bare query beginning with a dash is an option to ripgrep, and `--pre=sh`
+  // would have it run every file in the project through a shell (ADR-0164). The glob likewise.
   const args = [
     "--json",
     "--no-messages",
     "--max-columns",
     "500",
     "--max-columns-preview",
-    params.regex ? "--regexp" : "--fixed-strings",
-    params.query,
+    ...(params.regex ? [] : ["--fixed-strings"]),
+    `--regexp=${params.query}`,
   ];
   if (params.ignoreCase) args.push("--ignore-case");
   else args.push("--smart-case");
-  if (params.glob) args.push("--glob", params.glob);
+  if (params.glob) args.push(`--glob=${params.glob}`);
   // rg stops early on its own once every file has produced its matches; we cut at the limit.
   args.push("--max-count", String(limit), "--", ".");
   const proc = Bun.spawn([rg, ...args], {

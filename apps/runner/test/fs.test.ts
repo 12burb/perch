@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunnerNotification } from "@perch/events";
@@ -163,6 +171,52 @@ describe("fs methods (task 1.5)", () => {
       regex.matches,
     );
     expect(await fsSearch(options(), { ...ctx, query: "" })).toMatchObject({ matches: [] });
+  });
+
+  test("a query beginning with a dash is text to search for, not an option (ADR-0164)", async () => {
+    writeFileSync(join(dir, "options.txt"), "run it with --version first\n");
+    const literal = await fsSearch(options(), { ...ctx, query: "--version" });
+    expect(literal.matches.map((m) => m.path)).toEqual(["options.txt"]);
+    const absent = await fsSearch(options(), { ...ctx, query: "--no-such-text" });
+    expect(absent.matches).toEqual([]);
+    const globbed = await fsSearch(options(), { ...ctx, query: "--version", glob: "--nothing" });
+    expect(globbed.matches).toEqual([]);
+    rmSync(join(dir, "options.txt"));
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a link is followed no further than the project, and never on a write (ADR-0164)",
+    async () => {
+      const elsewhere = mkdtempSync(join(tmpdir(), "perch-fs-elsewhere-"));
+      writeFileSync(join(elsewhere, "note.txt"), "outside the project\n");
+      symlinkSync(join(elsewhere, "note.txt"), join(dir, "note-link.txt"));
+      symlinkSync(join(dir, ".git"), join(dir, "git-link"));
+      try {
+        await expect(fsRead(options(), { ...ctx, path: "note-link.txt" })).rejects.toThrow(
+          /through a link/,
+        );
+        await expect(
+          fsWrite(options(), { ...ctx, path: "git-link/config", content: "[core]\n" }),
+        ).rejects.toThrow(/link/);
+        expect(readFileSync(join(dir, ".git", "config"), "utf8")).toBe("[core]\n");
+        // A link that stays inside the project is fine to read through.
+        symlinkSync(join(dir, "README.md"), join(dir, "readme-link.md"));
+        const through = await fsRead(options(), { ...ctx, path: "readme-link.md" });
+        expect(through.content).toContain("hello world");
+      } finally {
+        for (const name of ["note-link.txt", "git-link", "readme-link.md"]) {
+          rmSync(join(dir, name), { force: true });
+        }
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("a read stops at the cap instead of reading the whole file first", async () => {
+    const capped = await fsRead({ ...options(), maxReadBytes: 7 }, { ...ctx, path: "README.md" });
+    expect(capped.content).toBe("# Title");
+    expect(capped.truncated).toBe(true);
+    expect(capped.size).toBe(Buffer.byteLength("# Title\nhello world\nHello again\n"));
   });
 
   test("acceptance: fs.search under 200 ms on a 50k-file repository", async () => {

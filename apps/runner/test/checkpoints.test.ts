@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RunnerNotification, selectHunks } from "@perch/events";
-import { checkpoint, checkpointRef, gitApply, restore } from "../src/checkpoints.ts";
+import { checkpoint, checkpointRef, diffRange, gitApply, restore } from "../src/checkpoints.ts";
 import { gitDiff } from "../src/git.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir, setupProject } from "../src/projects.ts";
@@ -182,6 +182,20 @@ describe("checkpoints, diffs, and restores (task 1.13)", () => {
     writeFileSync(join(dir, "unix.txt"), "one\ntwo\nthree\nfour\n");
     await restore(opts, { ...ctx, session_id: SESSION, turn: 1 });
     expect(readFileSync(join(dir, "unix.txt"), "utf8")).toBe("one\ntwo\nthree\n");
+  }, 30_000);
+
+  test("the refs a diff is asked for are refs, never options (ADR-0164)", async () => {
+    const { root, dir } = await project();
+    writeFileSync(join(dir, "keep.txt"), "one\n");
+    git(dir, "add", "keep.txt");
+    git(dir, "commit", "-q", "-m", "first");
+    const elsewhere = join(root, "elsewhere.diff");
+    await expect(
+      diffRange({ root }, { ...ctx, from: `--output=${elsewhere}`, to: "HEAD" }),
+    ).rejects.toThrow();
+    expect(existsSync(elsewhere)).toBe(false);
+    const fine = await diffRange({ root }, { ...ctx, from: "HEAD" });
+    expect(fine.files).toEqual([]);
   }, 30_000);
 
   test("a restore takes the commit the api names, whoever's ref holds it", async () => {

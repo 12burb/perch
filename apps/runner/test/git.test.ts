@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -139,6 +139,41 @@ describe("git methods (task 1.5)", () => {
       branch: "feature",
     });
     expect(git(remote, "rev-parse", "refs/heads/feature")).toBe(git(dir, "rev-parse", "HEAD"));
+  }, 30_000);
+});
+
+describe("names and paths are values, never options (ADR-0164)", () => {
+  test("a branch name git could read as an option or a refspec is refused before git runs", async () => {
+    const { root, dir } = await project();
+    const opts = { root, policy: runnerPolicy() };
+    writeFileSync(join(dir, "a.txt"), "one\n");
+    await gitCommit(opts, { ...ctx, message: "first", author });
+    writeFileSync(join(dir, "a.txt"), "edited, not committed\n");
+    await expect(gitBranch(opts, { ...ctx, name: "-f" })).rejects.toThrow(/not a branch name/);
+    // The working tree is as it was: nothing was reset.
+    expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited, not committed\n");
+    for (const name of ["+HEAD:refs/heads/main", "--force", "a b", "a..b"]) {
+      await expect(gitPush(opts, { ...ctx, branch: name })).rejects.toThrow(/not a branch name/);
+      await expect(gitBranch(opts, { ...ctx, name, create: true })).rejects.toThrow(
+        /not a branch name/,
+      );
+    }
+    const made = await gitBranch(opts, { ...ctx, name: "feature/ok-1", create: true });
+    expect(made.current).toBe("feature/ok-1");
+  }, 30_000);
+
+  test("a path to stage is a path: what .gitignore hides stays out of the commit", async () => {
+    const { root, dir } = await project();
+    const opts = { root, policy: runnerPolicy() };
+    writeFileSync(join(dir, ".gitignore"), "local.env\n");
+    writeFileSync(join(dir, "local.env"), "KEY=value\n");
+    writeFileSync(join(dir, "a.txt"), "one\n");
+    await expect(
+      gitCommit(opts, { ...ctx, message: "with a flag", author, paths: ["--force", "local.env"] }),
+    ).rejects.toThrow();
+    expect(git(dir, "ls-files")).not.toContain("local.env");
+    await gitCommit(opts, { ...ctx, message: "just a", author, paths: ["a.txt", ".gitignore"] });
+    expect(git(dir, "ls-files").split("\n").sort()).toEqual([".gitignore", "a.txt"]);
   }, 30_000);
 });
 

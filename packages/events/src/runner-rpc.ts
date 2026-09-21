@@ -89,6 +89,15 @@ export const sessionMcpServerSchema = z.union([
 export type SessionMcpServer = z.infer<typeof sessionMcpServerSchema>;
 
 /** Api → runner. */
+/**
+ * What a branch may be called on the wire (ADR-0164): what `git check-ref-format --branch`
+ * accepts, minus anything that could read as an option or a refspec on argv — no leading dash or
+ * dot, no `:` or `+`, no whitespace, none of the characters a ref cannot carry.
+ */
+export const BRANCH_NAME =
+  /^(?![-./])(?!.*(?:\.\.|@\{|\/\/|\/\.|\.lock(?:\/|$)))[^\s~^:?*[\\+]+(?<![./])$/;
+const branchName = z.string().min(1).max(200).regex(BRANCH_NAME, "not a branch name");
+
 export const apiToRunnerParams = {
   "session.create": z.object({
     ...ctx,
@@ -218,7 +227,7 @@ export const apiToRunnerParams = {
   "git.push": z.object({
     ...ctx,
     project: z.uuid(),
-    branch: z.string().optional(),
+    branch: branchName.optional(),
     /** Additive (ADR-0070): credentials for the push, the same shapes as a clone's. */
     auth: z
       .discriminatedUnion("kind", [
@@ -234,7 +243,7 @@ export const apiToRunnerParams = {
   "git.branch": z.object({
     ...ctx,
     project: z.uuid(),
-    name: z.string().optional(),
+    name: branchName.optional(),
     create: z.boolean().optional(),
   }),
   /**
@@ -289,10 +298,10 @@ export const apiToRunnerParams = {
   "worktree.create": z.object({
     ...ctx,
     project: z.uuid(),
-    branch: z.string(),
+    branch: branchName,
     base: z.string().optional(),
   }),
-  "worktree.remove": z.object({ ...ctx, project: z.uuid(), branch: z.string() }),
+  "worktree.remove": z.object({ ...ctx, project: z.uuid(), branch: branchName }),
   "ports.list": z.object({ ...ctx }),
   "http.open": z.object({
     ...ctx,

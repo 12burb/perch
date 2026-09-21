@@ -6498,3 +6498,35 @@ teardown that finds a newer registration under its runner id says so in the log 
 nothing. The stream hub, on the same lens, now rejects what was still waiting when it closes
 rather than leaving a `pty.open` or `mcp.spawn` handler pending past the shutdown.
 
+## ADR-0164: What a caller sends is a value on the runner's argv, never an option
+
+**Status:** accepted · **Task:** code audit (runner lens) · **Spec:** §1.6, §5.7, §7.6
+
+The runner builds command lines for ripgrep and git from what the api sends, and the api sends
+what a person or an agent typed: a search query, a branch name, a ref, a path. Each of those went
+onto argv as a bare argument, so a value beginning with a dash was read by the program as one of
+its own options — with the effects those options have, from a diff written to a path of the
+caller's choosing to a checkout that resets the working tree — and a branch value with refspec
+syntax reached `git push` as a refspec, past the policy that only ever saw a name. The policy
+engine (§5.7) checks the intent the api states; it cannot see an option hiding in a value.
+
+**Every caller value is passed as a value.** The search query is the value of `--regexp`
+(with `--fixed-strings` for a literal), the glob the value of `--glob`; git is told where its
+options end (`--end-of-options`) before any ref, and given `--` before any path. A branch name is
+validated against one rule that lives with the protocol (`BRANCH_NAME` in `packages/events`,
+applied in the schema and again where argv is built): what `git check-ref-format --branch` accepts
+minus anything that could read as an option or a refspec, so the runner refuses `-f`, `--force`,
+`+HEAD:refs/heads/main` and the like before git sees them, and a push names its refspec in full
+(`refs/heads/<branch>:refs/heads/<branch>`).
+
+**A path stays inside the project on disk, not only as written.** `resolveInside` compared strings
+and followed nothing, so a link inside the project — committed in a repository, or made from a
+shell — could point a read or a write outside it, or a write at `.git` past the read-only rule. It
+now resolves both sides and refuses a target whose real path leaves the project; a write refuses
+any link on the way at all (the read-only paths are named in the policy by where they are, and a
+write through a link is a write somewhere else).
+
+**Two small ones on the same files.** A read takes at most the cap from disk rather than reading
+the whole file and then cutting; a write lands whole or not at all (written beside the target and
+renamed over it, with a plain write as the fallback where a rename is refused).
+
