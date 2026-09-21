@@ -25,8 +25,8 @@ permits it, kept personal and never proxied. The server is AGPL-3.0; the SDKs, U
 connector manifests, and templates are MIT (see [License](#license) and [`PLEDGE.md`](PLEDGE.md);
 [RFC-0001](docs/rfcs/0001-no-paid-plans.md) adds the no-paid-plans promise to the pledge).
 
-> Status: Phase 0 (foundation). The install paths below describe what ships at the end of Phase 0; the
-> IDE, chat, and bots land in Phases 1–2. See [`TASKS.md`](TASKS.md).
+> Status: public beta, v0.3.0. Phases 0–4 of [`TASKS.md`](TASKS.md) have landed — the IDE, chat,
+> bots, connections, the model gateway, the Hub, and the install lanes below.
 
 ## 60-second install
 
@@ -36,7 +36,7 @@ connector manifests, and templates are MIT (see [License](#license) and [`PLEDGE
 mkdir perch && cd perch
 curl -fsSL https://raw.githubusercontent.com/12burb/perch/main/deploy/docker-compose.yml -o docker-compose.yml
 curl -fsSL https://raw.githubusercontent.com/12burb/perch/main/deploy/Caddyfile -o Caddyfile
-curl -fsSL https://raw.githubusercontent.com/12burb/perch/main/deploy/.env.example -o .env
+curl -fsSL https://raw.githubusercontent.com/12burb/perch/main/.env.example -o .env
 # edit .env: set PERCH_PUBLIC_URL and PERCH_MASTER_KEY (openssl rand -base64 32)
 docker compose up -d
 ```
@@ -75,8 +75,8 @@ Sigstore) — verified too when cosign is on the machine, and required with
 place. See [`docs/install.md`](docs/install.md).
 
 Laptop mode runs api, web, and an in-process runner on PGlite in `~/.perch`; `perch doctor` checks the
-machine, `perch backup` / `perch restore` keep the data safe. `perch migrate --to-compose` moves a laptop
-instance into the compose stack when a team shows up.
+machine, `perch backup` / `perch restore` keep the data safe — and carry a laptop instance into the
+compose stack when a team shows up ([`docs/backups.md`](docs/backups.md)).
 
 Binaries ship for Linux (x64, arm64), macOS (Apple silicon, Intel), and Windows (x64); the data lives in
 `%USERPROFILE%\.perch` on Windows. CI runs the laptop smoke (`perch dev`, doctor, backup, restore, and
@@ -107,7 +107,7 @@ Requirements: [Bun](https://bun.sh) 1.3.11 (see `packageManager` in `package.jso
 | `apps/web` | React 19 + Vite PWA — the shell (rail, sidebar, main, panel, drawer) |
 | `apps/api` | Hono on Bun — HTTP + WebSocket api, supervisor and worker entrypoints |
 | `apps/runner` | Runner agent — PTY, engines, fs, git, ports, preview tunnel |
-| `apps/cli` | The `perch` binary — dev, runner connect, doctor, backup, restore, migrate |
+| `apps/cli` | The `perch` binary — dev, runner connect, doctor, backup, restore, upgrade |
 | `packages/*` | db, events, bus, jobs, vault, gateway, engines, connect, bots, policy, preview, inspector, bot-sdk, ui, api-client |
 | `connectors/` | `manifest.yaml` per provider + `connectors.json` |
 | `templates/` | bot templates, starter stacks, demo workspace seed |

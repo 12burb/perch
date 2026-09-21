@@ -61,7 +61,7 @@ DELETE /api/workspaces/{ws}/bots/{bot}/tokens/{token}   # revoke
 | `files:write` | `files.upload` |
 | `tools:call` | `tools.call` — a connection's tools through the MCP gateway |
 | `sessions:open` | `sessions.open` — an agent session on a project |
-| `work:write` | work items (arrives with them, in Phase 3) |
+| `work:write` | reserved — `work.create` is not on the Bot API yet; a bot outside Perch puts work on the board through Perch's own MCP server (`work.create`, `work.update`; [`mcp-gateway.md`](mcp-gateway.md)) |
 
 A scope that was not minted is **refused**, not quietly narrowed: the call answers `403` and says
 which scope it wanted. A bot that needs more is given a new token, by a person.
@@ -119,6 +119,7 @@ its installs. Adding one would be a second permission system disagreeing with th
 | `channel.joined` | somebody puts the bot in a channel |
 | `interaction.received` | somebody presses a button on a block the bot posted |
 | `session.completed` | an agent session in the workspace ends |
+| `work_item.updated` | a work item in the workspace changes: its identifier, title, state and assignee |
 
 A bot never hears its own message. An echo is not an event.
 
