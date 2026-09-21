@@ -6530,3 +6530,47 @@ write through a link is a write somewhere else).
 the whole file and then cutting; a write lands whole or not at all (written beside the target and
 renamed over it, with a plain write as the fallback where a rename is refused).
 
+## ADR-0165: What must not be left running, growing, or waiting for ever
+
+**Status:** accepted · **Task:** code audit (lifecycle and sql lenses) · **Spec:** §3.2, §5.6, §7, ADR-0069, ADR-0074, ADR-0131, ADR-0132
+
+Ten findings with one shape: a state machine that could stick, a map that could only grow, or a
+decision that could be made twice. Each is a small change; they are recorded together because
+the rule behind them is one rule.
+
+**A round is claimed before the first await.** `sendTurn` checked `rounds` and registered the
+round several awaits later (ADR-0074's "one round per session, 409 otherwise" was true only for
+turns that did not arrive together); a `starting` set is claimed synchronously and released when
+the round is registered or the setup fails. A failure before the round's own try/catch (reading
+the project) ends the round it never began instead of leaving the session "running". Shutdown
+clears the give-up timers as well as the silence timers, and a session that ends drops its engine
+handle, its redaction list (which holds secret values) and any unanswered permission.
+
+**A landing is a lease.** ADR-0131 made the claim the lock; nothing released it if the process
+died. On each pump, entries "landing" since longer than the checks' budget plus five minutes are
+failed with the reason, and the queue moves on. Five minutes over the budget rather than a
+heartbeat: a check that runs to its limit is the slowest honest case, and a heartbeat is a second
+mechanism to keep alive.
+
+**A race is decided once.** Two entrants finishing in the same moment both saw no runner left and
+both decided; the transition running → decided is one conditional update (`claimDecision`), and
+the loser of it does nothing.
+
+**Memory has a bound.** The worker's sleep removed no abort listener (one closure per poll, for
+the life of the process); it does now. The bus kept a replay buffer per topic for ever, one per
+session; it keeps at most `maxTopics` (5000), forgetting the topic nobody listens to whose last
+event is oldest — a client resuming one gets `unknown_topic` and refetches, which the WS protocol
+already handles.
+
+**A restart settles what it interrupted.** Project setup runs in-process (ADR-0069), so a restart
+mid-setup left the row pending or setting_up for ever, refusing every later call; at boot such
+rows are marked error with the reason. The supervisor refreshes `last_seen_at` when it starts a
+container, so the idle sweep's "offline and not seen for idleMinutes" does not describe a runner
+that was started thirty seconds ago and has not registered yet.
+
+**Two on the database.** The backup dump paged every table with LIMIT/OFFSET and no ORDER BY —
+Postgres owes no stable order across two such reads (synchronized sequential scans, parallel
+workers), so a page could repeat or skip rows; pages are walked in primary-key order, and every
+backed-up table has one (asserted). File-name search handed the person's text to `ilike` unescaped,
+so `%` and `_` were wildcards; they are the characters, as they already were on the board.
+

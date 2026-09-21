@@ -383,6 +383,25 @@ describe("sessions api (task 1.8)", () => {
     expect(recovered.turns).toBe(3);
   }, 30_000);
 
+  test("two turns arriving together: one starts, the other is told a round is running (ADR-0165)", async () => {
+    const made = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie, {
+      method: "POST",
+      json: { engine: "fake", title: "Together" },
+    })) as { status: number; body: SessionBody };
+    expect(made.status).toBe(201);
+    const id = made.body.id;
+    // Dispatched in the same tick: on the old code both passed the "already running" check,
+    // because the round was only registered after several awaits.
+    const answers = await Promise.all(
+      ["one", "two"].map((text) =>
+        call(`/api/sessions/${id}/turns`, cookie, { method: "POST", json: { text } }),
+      ),
+    );
+    expect(answers.map((one) => one.status).sort()).toEqual([202, 409]);
+    const settled = await untilStatus(cookie, id, "idle");
+    expect(settled.turns).toBe(1);
+  });
+
   test("rename and fork: the fork carries the transcript and starts idle", async () => {
     const created = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, cookie, {
       method: "POST",

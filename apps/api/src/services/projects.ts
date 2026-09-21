@@ -6,7 +6,7 @@
  * runner over the control channel: a token is never stored, the deploy key is decrypted only here.
  */
 import type { Bus } from "@perch/bus";
-import { type Db, type Project, projectConfigSchema } from "@perch/db";
+import { type Db, type Project, projectConfigSchema, projects } from "@perch/db";
 import {
   type ProjectConfigResult,
   type ProjectSetupResult,
@@ -18,6 +18,7 @@ import {
 import type { Queue } from "@perch/jobs";
 import { stackById, stackFiles } from "@perch/templates";
 import type { Vault } from "@perch/vault";
+import { inArray } from "drizzle-orm";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import type { Logger } from "../logging.ts";
@@ -270,6 +271,25 @@ async function acquireRunner(
   await online;
   const later = await usableRunners(deps, workspaceId, userId);
   return later[0]?.link ?? null;
+}
+
+/**
+ * Setup runs in this process only (pending → setting_up → ready | error, ADR-0069): a restart in
+ * the middle left the row there for ever, and every later call refused it with "not ready yet".
+ * Run at boot, before anything can ask: what was mid-setup is marked error with the reason, and a
+ * person makes the project again (ADR-0165).
+ */
+export async function resetInterruptedSetups(db: Db): Promise<number> {
+  const rows = await db
+    .update(projects)
+    .set({
+      status: "error",
+      statusMessage: "setup was interrupted by a restart; create the project again",
+      updatedAt: new Date(),
+    })
+    .where(inArray(projects.status, ["pending", "setting_up"]))
+    .returning({ id: projects.id });
+  return rows.length;
 }
 
 type RunnerSource = RunnerCallParams<"project.setup">["source"];

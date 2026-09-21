@@ -5,7 +5,7 @@
  */
 import type { Db, MergeQueueEntry, MergeState, NewMergeQueueEntry } from "@perch/db";
 import { schema } from "@perch/db";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 const { mergeQueueEntries } = schema;
 
@@ -75,6 +75,31 @@ export async function claimNext(db: Db, projectId: string): Promise<MergeQueueEn
     .where(and(eq(mergeQueueEntries.id, next.id), eq(mergeQueueEntries.state, "waiting")))
     .returning();
   return claimed ?? null;
+}
+
+/**
+ * Entries that have been "landing" since before `since`: a landing the api never finished (it
+ * restarted mid-way, or a check never came back) would otherwise hold the project's queue for
+ * ever, since only the process that claimed a row moves it on (ADR-0165).
+ */
+export async function staleLanding(
+  db: Db,
+  projectId: string,
+  since: Date,
+): Promise<MergeQueueEntry[]> {
+  return db
+    .select()
+    .from(mergeQueueEntries)
+    .where(
+      and(
+        eq(mergeQueueEntries.projectId, projectId),
+        eq(mergeQueueEntries.state, "landing"),
+        or(
+          lt(mergeQueueEntries.startedAt, since),
+          and(isNull(mergeQueueEntries.startedAt), lt(mergeQueueEntries.updatedAt, since)),
+        ),
+      ),
+    );
 }
 
 /** True while something is already landing on this project: a queue lands one at a time. */

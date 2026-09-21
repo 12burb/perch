@@ -198,6 +198,14 @@ describe("search (task 2.4)", () => {
     // Robin can see the one said in #general and not the one said in #founders…
     const asRobin = await find(robin.cookie, "q=deploy&type=files");
     expect(asRobin.body.files.map((hit) => hit.file.name)).toEqual(["deploy-notes.txt"]);
+
+    // `%` and `_` in what somebody typed are the characters, not like's wildcards (ADR-0165).
+    await upload(wren.cookie, "100%-done.txt");
+    await upload(wren.cookie, "100x-done.txt");
+    const percent = await find(wren.cookie, "q=100%25&type=files");
+    expect(percent.body.files.map((hit) => hit.file.name)).toEqual(["100%-done.txt"]);
+    const underscore = await find(wren.cookie, "q=100_&type=files");
+    expect(underscore.body.files).toEqual([]);
     expect(asRobin.body.files[0]?.channel_name).toBe("general");
 
     // …and cannot read its bytes either, which is what ADR-0093 left open (ADR-0094).

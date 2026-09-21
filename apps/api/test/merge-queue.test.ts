@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { FakeEngine } from "@perch/engines";
 import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
+import { enqueue, updateEntry } from "../src/repos/merge.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -282,5 +283,32 @@ describe("the merge queue (task 3.15)", () => {
       expect(second.body.id).toBe(first.body.id);
     }
     await booted.mergeQueue.settled(120_000);
+  }, 180_000);
+  test("a landing that never finished is failed, not waited on for ever (ADR-0165)", async () => {
+    // As an api that restarted mid-land would leave it: claimed forty minutes ago, never moved on.
+    const ghost = await enqueue(booted.db.db, {
+      workspaceId: ws,
+      projectId: project,
+      branch: "perch/ghost",
+      base: "main",
+    });
+    await updateEntry(booted.db.db, ghost.id, {
+      state: "landing",
+      startedAt: new Date(Date.now() - 40 * 60_000),
+    });
+    branchWith("perch/four", "four.txt", "ok\n");
+    const added = (await call(`/api/workspaces/${ws}/projects/${project}/merge-queue`, {
+      method: "POST",
+      json: { branch: "perch/four" },
+    })) as { status: number; text: string };
+    expect(added.status, added.text).toBe(201);
+    await until(async () => {
+      const rows = await queue();
+      return rows.find((one) => one.branch === "perch/four")?.state === "landed";
+    }, 120_000);
+    const rows = await queue();
+    const stale = rows.find((one) => one.branch === "perch/ghost");
+    expect(stale?.state).toBe("failed");
+    expect(stale?.detail ?? "").toContain("interrupted");
   }, 180_000);
 });

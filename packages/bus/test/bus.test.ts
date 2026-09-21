@@ -49,6 +49,32 @@ describe("@perch/bus in-process", () => {
     expect(delivered).toHaveLength(1);
   });
 
+  test("topics are bounded: the oldest one nobody listens to is forgotten first (ADR-0165)", async () => {
+    const bus = new InProcessBus({ maxTopics: 2 });
+    const SESSION = "01926a1e-0000-7000-8000-00000000000e";
+    const say = (topic: string) =>
+      bus.publish(
+        "session.status",
+        { workspaceId: WS, sessionId: SESSION, status: "running" },
+        {
+          actor: { type: "system" },
+          topics: [topic],
+        },
+      );
+    await say("session:a");
+    await say("session:b");
+    // b is the newer of the two; a third topic pushes a out.
+    await say("session:c");
+    expect(bus.replay("session:a", 0)).toEqual({ kind: "unknown_topic" });
+    expect(bus.replay("session:b", 0).kind).toBe("events");
+    expect(bus.replay("session:c", 0).kind).toBe("events");
+    // A topic somebody is subscribed to is never the one forgotten.
+    bus.subscribeTopic("session:b", () => {});
+    await say("session:d");
+    expect(bus.replay("session:b", 0).kind).toBe("events");
+    expect(bus.replay("session:c", 0)).toEqual({ kind: "unknown_topic" });
+  });
+
   test("per-topic seq numbers, topic subscribers, and replay after a seq", async () => {
     const bus = new InProcessBus({ replayBuffer: 3 });
     const topic = `channel:${CHANNEL}`;

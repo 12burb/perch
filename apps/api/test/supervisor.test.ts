@@ -284,10 +284,18 @@ describe("supervisor (task 1.2)", () => {
     expect(rowA?.containerId).toBeNull();
     expect(rowA?.status).toBe("offline");
 
-    // The next request brings it back, with a new token.
+    // The next request brings it back, with a new token — and the sweep leaves it alone even
+    // though the row still says it was last seen an hour ago: the start refreshes that, or a
+    // container would be removed before its runner had registered (ADR-0165).
+    await booted.db.db
+      .update(schema.runners)
+      .set({ lastSeenAt: new Date("2026-09-14T11:00:00Z") })
+      .where(eq(schema.runners.id, a.runner.id));
     const back = await supervisor.ensure(wsA);
     expect(back.created).toBe(true);
     expect(back.runner.id).toBe(a.runner.id);
+    expect(await supervisor.stopIdle()).toEqual([]);
+    expect(docker.containers.has(back.containerId)).toBe(true);
   });
 
   test("shared mode runs one container for every workspace, on a runner row without a workspace", async () => {

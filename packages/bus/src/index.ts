@@ -61,8 +61,18 @@ export interface Bus {
   replay(topic: string, afterSeq: number): ReplayResult;
 }
 
+/** Topics kept at once by default: a busy instance's sessions in a day, with room to spare. */
+export const MAX_TOPICS = 5000;
+
 export type InProcessBusOptions = {
   replayBuffer?: number;
+  /**
+   * How many topics keep a replay buffer at once (ADR-0165). Every session publishes on a topic of
+   * its own and nothing ever un-publishes, so without a bound the api's memory grew by one buffer
+   * per session for the life of the process. Past the bound, the topic with nobody subscribed
+   * whose last event is oldest is forgotten; a client resuming it gets `unknown_topic` and refetches.
+   */
+  maxTopics?: number;
   /** Called when a subscriber throws; publishing never fails because a subscriber did. */
   onError?: (error: unknown, event: BusEvent) => void;
   now?: () => Date;
@@ -70,6 +80,8 @@ export type InProcessBusOptions = {
 };
 
 type TopicState = {
+  /** The publish counter at its last event, for choosing which topic to forget. */
+  touched: number;
   seq: number;
   buffer: Array<{ seq: number; event: BusEvent }>;
   handlers: Set<TopicHandler>;
@@ -85,12 +97,15 @@ export class InProcessBus implements Bus {
   private readonly typeHandlers = new Map<string, Set<EventHandler>>();
   private readonly topics = new Map<string, TopicState>();
   private readonly replayBuffer: number;
+  private readonly maxTopics: number;
+  private publishes = 0;
   private readonly onError: (error: unknown, event: BusEvent) => void;
   private readonly now: () => Date;
   private readonly newId: () => string;
 
   constructor(options: InProcessBusOptions = {}) {
     this.replayBuffer = options.replayBuffer ?? WS_REPLAY_BUFFER;
+    this.maxTopics = options.maxTopics ?? MAX_TOPICS;
     this.onError =
       options.onError ??
       ((error, event) => {
@@ -176,10 +191,23 @@ export class InProcessBus implements Bus {
   private topic(topic: string): TopicState {
     let state = this.topics.get(topic);
     if (!state) {
-      state = { seq: 0, buffer: [], handlers: new Set() };
+      if (this.topics.size >= this.maxTopics) this.forgetOne();
+      state = { seq: 0, buffer: [], handlers: new Set(), touched: ++this.publishes };
       this.topics.set(topic, state);
+    } else {
+      state.touched = ++this.publishes;
     }
     return state;
+  }
+
+  /** The topic with nobody subscribed whose last event is oldest; nothing, when all are live. */
+  private forgetOne(): void {
+    let oldest: [string, TopicState] | null = null;
+    for (const entry of this.topics) {
+      if (entry[1].handlers.size > 0) continue;
+      if (!oldest || entry[1].touched < oldest[1].touched) oldest = entry;
+    }
+    if (oldest) this.topics.delete(oldest[0]);
   }
 
   private async deliver(run: () => void | Promise<void>, event: BusEvent): Promise<void> {

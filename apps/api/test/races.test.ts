@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { FakeEngine } from "@perch/engines";
 import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
+import { claimDecision, getRace, insertRace } from "../src/repos/races.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -210,6 +211,22 @@ describe("race mode (task 3.16)", () => {
         .status,
     ).toBe(200);
   }, 180_000);
+
+  test("a race is decided once: the second claim finds it decided already (ADR-0165)", async () => {
+    const race = await insertRace(booted.db.db, {
+      workspaceId: ws,
+      projectId: project,
+      prompt: "which is quicker",
+    });
+    const claims = await Promise.all(
+      ["checks", "checks"].map((by) =>
+        claimDecision(booted.db.db, race.id, { decidedBy: by as "checks" }),
+      ),
+    );
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect((await getRace(booted.db.db, race.id))?.state).toBe("decided");
+    expect(await claimDecision(booted.db.db, race.id, { decidedBy: "checks" })).toBeNull();
+  });
 
   test("the acceptance: a race finishes with one diff applied and the rest discarded", async () => {
     const started = (await call(`/api/workspaces/${ws}/projects/${project}/races`, {

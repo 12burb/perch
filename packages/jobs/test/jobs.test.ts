@@ -1,7 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { getEventListeners } from "node:events";
 import type { DbHandle } from "@perch/db";
 import { createPostgresTestDb, createTestDb } from "@perch/db/testing";
-import { backoffMs, createQueue, knownTimezone, nextCronRun, type Queue } from "../src/index.ts";
+import {
+  abortableSleep,
+  backoffMs,
+  createQueue,
+  knownTimezone,
+  nextCronRun,
+  type Queue,
+} from "../src/index.ts";
 
 /**
  * Task 0.6 acceptance for the queue: it survives a worker crash (an abandoned lock is reclaimed by another
@@ -120,6 +128,19 @@ function queueSuite(name: string, open: () => Promise<DbHandle | null>) {
       expect(after?.attempts).toBe(0);
       expect(await queue.unschedule("telemetry.ping")).toBe(true);
       expect(await queue.unschedule("telemetry.ping")).toBe(false);
+    });
+
+    test("a worker's sleep leaves no listener on the abort signal behind (ADR-0165)", async () => {
+      const abort = new AbortController();
+      for (let i = 0; i < 25; i++) await abortableSleep(abort.signal, 1);
+      expect(getEventListeners(abort.signal, "abort")).toHaveLength(0);
+      // And an abort still ends a sleep early.
+      const started = Date.now();
+      const long = abortableSleep(abort.signal, 10_000);
+      abort.abort();
+      await long;
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(getEventListeners(abort.signal, "abort")).toHaveLength(0);
     });
 
     test("the worker loop picks up due jobs and stops cleanly", async () => {

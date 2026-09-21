@@ -13,7 +13,7 @@
  * ISO string, `bytea` is base64, everything else is plain JSON.
  */
 import { getTableColumns, getTableName, is, sql } from "drizzle-orm";
-import { type PgColumn, PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, type PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { Db } from "./client.ts";
 import * as schema from "./schema/index.ts";
 
@@ -58,6 +58,16 @@ function writableColumns(table: PgTable): Record<string, PgColumn> {
     columns[field] = column;
   }
   return columns;
+}
+
+/** The columns that give a table one total order: its primary key. */
+export function keyColumns(table: PgTable): PgColumn[] {
+  const config = getTableConfig(table);
+  const composite = config.primaryKeys[0]?.columns;
+  if (composite && composite.length > 0) return [...composite];
+  const single = config.columns.filter((column) => column.primary);
+  if (single.length > 0) return single;
+  throw new Error(`${config.name} has no primary key to page by`);
 }
 
 function encode(value: unknown): unknown {
@@ -105,9 +115,18 @@ export async function dumpDatabase(
   await db.transaction(async (tx) => {
     await tx.execute(sql`set transaction isolation level repeatable read`);
     for (const { name, table } of tables) {
+      // Paged in one total order: without it Postgres owes no stable order across two unordered
+      // LIMIT/OFFSET reads (synchronized seqscans, parallel workers), and a page could repeat or
+      // skip rows. The primary key is that order; every backed-up table has one (ADR-0165).
+      const order = keyColumns(table);
       let offset = 0;
       for (;;) {
-        const page = (await tx.select().from(table).limit(batch).offset(offset)) as Row[];
+        const page = (await tx
+          .select()
+          .from(table)
+          .orderBy(...order)
+          .limit(batch)
+          .offset(offset)) as Row[];
         for (const row of page) {
           const encoded: Row = {};
           for (const [field, value] of Object.entries(row)) encoded[field] = encode(value);

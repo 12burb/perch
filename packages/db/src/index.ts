@@ -6,6 +6,7 @@ export {
   backupTables,
   databaseIsEmpty,
   dumpDatabase,
+  keyColumns,
   linesOf,
   parseHeader,
   restoreDatabase,

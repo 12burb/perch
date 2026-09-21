@@ -4,6 +4,7 @@ import {
   type DbHandle,
   databaseIsEmpty,
   dumpDatabase,
+  keyColumns,
   newId,
   parseHeader,
   restoreDatabase,
@@ -33,6 +34,12 @@ afterAll(async () => {
 });
 
 describe("dump and restore (task 4.4)", () => {
+  test("every backed-up table has a primary key, which is the order its pages are walked in", () => {
+    for (const { name, table } of backupTables()) {
+      expect(keyColumns(table).length, name).toBeGreaterThan(0);
+    }
+  });
+
   test("a workspace written here is all there after a restore into an empty database", async () => {
     const workspaceId = newId();
     const userId = newId();

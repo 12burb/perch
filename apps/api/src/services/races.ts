@@ -20,6 +20,7 @@ import { getMessage, insertMessage, updateMessageBlocks } from "../repos/message
 import { findProject } from "../repos/projects.ts";
 import {
   anyRunning,
+  claimDecision,
   entrantForSession,
   getEntrant,
   getRace,
@@ -362,7 +363,13 @@ export class RaceService {
       return (a.additions ?? 0) + (a.deletions ?? 0) - ((b.additions ?? 0) + (b.deletions ?? 0));
     })[0];
     if (!winner) return;
-    await this.decide(race, winner, "checks", userId, { actor: { type: "system" }, meta: {} });
+    try {
+      await this.decide(race, winner, "checks", userId, { actor: { type: "system" }, meta: {} });
+    } catch (error) {
+      // The other entrant finishing in the same moment got there first: nothing to do twice.
+      if (error instanceof PerchError && error.code === "conflict") return;
+      throw error;
+    }
   }
 
   private async decide(
@@ -372,14 +379,15 @@ export class RaceService {
     userId: string,
     actor: ActorContext,
   ): Promise<{ race: Race; winner: RaceEntrant }> {
-    const decided =
-      (await updateRace(this.db, race.id, {
-        state: "decided",
-        winnerId: winner.id,
-        decidedBy: by,
-        decidedAt: new Date(),
-        ...(by === "person" && userId ? { decidedByUserId: userId } : {}),
-      })) ?? race;
+    // One decision per race (ADR-0132): the first to claim the transition decides; anybody else
+    // arriving — the other entrant finishing in the same moment, a second press — is told so.
+    const decided = await claimDecision(this.db, race.id, {
+      winnerId: winner.id,
+      decidedBy: by,
+      decidedAt: new Date(),
+      ...(by === "person" && userId ? { decidedByUserId: userId } : {}),
+    });
+    if (!decided) throw PerchError.conflict("this race has already been decided");
     const won = (await updateEntrant(this.db, winner.id, { state: "won" })) ?? winner;
 
     const project = await findProject(this.db, race.workspaceId, race.projectId);

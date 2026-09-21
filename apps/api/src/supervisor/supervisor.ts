@@ -166,7 +166,10 @@ export function createSupervisor(deps: SupervisorDeps) {
       cmd: config.cmd,
     });
     await docker.start(containerId);
-    await updateRunner(db, runner.id, { containerId, idleSince: null });
+    // last_seen_at is refreshed with the container: the idle sweep treats an offline runner not
+    // seen for idleMinutes as dead, and a runner that was offline for an hour before this start
+    // would otherwise lose its brand-new container before it had registered (ADR-0165).
+    await updateRunner(db, runner.id, { containerId, idleSince: null, lastSeenAt: new Date() });
     runner = (await findRunnerById(db, runner.id)) ?? runner;
     log.info(
       { runner: runner.id, scope, container: containerId.slice(0, 12) },

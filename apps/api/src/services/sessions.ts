@@ -340,6 +340,8 @@ export class SessionService {
   /** Set by the testing loop at boot (task 3.18); nothing happens between rounds without it. */
   private roundEnd: RoundEndHook | null = null;
   private readonly pending = new Map<string, PendingPermission>();
+  /** Sessions whose next round is being set up: claimed before the first await (ADR-0165). */
+  private readonly starting = new Set<string>();
   /** Sessions this process has opened on their engine (engines forget across api restarts). */
   private readonly known = new Set<string>();
   /** What must not turn up in each session's transcript (task 2.13). */
@@ -550,42 +552,62 @@ export class SessionService {
     },
   ): Promise<{ seq: number; session: CodingSession }> {
     if (session.status === "ended") throw PerchError.conflict("the session has ended");
-    if (this.rounds.has(session.id)) {
+    // The slot is claimed before the first await: two turns arriving together both used to pass
+    // this check, start two rounds, and leave the survivor untracked (ADR-0165).
+    if (this.rounds.has(session.id) || this.starting.has(session.id)) {
       throw PerchError.conflict("a round is already running", { status: session.status });
     }
+    this.starting.add(session.id);
     let engine: Engine;
-    try {
-      engine = await this.engineFor(session, userId);
-    } catch (error) {
-      // The engine could not be reached or opened: the transcript says so, and so does the caller.
-      const failure = engineFailure(error);
-      await this.record(session, { type: "error", message: failure.message }, options.by);
-      await this.setStatus(session, "error", failure.message, options.by);
-      throw failure;
-    }
+    let seq: number;
+    let updated: CodingSession;
+    let round: Round;
     const mode = options.mode ?? session.mode;
-    await this.checkpoint(session, userId, session.turns + 1, options.by);
-    const { seq } = await this.record(
-      session,
-      {
-        type: "turn",
-        text: turn.text,
-        ...(turn.attachments ? { attachments: turn.attachments } : {}),
-        mode,
-        userId,
-      },
-      options.by,
-    );
-    await updateSession(this.deps.db, session.id, { turns: session.turns + 1 });
-    const updated = await this.setStatus(session, "running", null, options.by);
-    const round: Round = { engine, timer: null, giveUp: null, cancelled: false };
-    this.rounds.set(session.id, round);
+    try {
+      try {
+        engine = await this.engineFor(session, userId);
+      } catch (error) {
+        // The engine could not be reached or opened: the transcript says so, and so does the caller.
+        const failure = engineFailure(error);
+        await this.record(session, { type: "error", message: failure.message }, options.by);
+        await this.setStatus(session, "error", failure.message, options.by);
+        throw failure;
+      }
+      await this.checkpoint(session, userId, session.turns + 1, options.by);
+      ({ seq } = await this.record(
+        session,
+        {
+          type: "turn",
+          text: turn.text,
+          ...(turn.attachments ? { attachments: turn.attachments } : {}),
+          mode,
+          userId,
+        },
+        options.by,
+      ));
+      await updateSession(this.deps.db, session.id, { turns: session.turns + 1 });
+      updated = await this.setStatus(session, "running", null, options.by);
+      round = { engine, timer: null, giveUp: null, cancelled: false };
+      this.rounds.set(session.id, round);
+    } finally {
+      this.starting.delete(session.id);
+    }
     const input: UserTurn = options.context
       ? { ...turn, text: `${options.context}\n\n${turn.text}` }
       : turn;
     const reasoning = options.reasoning ?? session.reasoning;
-    void this.runRound(session, round, input, mode, reasoning).catch((error: unknown) => {
+    void this.runRound(session, round, input, mode, reasoning).catch(async (error: unknown) => {
       this.deps.log.error({ err: error, sessionId: session.id }, "session round crashed");
+      // Only a failure before the round's own try/catch can land here (the prelude that reads the
+      // project); the round it never began is ended, rather than left "running" for ever.
+      if (this.rounds.get(session.id) === round) this.rounds.delete(session.id);
+      if (round.timer) clearTimeout(round.timer);
+      try {
+        await this.record(session, { type: "error", message: "the round could not start" });
+        await this.setStatus(session, "error", "the round could not start");
+      } catch (inner) {
+        this.deps.log.error({ err: inner, sessionId: session.id }, "could not record the failure");
+      }
     });
     return { seq, session: updated };
   }
@@ -910,7 +932,10 @@ export class SessionService {
   }
 
   close(): void {
-    for (const round of this.rounds.values()) if (round.timer) clearTimeout(round.timer);
+    for (const round of this.rounds.values()) {
+      if (round.timer) clearTimeout(round.timer);
+      if (round.giveUp) clearTimeout(round.giveUp);
+    }
   }
 
   private wide(session: CodingSession): string[] {
@@ -1359,6 +1384,13 @@ export class SessionService {
       statusMessage: message,
       ...(status === "ended" ? { endedAt: new Date() } : {}),
     });
+    if (status === "ended") {
+      // Nothing more will arrive for it: its engine handle, its redaction list (which holds the
+      // secret values) and any permission nobody answered are let go of.
+      this.known.delete(session.id);
+      this.secrets.delete(session.id);
+      this.pending.delete(session.id);
+    }
     await this.deps.bus.publish(
       "session.status",
       { workspaceId: session.workspaceId, sessionId: session.id, status },

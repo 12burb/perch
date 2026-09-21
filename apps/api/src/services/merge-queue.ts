@@ -43,6 +43,7 @@ import {
   getEntry,
   landing,
   listQueue,
+  staleLanding,
   updateEntry,
   waitingFor,
 } from "../repos/merge.ts";
@@ -66,6 +67,8 @@ export type MergeQueueDeps = {
 
 /** How long a project's checks may take before the queue calls it a failure. */
 const CHECK_TIMEOUT_MS = 15 * 60_000;
+/** Beyond the checks' budget, how long a landing may go on before it counts as abandoned. */
+const LANDING_GRACE_MS = 5 * 60_000;
 
 /** The commands a project's `run` map might call its checks, in the order they are looked for. */
 const CHECK_KEYS = ["check", "test", "ci", "verify"] as const;
@@ -161,6 +164,18 @@ export class MergeQueueService {
     this.running.add(projectId);
     void (async () => {
       try {
+        // A landing older than the longest a check may run plus a margin was abandoned — by an
+        // api that restarted, or a check that never answered — and is failed rather than waited
+        // on for ever (ADR-0165). Anything nearer than that is still somebody's in-flight work.
+        const lease = (this.deps.queueCheckTimeoutMs ?? CHECK_TIMEOUT_MS) + LANDING_GRACE_MS;
+        for (const stale of await staleLanding(this.db, projectId, new Date(Date.now() - lease))) {
+          await this.failed(
+            stale,
+            "runner",
+            "the landing was interrupted and never finished; queue the branch again",
+            { actor: { type: "system" }, meta: {} },
+          );
+        }
         for (;;) {
           if (await landing(this.db, projectId)) return;
           const entry = await claimNext(this.db, projectId);

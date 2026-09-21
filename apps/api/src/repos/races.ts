@@ -54,6 +54,23 @@ export async function entrantForSession(db: Db, sessionId: string): Promise<Race
   return row ?? null;
 }
 
+/**
+ * The one transition from running to decided: only the caller whose update finds the race still
+ * running gets the row back, so two entrants finishing together cannot both decide it (ADR-0165).
+ */
+export async function claimDecision(
+  db: Db,
+  id: string,
+  patch: Partial<Omit<NewRace, "id" | "workspaceId" | "projectId" | "state">>,
+): Promise<Race | null> {
+  const [row] = await db
+    .update(races)
+    .set({ ...patch, state: "decided", updatedAt: new Date() })
+    .where(and(eq(races.id, id), eq(races.state, "running")))
+    .returning();
+  return row ?? null;
+}
+
 export async function updateRace(
   db: Db,
   id: string,

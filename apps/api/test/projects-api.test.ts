@@ -2,13 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projects } from "@perch/db";
 import type { BusEvent, RunnerLink } from "@perch/events";
 import { createInProcessRunner } from "@perch/runner";
+import { eq } from "drizzle-orm";
 import type { Booted } from "../src/boot.ts";
 import { projectDeps } from "../src/routes/projects.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { decryptDeployKey } from "../src/services/deploy-keys.ts";
-import { createProject } from "../src/services/projects.ts";
+import { createProject, resetInterruptedSetups } from "../src/services/projects.ts";
 import { bootTestApp } from "../src/testing.ts";
 
 /**
@@ -483,6 +485,29 @@ describe("projects api (task 1.4)", () => {
     );
     expect(events.some((e) => e.type === "project.deleted")).toBe(true);
   }, 60_000);
+
+  test("a project whose setup a restart interrupted is marked error at boot, not left pending (ADR-0165)", async () => {
+    const owner = await signUp("Ines", "ines-projects@perch.test");
+    const ws = await workspaceFor(owner.cookie);
+    const made = (await call(`/api/workspaces/${ws}/projects`, owner.cookie, {
+      method: "POST",
+      json: { name: "Interrupted", source: "empty" },
+    })) as { status: number; body: { id: string } };
+    expect(made.status).toBe(201);
+    await waitForStatus(ws, made.body.id, owner.cookie, ["ready", "error"]);
+    // As a restart would find it: the row says setting_up and no process is setting it up.
+    await booted.db.db
+      .update(projects)
+      .set({ status: "setting_up", statusMessage: null })
+      .where(eq(projects.id, made.body.id));
+    expect(await resetInterruptedSetups(booted.db.db)).toBe(1);
+    const row = (await call(`/api/workspaces/${ws}/projects/${made.body.id}`, owner.cookie)) as {
+      body: { status: string; status_message: string | null };
+    };
+    expect(row.body.status).toBe("error");
+    expect(row.body.status_message).toContain("interrupted");
+    expect(await resetInterruptedSetups(booted.db.db)).toBe(0);
+  });
 
   test("without a runner the supervisor is asked and the project fails after the wait", async () => {
     const owner = await signUp("Kim", "kim-projects@perch.test");

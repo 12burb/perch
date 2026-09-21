@@ -47,6 +47,7 @@ import { PlanningService } from "./services/planning.ts";
 import { PolicyService } from "./services/policy.ts";
 import { PreflightService } from "./services/preflight.ts";
 import { PreviewService } from "./services/previews.ts";
+import { resetInterruptedSetups } from "./services/projects.ts";
 import { PullRequestsService } from "./services/pull-requests.ts";
 import { RaceService } from "./services/races.ts";
 import { RepoIndexService } from "./services/repo-index.ts";
@@ -144,6 +145,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   }
   for (const engine of options.engines ?? []) engines.register(engine.id, engine);
   const flags = createFlags({ db: db.db, env });
+  // What a restart interrupted is settled before anything can ask for it (ADR-0165).
+  await resetInterruptedSetups(db.db);
   const brains = new BrainsService({
     db: db.db,
     bus,

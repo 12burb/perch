@@ -156,7 +156,7 @@ export async function searchFiles(
       and(
         eq(files.workspaceId, input.workspaceId),
         isNull(files.deletedAt),
-        sql`${files.name} ilike ${`%${input.q.trim()}%`}::text`,
+        sql`${files.name} ilike ${`%${literal(input.q.trim())}%`}::text`,
         reachable(db, input.userId, input.scope),
       ),
     )
@@ -215,4 +215,9 @@ export async function canReadFile(
     )
     .limit(1);
   return Boolean(hit);
+}
+
+/** `%` and `_` mean something in `like`, and a person typing them means the characters. */
+function literal(term: string): string {
+  return term.replace(/[\\%_]/g, (one) => `\\${one}`);
 }

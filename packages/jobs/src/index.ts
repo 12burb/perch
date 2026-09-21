@@ -99,6 +99,29 @@ export function nextCronRun(expression: string, from: Date, timezone = "UTC"): D
   return next;
 }
 
+/**
+ * A sleep that ends early on abort — and leaves nothing behind either way. The listener is
+ * removed when the timer fires: a worker polls every second for the life of the process, and one
+ * closure per poll kept on the same signal was a leak that grew for as long as it ran.
+ */
+export function abortableSleep(signal: AbortSignal, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function createQueue(options: QueueOptions): Queue {
   const { db } = options;
   const now = options.now ?? (() => new Date());
@@ -271,14 +294,7 @@ export function createQueue(options: QueueOptions): Queue {
         return job;
       };
 
-      const sleep = (ms: number) =>
-        new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, ms);
-          abort.signal.addEventListener("abort", () => {
-            clearTimeout(t);
-            resolve();
-          });
-        });
+      const sleep = (ms: number) => abortableSleep(abort.signal, ms);
 
       return {
         id,
