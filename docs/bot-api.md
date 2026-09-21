@@ -35,9 +35,10 @@ platform globals in Bun, Node 22, Deno and a browser — so a bot is a file you 
 
 ## A token
 
-Bot tokens are minted per bot, in **Settings → Bots → Bot API tokens** on the bot's card. You choose
-what the token may do; the value is shown once and never again. Afterwards the list keeps a hint
-(`pbot_F_I…o0c4`), when it was last used, and a Revoke button.
+Bot tokens are minted per bot, in **Settings → Bots → Bot API tokens** on the bot's card, by the
+bot's owner or by an admin (a token acts as the bot, so seeing a bot is not enough to mint one;
+ADR-0112). You choose what the token may do; the value is shown once and never again. Afterwards
+the list keeps a hint (`pbot_F_I…o0c4`), when it was last used, and a Revoke button.
 
 A token starts `pbot_`. It names exactly one bot, and a bot belongs to exactly one workspace, which
 is why no Bot API call takes a workspace: a bot cannot ask about a workspace it is not in.

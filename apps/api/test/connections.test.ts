@@ -201,6 +201,74 @@ describe("connections (task 1.16)", () => {
     ).toBe(204);
   }, 60_000);
 
+  test("handing out a workspace connection is an admin's call, like disconnecting it", async () => {
+    const stamp = Date.now();
+    const owner = await signUp("Owner", `owner-grants-${stamp}@perch.test`);
+    const member = await signUp("Member", `member-grants-${stamp}@perch.test`);
+    const created = (await call("/api/workspaces", owner.cookie, {
+      method: "POST",
+      json: { name: "Grants Nest" },
+    })) as { body: { id: string } };
+    const ws = created.body.id;
+    const invite = (await call(`/api/workspaces/${ws}/invites`, owner.cookie, {
+      method: "POST",
+      json: { email: `member-grants-${stamp}@perch.test`, role: "member" },
+    })) as { body: { accept_url: string } };
+    const accept = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect(
+      (await call(`/api/invites/${accept}/accept`, member.cookie, { method: "POST" })).status,
+    ).toBe(200);
+    const shared = (await call(`/api/workspaces/${ws}/connections`, owner.cookie, {
+      method: "POST",
+      json: {
+        kind: "token",
+        provider: "github",
+        token: TOKEN,
+        owner_type: "workspace",
+        api_base: githubUrl,
+      },
+    })) as { status: number; text: string; body: ConnectionBody };
+    expect(shared.status, shared.text).toBe(201);
+    const bot = (await call(`/api/workspaces/${ws}/bots`, owner.cookie, {
+      method: "POST",
+      json: { handle: "granted", name: "Granted", visibility: "workspace" },
+    })) as { status: number; body: { id: string } };
+    expect(bot.status).toBe(201);
+    const grant = { subject_type: "bot", subject_id: bot.body.id, allowed_tools: ["list"] };
+
+    // A member may use what they are given, not give the workspace's credential away.
+    const byMember = await call(
+      `/api/workspaces/${ws}/connections/${shared.body.id}/grants`,
+      member.cookie,
+      {
+        method: "POST",
+        json: grant,
+      },
+    );
+    expect(byMember.status).toBe(403);
+    const byOwner = (await call(
+      `/api/workspaces/${ws}/connections/${shared.body.id}/grants`,
+      owner.cookie,
+      {
+        method: "POST",
+        json: grant,
+      },
+    )) as { status: number; text: string; body: { id: string } };
+    expect(byOwner.status, byOwner.text).toBe(201);
+    const revokedByMember = await call(
+      `/api/workspaces/${ws}/connections/${shared.body.id}/grants/${byOwner.body.id}`,
+      member.cookie,
+      { method: "DELETE" },
+    );
+    expect(revokedByMember.status).toBe(403);
+    const revokedByOwner = await call(
+      `/api/workspaces/${ws}/connections/${shared.body.id}/grants/${byOwner.body.id}`,
+      owner.cookie,
+      { method: "DELETE" },
+    );
+    expect(revokedByOwner.status).toBe(204);
+  }, 60_000);
+
   test("the acceptance: clone through a GitHub connection, then open a pull request on it", async () => {
     const owner = await signUp("Ren", "ren-conn@perch.test");
     const created = (await call("/api/workspaces", owner.cookie, {

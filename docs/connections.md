@@ -89,7 +89,12 @@ becoming a way to borrow somebody's login (spec §3.5, AGENTS.md §1.6).
 A grant can also mark some of its tools **requires_permission** (spec §3.5). Those stay in the
 bot's toolbox, but calling one parks the call and asks a person — a card in the thread and an item
 in their inbox — and it runs only once somebody says yes. See
-[Tools from an MCP server](bots.md#tools-from-an-mcp-server).
+[Tools from an MCP server](bots.md#tools-from-an-mcp-server). A bot outside Perch calling over the
+Bot API has nobody to ask, so such a tool is refused to it outright.
+
+Granting a connection the **workspace** owns, or taking such a grant away, is an admin's call
+(`connections.admin`), like disconnecting it; a member grants only their own connections. Revoking
+a grant names the connection it is on, and finds nothing on any other.
 
 Taking a grant away takes effect on the next call: nothing is cached past the request that used it.
 

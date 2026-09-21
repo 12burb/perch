@@ -625,7 +625,8 @@ export class ConnectionsService {
   async tokenFor(row: Connection): Promise<string> {
     const manifest = this.manifest(row.provider);
     const secret = await this.secret(row);
-    if (row.kind === "oauth2") {
+    // Both OAuth kinds store the pair (`{ access, refresh }`); only the access token ever leaves.
+    if (row.kind === "oauth2" || row.kind === "mcp_oauth") {
       let pair: { access: string; refresh?: string };
       try {
         pair = JSON.parse(secret) as { access: string; refresh?: string };
@@ -748,7 +749,7 @@ export class ConnectionsService {
   }
 
   async revoke(connection: Connection, grantId: string, by: ActorContext): Promise<boolean> {
-    const gone = await deleteGrant(this.deps.db, grantId);
+    const gone = await deleteGrant(this.deps.db, connection.id, grantId);
     if (gone) {
       await this.deps.bus.publish(
         "connection.grant_removed",

@@ -24,6 +24,7 @@ import type {
 import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
+import { getCycle, getModule } from "../repos/planning.ts";
 import { findProject, findProjectByKey } from "../repos/projects.ts";
 import { sessionsForWorkItem } from "../repos/sessions.ts";
 import {
@@ -214,10 +215,19 @@ export class WorkService {
       changes.push("pr_url");
     }
     if (patch.cycleId !== undefined && patch.cycleId !== item.cycleId) {
+      // The project's own, like a parent (spec §9.1 scoping): a cycle from elsewhere is not there.
+      if (patch.cycleId) {
+        const cycle = await getCycle(this.db, patch.cycleId);
+        if (!cycle || cycle.projectId !== item.projectId) throw PerchError.notFound("cycle");
+      }
       values.cycleId = patch.cycleId;
       changes.push("cycle");
     }
     if (patch.moduleId !== undefined && patch.moduleId !== item.moduleId) {
+      if (patch.moduleId) {
+        const module = await getModule(this.db, patch.moduleId);
+        if (!module || module.projectId !== item.projectId) throw PerchError.notFound("module");
+      }
       values.moduleId = patch.moduleId;
       changes.push("module");
     }

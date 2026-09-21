@@ -599,6 +599,11 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
     const user = currentUser(c);
     const row = await connections.connectionFor(ws, user.id, id);
     if (!row) throw PerchError.notFound("connection");
+    // Handing out a shared connection is the workspace's decision, like disconnecting it (spec
+    // §3.5 "workspace connections are admin-created with explicit grants").
+    if (row.ownerType === "workspace") {
+      await authorize(c, deps, "connections.admin", { type: "workspace", id: ws });
+    }
     // A bot the whole workspace can talk to is what the on-behalf-of rule is about (spec §3.5).
     const shared =
       body.subject_type === "bot"
@@ -626,6 +631,9 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
     await authorize(c, deps, "connections.write", { type: "workspace", id: ws });
     const row = await connections.connectionFor(ws, currentUser(c).id, id);
     if (!row) throw PerchError.notFound("connection");
+    if (row.ownerType === "workspace") {
+      await authorize(c, deps, "connections.admin", { type: "workspace", id: ws });
+    }
     const gone = await connections.revoke(row, grant, actorOf(c));
     if (!gone) throw PerchError.notFound("grant");
     return c.body(null, 204);

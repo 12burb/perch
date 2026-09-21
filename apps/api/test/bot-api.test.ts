@@ -353,6 +353,61 @@ describe("the Bot API (task 2.19)", () => {
     );
   }, 60_000);
 
+  test("a grant is revoked on its own connection only, and a tool that needs a person is not a bot's", async () => {
+    const bot = new PerchBot({ url: base, token: toolToken });
+    const other = (await call(`/api/workspaces/${ws}/connections`, {
+      method: "POST",
+      json: {
+        kind: "token",
+        provider: "vercel",
+        token: "stand-in-two",
+        owner_type: "workspace",
+        api_base: provider?.url.origin ?? "",
+      },
+    })) as { status: number; body: Id };
+    expect(other.status).toBe(201);
+    const granted = (await call(`/api/workspaces/${ws}/connections/${other.body.id}/grants`, {
+      method: "POST",
+      json: {
+        subject_type: "bot",
+        subject_id: botId,
+        allowed_tools: ["list_projects", "delete_project"],
+        requires_permission: ["delete_project"],
+      },
+    })) as { status: number; body: { id: string } };
+    expect(granted.status).toBe(201);
+
+    // Revoking it through another connection's route finds nothing (spec §9.1 scoping) …
+    const first = (await call(`/api/workspaces/${ws}/connections`)) as {
+      body: { connections: Id[] };
+    };
+    const elsewhere = first.body.connections.find((one) => one.id !== other.body.id);
+    expect(elsewhere).toBeDefined();
+    const wrong = await call(
+      `/api/workspaces/${ws}/connections/${elsewhere?.id}/grants/${granted.body.id}`,
+      { method: "DELETE" },
+    );
+    expect(wrong.status).toBe(404);
+    // … and the grant is still there.
+    const listed = (await call(`/api/workspaces/${ws}/connections/${other.body.id}/grants`)) as {
+      body: { grants: { id: string }[] };
+    };
+    expect(listed.body.grants.map((one) => one.id)).toContain(granted.body.id);
+
+    // A tool the grant says needs a person's permission each time (task 3.6) has nobody to ask on
+    // this path, so an outside bot is refused it — and still gets the tool that needs nobody.
+    const asked = await bot.tools
+      .call({ connection_id: other.body.id, tool: "delete_project" })
+      .catch((error: unknown) => error as PerchBotError);
+    expect((asked as PerchBotError).status).toBe(403);
+    expect((asked as PerchBotError).message).toContain("permission");
+    const plain = await bot.tools
+      .call({ connection_id: other.body.id, tool: "list_projects" })
+      .catch((error: unknown) => error as PerchBotError);
+    expect((plain as PerchBotError).message ?? "").not.toContain("permission");
+    expect((plain as PerchBotError).message ?? "").not.toContain("granted");
+  }, 60_000);
+
   test("sixty calls a minute, and the sixty-first says how long to wait", async () => {
     const bot = new PerchBot({ url: base, token });
     // The window is per bot and this test shares it with the ones above, so the count is what is

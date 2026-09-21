@@ -214,6 +214,35 @@ describe("deploys and the database panel (task 2.15)", () => {
     expect(JSON.stringify(after.body)).not.toContain(vercel.token);
   }, 60_000);
 
+  test("a card goes into a channel the caller can see, and nowhere else", async () => {
+    // Bea joins and makes a private room of her own; Ada, who owns the workspace, is not in it.
+    const stamp = Date.now();
+    const bea = await signUp("Bea", `bea-deploy-${stamp}@perch.test`);
+    const invite = (await call(`/api/workspaces/${ws}/invites`, cookie, {
+      method: "POST",
+      json: { email: `bea-deploy-${stamp}@perch.test`, role: "member" },
+    })) as { body: { accept_url: string } };
+    const accept = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect((await call(`/api/invites/${accept}/accept`, bea, { method: "POST" })).status).toBe(200);
+    const room = (await call(`/api/workspaces/${ws}/channels`, bea, {
+      method: "POST",
+      json: { type: "private", name: "beas-room" },
+    })) as { status: number; body: { id: string } };
+    expect(room.status).toBe(201);
+
+    const posted = await call(`/api/workspaces/${ws}/projects/${projectId}/deploys`, cookie, {
+      method: "POST",
+      json: { connection_id: vercelId, channel_id: room.body.id, target: "preview" },
+    });
+    expect(posted.status).toBe(404);
+    const inside = (await call(`/api/workspaces/${ws}/channels/${room.body.id}/messages`, bea)) as {
+      body: { messages: MessageRow[] };
+    };
+    expect(
+      inside.body.messages.flatMap((row) => row.blocks).some((b) => b.type === "deploy_card"),
+    ).toBe(false);
+  }, 60_000);
+
   test("the database panel reads, and refuses anything that writes", async () => {
     const tables = (await call(
       `/api/workspaces/${ws}/connections/${supabaseId}/db/tables`,

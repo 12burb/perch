@@ -453,5 +453,21 @@ describe("a native bot (task 2.6)", () => {
       json: { handle: "shared", name: "Shared", visibility: "workspace" },
     });
     expect(shared.status).toBe(403);
+
+    // Nor mint a token that acts as somebody else's bot: a Bot API token is the owner's to make,
+    // or an admin's (ADR-0112, revised) — seeing a bot is not the same as being it.
+    const minted = await call(`/api/workspaces/${ws}/bots/${botId}/tokens`, wren.cookie, {
+      method: "POST",
+      json: { name: "wren-as-news", scopes: ["chat:write"] },
+    });
+    expect(minted.status).toBe(403);
+    expect((await call(`/api/workspaces/${ws}/bots/${botId}/tokens`, wren.cookie)).status).toBe(
+      403,
+    );
+    const own = await call(`/api/workspaces/${ws}/bots/${botId}/tokens`, robin.cookie, {
+      method: "POST",
+      json: { name: "robin-as-news", scopes: ["chat:write"] },
+    });
+    expect(own.status).toBe(201);
   }, 60_000);
 });

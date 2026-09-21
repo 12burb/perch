@@ -23,6 +23,7 @@ import {
   removeMember,
   updateChannel,
 } from "../repos/channels.ts";
+import { findMembership } from "../repos/workspaces.ts";
 
 export type ChannelDeps = { db: { db: Db }; bus: Bus };
 
@@ -105,6 +106,15 @@ export async function createChannel(
     const taken = await findChannelByName(deps.db.db, input.workspaceId, name);
     if (taken) throw PerchError.conflict(`#${name} already exists`);
   }
+  // Everybody named is a member of the workspace (spec §9.1 scoping), checked before anything
+  // is written so a bad name leaves no half-made channel behind.
+  const people = new Set<string>([input.userId, ...(input.members ?? [])]);
+  for (const person of people) {
+    if (person === input.userId) continue;
+    if (!(await findMembership(deps.db.db, input.workspaceId, person))) {
+      throw PerchError.notFound("user");
+    }
+  }
   const channel = await insertChannel(deps.db.db, {
     workspaceId: input.workspaceId,
     type: input.type,
@@ -112,7 +122,6 @@ export async function createChannel(
     topic: input.topic?.trim() || null,
     projectId: input.projectId ?? null,
   });
-  const people = new Set<string>([input.userId, ...(input.members ?? [])]);
   for (const userId of people) {
     await addMember(deps.db.db, {
       channelId: channel.id,
@@ -206,6 +215,13 @@ export async function joinChannel(
   if (targetId !== input.userId || channel.type !== "public") {
     const inside = await findMember(deps.db.db, channel.id, "user", input.userId);
     if (!inside) throw PerchError.notFound("channel");
+  }
+  // Somebody outside the workspace cannot be put in one of its channels (spec §9.1 scoping).
+  if (
+    targetId !== input.userId &&
+    !(await findMembership(deps.db.db, channel.workspaceId, targetId))
+  ) {
+    throw PerchError.notFound("user");
   }
   await addMember(deps.db.db, {
     channelId: channel.id,

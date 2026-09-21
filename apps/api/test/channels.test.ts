@@ -187,6 +187,25 @@ describe("channels (task 2.1)", () => {
     expect(added.status).toBe(200);
     const robinNowSees = (await call(`/api/workspaces/${ws}/channels`, member.cookie)) as Listing;
     expect(robinNowSees.body.channels.map((c) => c.name)).toContain("secrets");
+
+    // Somebody who is not in the workspace cannot be put in one of its channels, by adding them
+    // or by naming them when the channel is made (spec §9.1 scoping).
+    const stranger = await signUp("Tern", `tern-channels-${Date.now()}@perch.test`);
+    const smuggled = await call(
+      `/api/workspaces/${ws}/channels/${privateOne.id}/members`,
+      owner.cookie,
+      { method: "POST", json: { user_id: stranger.id } },
+    );
+    expect(smuggled.status).toBe(404);
+    const withStranger = await call(`/api/workspaces/${ws}/channels`, owner.cookie, {
+      method: "POST",
+      json: { type: "private", name: "with-a-stranger", members: [stranger.id] },
+    });
+    expect(withStranger.status).toBe(404);
+    const still = (await call(`/api/workspaces/${ws}/channels`, stranger.cookie)) as {
+      status: number;
+    };
+    expect(still.status).toBe(404);
   });
 
   test("unread is what arrived since you last read, and never your own", async () => {

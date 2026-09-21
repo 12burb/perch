@@ -10,7 +10,7 @@ import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
-import { getChannel } from "../repos/channels.ts";
+import { channelFor } from "../services/channels.ts";
 import { getProject } from "../services/projects.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
 
@@ -156,8 +156,8 @@ export function registerDeploys(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const user = currentUser(c);
     const project = await getProject(deps.db.db, ws, projectId);
     if (!project) throw PerchError.notFound("project");
-    const channel = await getChannel(deps.db.db, body.channel_id);
-    if (!channel || channel.workspaceId !== ws) throw PerchError.notFound("channel");
+    // The caller's own view of the channel (spec §2.1), as for a message.
+    const channel = await channelFor(deps, ws, body.channel_id, user.id);
     const connection = await connectionOf(ws, user.id, body.connection_id);
     const { deployment, message } = await deps.deploys.start({
       project,

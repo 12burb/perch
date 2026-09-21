@@ -308,6 +308,14 @@ export class BotApiService {
       invokedBy: null,
     });
     if (!may.ok) throw PerchError.forbidden(may.reason, { rule: "connection.grant" });
+    // A tool the grant says needs a person's permission each time (task 3.6) has nobody to ask on
+    // this path — the native runtime prompts the thread; an outside bot is refused instead.
+    if (may.requiresPermission?.includes(input.tool)) {
+      throw PerchError.forbidden("that tool needs a person's permission each time", {
+        rule: "connection.permission",
+        tool: input.tool,
+      });
+    }
     return this.deps.mcp.call({
       connection,
       allowList: may.allowedTools,

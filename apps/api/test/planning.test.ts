@@ -257,6 +257,35 @@ describe("cycles, modules, views and intake (task 3.26)", () => {
       },
     });
     expect(made.status).toBe(201);
+
+    // A cycle is its project's: an item in another project cannot be put in it (spec §9.1
+    // scoping), any more than under a parent from elsewhere — and the same for a module.
+    const elsewhere = (await call(`/api/workspaces/${ws}/projects`, {
+      method: "POST",
+      json: { name: "Elsewhere", source: "empty" },
+    })) as { status: number; body: { id: string } };
+    expect(elsewhere.status).toBe(201);
+    const stray = (await call(`/api/workspaces/${ws}/projects/${elsewhere.body.id}/work-items`, {
+      method: "POST",
+      json: { title: "not in this cycle" },
+    })) as { status: number; body: Item };
+    expect(stray.status).toBe(201);
+    const intoCycle = await call(`/api/work-items/${stray.body.id}`, {
+      method: "PATCH",
+      json: { cycle_id: (made.body as { id: string }).id },
+    });
+    expect(intoCycle.status).toBe(404);
+    const module = (await call(`/api/workspaces/${ws}/projects/${project}/modules`, {
+      method: "POST",
+      json: { name: "Billing" },
+    })) as { status: number; body: { id: string } };
+    expect(module.status).toBe(201);
+    const intoModule = await call(`/api/work-items/${stray.body.id}`, {
+      method: "PATCH",
+      json: { module_id: module.body.id },
+    });
+    expect(intoModule.status).toBe(404);
+    expect(((await call(`/api/work-items/${stray.body.id}`)).body as Item).cycle_id).toBeNull();
     const cycle = made.body as { id: string; status: string };
 
     const next = (

@@ -874,7 +874,8 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   app.openapi(listTokensRoute, async (c) => {
     const { ws, bot: id } = c.req.valid("param");
     await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
-    const bot = await visible(ws, id, currentUser(c).id);
+    // A token acts as the bot, so it is the owner's to mint — or an admin's (ADR-0112, revised).
+    const bot = await mine(c, ws, id);
     const rows = await listBotTokens(deps.db.db, bot.id);
     return c.json({ tokens: rows.map(tokenBody) }, 200);
   });
@@ -883,7 +884,8 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const { ws, bot: id } = c.req.valid("param");
     const body = c.req.valid("json");
     await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
-    const bot = await visible(ws, id, currentUser(c).id);
+    // A token acts as the bot, so it is the owner's to mint — or an admin's (ADR-0112, revised).
+    const bot = await mine(c, ws, id);
     const token = botTokenValue();
     const row = await insertBotToken(deps.db.db, {
       botId: bot.id,
@@ -903,7 +905,8 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   app.openapi(revokeTokenRoute, async (c) => {
     const { ws, bot: id, token } = c.req.valid("param");
     await authorize(c, deps, "bots.write", { type: "workspace", id: ws });
-    const bot = await visible(ws, id, currentUser(c).id);
+    // A token acts as the bot, so it is the owner's to mint — or an admin's (ADR-0112, revised).
+    const bot = await mine(c, ws, id);
     if (!(await revokeBotToken(deps.db.db, bot.id, token))) throw PerchError.notFound("token");
     return c.body(null, 204);
   });

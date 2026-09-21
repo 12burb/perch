@@ -4080,6 +4080,10 @@ used, and when it was revoked — the same shape `api_tokens` already has, for t
 value starts `pbot_`, which is what tells a bot's bearer apart from a person's at the door. Minting
 and revoking live on the bot's card in the Forge and under `.../bots/{bot}/tokens`, authorized with
 `bots.write`: giving a program the right to act as a bot is an admin decision, not a bot's.
+*Revised by the code audit:* `bots.write` is every member's, so that sentence was not what the
+code did — any member could mint a token that acts as an admin's workspace-visible bot, with the
+connections granted to it. Tokens are now the owner's to mint, list and revoke, or an admin's for
+anybody else's bot (`mine`, the same rule as changing or deleting the bot).
 **No Bot API call names a workspace.** A token names one bot, a bot belongs to one workspace, so the
 routes are `/api/bot/chat.postMessage` rather than `/api/workspaces/{ws}/…`. A bot that had to say
 which workspace it was in could try to say the wrong one.

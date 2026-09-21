@@ -146,10 +146,11 @@ export async function upsertGrant(
   return row;
 }
 
-export async function deleteGrant(db: Db, id: string): Promise<boolean> {
+/** Scoped to the connection (spec §9.1): a grant id from elsewhere deletes nothing here. */
+export async function deleteGrant(db: Db, connectionId: string, id: string): Promise<boolean> {
   const rows = await db
     .delete(connectionGrants)
-    .where(eq(connectionGrants.id, id))
+    .where(and(eq(connectionGrants.connectionId, connectionId), eq(connectionGrants.id, id)))
     .returning({ id: connectionGrants.id });
   return rows.length > 0;
 }

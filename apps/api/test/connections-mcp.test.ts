@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Booted } from "../src/boot.ts";
+import { getConnection } from "../src/repos/connections.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -203,6 +204,11 @@ describe("connections v2 (task 2.14)", () => {
     // The token it traded for is not in any answer, here or anywhere.
     expect(list.text).not.toContain("mcp-access-token");
     expect(list.text).not.toContain("registered-secret");
+    // What goes upstream as the bearer is the access token alone — never the stored pair with
+    // the refresh token in it (AGENTS.md §1.6).
+    const stored = await getConnection(booted.db.db, connectionId);
+    expect(stored).not.toBeNull();
+    if (stored) expect(await booted.connections.tokenFor(stored)).toBe("mcp-access-token");
 
     // A replayed callback finds nothing: the state was single-use.
     const again = await call(

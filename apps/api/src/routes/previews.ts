@@ -13,10 +13,10 @@ import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
-import { getChannel } from "../repos/channels.ts";
 import { insertMessage } from "../repos/messages.ts";
 import { getShare } from "../repos/previews.ts";
 import { findWorkspaceById } from "../repos/workspaces.ts";
+import { channelFor } from "../services/channels.ts";
 import { editElement } from "../services/element-edit.ts";
 import { storeUpload } from "../services/files.ts";
 import {
@@ -408,8 +408,9 @@ export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
 
     let messageId: string | null = null;
     if (body.channel_id) {
-      const channel = await getChannel(deps.db.db, body.channel_id);
-      if (!channel || channel.workspaceId !== ws) throw PerchError.notFound("channel");
+      // The caller's own view of the channel (spec §2.1): a private one they are not in is not
+      // a place they can post a card, any more than a message.
+      const channel = await channelFor(deps, ws, body.channel_id, user.id);
       const message = await insertMessage(deps.db.db, {
         workspaceId: ws,
         channelId: channel.id,
@@ -517,8 +518,9 @@ export function registerPreviews(app: OpenAPIHono<AppEnv>, deps: Deps): void {
 
     let messageId: string | null = null;
     if (body.channel_id) {
-      const channel = await getChannel(deps.db.db, body.channel_id);
-      if (!channel || channel.workspaceId !== ws) throw PerchError.notFound("channel");
+      // The caller's own view of the channel (spec §2.1): a private one they are not in is not
+      // a place they can post a card, any more than a message.
+      const channel = await channelFor(deps, ws, body.channel_id, user.id);
       const message = await insertMessage(deps.db.db, {
         workspaceId: ws,
         channelId: channel.id,
