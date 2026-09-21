@@ -61,6 +61,7 @@
   "ui.settings": "Settings",
   "ui.badgeCount": "{count} new",
   "ui.unreadCount": "{count} unread",
+  "ui.showMore": "Show {count} more",
   "ui.openFull": "Open full",
   "ui.commandPalette": "Command palette",
   "ui.commandPlaceholder": "Type a command or search…",
@@ -100,6 +101,7 @@
   "shell.home.emptyTitle": "No channels yet",
   "shell.home.emptyHint": "Channels and messages land with Phase 2. Invite your team from workspace settings meanwhile.",
   "shell.code.projects": "Projects",
+  "shell.code.allProjects": "All {count} projects",
   "shell.code.projectsEmpty": "No projects yet.",
   "shell.code.sessions": "Sessions",
   "shell.code.sessionsEmpty": "No sessions yet.",
@@ -307,6 +309,7 @@
   "hub.emptyHint": "Try a shorter word, or clear the filter: the Hub only holds what this build ships.",
   "hub.skillNeedsBot": "Which bot?",
   "hub.skillNeedsBotHint": "A skill goes onto a bot that is already here. Type its handle.",
+  "hub.skillNeedsBotPlaceholder": "dawn",
   "hub.results": "{count} in the Hub",
   "hub.installedInto": "Installed"
 }

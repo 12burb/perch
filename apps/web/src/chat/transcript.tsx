@@ -529,6 +529,10 @@ export function ChannelTranscript(props: {
     }
     await queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId, "channels"] });
   };
+  // The handler below lives as long as the channel; it reads the latest `invalidate` (which
+  // closes over the open thread) through a ref rather than re-subscribing on every render.
+  const latestInvalidate = useRef(invalidate);
+  latestInvalidate.current = invalidate;
 
   /**
    * Every message.* and reaction.* on this workspace's topic is a reason to look again, and so is
@@ -540,7 +544,7 @@ export function ChannelTranscript(props: {
     return socket.onEvent((envelope) => {
       if (envelope.topic !== `ws:${props.workspaceId}`) return;
       if (envelope.type.startsWith("message.") || envelope.type.startsWith("reaction.")) {
-        void invalidate();
+        void latestInvalidate.current();
       }
       // A hop, or the breaker: the thread's header says what the bots have been doing (task 2.7).
       if (envelope.type.startsWith("bot.") || envelope.type.startsWith("thread.")) {
@@ -557,7 +561,7 @@ export function ChannelTranscript(props: {
         });
       }
     });
-  });
+  }, [props.workspaceId, props.channelId, queryClient]);
 
   const send = useMutation({
     mutationFn: async (input: { text: string; threadRootId?: string }) =>

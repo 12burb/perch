@@ -96,6 +96,16 @@ A `.tsx` under `apps/web/src` or `packages/ui/src` that has its own scroll conta
 and is *not* in the register fails the audit. That is the part that matters: a new screen with a
 long list cannot get past CI without somebody writing down how it stays fast.
 
+Three lists render in the page's own scroller, which the net does not see: the sidebar's projects,
+the Projects table and the members table. They are capped by hand and registered like the rest
+(ADR-0167).
+
+### Strings
+
+Every user-facing string goes through `t("key")` (AGENTS.md §5). `apps/web/test/strings.test.ts`
+walks `apps/web/src` and `packages/ui/src` and fails on a literal `placeholder="…"` or
+`aria-label="…"`, so a string a locale cannot replace never reaches a screen (ADR-0167).
+
 ## Pins
 
 Actions are pinned to major tags today; Renovate (`helpers:pinGitHubActionDigests`) pins them to digests

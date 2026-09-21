@@ -6619,3 +6619,39 @@ the wire never answered).
 **Consequences.** The runner image loses a package it never ran. A test or script that imports a new
 package declares it in its own workspace. The repository invariant fails on a peer range. Renovate
 opens pull requests for the image's build arguments and the agent manifest, grouped as above.
+
+## ADR-0167: The pane's feed is a thing of its own, a table is drawn a page at a time, and a string is never a literal
+
+**Status:** accepted · **Task:** code audit (UI lens) · **Spec:** §1.7, §4, §5.1, §9.1, ADR-0085, ADR-0113
+
+Six findings on the web app, under three rules.
+
+**The session pane's feed is pure of React.** `useTranscript` kept its replay and its in-flight
+fetch in refs inside the hook, and a switch between sessions with a replay still on its way did two
+wrong things: the old session's rows merged into the new session's records once they arrived, and
+the new session's own replay was skipped, because the hook's "one fetch at a time" mark still
+pointed at the old one (whose `finally` then cleared whichever mark was current). `TranscriptFeed`
+(`apps/web/src/code/transcript-feed.ts`) holds the records, the last seq, the in-flight replay and a
+generation number; a switch bumps the generation and drops the mark, and a replay that comes back
+under an older generation lands nowhere. The hook is the thin React shell over it. The feed has unit
+tests for exactly those cases, which the hook could not have: `bun test` here has no DOM. The channel
+transcript's socket effect had no dependency list, so every render re-subscribed to the workspace
+topic; it subscribes once per channel and reads the latest `invalidate` through a ref.
+
+**A list in the page's own scroller is capped too.** The perf audit's net (ADR-0113) catches a file
+with its own scroll container and a `.map(`; the sidebar's Projects section, the Projects table and
+the members table render into the page's scroller, were not caught, and drew every row. The sidebar
+draws thirty projects and a link to the table (the cap the channels section already has); the two
+tables draw a page of a hundred rows and a page more per ask (`shownRows` in
+`apps/web/src/lib/paged.ts`). All three are in the register with their caps as proof. A table stays
+a table: windowing its rows through the virtual list would drop the semantics a screen reader and
+the tests rely on, and a hundred rows is a DOM a phone draws without noticing.
+
+**A user-facing string is never a literal.** Two placeholders and a checkbox's label were written in
+the markup; they go through `t()` now, and `apps/web/test/strings.test.ts` fails on the next
+`placeholder="…"` or `aria-label="…"` literal under `apps/web/src` or `packages/ui/src` (demos
+excepted; a `${…}` selector inside a template string is not a label).
+
+**Consequences.** Switching sessions mid-replay shows the right transcript; a workspace with many
+projects or members loads a page rather than everything; a new literal string fails the unit tests
+rather than a review.

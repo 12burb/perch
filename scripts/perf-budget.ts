@@ -340,6 +340,22 @@ export const LIST_SURFACES = [
     list: "the drawer's tabs",
     how: { bounded: "the fixed set Code mode passes in: terminal, console, git, problems" },
   },
+  // Three lists in the page's own scroller, which the net below does not see (ADR-0167).
+  {
+    file: "apps/web/src/shell/sidebars.tsx",
+    list: "the sidebar's projects, in Code mode",
+    how: { capped: 30, in: "apps/web/src/shell/sidebars.tsx", proof: "SIDEBAR_ROWS = 30" },
+  },
+  {
+    file: "apps/web/src/code/projects.tsx",
+    list: "the workspace's projects, in the Projects table",
+    how: { capped: 100, in: "apps/web/src/lib/paged.ts", proof: "PAGE = 100" },
+  },
+  {
+    file: "apps/web/src/routes/_app/$workspace/settings.tsx",
+    list: "the workspace's members",
+    how: { capped: 100, in: "apps/web/src/lib/paged.ts", proof: "PAGE = 100" },
+  },
 ] as const;
 
 type Surface = (typeof LIST_SURFACES)[number];

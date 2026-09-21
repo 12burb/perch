@@ -167,7 +167,7 @@ function HubCard(props: { item: HubItem; workspaceId: string }) {
               {...control}
               value={bot}
               autoComplete="off"
-              placeholder="dawn"
+              placeholder={t("hub.skillNeedsBotPlaceholder")}
               onChange={(event) => setBot(event.target.value)}
             />
           )}

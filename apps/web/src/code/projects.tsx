@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, type FormEvent, useEffect, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
+import { shownRows } from "../lib/paged.ts";
 import {
   connectionsQuery,
   deployKeyQuery,
@@ -71,6 +72,8 @@ export function ProjectList(props: {
     onError: (err) => setError(message(err)),
   });
   const rows = projects.data ?? [];
+  const [pages, setPages] = useState(1);
+  const shown = shownRows(rows, pages);
   if (projects.isSuccess && rows.length === 0) {
     return <EmptyState title={t("projects.empty")} hint={t("projects.emptyHint")} />;
   }
@@ -105,7 +108,7 @@ export function ProjectList(props: {
             </tr>
           </thead>
           <tbody>
-            {rows.map((project) => (
+            {shown.rows.map((project) => (
               <tr key={project.id} className="border-t border-border" data-testid="project-row">
                 <td className="py-2 pr-3">
                   {project.status === "ready" ? (
@@ -157,6 +160,16 @@ export function ProjectList(props: {
           </tbody>
         </table>
       </div>
+      {shown.hidden > 0 ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={() => setPages(pages + 1)}
+        >
+          {t("ui.showMore", { count: shown.hidden })}
+        </Button>
+      ) : null}
     </section>
   );
 }
@@ -389,7 +402,7 @@ export function NewProjectSection(props: { workspaceId: string; canRotateKey: bo
               <Input
                 {...control}
                 name="branch"
-                placeholder="main"
+                placeholder={t("projects.branchPlaceholder")}
                 maxLength={200}
                 autoComplete="off"
               />

@@ -10,6 +10,7 @@ import { PolicySection } from "../../../components/policy-section.tsx";
 import { UsageSection } from "../../../components/usage-section.tsx";
 import { api, RequestFailed, unwrap } from "../../../lib/api.ts";
 import { connectOutcome } from "../../../lib/connect-outcome.ts";
+import { shownRows } from "../../../lib/paged.ts";
 import { type Member, membersQuery } from "../../../lib/queries.ts";
 import { useAppShell } from "../../../shell/app-shell.tsx";
 import { ModePage } from "../../../shell/mode-page.tsx";
@@ -148,6 +149,8 @@ function MembersSection(props: { workspaceId: string; myId: string; myRole: Role
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const members = useQuery(membersQuery(props.workspaceId)).data ?? [];
+  const [pages, setPages] = useState(1);
+  const shown = shownRows(members, pages);
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["workspace", props.workspaceId] });
   const changeRole = useMutation({
@@ -219,7 +222,7 @@ function MembersSection(props: { workspaceId: string; myId: string; myRole: Role
             </tr>
           </thead>
           <tbody>
-            {members.map((member) => (
+            {shown.rows.map((member) => (
               <tr key={member.user_id} className="border-t border-border">
                 <td className="py-2 pr-3">
                   {member.name} <span className="text-fg-muted">@{member.handle}</span>
@@ -278,6 +281,16 @@ function MembersSection(props: { workspaceId: string; myId: string; myRole: Role
           </tbody>
         </table>
       </div>
+      {shown.hidden > 0 ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={() => setPages(pages + 1)}
+        >
+          {t("ui.showMore", { count: shown.hidden })}
+        </Button>
+      ) : null}
     </section>
   );
 }

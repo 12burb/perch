@@ -27,6 +27,7 @@ import { type ContextChip, useContextChips, withChips } from "./context-store.ts
 import { editorFor, useEditorStore } from "./editor-store.ts";
 import { useTerminalQueue } from "./terminal-store.ts";
 import { reduceTranscript, type TranscriptRecord } from "./transcript.ts";
+import { type FeedRow, TranscriptFeed } from "./transcript-feed.ts";
 
 type Mode = "plan" | "build";
 type SessionMode = Mode;
@@ -44,50 +45,35 @@ export type ProjectActionView = {
   reasoning: Reasoning | null;
 };
 
+/** The replay: every event after a seq, as the api keeps them (task 1.8). */
+async function fetchRows(sessionId: string, afterSeq: number): Promise<FeedRow[]> {
+  const result = unwrap(
+    await api.GET("/api/sessions/{s}/events", {
+      params: { path: { s: sessionId }, query: { after_seq: afterSeq, limit: 1000 } },
+    }),
+  );
+  return (result.events as SessionEventRecord[]).map((row) => ({
+    seq: row.seq,
+    event: row.event as TranscriptRecord["event"],
+  }));
+}
+
 /** The transcript so far: a replay, then every event the topic announces (deltas inline). */
 function useTranscript(sessionId: string) {
   const [records, setRecords] = useState<TranscriptRecord[]>([]);
   const [answers, setAnswers] = useState<Map<string, PermissionAnswerKind>>(() => new Map());
-  const lastSeq = useRef(0);
-  const fetching = useRef<Promise<void> | null>(null);
   const queryClient = useQueryClient();
-
-  const fetchAfter = useCallback(
-    async (after: number) => {
-      const result = unwrap(
-        await api.GET("/api/sessions/{s}/events", {
-          params: { path: { s: sessionId }, query: { after_seq: after, limit: 1000 } },
-        }),
-      );
-      const rows = result.events as SessionEventRecord[];
-      setRecords((current) => {
-        const known = new Set(current.map((r) => r.seq));
-        const fresh = rows
-          .filter((r) => !known.has(r.seq))
-          .map((r) => ({ seq: r.seq, event: r.event as TranscriptRecord["event"] }));
-        if (fresh.length === 0) return current;
-        const merged = [...current, ...fresh].sort((a, b) => a.seq - b.seq);
-        lastSeq.current = merged.at(-1)?.seq ?? lastSeq.current;
-        return merged;
-      });
-    },
-    [sessionId],
-  );
-
-  const catchUp = useCallback(() => {
-    if (fetching.current) return fetching.current;
-    const run = fetchAfter(lastSeq.current).finally(() => {
-      fetching.current = null;
-    });
-    fetching.current = run;
-    return run;
-  }, [fetchAfter]);
+  // One feed for the pane's life; a new session id switches it, and whatever the old session's
+  // replay still answers lands nowhere (ADR-0167).
+  const feedRef = useRef<TranscriptFeed | null>(null);
+  if (feedRef.current === null) feedRef.current = new TranscriptFeed(fetchRows, setRecords);
+  const feed = feedRef.current;
+  const catchUp = useCallback(() => feed.catchUp(), [feed]);
 
   useEffect(() => {
-    setRecords([]);
+    feed.switchTo(sessionId);
     setAnswers(new Map());
-    lastSeq.current = 0;
-    void catchUp();
+    void feed.catchUp();
     const socket = getSocket();
     const topic = `session:${sessionId}`;
     socket.subscribe(topic);
@@ -100,16 +86,8 @@ function useTranscript(sessionId: string) {
         answer?: PermissionAnswerKind;
       };
       if (envelope.type === "session.delta" && typeof payload.seq === "number") {
-        if (payload.seq === lastSeq.current + 1 && typeof payload.delta === "string") {
-          lastSeq.current = payload.seq;
-          const delta = payload.delta;
-          setRecords((current) => [
-            ...current,
-            { seq: payload.seq as number, event: { type: "text", delta } },
-          ]);
-        } else {
-          void catchUp();
-        }
+        if (typeof payload.delta === "string") feed.delta(payload.seq, payload.delta);
+        else void feed.catchUp();
         return;
       }
       if (envelope.type === "session.permission_answered" && payload.permissionId) {
@@ -120,13 +98,13 @@ function useTranscript(sessionId: string) {
       if (envelope.type === "session.status" || envelope.type === "session.done") {
         void queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
       }
-      void catchUp();
+      void feed.catchUp();
     });
     return () => {
       off();
       socket.unsubscribe(topic);
     };
-  }, [sessionId, catchUp, queryClient]);
+  }, [sessionId, feed, queryClient]);
 
   return { records, answers, catchUp };
 }

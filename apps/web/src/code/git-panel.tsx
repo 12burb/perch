@@ -229,7 +229,7 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
               <Input
                 {...control}
                 value={newBranch}
-                placeholder="perch/fix-login"
+                placeholder={t("git.newBranchPlaceholder")}
                 onChange={(event) => setNewBranch(event.target.value)}
                 className="w-48"
               />

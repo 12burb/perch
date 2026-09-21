@@ -13,6 +13,7 @@
   "projects.repoUrl": "Repository URL",
   "projects.repoUrlHint": "https://…, ssh://…, or git@host:owner/repo.git",
   "projects.branch": "Branch (optional)",
+  "projects.branchPlaceholder": "main",
   "projects.auth": "Authentication",
   "projects.auth.none": "None (public repository)",
   "projects.auth.token": "Access token",
@@ -216,6 +217,7 @@
   "preview.unreachable": "Nothing is answering on that port.",
   "git.title": "Git",
   "git.branch": "Branch",
+  "git.newBranchPlaceholder": "perch/fix-login",
   "git.branchNew": "New branch",
   "git.branchCreate": "Create",
   "git.switch": "Switch",
@@ -350,5 +352,6 @@
   "codebase.draftSave": "Save to the project",
   "git.reloadBots": "Reload bots",
   "git.botsSynced": "Bots: {added} added, {updated} updated, {removed} removed",
-  "git.botsFailed": "{handle}: {error}"
+  "git.botsFailed": "{handle}: {error}",
+  "markdown.task": "Task"
 }

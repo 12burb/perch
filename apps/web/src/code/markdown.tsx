@@ -1,5 +1,7 @@
 import type { SyntaxNode } from "@lezer/common";
 import { GFM, parser } from "@lezer/markdown";
+import "@perch/ui/i18n/code";
+import { t } from "@perch/ui";
 import { type ReactNode, useMemo } from "react";
 
 /**
@@ -114,7 +116,13 @@ function render(
       const checked = marker ? /x/i.test(text(source, marker)) : false;
       return (
         <span key={key}>
-          <input type="checkbox" checked={checked} readOnly aria-label="task" className="mr-1" />
+          <input
+            type="checkbox"
+            checked={checked}
+            readOnly
+            aria-label={t("markdown.task")}
+            className="mr-1"
+          />
           {inner()}
         </span>
       );

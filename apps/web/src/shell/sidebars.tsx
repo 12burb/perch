@@ -210,6 +210,9 @@ function OpenProjectPreviews(props: { workspace: MyWorkspace; empty: MessageKey 
   );
 }
 
+/** The sidebar draws this many projects; the rest are one click away in the Projects table. */
+const SIDEBAR_ROWS = 30;
+
 /**
  * Code mode's Projects section: the workspace's projects (task 1.4), and, with a project open, that
  * project's file tree (task 1.6) with a way back to the list.
@@ -258,14 +261,22 @@ function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
       {projects.length === 0 ? (
         <li className="px-2 py-1 text-sm text-fg-subtle">{t(props.empty)}</li>
       ) : (
-        projects.map((project) => (
-          <SidebarItem
-            key={project.id}
-            label={project.name}
-            href={`/${props.workspace.slug}/code/${project.key}`}
-            muted={project.status !== "ready"}
-          />
-        ))
+        <>
+          {projects.slice(0, SIDEBAR_ROWS).map((project) => (
+            <SidebarItem
+              key={project.id}
+              label={project.name}
+              href={`/${props.workspace.slug}/code/${project.key}`}
+              muted={project.status !== "ready"}
+            />
+          ))}
+          {projects.length > SIDEBAR_ROWS ? (
+            <SidebarItem
+              label={t("shell.code.allProjects", { count: projects.length })}
+              href={`/${props.workspace.slug}/code`}
+            />
+          ) : null}
+        </>
       )}
     </SidebarSection>
   );
