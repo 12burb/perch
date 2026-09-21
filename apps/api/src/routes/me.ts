@@ -2,7 +2,9 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { API_TOKEN_SCOPES } from "@perch/db";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
+import { PerchError } from "../errors.ts";
 import { emailVerified } from "../repos/users.ts";
+import { findMembership } from "../repos/workspaces.ts";
 import { createApiToken, listApiTokens, revokeApiToken } from "../services/tokens.ts";
 import { updateProfile } from "../services/users.ts";
 import { errorResponses, SESSION_ONLY, SESSION_OR_BEARER } from "./shared.ts";
@@ -196,6 +198,14 @@ export function registerMe(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">): vo
   app.openapi(createToken, async (c) => {
     const user = currentUser(c);
     const body = c.req.valid("json");
+    // A token bound to a workspace is bound to a membership: the MCP routes take the workspace
+    // from the token rather than from the path, so the binding is checked here, when it is made,
+    // and again on every use (routes/mcp.ts), so that leaving the workspace ends it.
+    if (body.workspace_id && !(await findMembership(deps.db.db, body.workspace_id, user.id))) {
+      throw PerchError.forbidden("not a member of that workspace", {
+        workspace_id: body.workspace_id,
+      });
+    }
     const created = await createApiToken(deps.db.db, {
       userId: user.id,
       name: body.name,

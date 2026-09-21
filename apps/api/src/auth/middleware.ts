@@ -22,6 +22,7 @@ export function authenticate(deps: Pick<Deps, "db" | "auth">): MiddlewareHandler
             c.set("userId", user.id);
             c.set("authKind", "token");
             c.set("tokenScopes", resolved.scopes);
+            if (resolved.workspaceId) c.set("tokenWorkspaceId", resolved.workspaceId);
           }
         }
       }

@@ -59,6 +59,10 @@ export async function authorize(
   const user = currentUser(c);
   const workspaceId = workspaceOf(resource);
   c.set("workspaceId", workspaceId);
+  // A token bound to one workspace is a stranger everywhere else (ADR-0162): the same answer a
+  // non-member gets, so a bound token cannot even tell which other workspaces its owner is in.
+  const bound = c.get("authKind") === "token" ? c.get("tokenWorkspaceId") : undefined;
+  if (bound && bound !== workspaceId) throw PerchError.notFound("workspace");
   const membership = await findMembership(deps.db.db, workspaceId, user.id);
   const scopes = c.get("authKind") === "token" ? (c.get("tokenScopes") ?? []) : undefined;
   const ctx: AuthzContext = {

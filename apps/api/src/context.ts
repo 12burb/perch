@@ -49,6 +49,8 @@ export type AppVariables = {
   user?: User;
   authKind?: "session" | "token";
   tokenScopes?: ApiTokenScopes;
+  /** The workspace an api token was bound to when it was made (ADR-0162); unset for a wide one. */
+  tokenWorkspaceId?: string;
   /** The runner a connect token resolved to (the /api/runner upgrade only). */
   runner?: Runner;
 };

@@ -161,8 +161,10 @@ the runner's policy (`.git/**` stays read-only; writes announce `fs.changed`). T
 ## The OpenCode engine (`opencode`, task 1.10)
 
 OpenCode's extras beyond ACP (spec §3.3, ADR-0031, ADR-0076): the runner starts `opencode serve`
-per project directory on first use (the pinned binary of the runner image, or `opencode` on PATH
-for a local runner) and drives it through `@opencode-ai/sdk`; a Perch session is an OpenCode
+per project directory and environment on first use (the pinned binary of the runner image, or
+`opencode` on PATH for a local runner; a server runs on the credentials it was started with, so
+another person or another brain is another server, ADR-0161) and drives it through
+`@opencode-ai/sdk`; a Perch session is an OpenCode
 session on that server. A turn runs as OpenCode's `build` or `plan` agent (Perch's mode), on the
 session's `model` when it names one (`provider/model_id` → OpenCode's `providerID/modelID`; the
 default is OpenCode's own configured model). The server's SSE stream becomes the transcript:

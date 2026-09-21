@@ -216,9 +216,11 @@ under way).
 only, behind the api's `cli_harness` flag; `model.provider` is `codex` or `claude`). For
 `acp`, `model.provider` names the registry agent (`gemini`, `codex`, `claude`, `goose`, `opencode`,
 `qwen`, `cline`, or an id from `PERCH_ACP_AGENTS`; `engine`/`default` → `PERCH_ACP_AGENT`, default
-`gemini`). For `opencode`, the runner starts `opencode serve` per project directory (the pinned
-binary of the runner image, or `opencode` on PATH) — or talks to one already running, when
-`PERCH_OPENCODE_URL` names it — and the model is OpenCode's unless the session names one. The agent runs in the project directory (or the named worktree) with the shell
+`gemini`). For `opencode`, the runner starts `opencode serve` per project directory and environment (the
+pinned binary of the runner image, or `opencode` on PATH; two people on one project, or one
+person on two brains, are two servers, since a server's credentials are its environment's,
+ADR-0161) — or talks to one already running, when `PERCH_OPENCODE_URL` names it, one per
+directory — and the model is OpenCode's unless the session names one. The agent runs in the project directory (or the named worktree) with the shell
 environment of [`terminal.md`](terminal.md) plus the session's `env`; sessions idle for thirty
 minutes are closed, and so are OpenCode servers with no session left. Runners report
 `engines: ["acp"]` plus `"opencode"` when the binary — or a server named by

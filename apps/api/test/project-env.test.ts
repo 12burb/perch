@@ -175,4 +175,60 @@ describe("a project's environment (task 2.13)", () => {
     expect(replay.text).not.toContain(SECRET);
     expect(replay.text).not.toContain("h8Zq2LmZ");
   }, 60_000);
+
+  test("a brain's key reaches the engine, and never the transcript (AGENTS.md §1.6)", async () => {
+    const KEY = "sk-brain-Qm7xVt19Ka3pLw0ZrE4f2a";
+    const credential = (await call(`/api/workspaces/${ws}/credentials`, {
+      method: "POST",
+      json: {
+        provider: "openai",
+        kind: "api_key",
+        scope: "workspace",
+        label: "Brain",
+        secret: KEY,
+      },
+    })) as { status: number; text: string; body: { id: string } };
+    expect(credential.status, credential.text).toBe(201);
+    const profile = (await call(`/api/workspaces/${ws}/model-profiles`, {
+      method: "POST",
+      json: {
+        name: "Keyed brain",
+        provider: "openai",
+        model_id: "gpt-test",
+        credential_id: credential.body.id,
+      },
+    })) as { status: number; text: string; body: { id: string } };
+    expect(profile.status, profile.text).toBe(201);
+
+    const created = (await call(`/api/workspaces/${ws}/projects/${project}/sessions`, {
+      method: "POST",
+      json: { engine: "acp", title: "Reads its key", model_profile_id: profile.body.id },
+    })) as { status: number; text: string; body: SessionBody };
+    expect(created.status, created.text).toBe(201);
+    const id = created.body.id;
+    const sent = await call(`/api/sessions/${id}/turns`, {
+      method: "POST",
+      json: { text: "key?" },
+    });
+    expect(sent.status).toBe(202);
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      const res = (await call(`/api/sessions/${id}`)) as { body: SessionBody };
+      if (res.body.status === "idle" || res.body.status === "error") break;
+      if (Date.now() > deadline) throw new Error(`session stayed ${res.body.status}`);
+      await Bun.sleep(50);
+    }
+
+    const replay = (await call(`/api/sessions/${id}/events`)) as { text: string; body: EventsBody };
+    const said = replay.body.events
+      .filter((one) => one.event.type === "text")
+      .map((one) => one.event.delta ?? "")
+      .join("");
+    // The engine had the key (spec §3.4: engines get native provider credentials) …
+    expect(said).toContain("OPENAI_API_KEY=");
+    expect(said).not.toContain("none");
+    // … and the transcript — a model context, a client's view — has its name and not the key.
+    expect(said).toContain("[redacted: OPENAI_API_KEY]");
+    expect(replay.text).not.toContain(KEY);
+  }, 60_000);
 });

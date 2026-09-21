@@ -180,7 +180,26 @@ async function serve(
   return { url, proc };
 }
 
-/** The OpenCode servers of this runner: one per project directory, started on first use. */
+/**
+ * Which server a session belongs on: the project directory and the environment it was started
+ * with. `opencode serve` reads its provider credentials from its environment once, at start, so a
+ * server is only right for sessions with the same environment — the same person's HOME and
+ * `PERCH_USER`, the same brain's key. Keyed by cwd alone, the second person on a project would
+ * have run on the first one's credentials (AGENTS.md §1.6: personal credentials are user-scoped).
+ * A server named by the environment (`PERCH_OPENCODE_URL`) is one process this runner did not
+ * start and cannot give an environment to; it is keyed by directory, and its credentials are its
+ * operator's — shared, as §1.6 allows for API keys and local models.
+ */
+export function serverKey(cwd: string, env: Record<string, string>, external: boolean): string {
+  if (external) return cwd;
+  const hasher = new Bun.CryptoHasher("sha256");
+  for (const [key, value] of Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    hasher.update(`${key}=${value}\0`);
+  }
+  return `${cwd}\0${hasher.digest("hex")}`;
+}
+
+/** The OpenCode servers of this runner: one per project directory and environment, started on first use. */
 export class OpenCodeHost {
   private readonly servers = new Map<string, Server>();
 
@@ -197,7 +216,8 @@ export class OpenCodeHost {
   }
 
   private async server(cwd: string, env: Record<string, string>): Promise<Server> {
-    const existing = this.servers.get(cwd);
+    const key = serverKey(cwd, env, Boolean(this.options.baseUrl));
+    const existing = this.servers.get(key);
     if (existing) return existing;
     let url: string;
     let proc: ChildProcess | null = null;
@@ -216,10 +236,10 @@ export class OpenCodeHost {
       url = started.url;
       proc = started.proc;
       proc.on("exit", () => {
-        const current = this.servers.get(cwd);
+        const current = this.servers.get(key);
         if (current?.proc === proc) {
           current.events.close();
-          this.servers.delete(cwd);
+          this.servers.delete(key);
         }
       });
     }
@@ -235,7 +255,7 @@ export class OpenCodeHost {
       sessions: new Set(),
       lastUsed: Date.now(),
     };
-    this.servers.set(cwd, server);
+    this.servers.set(key, server);
     return server;
   }
 
@@ -255,9 +275,9 @@ export class OpenCodeHost {
   /** Stops servers with no session left that were idle for `idleMs`. */
   reap(idleMs: number): void {
     const cutoff = Date.now() - idleMs;
-    for (const [cwd, server] of this.servers) {
+    for (const [key, server] of this.servers) {
       if (server.sessions.size === 0 && server.lastUsed < cutoff) {
-        this.servers.delete(cwd);
+        this.servers.delete(key);
         server.events.close();
         server.proc?.kill();
       }
@@ -265,8 +285,8 @@ export class OpenCodeHost {
   }
 
   closeAll(): void {
-    for (const [cwd, server] of this.servers) {
-      this.servers.delete(cwd);
+    for (const [key, server] of this.servers) {
+      this.servers.delete(key);
       server.events.close();
       server.proc?.kill();
     }

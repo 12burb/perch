@@ -23,6 +23,7 @@ import type { ActorContext } from "../auth/authorize.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { getMcpServer } from "../repos/mcp-servers.ts";
+import { findMembership } from "../repos/workspaces.ts";
 import { verifyToolToken } from "../services/mcp.ts";
 import type { PerchCaller } from "../services/perch-mcp.ts";
 import { resolveApiToken } from "../services/tokens.ts";
@@ -224,6 +225,15 @@ async function apiTokenCaller(header: string | undefined, deps: Deps): Promise<P
   const token = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token.startsWith("pat_")) return null;
   const resolved = await resolveApiToken(deps.db.db, token);
+  // The workspace on a token was the caller's choice when they made it (routes/me.ts checks it
+  // then); membership is checked again here because this is where the token stands in for the
+  // path, and somebody who has left a workspace keeps their token.
+  if (
+    resolved?.workspaceId &&
+    !(await findMembership(deps.db.db, resolved.workspaceId, resolved.userId))
+  ) {
+    return null;
+  }
   if (!resolved) return null;
   return { userId: resolved.userId, workspaceId: resolved.workspaceId, scopes: resolved.scopes };
 }

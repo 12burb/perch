@@ -276,6 +276,11 @@ async function runTurn(
     case "secret?":
       await say(`DATABASE_URL=${process.env.DATABASE_URL ?? "none"}`);
       return;
+    // The brain's credential, the same way: an engine gets it in its environment (spec §3.4), and
+    // an agent asked for it will print it — which is what the transcript must never carry.
+    case "key?":
+      await say(`OPENAI_API_KEY=${process.env.OPENAI_API_KEY ?? "none"}`);
+      return;
     // Task 1.17: the tools an MCP server gives the agent, used through whatever Perch injected.
     case "tools?": {
       const http = session.mcpServers.filter(

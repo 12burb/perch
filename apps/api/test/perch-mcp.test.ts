@@ -383,6 +383,87 @@ describe("Perch as an MCP server (task 3.12)", () => {
     expect(res.headers.get("www-authenticate")).toContain("Bearer");
   }, 60_000);
 
+  test("a token's workspace is a membership: refused for a workspace the maker is not in, and over once they leave", async () => {
+    // Somebody else again, not (yet) in Robin's workspace.
+    const stamp = Date.now();
+    const signUp = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Tern",
+        email: `tern-mcp-${stamp}@perch.test`,
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(signUp.status).toBe(200);
+    const mine = cookie;
+    cookie = cookiesFrom(signUp);
+    try {
+      const tern = (await call("/api/me")) as { body: { id: string } };
+      // A token bound to a workspace they are not a member of is refused when it is made …
+      const refused = await call("/api/me/tokens", {
+        method: "POST",
+        json: { name: "tern-outside", scopes: ["chat:read"], workspace_id: ws },
+      });
+      expect(refused.status, refused.text).toBe(403);
+
+      // … and one made while they were a member ends when the membership does.
+      cookie = mine;
+      const invite = (await call(`/api/workspaces/${ws}/invites`, {
+        method: "POST",
+        json: { email: `tern-mcp-${stamp}@perch.test`, role: "member" },
+      })) as { status: number; body: { accept_url: string } };
+      expect(invite.status).toBe(201);
+      const accept = invite.body.accept_url.split("/invite/")[1] ?? "";
+      cookie = cookiesFrom(signUp);
+      expect((await call(`/api/invites/${accept}/accept`, { method: "POST" })).status).toBe(200);
+      const made = (await call("/api/me/tokens", {
+        method: "POST",
+        json: { name: "tern-inside", scopes: ["chat:read"], workspace_id: ws },
+      })) as { status: number; text: string; body: { token: string } };
+      expect(made.status, made.text).toBe(201);
+      // On REST the bound token is that workspace's alone: Tern's own workspace answers it the
+      // way it answers a stranger, while a token with no workspace on it is as wide as Tern.
+      const elsewhere = (await call("/api/workspaces", {
+        method: "POST",
+        json: { name: "Tern's own" },
+      })) as { status: number; body: { id: string } };
+      expect(elsewhere.status).toBe(201);
+      const bearer = async (token: string, path: string) =>
+        (await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${token}` } })).status;
+      expect(await bearer(made.body.token, `/api/workspaces/${ws}/channels`)).not.toBe(404);
+      expect(await bearer(made.body.token, `/api/workspaces/${elsewhere.body.id}/channels`)).toBe(
+        404,
+      );
+      const wide = (await call("/api/me/tokens", {
+        method: "POST",
+        json: { name: "tern-wide", scopes: ["chat:read"] },
+      })) as { body: { token: string } };
+      expect(
+        await bearer(wide.body.token, `/api/workspaces/${elsewhere.body.id}/channels`),
+      ).not.toBe(404);
+      const client = await agent(made.body.token);
+      try {
+        const rooms = parsed<{ channels: { name: string }[] }>(
+          await client.callTool({ name: "channels.list", arguments: {} }),
+        );
+        expect(rooms.channels.length).toBeGreaterThan(0);
+      } finally {
+        await client.close();
+      }
+
+      cookie = mine;
+      const removed = await call(`/api/workspaces/${ws}/members/${tern.body.id}`, {
+        method: "DELETE",
+      });
+      expect(removed.status, removed.text).toBe(204);
+      // The token still exists; the workspace on it is no longer theirs, so the server says so.
+      await expect(agent(made.body.token)).rejects.toThrow(/unauthorized/i);
+    } finally {
+      cookie = mine;
+    }
+  }, 60_000);
+
   test("a token is one person's: it sees the workspaces they are in and no others", async () => {
     // Somebody else, with their own workspace and their own channel in it.
     const stamp = Date.now();

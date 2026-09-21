@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
-import { OpenCodeHost, opencodeBinary, opencodeUrl } from "../src/opencode.ts";
+import { OpenCodeHost, opencodeBinary, opencodeUrl, serverKey } from "../src/opencode.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -222,6 +222,45 @@ describe("the OpenCode adapter (task 1.10)", () => {
     expect(text).toBe("Hello from fake OpenCode");
     await manager.close(id);
   }, 30_000);
+
+  test("one server per project directory and environment: two people are two servers (AGENTS.md §1.6)", () => {
+    const dir = "/data/projects/ws/one";
+    const robin = {
+      PATH: "/usr/bin",
+      HOME: "/data/homes/robin",
+      PERCH_USER: "robin",
+      OPENAI_API_KEY: "sk-robin",
+    };
+    const wren = {
+      PATH: "/usr/bin",
+      HOME: "/data/homes/wren",
+      PERCH_USER: "wren",
+      OPENAI_API_KEY: "sk-wren",
+    };
+    // The same person, the same brain: one server. Order of the variables does not matter.
+    expect(serverKey(dir, robin, false)).toBe(
+      serverKey(
+        dir,
+        {
+          OPENAI_API_KEY: "sk-robin",
+          PERCH_USER: "robin",
+          HOME: "/data/homes/robin",
+          PATH: "/usr/bin",
+        },
+        false,
+      ),
+    );
+    // Somebody else, or another brain's key, or another directory: another server.
+    expect(serverKey(dir, wren, false)).not.toBe(serverKey(dir, robin, false));
+    expect(serverKey(dir, { ...robin, OPENAI_API_KEY: "sk-other" }, false)).not.toBe(
+      serverKey(dir, robin, false),
+    );
+    expect(serverKey("/data/projects/ws/two", robin, false)).not.toBe(serverKey(dir, robin, false));
+    // The key never carries the environment itself: a credential is not written into a map key.
+    expect(serverKey(dir, robin, false)).not.toContain("sk-robin");
+    // A server this runner did not start is one per directory, whatever the session's environment.
+    expect(serverKey(dir, robin, true)).toBe(serverKey(dir, wren, true));
+  });
 
   test("a server named by the environment is one this runner can use", () => {
     expect(opencodeUrl({ PERCH_OPENCODE_URL: "http://127.0.0.1:4096/" })).toBe(

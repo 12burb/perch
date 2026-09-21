@@ -4080,7 +4080,6 @@ used, and when it was revoked — the same shape `api_tokens` already has, for t
 value starts `pbot_`, which is what tells a bot's bearer apart from a person's at the door. Minting
 and revoking live on the bot's card in the Forge and under `.../bots/{bot}/tokens`, authorized with
 `bots.write`: giving a program the right to act as a bot is an admin decision, not a bot's.
-
 **No Bot API call names a workspace.** A token names one bot, a bot belongs to one workspace, so the
 routes are `/api/bot/chat.postMessage` rather than `/api/workspaces/{ws}/…`. A bot that had to say
 which workspace it was in could try to say the wrong one.
@@ -6417,4 +6416,53 @@ on `preview.start` as `params.env` and is applied the same way, which is what it
 with its files and its network. §1.6 is about credentials, and this closes the credential the
 runner itself holds; the ones it is handed for a session (a brain's key, a project's secrets) are
 already scoped to that session by `envOf` and never enter `process.env`.
+
+## ADR-0161: One OpenCode server per project directory and environment
+
+**Status:** accepted · **Task:** code audit (AGENTS.md §1.6) · **Spec:** §3.3 (opencode), §1.6
+
+ADR-0086 chose one `opencode serve` per project directory, started on first use and reaped when
+idle. The audit found what that key leaves out: the server reads its provider credentials from its
+environment once, at start, and the environment it was started with is the first session's — that
+person's `HOME` and `PERCH_USER` from `shellEnv`, and that brain's key from `brains.engineEnv`.
+Every later session in the same directory, whoever opened it and whatever brain they chose, ran on
+that process, so the second person on a project spent the first person's key. §1.6: personal
+credentials are user-scoped and never proxied.
+
+**The key is the directory and the environment.** `serverKey(cwd, env, external)` hashes the
+sorted environment (never the values into the key itself) and joins it to the directory; two
+people, or one person with two brains, are two servers, and the same person with the same brain
+is one. Keying by user id alone was the obvious alternative and is wrong in a smaller way: one
+person switching brains mid-project would keep the first brain's key. The cost is one more
+`opencode serve` process per distinct environment on a busy project, reaped on the same idle rule
+as before.
+
+**A server named by the environment is one per directory.** `PERCH_OPENCODE_URL` names a process
+this runner did not start and cannot give an environment to; its credentials are its operator's,
+which is the shared case §1.6 allows for API keys and local models, and the runner keys it by
+directory as before.
+
+## ADR-0162: An api token's workspace is a membership, checked when it is made and every time it is used
+
+**Status:** accepted · **Task:** code audit (AGENTS.md §1.6, §5) · **Spec:** §6 (`api_tokens.workspace_id`), §7.1, §7.5
+
+`api_tokens.workspace_id` was the caller's word: `POST /api/me/tokens` stored whatever was sent,
+and the MCP routes — `/mcp/perch` and `/mcp/{connectionId}` — took that stored id as the workspace
+the token may act in, because on those routes there is no `{ws}` in the path to authorize against.
+Nothing looked the membership up, so a token could name a workspace its owner had never been in
+and reach that workspace's shared connections. On REST the same token was accepted in every
+workspace its owner belonged to, which is the opposite mistake.
+
+**The binding is a membership.** Making a token for a workspace needs a membership in it (403
+otherwise, naming the workspace). Using it on the MCP routes checks the membership again, so
+leaving a workspace ends every token bound to it, whether or not anybody remembered to revoke
+them. On REST a bound token is narrowed to its workspace: `authorize()` answers every other
+workspace with the same 404 a non-member gets, so a bound token cannot even list the other
+workspaces its owner is in. A token made with no workspace is as wide as its owner, as before,
+and is what the CLI and SDKs use.
+
+**Why not narrow at the door.** The middleware could refuse a bound token outside its workspace,
+but the workspace is in the path only on `/api/workspaces/{ws}/…` routes; `authorize()` is where
+every handler already resolves the workspace a resource belongs to (AGENTS.md §5), so that is the
+one place the check cannot be forgotten.
 

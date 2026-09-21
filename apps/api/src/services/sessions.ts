@@ -1018,15 +1018,25 @@ export class SessionService {
 
   /**
    * What must not turn up in this session's transcript (spec §5.7 "never into a model context";
-   * task 2.13). Read once when the engine is made, which is before any event can arrive.
+   * task 2.13): the project's own secrets, and everything else that went into the engine's
+   * environment — the brain's credential above all (AGENTS.md §1.6: an API key never reaches a
+   * model context, and an agent asked to print its environment would put it in one). Read once
+   * when the engine is made, which is before any event can arrive.
    */
-  private async secretsFor(session: CodingSession): Promise<Redaction[]> {
+  private async secretsFor(
+    session: CodingSession,
+    injected: Record<string, string> = {},
+  ): Promise<Redaction[]> {
     const found = this.secrets.get(session.id);
     if (found) return found;
     const project = await getProject(this.deps.db, session.workspaceId, session.projectId);
     const secrets = project
       ? await secretsOf({ db: this.deps.db, vault: this.deps.vault }, project)
       : [];
+    const known = new Set(secrets.map((one) => one.key));
+    for (const [key, value] of Object.entries(injected)) {
+      if (value && !known.has(key)) secrets.push({ key, value });
+    }
     this.secrets.set(session.id, secrets);
     return secrets;
   }
@@ -1125,7 +1135,10 @@ export class SessionService {
     } catch (error) {
       throw engineFailure(error);
     }
-    await this.secretsFor(session);
+    // The credential goes into the engine's environment and nowhere else (AGENTS.md §1.6) — and
+    // so it is on the list of what the transcript may not carry, before the engine can say a word.
+    const injected = await this.engineEnv(session, userId);
+    await this.secretsFor(session, injected.env ?? {});
     if (!this.known.has(session.id)) {
       try {
         const created = await engine.createSession({
@@ -1142,8 +1155,7 @@ export class SessionService {
           mode: session.mode,
           // Its own checkout, when it has one (task 3.14).
           ...(session.worktree ? { worktree: session.worktree } : {}),
-          // The credential goes into the engine's environment and nowhere else (AGENTS.md §1.6).
-          ...(await this.engineEnv(session, userId)),
+          ...injected,
           // Tools, without tokens: each server is Perch's gateway, each bearer Perch's own.
           ...(await this.mcpServers(session)),
         });

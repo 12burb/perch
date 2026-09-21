@@ -57,7 +57,9 @@ running somewhere else reads the chat, searches it, answers in it, and opens a c
 all over MCP (spec §7.5; task 3.12).
 
 Point any MCP client at `https://<your perch>/mcp/perch` with an api token from
-**Settings → Security** as its bearer:
+**Settings → Security** as its bearer. A token made for one workspace (`workspace_id`) is bound
+to a membership: it can only be made for a workspace you are in, it stops working here when you
+leave, and on the REST API it answers for that workspace alone (ADR-0162):
 
 ```json
 {
