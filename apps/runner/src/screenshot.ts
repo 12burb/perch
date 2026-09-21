@@ -302,7 +302,9 @@ async function announced(proc: { stderr: ReadableStream<Uint8Array> }, budget: n
   } finally {
     void reader.cancel().catch(() => undefined);
   }
-  throw new Error("the browser did not start in time");
+  // With the browser's own last words, so a CI runner where it did not come up says why.
+  const said = seen.trim().split("\n").slice(-6).join(" | ");
+  throw new Error(`the browser did not start in time${said ? ` (it said: ${said})` : ""}`);
 }
 
 /** The page's own socket: the endpoint the browser announces has no page on it. */

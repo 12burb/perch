@@ -65,6 +65,10 @@ try {
       "bun",
       "build",
       "--target=bun",
+      // The same version the binaries get: `npx perch-dev version` says it, and `perch upgrade
+      // --check` compares against it rather than against "dev".
+      "--define",
+      `process.env.PERCH_VERSION=${JSON.stringify(version)}`,
       "apps/cli/src/index.ts",
       "--outdir",
       npmDir,

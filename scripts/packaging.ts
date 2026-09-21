@@ -169,7 +169,7 @@ export function flake(version: string, sums: Sums, repo = REPO): string {
           pkgs = nixpkgs.legacyPackages.\${system};
           here = systems.\${system};
         in {
-          default = pkgs.stdenvNoCC.mkDerivation {
+          default = pkgs.stdenv.mkDerivation {
             pname = "perch";
             version = "${number}";
             src = pkgs.fetchurl {
@@ -177,6 +177,10 @@ export function flake(version: string, sums: Sums, repo = REPO): string {
               sha256 = here.sha256;
             };
             dontUnpack = true;
+            # The binary is Bun's runtime, dynamically linked against glibc: on NixOS there is no
+            # /lib64/ld-linux, so its interpreter and libraries are patched to the store's here.
+            nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.autoPatchelfHook ];
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
             installPhase = "install -Dm755 $src $out/bin/perch";
           };
         });

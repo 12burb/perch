@@ -14,7 +14,7 @@
  */
 import { chmodSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /** Where the releases are, unless somebody points this somewhere else. */
 export const RELEASES = "https://api.github.com/repos/12burb/perch/releases";
@@ -123,6 +123,16 @@ export function currentVersion(): string {
   return process.env.PERCH_VERSION ?? "dev";
 }
 
+/**
+ * Whether this process is a downloaded `perch` binary — the only thing `perch upgrade` may
+ * replace. Run from the npm package (`npx perch-dev`) or from a checkout, `process.execPath` is
+ * Bun itself, and replacing that with a Perch binary would break every Bun on the machine.
+ */
+export function isDownloadedBinary(execPath: string = process.execPath): boolean {
+  const name = basename(execPath).toLowerCase();
+  return !(name === "bun" || name === "bun.exe" || name.startsWith("bun-"));
+}
+
 /** `v0.2.0` and `0.2.0` are the same version, said two ways. */
 export function sameVersion(tag: string, version: string): boolean {
   return tag.replace(/^v/, "") === version.replace(/^v/, "");
@@ -212,6 +222,13 @@ export async function upgrade(options: {
 }): Promise<UpgradeResult> {
   const say = options.log ?? (() => {});
   const call = options.fetch ?? fetch;
+  if (options.target === undefined && !isDownloadedBinary()) {
+    throw new UpgradeError(
+      "perch upgrade replaces a downloaded perch binary; this is Perch running on Bun. " +
+        "Upgrade the way it was installed: `npm install -g perch-dev@latest` for the npm package, " +
+        "or `git pull` for a checkout.",
+    );
+  }
   const target = options.target ?? process.execPath;
   const from = options.version ?? currentVersion();
   const releases = options.releases ?? RELEASES;

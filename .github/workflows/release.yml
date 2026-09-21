@@ -263,6 +263,7 @@ jobs:
     permissions:
       contents: write
       id-token: write # npm provenance
+      actions: write # to start the docs site's deploy (see below)
     # At the job, not on the steps: a step's own `env:` is not in scope for that step's own `if:`,
     # so `if: env.NPM_TOKEN != ''` beside a step-level NPM_TOKEN is always false and the publish is
     # skipped even when the secret is set. That is how `npx perch-dev@latest` stayed a 404.
@@ -308,6 +309,20 @@ jobs:
       # where the tools read them from: `nix run github:…` resolves the branch, and `brew tap <user>
       # <url>` clones it. Both have to name the release that just happened rather than the one
       # before it, and both are generated from this release's own checksums, which only exist now.
+      - name: npm publish perch-dev (skipped without NPM_TOKEN)
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: release/cli/npm
+        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: npm publish perch-bot-sdk (skipped without NPM_TOKEN)
+        if: ${{ env.NPM_TOKEN != '' }}
+        working-directory: release/bot-sdk
+        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # A release that quietly published less than it looks like it did is how a 404 goes unnoticed
+      # for two releases. This says, on the run's own summary, which lanes a stranger can use.
       - name: Refresh flake.nix and Formula/perch.rb on the default branch
         if: ${{ needs.meta.outputs.prerelease != 'true' }}
         run: |
@@ -329,21 +344,20 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -s -m "chore(release): flake.nix and the formula track v${{ needs.meta.outputs.version }}" -- flake.nix Formula/perch.rb
-          git push origin "$branch"
-      - name: npm publish perch-dev (skipped without NPM_TOKEN)
-        if: ${{ env.NPM_TOKEN != '' }}
-        working-directory: release/cli/npm
-        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
+          # Somebody may have pushed meanwhile: rebase onto whatever is there and try again,
+          # three times, rather than leave the manifests behind the release they name.
+          for attempt in 1 2 3; do
+            git fetch origin "$branch"
+            git rebase "origin/$branch" || { git rebase --abort; exit 1; }
+            git push origin "HEAD:$branch" && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
+      - name: Start the docs site's deploy (a release made with GITHUB_TOKEN starts no workflow by itself)
+        if: ${{ needs.meta.outputs.prerelease != 'true' && vars.DOCS_PAGES == 'on' }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: npm publish perch-bot-sdk (skipped without NPM_TOKEN)
-        if: ${{ env.NPM_TOKEN != '' }}
-        working-directory: release/bot-sdk
-        run: npm publish --provenance --access public ${{ needs.meta.outputs.prerelease == 'true' && '--tag next' || '' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # A release that quietly published less than it looks like it did is how a 404 goes unnoticed
-      # for two releases. This says, on the run's own summary, which lanes a stranger can use.
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docs.yml --ref "${{ github.ref_name }}"
       - name: What this release actually published
         if: always()
         run: |

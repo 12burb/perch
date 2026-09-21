@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   assetFor,
   checksumsFrom,
+  isDownloadedBinary,
   repoFrom,
   sha256,
   UpgradeError,
@@ -130,6 +131,17 @@ describe("upgrading in place (task 4.3)", () => {
     expect(lines.join("\n")).toContain("perch is now v0.2.0");
     // Nothing is left lying around beside it.
     expect(readdirSync(dir)).toEqual(["perch"]);
+  });
+
+  test("from the npm package or a checkout, it refuses rather than replace Bun itself", async () => {
+    // This test process is Bun, which is exactly the case: no target given, no binary replaced.
+    expect(isDownloadedBinary()).toBe(false);
+    expect(isDownloadedBinary("/usr/local/bin/perch")).toBe(true);
+    expect(isDownloadedBinary("C:\\Users\\me\\perch.exe")).toBe(true);
+    expect(isDownloadedBinary("/home/me/.bun/bin/bun")).toBe(false);
+    await expect(
+      upgrade({ fetch: () => Promise.reject(new Error("never asked")) }),
+    ).rejects.toThrow(/replaces a downloaded perch binary/);
   });
 
   test("a tampered asset installs nothing, and the binary that was there still is", async () => {

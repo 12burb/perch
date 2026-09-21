@@ -66,6 +66,12 @@ describe.skipIf(!hasWebBuild)("perch binary (task 0.15)", () => {
       });
       expect(version.exitCode).toBe(0);
       expect(version.stdout.toString().trim()).toBe("0.0.0-test");
+      // The npm bundle beside it carries the same version, as a constant: `npx perch-dev version`
+      // says it, and `perch upgrade --check` compares against it rather than against "dev". (It is
+      // read rather than run: the bundle expects its dependencies installed beside it, as npm
+      // does, and this directory has none.)
+      expect(bundle).toContain('"0.0.0-test"');
+      expect(bundle).not.toContain("process.env.PERCH_VERSION ?? ");
 
       const doctor = Bun.spawnSync([binary, "doctor", "--data-dir", dataDir], {
         stdout: "pipe",

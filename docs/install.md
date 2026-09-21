@@ -102,6 +102,10 @@ do about it, and it never needs an instance to be running.
 
 ## Upgrading
 
+`perch upgrade` replaces a downloaded `perch` binary and nothing else: run from the npm package
+(`npx perch-dev`) or from a checkout it refuses, since the running program there is Bun, and says
+how to upgrade that install instead.
+
 ```sh
 perch upgrade            # replace this binary with the newest release
 perch upgrade --check    # say what the newest release is and stop
