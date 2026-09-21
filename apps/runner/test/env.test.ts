@@ -43,7 +43,10 @@ describe("what a child of the runner starts from (ADR-0160)", () => {
     try {
       const env = childEnv();
       expect(env.PERCH_RUNNER_TOKEN).toBe("");
-      expect(env.PATH).toBe(process.env.PATH ?? "");
+      // By the key as the environment spells it: Windows keeps `Path`, and `process.env.PATH`
+      // answers case-insensitively there while Object.entries does not.
+      const path = Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+      expect(env[path]).toBe(process.env[path] ?? "");
     } finally {
       if (before === undefined) delete process.env.PERCH_RUNNER_TOKEN;
       else process.env.PERCH_RUNNER_TOKEN = before;
