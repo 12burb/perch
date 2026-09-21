@@ -171,7 +171,7 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     close: () => {
       ptys.closeAll();
       tunnel.close();
-      mcp.closeAll();
+      void mcp.closeAll();
       previews.closeAll();
       void sessions.closeAll();
     },

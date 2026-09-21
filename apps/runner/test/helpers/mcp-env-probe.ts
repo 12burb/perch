@@ -39,7 +39,12 @@ try {
     await client.close();
   }
 } finally {
-  host.closeAll();
-  // Windows releases a directory a killed child was using a moment later: retry the cleanup.
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  // The servers have exited before their directory goes; and a directory Windows still holds
+  // after that is left to the temp cleaner rather than made the probe's verdict.
+  await host.closeAll();
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {
+    // best effort
+  }
 }

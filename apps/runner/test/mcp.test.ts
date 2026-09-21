@@ -30,9 +30,9 @@ beforeAll(() => {
   host = new McpHost({ root, policy: runnerPolicy() });
 });
 
-afterAll(() => {
-  host.closeAll();
-  rmSync(root, { recursive: true, force: true });
+afterAll(async () => {
+  await host.closeAll();
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 /** Spawn one and hand the host the api's end of the stream, the way the api does. */

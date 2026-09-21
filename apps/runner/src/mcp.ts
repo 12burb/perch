@@ -124,14 +124,24 @@ export class McpHost {
     return true;
   }
 
-  /** Everything this runner is hosting, stopped. */
-  closeAll(): void {
+  /**
+   * Everything this runner is hosting, stopped. The promise settles once every server process has
+   * exited, for a caller that is about to remove the directories they ran in: on Windows a killed
+   * process holds its working directory a moment longer, and a removal before it has gone fails.
+   */
+  closeAll(): Promise<void> {
+    const gone: Promise<unknown>[] = [];
     for (const [token, entry] of this.pending) {
       clearTimeout(entry.timer);
       this.pending.delete(token);
+      gone.push(entry.live.proc.exited);
       this.stop(entry.live);
     }
-    for (const live of [...this.live]) this.stop(live);
+    for (const live of [...this.live]) {
+      gone.push(live.proc.exited);
+      this.stop(live);
+    }
+    return Promise.all(gone).then(() => undefined);
   }
 
   private stop(live: Live): void {
