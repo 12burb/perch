@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunnerNotification, RunnerStream } from "@perch/events";
@@ -12,6 +12,7 @@ import {
   tmuxSessionName,
 } from "../src/pty.ts";
 import { createStreamPair } from "../src/streams.ts";
+import { removeTree } from "./helpers/tmp.ts";
 
 /**
  * Task 1.7: a shell per pty_id behind a stream token; output on the stream, input from it; a
@@ -28,7 +29,7 @@ let root = "";
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "perch-pty-"));
 });
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => removeTree(root));
 
 /** Collects a stream's output and resolves once a marker shows up. */
 function tap(stream: RunnerStream) {

@@ -647,6 +647,18 @@ export class AcpSession {
         if (this.proc.exitCode === null) this.proc.kill("SIGKILL");
       }, 2_000);
       timer.unref?.();
+      // Closed means gone: a killed process still holds its working directory until it has
+      // exited (Windows refuses to remove it until then), so this waits for the exit, bounded.
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(limit);
+          resolve();
+        };
+        const limit = setTimeout(done, 3_000);
+        limit.unref?.();
+        this.proc.once("exit", done);
+        this.proc.once("error", done);
+      });
     }
   }
 

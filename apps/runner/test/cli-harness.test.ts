@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
@@ -14,6 +14,7 @@ import {
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
+import { removeTree } from "./helpers/tmp.ts";
 
 /**
  * Task 1.11 (spec §3.3 cli-harness, §3.6 lane C): the official CLIs in headless mode become an
@@ -100,7 +101,7 @@ beforeAll(() => {
 afterAll(async () => {
   await manager.closeAll();
   delete process.env.FAKE_CLI_LOG;
-  rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 describe("the end of a turn", () => {

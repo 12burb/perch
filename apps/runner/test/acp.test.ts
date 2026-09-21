@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
@@ -8,6 +8,7 @@ import { worktreePath } from "../src/git.ts";
 import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
+import { removeTree } from "./helpers/tmp.ts";
 
 /**
  * Task 1.9 (spec §3.3 acp, §7.6 session.*): a registry-shaped agent (test/fixtures/acp-agent.ts)
@@ -80,7 +81,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   await manager.closeAll();
-  rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 describe("the ACP adapter (task 1.9)", () => {

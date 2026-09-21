@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EngineEvent, RunnerNotification } from "@perch/events";
@@ -8,6 +8,7 @@ import { runnerPolicy } from "../src/policy.ts";
 import { projectDir } from "../src/projects.ts";
 import { SessionManager } from "../src/sessions.ts";
 import { type FakeOpenCode, startFakeOpenCode } from "./fixtures/opencode-server.ts";
+import { removeTree } from "./helpers/tmp.ts";
 
 /**
  * Task 1.10 (spec §3.3 opencode): sessions on an OpenCode server, driven through the SDK; a round's
@@ -77,7 +78,7 @@ beforeAll(() => {
 afterAll(async () => {
   await manager.closeAll();
   fake.close();
-  rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 describe("the OpenCode adapter (task 1.10)", () => {
