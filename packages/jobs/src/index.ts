@@ -1,7 +1,9 @@
 /**
  * @perch/jobs: the Postgres queue (spec §2, §6 jobs). Claims use `FOR UPDATE SKIP LOCKED`; a worker that
  * dies mid-job loses its lock after `lockTimeoutMs` and another worker reclaims the row; failures retry
- * with exponential backoff up to max_attempts; cron rows (croner) reschedule themselves after each run.
+ * with exponential backoff up to max_attempts; cron rows (croner) reschedule themselves after each run,
+ * and after a run whose retries all failed, so a bad night costs that night and not the schedule
+ * (ADR-0175).
  */
 import { type Db, type Job, newId, schema } from "@perch/db";
 import { Cron } from "croner";
@@ -48,6 +50,11 @@ export type WorkerOptions = {
   lockTimeoutMs?: number;
   concurrency?: number;
   onError?: (error: unknown, job: Job) => void;
+  /**
+   * The queue itself failed (a claim, or recording a job's outcome), usually because the database
+   * went away for a moment. The loop reports it here, sleeps one poll interval and carries on.
+   */
+  onLoopError?: (error: unknown) => void;
   now?: () => Date;
 };
 
@@ -99,6 +106,15 @@ export function nextCronRun(expression: string, from: Date, timezone = "UTC"): D
   return next;
 }
 
+/** The next run, or null for an expression that has none left (a row that fails then stays put). */
+function nextOccurrence(expression: string, from: Date, timezone: string | null): Date | null {
+  try {
+    return nextCronRun(expression, from, timezone ?? "UTC");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A sleep that ends early on abort — and leaves nothing behind either way. The listener is
  * removed when the timer fires: a worker polls every second for the life of the process, and one
@@ -148,6 +164,10 @@ export function createQueue(options: QueueOptions): Queue {
       }
       const timezone = o.timezone ?? "UTC";
       const runAt = nextCronRun(o.cron, now(), timezone);
+      // Scheduling the same expression in the same zone again (every boot does) keeps a run that
+      // is already due: an instance that was off at three still takes the night's backup when it
+      // comes back. A changed expression or zone is a new schedule and moves the run (ADR-0175).
+      const sameSchedule = sql`${jobs.cron} = excluded.cron and ${jobs.timezone} is not distinct from excluded.timezone`;
       const [row] = await db
         .insert(jobs)
         .values({
@@ -168,7 +188,7 @@ export function createQueue(options: QueueOptions): Queue {
             cron: o.cron,
             timezone,
             payload: o.payload ?? {},
-            runAt,
+            runAt: sql`case when ${sameSchedule} then least(${jobs.runAt}, excluded.run_at) else excluded.run_at end`,
             attempts: 0,
             lastError: null,
           },
@@ -244,14 +264,19 @@ export function createQueue(options: QueueOptions): Queue {
       const message = error instanceof Error ? error.message : String(error);
       const exhausted = job.attempts >= job.maxAttempts;
       const at = now();
+      // A cron row out of retries starts over at its next occurrence rather than dying: the claim
+      // query skips an exhausted row for ever, and a schedule that stopped because one night
+      // failed would stop the backups (or the digest) with nobody told. lastError stays.
+      const next = exhausted && job.cron ? nextOccurrence(job.cron, at, job.timezone) : null;
       await db
         .update(jobs)
         .set({
           lockedBy: null,
           lockedAt: null,
           lastError: message.slice(0, 4000),
-          // Exhausted jobs keep their row for inspection; the claim query skips them.
-          runAt: exhausted ? job.runAt : new Date(at.getTime() + backoffMs(job.attempts)),
+          // Exhausted one-off jobs keep their row for inspection; the claim query skips them.
+          runAt: next ?? (exhausted ? job.runAt : new Date(at.getTime() + backoffMs(job.attempts))),
+          ...(next ? { attempts: 0 } : {}),
           updatedAt: at,
         })
         .where(eq(jobs.id, job.id));
@@ -265,6 +290,8 @@ export function createQueue(options: QueueOptions): Queue {
       const onError =
         o.onError ??
         ((error, job) => console.error(`[jobs] ${job.queue}/${job.id} failed:`, error));
+      const onLoopError =
+        o.onLoopError ?? ((error) => console.error("[jobs] the worker loop failed:", error));
       const abort = new AbortController();
       let running = false;
       let inFlight = 0;
@@ -278,7 +305,13 @@ export function createQueue(options: QueueOptions): Queue {
           await queue.complete(job);
         } catch (error) {
           onError(error, job);
-          await queue.fail(job, error);
+          try {
+            await queue.fail(job, error);
+          } catch (failed) {
+            // The outcome could not be written (the database went away). The lock times out and
+            // another claim retries the job; the worker itself carries on.
+            onLoopError(failed);
+          }
         }
       };
 
@@ -304,10 +337,18 @@ export function createQueue(options: QueueOptions): Queue {
           loop = (async () => {
             while (running) {
               let claimed = 0;
-              while (running && inFlight < concurrency) {
-                const job = await tick();
-                if (!job) break;
-                claimed += 1;
+              try {
+                while (running && inFlight < concurrency) {
+                  const job = await tick();
+                  if (!job) break;
+                  claimed += 1;
+                }
+              } catch (error) {
+                // Nobody awaits this loop until stop(), so an error leaving it would be an
+                // unhandled rejection, and Bun ends the process on one. A database that restarts
+                // under a running worker is ordinary: report it, wait a poll, and try again.
+                onLoopError(error);
+                claimed = 0;
               }
               if (claimed === 0) await sleep(pollIntervalMs);
             }

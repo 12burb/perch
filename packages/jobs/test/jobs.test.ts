@@ -130,6 +130,153 @@ function queueSuite(name: string, open: () => Promise<DbHandle | null>) {
       expect(await queue.unschedule("telemetry.ping")).toBe(false);
     });
 
+    test("a cron job that fails max_attempts times in a row is not dead: its next occurrence runs", async () => {
+      if (skipped) return;
+      // The nightly backup on a full disk: every attempt throws, the retries run out, and the
+      // row used to stay exhausted until somebody restarted the api. One bad night costs one night.
+      clock = new Date("2026-09-20T02:59:30Z");
+      const scheduled = await queue.schedule({
+        key: "nightly.flaky",
+        queue: "nightly",
+        cron: "0 3 * * *",
+        maxAttempts: 2,
+      });
+      clock = new Date("2026-09-20T03:00:01Z");
+      const c1 = await queue.claim(["nightly"], "w1", 60_000);
+      if (!c1) throw new Error("no claim");
+      await queue.fail(c1, new Error("disk full"));
+      clock = new Date(clock.getTime() + 10_000);
+      const c2 = await queue.claim(["nightly"], "w1", 60_000);
+      if (!c2) throw new Error("no second claim");
+      await queue.fail(c2, new Error("disk still full"));
+      const after = await queue.get(scheduled.id);
+      // Out of retries: the attempts start over at the next occurrence, and the failure stays
+      // visible on the row.
+      expect(after?.attempts).toBe(0);
+      expect(after?.runAt.toISOString()).toBe("2026-09-21T03:00:00.000Z");
+      expect(after?.lastError).toBe("disk still full");
+      expect(after?.lockedBy).toBeNull();
+      expect(await queue.claim(["nightly"], "w1", 60_000)).toBeNull();
+      clock = new Date("2026-09-21T03:00:01Z");
+      const next = await queue.claim(["nightly"], "w1", 60_000);
+      expect(next?.id).toBe(scheduled.id);
+      if (next) await queue.complete(next);
+      await queue.unschedule("nightly.flaky");
+    });
+
+    test("scheduling the same cron again keeps a run that is already due", async () => {
+      if (skipped) return;
+      // The instance was off at three: the row is overdue when it boots, and boot schedules every
+      // cron row again before the worker starts. The overdue night must still run.
+      clock = new Date("2026-09-22T02:00:00Z");
+      const first = await queue.schedule({
+        key: "nightly.missed",
+        queue: "missed",
+        cron: "0 3 * * *",
+      });
+      expect(first.runAt.toISOString()).toBe("2026-09-22T03:00:00.000Z");
+      clock = new Date("2026-09-22T08:00:00Z");
+      const again = await queue.schedule({
+        key: "nightly.missed",
+        queue: "missed",
+        cron: "0 3 * * *",
+      });
+      expect(again.id).toBe(first.id);
+      expect(again.runAt.toISOString()).toBe("2026-09-22T03:00:00.000Z");
+      const claimed = await queue.claim(["missed"], "w1", 60_000);
+      expect(claimed?.id).toBe(first.id);
+      if (claimed) await queue.complete(claimed);
+      expect((await queue.get(first.id))?.runAt.toISOString()).toBe("2026-09-23T03:00:00.000Z");
+      // A changed expression is a new schedule: the next run follows it, not the old one.
+      const moved = await queue.schedule({
+        key: "nightly.missed",
+        queue: "missed",
+        cron: "0 4 * * *",
+      });
+      expect(moved.runAt.toISOString()).toBe("2026-09-23T04:00:00.000Z");
+      // And so is a changed zone.
+      const zoned = await queue.schedule({
+        key: "nightly.missed",
+        queue: "missed",
+        cron: "0 4 * * *",
+        timezone: "America/New_York",
+      });
+      expect(zoned.runAt.toISOString()).toBe("2026-09-23T08:00:00.000Z");
+      await queue.unschedule("nightly.missed");
+    });
+
+    test("a database error in the worker loop is reported and the loop keeps polling", async () => {
+      if (skipped || !handle) return;
+      clock = new Date("2026-09-24T12:00:00Z");
+      // The database restarts under a running worker: one claim rejects. The loop must survive it
+      // rather than end the process with an unhandled rejection.
+      const flaky = createQueue({ db: handle.db, now });
+      const realClaim = flaky.claim.bind(flaky);
+      let calls = 0;
+      flaky.claim = async (...args) => {
+        calls += 1;
+        if (calls === 1) throw new Error("connection terminated");
+        return realClaim(...args);
+      };
+      const loopErrors: unknown[] = [];
+      const done: string[] = [];
+      await flaky.enqueue({ queue: "resilient", payload: { n: 1 } });
+      const worker = flaky.worker({
+        queues: ["resilient"],
+        pollIntervalMs: 20,
+        onLoopError: (error) => loopErrors.push(error),
+        handlers: {
+          resilient: (job) => {
+            done.push(String(job.payload.n));
+          },
+        },
+      });
+      worker.start();
+      const started = Date.now();
+      while (done.length < 1 && Date.now() - started < 5_000) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await worker.stop();
+      expect(loopErrors.map((e) => (e instanceof Error ? e.message : String(e)))).toEqual([
+        "connection terminated",
+      ]);
+      expect(calls).toBeGreaterThan(1);
+      expect(done).toEqual(["1"]);
+    });
+
+    test("a job whose failure cannot be recorded does not take the worker down", async () => {
+      if (skipped || !handle) return;
+      clock = new Date("2026-09-24T13:00:00Z");
+      const flaky = createQueue({ db: handle.db, now });
+      flaky.fail = async () => {
+        throw new Error("connection terminated while recording");
+      };
+      const loopErrors: unknown[] = [];
+      const jobErrors: unknown[] = [];
+      await flaky.enqueue({ queue: "unrecorded" });
+      const worker = flaky.worker({
+        queues: ["unrecorded"],
+        pollIntervalMs: 20,
+        onError: (error) => jobErrors.push(error),
+        onLoopError: (error) => loopErrors.push(error),
+        handlers: {
+          unrecorded: () => {
+            throw new Error("handler failed");
+          },
+        },
+      });
+      // tick() is what the loop calls: it resolves with the job instead of rejecting.
+      const ran = await worker.tick();
+      expect(ran).not.toBeNull();
+      expect(jobErrors.map((e) => (e instanceof Error ? e.message : String(e)))).toEqual([
+        "handler failed",
+      ]);
+      expect(loopErrors.map((e) => (e instanceof Error ? e.message : String(e)))).toEqual([
+        "connection terminated while recording",
+      ]);
+      await worker.stop();
+    });
+
     test("a worker's sleep leaves no listener on the abort signal behind (ADR-0165)", async () => {
       const abort = new AbortController();
       for (let i = 0; i < 25; i++) await abortableSleep(abort.signal, 1);
