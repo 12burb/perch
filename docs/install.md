@@ -98,7 +98,9 @@ perch doctor      # Bun, the data directory, the database, the port, the web app
 ```
 
 `perch doctor` is the first thing to run when something is wrong: it says what it found and what to
-do about it, and it never needs an instance to be running.
+do about it, and it never needs an instance to be running. When one is (`perch dev`, the desktop app),
+the database check says which process holds the data directory and leaves the database alone rather
+than opening it a second time.
 
 ## Upgrading
 

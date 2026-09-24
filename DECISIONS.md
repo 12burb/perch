@@ -7062,3 +7062,76 @@ that mapping.
 were served after the audit, inbox and bot subscribers were gone. `shutdown()` stops the server
 (`stop(true)`: no new connections; handlers already running finish, for up to five seconds), then
 the jobs worker or the supervisor, then `close()`.
+
+## ADR-0175: One backup format, a schema it carries, one Perch per data directory, and schedules that outlive a bad night
+
+**Status:** accepted · **Task:** code review, batch jobs-backups-db · **Spec:** §2 (laptop mode, packages/jobs), §6 (`jobs`, `policies`, `repo_index`), §7.1 (`/api/admin/backup`), §8 (backups), §9.1
+
+### Context
+The review found the backup path, the queue under it and the laptop data directory each able to
+lose data quietly. A second opener of a laptop data directory (the desktop app beside `perch dev`,
+`perch backup` or `perch doctor` on a live instance) succeeded, and whichever PGlite closed last
+overwrote the other's committed rows. `perch backup` and the api wrote two manifest formats that
+could not read each other, so the documented laptop-to-team migration did not exist, and the CLI
+always copied the vault key although the docs said a backup never carries it by default. A restore
+did not know the schema its rows came from: a newer backup lost tables and columns silently, an
+older one skipped data migrations. A cron job that failed five times in a row was never claimed
+again, boot moved an overdue nightly run to the next night, and one database error in the worker
+loop ended the process. Backups also lost every bot schedule, paged with OFFSET, hung on a full
+disk, and deleted the fresh backup when pruning an old one failed. Policies could be saved twice
+for the same key, and a reindex never dropped chunks of deleted files.
+
+### Decision
+**One Perch per data directory.** Laptop mode (`perch dev`, `perch demo`, the desktop app in both
+layouts), `perch backup`, `perch restore` and `perch doctor`'s database check hold
+`<dataDir>/perch.lock`, created with O_EXCL and holding pid, start time, command and the served
+URL. A lock is a leftover, taken over, only when its pid no longer runs, or when it carries this
+process's pid and this process never took it (a container restarted at pid 1). Doctor reports the
+holder instead of opening the database; the desktop app prints the holder and exits. A pid reused
+by an unrelated process after a crash makes the lock look held; the message names the file, and
+removing it is the remedy.
+
+**One backup format.** `perch backup` writes `perch-instance-backup` v1, the api's format, with
+`mode: laptop`, `driver: pglite` and `pglite.tar.gz` as an extra exact copy. The api's reader
+(Zod-validated, names confined to the backup directory) also maps the older `perch-backup` v2
+manifest; `perch restore` reads all of them, including the pglite-only v1 and team backups (dump
+only). The key is opt-in in laptop mode too (`--include-key` or `PERCH_BACKUP_INCLUDE_KEY=on`);
+otherwise the manifest records its fingerprint and restore says whether the key present matches,
+or that the backup does not say. Backup directories are 0700, their files 0600.
+
+**A dump that carries its schema.** The dump header (backup version 2) records the applied
+migration count; a version-1 header's schema is read off the tables it walked, capped at the forty
+migrations every earlier build had. `restoreDatabase` takes the `DbHandle`, refuses a newer schema,
+migrates a database no migration has reached the backup's schema on up to it
+(`DbHandle.migrateTo`, one dedicated connection like `migrate`), loads the rows naming only the
+columns they carry (values bound through the column encoders, ADR-0061), and migrates forward, so
+data migrations apply as in an upgrade. A database already past the backup's schema is refused with
+what to do. For that to work in team mode the api's `restore` entrypoint now runs before boot;
+`BackupsService.restore` on a booted instance still loads same-schema backups (the tests, `force`).
+Pages are walked by primary key, not OFFSET. The queue's schedules (`jobs` rows with a cron
+expression) are backed up and restored unlocked with attempts at zero, keeping a schedule the
+target already made; one-off jobs stay out and the queue does not count against "empty". Both
+writers share `dumpGzipped`, which races the drain wait against the pipeline, and pruning runs after
+a backup is complete, in its own try/catch.
+
+**Schedules that outlive a bad night.** `fail()` on an exhausted cron row resets attempts and moves
+`run_at` to the next occurrence, keeping `last_error`. `schedule()` with an unchanged expression and
+zone keeps an earlier (due) `run_at`, so a night missed while the instance was off runs when it
+comes back. The worker loop reports a queue error through `onLoopError`, sleeps a poll and carries
+on; a `fail()` that cannot be written is reported the same way.
+
+**Smaller ones.** Policies get two partial unique indexes (migration 0040, which first removes
+duplicates keeping the newest) and `savePolicy` is one upsert that increments `version`. A reindex
+replaces the project's rows in one transaction. A closing PGlite handle races its drain against
+the deadline.
+
+### Consequences
+A restore of an older backup needs a database nothing has migrated; operators who started the api
+against the empty database first are told to recreate it. A data migration must stay valid against
+the rows of the schema before it, which is true of every migration today. Rows of a table a later
+migration dropped are skipped on restore (none exist). Laptop backups no longer carry the key
+unless asked, so restoring one elsewhere needs the original `master.key`, which restore says.
+Backups written by this build (version-2 headers) are refused by earlier builds, which is the point.
+The laptop's `projects/` directory is still not part of a laptop backup (unchanged; noted for a
+later batch). The review's finding that `laptop.stop()` skipped `booted.close()` was not a defect:
+`RunningServer.stop()` closes the instance.

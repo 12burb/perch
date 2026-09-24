@@ -14,8 +14,12 @@ The design is ADR-0063; the code is `apps/desktop`.
 | Linux (x64, arm64) | `perch-desktop-linux-<arch>` | `sudo apt install libwebkit2gtk-4.1-0 libxdo3` (Debian/Ubuntu; `webkit2gtk4.1 libxdo` on Fedora, `webkit2gtk-4.1 xdotool` on Arch), `chmod +x`, run |
 
 Intel Macs: the desktop binary is not built for x64 macOS yet; `perch dev` (the CLI) works there in a
-browser. Everything the app stores lives under `~/.perch`, shared with `perch dev`; the window's cookies,
-storage, and cache are in `~/.perch/desktop/webview`.
+browser. Everything the app stores lives under `~/.perch`, the same directory `perch dev` uses; the
+window's cookies, storage, and cache are in `~/.perch/desktop/webview`. Only one Perch runs on a data
+directory at a time (`~/.perch/perch.lock`, ADR-0175): with `perch dev` running there, the app says which
+process holds it and exits rather than opening the same database twice — stop `perch dev`, point it at
+the app's port (`perch dev --port 47160`, which the app then attaches to), or give one of them
+`--data-dir`.
 
 ## What it does
 
