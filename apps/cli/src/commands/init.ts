@@ -70,7 +70,7 @@ export function renderInit(
     lines.push("# PERCH_PREVIEW_DOMAIN=preview.example.com  (unset: previews use path mode)");
   }
   lines.push(
-    "# PERCH_SMTP_URL=smtp://user:pass@host:587    (unset: invite links are logged and shown to the inviter)",
+    "# PERCH_SMTP_URL=smtp://user:pass@host:587    (unset: no mail; invite links are shown to the inviter)",
   );
   return {
     env: `${lines.join("\n")}\n`,

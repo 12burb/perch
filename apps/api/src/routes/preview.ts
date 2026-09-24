@@ -35,6 +35,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import type { WSContext } from "hono/ws";
 import { authenticate } from "../auth/middleware.ts";
+import { tokenAllows } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { findMembership } from "../repos/workspaces.ts";
@@ -313,7 +314,8 @@ async function admitted(
   port: number,
 ): Promise<Admission> {
   const user = c.get("user");
-  if (user) {
+  // An api token gets in as its owner only with the read scope and, if bound, in its own workspace.
+  if (user && tokenAllows(c, "read", workspace.id)) {
     const membership = await findMembership(deps.db.db, workspace.id, user.id);
     if (membership) return { ok: true, userId: user.id, member: true };
   }

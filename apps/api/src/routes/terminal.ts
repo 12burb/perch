@@ -14,6 +14,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { WSContext } from "hono/ws";
 import { z } from "zod";
 import { authorize } from "../auth/authorize.ts";
+import { crossOriginUpgrade } from "../auth/edge.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
@@ -148,5 +149,11 @@ export function registerTerminal(app: OpenAPIHono<AppEnv>, deps: Deps, wsServer:
     return upgrade(c, next);
   };
 
-  app.get("/api/workspaces/:ws/projects/:project/terminal", requireUser, handler);
+  // A shell is the most a page could get from a session cookie: only Perch's own pages open one.
+  app.get(
+    "/api/workspaces/:ws/projects/:project/terminal",
+    requireUser,
+    crossOriginUpgrade(deps.env),
+    handler,
+  );
 }

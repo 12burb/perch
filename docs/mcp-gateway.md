@@ -91,6 +91,13 @@ other tools take. Everything goes through the same service the REST handler for 
 so a channel you cannot see is as invisible here as it is there, and a message you post is a
 message from you — not from a bot, not from Perch.
 
+The same holds on REST (ADR-0172). A bound token lists only its own workspace in
+`GET /api/workspaces`, sees only that workspace's rows in `/api/inbox`, and is refused anything that
+reaches past it: creating a workspace, accepting an invite, changing your profile, listing or
+revoking your tokens, subscribing a device to push. Tokens are made from a signed-in session only,
+so no token can mint a wider one, and the instance-admin pages take a session or an unbound
+`admin` token.
+
 A tool that will not run says so in its result rather than failing the call, because an agent can
 read a reason and try something else. `work.create` and `work.update` are the two §7.5 names not
 here yet; they arrive with work items themselves (task 3.13).

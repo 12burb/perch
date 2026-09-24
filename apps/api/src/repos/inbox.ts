@@ -41,6 +41,8 @@ export type ListOptions = {
   kinds?: readonly InboxKind[] | undefined;
   limit?: number | undefined;
   now?: Date | undefined;
+  /** One workspace's items only (a bound api token, ADR-0172). */
+  workspaceId?: string | undefined;
 };
 
 /**
@@ -66,6 +68,7 @@ export async function listItems(
   if (options.kinds && options.kinds.length > 0) {
     where.push(inArray(inboxItems.kind, [...options.kinds]));
   }
+  if (options.workspaceId) where.push(eq(inboxItems.workspaceId, options.workspaceId));
   return db
     .select()
     .from(inboxItems)

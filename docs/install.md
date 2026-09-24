@@ -138,3 +138,15 @@ writes nothing else: no services, no launch agents, no registry keys beyond the 
 The one-liners install laptop mode. For a team on a server, see [`deploy.md`](deploy.md): `perch
 init` writes a `docker-compose.yml`, a `Caddyfile` and an `.env`, and the images are signed the same
 way ([`ci.md`](ci.md)).
+
+## Mail
+
+Invites and password resets are mailed when `PERCH_SMTP_URL` is set (`smtp://user:pass@host:587`,
+or `smtps://` on 465), from `PERCH_SMTP_FROM` or `Perch <no-reply@<your host>>`. Without it,
+nothing is sent: the inviter gets the invite link to pass on by hand, and a password reset cannot be
+delivered. The links carry tokens, so they are never written to the log, with or without mail
+([`deploy.md`](deploy.md#mail-proxies-and-host-names)).
+
+A laptop instance answers only to `localhost`, IP addresses, `PERCH_PUBLIC_URL`'s host and the names
+in `PERCH_ALLOWED_HOSTS`; reaching it by another name (a `.local` mDNS name, say) needs that name
+listed there.

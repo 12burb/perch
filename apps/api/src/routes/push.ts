@@ -4,6 +4,7 @@
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { currentUser, requireUser } from "../auth/middleware.ts";
+import { tokenGate } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { publicKey, subscribe, subscriptionsOf, unsubscribe } from "../services/push.ts";
 import { errorResponses, SESSION_OR_BEARER } from "./shared.ts";
@@ -97,6 +98,8 @@ export function registerPush(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(listRoute, async (c) => {
+    // A device hears from every workspace its owner is in: not a bound token's (ADR-0172).
+    tokenGate(c, "read", null);
     const rows = await subscriptionsOf(deps.db.db, currentUser(c).id);
     return c.json(
       {
@@ -112,6 +115,7 @@ export function registerPush(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(subscribeRoute, async (c) => {
+    tokenGate(c, "write", null);
     const body = c.req.valid("json");
     const row = await subscribe(deps, {
       userId: currentUser(c).id,
@@ -132,6 +136,7 @@ export function registerPush(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(unsubscribeRoute, async (c) => {
+    tokenGate(c, "write", null);
     await unsubscribe(deps, currentUser(c).id, c.req.valid("json").endpoint);
     return c.body(null, 204);
   });

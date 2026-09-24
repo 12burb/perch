@@ -32,8 +32,12 @@ async function call(
     headers.set("content-type", "application/json");
     body = JSON.stringify(init.json);
   }
-  return booted.app.request(`${BASE}${path}`, { ...init, headers, body });
+  // As if through a proxy on this host: loopback is a trusted proxy, so its X-Forwarded-For is
+  // what the audit log records (ADR-0172); from any other peer the header would be ignored.
+  return booted.app.request(`${BASE}${path}`, { ...init, headers, body }, LOCAL_PROXY);
 }
+
+const LOCAL_PROXY = { requestIP: () => ({ address: "127.0.0.1", family: "IPv4", port: 40000 }) };
 
 async function signUp(name: string, email: string) {
   const res = await call("/api/auth/sign-up/email", {

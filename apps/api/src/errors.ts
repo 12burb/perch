@@ -5,6 +5,7 @@
  */
 import { type ErrorResponse, PERCH_ERROR_STATUS, type PerchErrorCode } from "@perch/events";
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
 import type { AppEnv } from "./context.ts";
@@ -114,6 +115,17 @@ export function errorHandler(error: Error, c: Context<AppEnv>): Response {
   if (error instanceof ZodError) {
     const perch = fromZodError(error);
     return c.json(perch.toBody(requestId), perch.status as ContentfulStatusCode);
+  }
+  if (error instanceof HTTPException && error.status < 500) {
+    // The router's own refusals — a body in a media type the route does not take (415) — are
+    // the caller's mistake, in the §7.8 shape, not an internal error (ADR-0172).
+    const refused = new PerchError(
+      "validation",
+      error.message,
+      { status: error.status },
+      error.status,
+    );
+    return c.json(refused.toBody(requestId), error.status as ContentfulStatusCode);
   }
   if (isPerchError(error)) {
     if (error.status >= 500) log?.error({ err: error, code: error.code }, error.message);

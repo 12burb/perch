@@ -34,6 +34,8 @@ services:
       PERCH_FILES_DIR: /data/files
       # Backups (task 4.4): a nightly one at PERCH_BACKUP_CRON, PERCH_BACKUP_KEEP of them kept.
       PERCH_BACKUP_DIR: ${PERCH_BACKUP_DIR:-/data/backups}
+      # Caddy is the proxy in front: its X-Forwarded-For is believed, a runner container's is not.
+      PERCH_TRUSTED_PROXIES: ${PERCH_TRUSTED_PROXIES:-caddy}
     volumes:
       - files:/data/files
       - backups:/data/backups

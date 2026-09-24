@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Booted } from "../src/boot.ts";
+import { claimSetup, isInstanceAdmin, SETUP_CLAIM_TTL_MS } from "../src/services/setup.ts";
 import { bootTestApp } from "../src/testing.ts";
 
 /** Task 0.13: the setup wizard's endpoint, the sign-up gate before it, and the instance facts after. */
@@ -123,4 +124,51 @@ describe("setup wizard (task 0.13)", () => {
     });
     expect(signUp.status).toBe(200);
   });
+});
+
+describe("setup is claimed once (ADR-0172)", () => {
+  test("two setups at the same moment: one is the admin, the other is told setup is taken", async () => {
+    const fresh = await bootTestApp({}, { setup: false });
+    try {
+      const attempt = (name: string, email: string) =>
+        fresh.app.request(`${BASE}/api/setup`, {
+          method: "POST",
+          headers: { origin: BASE, "content-type": "application/json" },
+          body: JSON.stringify({
+            admin: { name, email, password: "correct horse battery staple" },
+            workspace: { name: `${name}'s` },
+            public_url: BASE,
+            telemetry: false,
+          }),
+        });
+      const results = await Promise.all([
+        attempt("Dawn", "dawn-race@example.test"),
+        attempt("Eve", "eve-race@example.test"),
+      ]);
+      expect(results.map((res) => res.status).sort()).toEqual([201, 409]);
+      const winner = results.find((res) => res.status === 201);
+      const body = (await winner?.json()) as { user_id: string };
+      expect(await isInstanceAdmin(fresh.db.db, body.user_id)).toBe(true);
+    } finally {
+      await fresh.close();
+    }
+  }, 60_000);
+
+  test("a claim left by an attempt that died is taken over once it is stale, by one taker", async () => {
+    const fresh = await bootTestApp({}, { setup: false });
+    try {
+      const t0 = new Date("2026-09-24T10:00:00Z");
+      expect(await claimSetup(fresh.db.db, t0)).toBe(t0.toISOString());
+      const soon = new Date(t0.getTime() + 60_000);
+      expect(await claimSetup(fresh.db.db, soon)).toBeNull();
+      const later = new Date(t0.getTime() + SETUP_CLAIM_TTL_MS + 1);
+      const takers = await Promise.all([
+        claimSetup(fresh.db.db, later),
+        claimSetup(fresh.db.db, later),
+      ]);
+      expect(takers.filter((one) => one !== null)).toHaveLength(1);
+    } finally {
+      await fresh.close();
+    }
+  }, 60_000);
 });

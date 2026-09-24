@@ -6448,7 +6448,7 @@ directory as before.
 
 ## ADR-0162: An api token's workspace is a membership, checked when it is made and every time it is used
 
-**Status:** accepted · **Task:** code audit (AGENTS.md §1.6, §5) · **Spec:** §6 (`api_tokens.workspace_id`), §7.1, §7.5
+**Status:** accepted; amended by ADR-0172 (the narrowing now also holds on routes without `authorize()`) · **Task:** code audit (AGENTS.md §1.6, §5) · **Spec:** §6 (`api_tokens.workspace_id`), §7.1, §7.5
 
 `api_tokens.workspace_id` was the caller's word: `POST /api/me/tokens` stored whatever was sent,
 and the MCP routes — `/mcp/perch` and `/mcp/{connectionId}` — took that stored id as the workspace
@@ -7214,3 +7214,107 @@ install it from a checkout meanwhile.
 
 **Spec deviations.** §7.3's HMAC-signed webhook transport remains unbuilt (socket only). Nothing
 else here departs from the spec; the rest brings the code to it.
+
+## ADR-0172: The request edge — tokens keep their scopes everywhere, cookies come from Perch's own pages, and nothing secret is logged
+
+**Status:** accepted · **Task:** code review, batch api-edge-auth · **Spec:** §1.6, §6 (`api_tokens`), §7.1, §7.2, §7.8, §8, §9.1; amends ADR-0162, extends ADR-0045, ADR-0046, ADR-0057
+
+The review found the HTTP and WebSocket edge trusting more than it should in eleven places. This
+records what each check now is, and the few choices the spec did not make.
+
+**Api tokens keep their scopes and binding on every route.** `authorize()` applied a token's
+scopes and workspace binding, but only on routes that name a workspace. Everything else — the
+profile, the token list, the workspace list, the inbox, push subscriptions, the admin pages, the
+preview door — answered any token as the person. So a `chat:read` token bound to one workspace
+could mint an unbound `admin` token, list every workspace, and change instance settings, and
+ADR-0162's "a bound token cannot even list the other workspaces" was false. One helper,
+`tokenGate(c, scope, workspaceId?)` in `apps/api/src/auth/token-gate.ts`, is now called by every
+such handler: a missing scope is `forbidden` (reason `scope`); a bound token outside its workspace
+gets the `not_found` a stranger gets; a bound token on an account- or instance-wide action is
+`forbidden` (reason `token_bound`). The rules: `POST /api/me/tokens` takes a session only
+(`requireSession`, reason `session_required`) — ADR-0045 said so, nothing enforced it, and a token
+that mints could mint one wider, unbound or longer-lived than itself. Revoking tokens, changing the
+profile, creating a workspace and the instance-admin pages take a session or an unbound `admin`
+token. Listing tokens and devices takes `read`, subscribing a device or accepting an invite takes
+`write`, all unbound. The workspace list and the inbox take `read` (`write` to resolve or snooze)
+and are narrowed to the bound workspace in the query. `GET /api/me` stays open to every token: who
+it acts as is the one thing any token may ask. `apps/api/test/authorized.test.ts` makes each
+exempt route name its token rule, checks that a `gated` one really calls the gate, and now counts a
+helper as a gate only in its own file or where it is imported (a `mine` in `bots.ts` had been
+vouching for the inbox's own `mine`).
+
+**A cookie-authenticated write or upgrade must come from Perch's own pages.** Previews are
+recommended to sit on the same site as Perch, and a same-site page's requests carry the Lax
+session cookie. Body-less POSTs (a deploy-key rotation) and WebSocket upgrades (`/api/ws`, a
+project terminal) needed nothing else. Now, when the session cookie authenticated the request, a
+POST/PUT/PATCH/DELETE on `/api/*` and those two upgrades are refused (`forbidden`, reason
+`cross_origin`) unless `Origin` is the public URL's origin, the laptop Vite dev server's
+(`localhost:5173`, as better-auth already trusts), or the origin the request was addressed to; with
+no `Origin`, `Sec-Fetch-Site` must be `same-origin` or `none`; with neither, it was not a browser.
+Bearer callers are untouched: a browser cannot send `Authorization` across origins without CORS
+approval Perch never gives, and a bearer request never reads the cookie. The bot socket takes its
+token on the query string and is left alone. **JSON bodies:** `@hono/zod-openapi` 1.6.3 already
+refuses a JSON route's body in another media type, but with an `HTTPException(415)` that the error
+handler turned into a 500; the handler now answers any router 4xx in the §7.8 shape (code
+`validation`, the router's status). Path-mode previews share Perch's origin and are the
+preview-inspector batch's to separate.
+
+**Hosts (DNS rebinding).** A request whose `Host` is not one of the instance's names is refused
+(403, reason `host_not_allowed`; §7.8 has no 421). Answered: the public URL's host, the preview
+domain and names under it, the runner URL's host, `PERCH_ALLOWED_HOSTS` (new, comma-separated),
+`localhost` and `*.localhost`, and any IP literal. IP literals and loopback names are never a
+rebound name, because a rebinding page is served under a DNS name of its own, so allowing them costs
+nothing and keeps LAN and health-check access working. A request with no `Host` did not come from
+a browser and passes. The runner lane (`/api/runner`, `/api/runner/stream/…`) is exempt: runner
+containers dial `api:3000` by service name with a connect token, which a rebinding page never has.
+
+**Client addresses.** The audit log took the left-most `X-Forwarded-For` entry, which the client
+writes, and better-auth keyed its per-address limits on the same header, from any peer —
+including runner containers that reach `api:3000` directly. Now `X-Forwarded-For` (or `X-Real-IP`)
+is believed only when the socket peer is a trusted proxy: loopback always, plus
+`PERCH_TRUSTED_PROXIES` (new; IPs, CIDR ranges or hostnames, resolved at most every 30 s). The
+chain is walked from the right past trusted proxies to the first address none of them is. Any
+other peer is its own socket address. better-auth gets the request with `X-Forwarded-For`
+replaced by that one address, so its limits follow the same answer (its own `trustedProxies`
+cannot see the socket peer, so it is not used). The compose file sets
+`PERCH_TRUSTED_PROXIES=caddy` for the api.
+
+**Setup is claimed once.** Two wizards could both pass "is setup complete?" and the last to finish
+took the admin seat. `completeSetup` now claims first with one conditional insert of
+`setup.claimed` (`ON CONFLICT DO NOTHING`). The loser gets 409, and a failed attempt gives the claim
+back. A claim older than ten minutes, left by a process that died mid-setup, can be taken over with
+a compare-and-set, so the instance is never locked out and only one taker wins. No advisory lock:
+the steps run through better-auth on the shared handle, which a held transaction would block on
+PGlite.
+
+**Logs.** Redaction was a pino path list two levels deep that missed camelCase names; nothing
+tested it. Every log call's fields, every child logger's bindings and every serialized error are
+now walked at any depth. A value is replaced when its key, lower-cased without separators, is
+listed in `REDACTED_KEYS` or ends in `token`, `secret`, `key` or `password` (`input_tokens` and
+other counts are kept). `createLogger` takes a destination so tests read the real line. The
+request line records the route pattern (`/api/invites/:token`), not the concrete path, because
+invite, reset-password and runner-stream tokens travel in paths. `PERCH_LOG_PRETTY=on` crashed
+the published image, because `pino-pretty` was a devDependency loaded as a transport worker by
+name. It is now a runtime dependency used as an in-thread stream, which also works in the compiled
+binary, and a failure falls back to JSON with a warning. `.env.example` no longer claims laptop
+mode turns it on.
+
+**Mail.** `PERCH_SMTP_URL` was parsed and never used, and reset and invite links, tokens
+included, were logged. `apps/api/src/mail.ts` sends invite and reset mail through `nodemailer`
+10.0.10 (MIT-0, no dependencies, its own types; resolved from the npm registry and pinned), with
+`PERCH_SMTP_FROM` (new) or `Perch <no-reply@<public host>>` as sender. It is built from the
+environment where it is used, one transport per URL, because this batch does not own the
+composition root. Without SMTP nothing is sent. The invite link still goes back to the inviter in
+the response, and a password reset is recorded as requested but cannot be delivered. The links are
+never logged. Deviation from ADR-0046, which logged links until SMTP existed: §1.6 does not allow
+a token in a log line, and now SMTP exists.
+
+**Runners.** Removing a runner through `/api/workspaces/{ws}/runners/{id}` now requires the
+runner's workspace to be `{ws}`. The shared runner (workspace null) serves every workspace, so it
+answers `not_found` there and stays the supervisor's to manage.
+
+**Consequences.** Three new variables: `PERCH_TRUSTED_PROXIES`, `PERCH_ALLOWED_HOSTS` and
+`PERCH_SMTP_FROM`. An operator who reaches the instance by a name other than the public URL's
+must list it. A proxy other than the compose file's Caddy must be named, or every client is
+recorded as the proxy. Scripts that used a narrow or bound token for account-wide calls now get
+403, and should use a session or an unbound token with the scope the call needs.

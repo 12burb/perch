@@ -8,6 +8,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { AUDIT_ACTOR_TYPES } from "@perch/db";
 import { currentUser, requireUser } from "../auth/middleware.ts";
+import { type Caller, tokenGate } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import type { BackupSummary } from "../services/backups.ts";
@@ -181,14 +182,20 @@ function view(backup: BackupSummary) {
 }
 
 export function registerAdmin(app: OpenAPIHono<AppEnv>, deps: Deps): void {
-  const guard = async (userId: string) => {
+  /**
+   * The instance's admin account, signed in or through a wide admin-scoped token: a narrower token
+   * the admin handed to a script must not reach the whole instance (ADR-0172).
+   */
+  const guard = async (c: Caller) => {
+    const userId = currentUser(c).id;
     if (!(await isInstanceAdmin(deps.db.db, userId))) {
       throw new PerchError("forbidden", "only this instance's admin account may do that", {}, 403);
     }
+    tokenGate(c, "admin", null);
   };
 
   app.openapi(listRoute, async (c) => {
-    await guard(currentUser(c).id);
+    await guard(c);
     return c.json(
       {
         directory: deps.backups.root ?? null,
@@ -201,7 +208,7 @@ export function registerAdmin(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(takeRoute, async (c) => {
-    await guard(currentUser(c).id);
+    await guard(c);
     const backup = await deps.backups.create();
     return c.json(view(backup), 201);
   });
@@ -217,18 +224,18 @@ export function registerAdmin(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(settingsRoute, async (c) => {
-    await guard(currentUser(c).id);
+    await guard(c);
     return c.json(await settings(), 200);
   });
 
   app.openapi(patchSettingsRoute, async (c) => {
-    await guard(currentUser(c).id);
+    await guard(c);
     await deps.audit.setRetentionDays(c.req.valid("json").audit_retention_days);
     return c.json(await settings(), 200);
   });
 
   app.openapi(auditRoute, async (c) => {
-    await guard(currentUser(c).id);
+    await guard(c);
     const query = c.req.valid("query");
     const rows = await deps.audit.everywhere({
       limit: query.limit,

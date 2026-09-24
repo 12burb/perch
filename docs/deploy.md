@@ -78,6 +78,24 @@ invite link.
 - Local models: `docker compose --profile local up -d` starts Ollama at `http://ollama:11434`.
 - Cloudflare tunnel: set `TUNNEL_TOKEN` and `docker compose --profile tunnel up -d`.
 
+## Mail, proxies and host names
+
+- **Mail.** Set `PERCH_SMTP_URL` (`smtp://user:pass@host:587`, or `smtps://` for port 465) and
+  optionally `PERCH_SMTP_FROM`, and invites and password resets are mailed. Without it nothing is
+  sent: an invite's link is still returned to the inviter to pass on by hand, and a password reset
+  cannot be delivered. Either way the links, which carry tokens, never reach the log.
+- **Proxies.** The api believes `X-Forwarded-For` only from the proxies `PERCH_TRUSTED_PROXIES`
+  names (IPs, CIDR ranges or hostnames; loopback always). The compose file names `caddy`, so a
+  runner container that reaches `api:3000` directly is recorded, and rate-limited, as itself. Behind
+  another proxy (nginx, Traefik, a load balancer), set its address.
+- **Host names.** A request whose `Host` is not the public URL's, the preview domain or a name under
+  it, `localhost`, an IP address, or one listed in `PERCH_ALLOWED_HOSTS` is refused with 403. That
+  keeps a DNS-rebinding page away from an instance on a private network; add any other name the
+  instance is really reached by to `PERCH_ALLOWED_HOSTS`.
+- **Origins.** A state-changing request or a WebSocket upgrade that the session cookie
+  authenticates must come from the public URL's origin (in laptop mode, also the Vite dev server's).
+  Scripts and SDKs use an api token as `Authorization: Bearer`, which this does not affect.
+
 ## Laptop mode: the same product, no Docker
 
 `perch dev` runs the api, the built web app, and an in-process runner on PGlite under `~/.perch`.

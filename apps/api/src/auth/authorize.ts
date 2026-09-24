@@ -13,30 +13,19 @@ import {
   type Role,
 } from "@perch/policy";
 import type { Context } from "hono";
-import { getConnInfo } from "hono/bun";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { findMembership } from "../repos/workspaces.ts";
+import { clientIpOf } from "./edge.ts";
 import { currentUser } from "./middleware.ts";
 
 /** Who is acting and from where; every service call that publishes an event carries one. */
 export type ActorContext = { actor: Actor; meta: EventMeta };
 
-function clientIp(c: Context<AppEnv>): string | undefined {
-  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded) return forwarded;
-  const real = c.req.header("x-real-ip")?.trim();
-  if (real) return real;
-  try {
-    return getConnInfo(c).remote.address;
-  } catch {
-    return undefined;
-  }
-}
-
 export function actorOf(c: Context<AppEnv>): ActorContext {
   const user = currentUser(c);
-  const ip = clientIp(c);
+  // Forwarded headers count only from a trusted proxy (ADR-0172); see auth/edge.ts.
+  const ip = clientIpOf(c);
   return {
     actor: { type: "user", id: user.id },
     meta: { requestId: c.get("requestId"), ...(ip ? { ip } : {}) },

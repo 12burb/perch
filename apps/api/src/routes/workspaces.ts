@@ -2,7 +2,9 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { AUDIT_ACTOR_TYPES, type AuditRow, workspaceSettingsSchema } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
+import { boundWorkspace, tokenGate } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
+import { MAIL, mailerFor } from "../mail.ts";
 import { findMembership } from "../repos/workspaces.ts";
 import { type AuditQuery, EXPORT_LIMIT, toCsv } from "../services/audit.ts";
 import { acceptInvite, createInvite, previewInvite } from "../services/invites.ts";
@@ -376,7 +378,12 @@ export function registerWorkspaces(
 ): void {
   app.openapi(listWorkspaces, async (c) => {
     const user = currentUser(c);
-    const rows = await listMyWorkspaces(deps.db.db, user.id);
+    tokenGate(c, "read");
+    // A bound token sees its own workspace and nothing else (ADR-0162, ADR-0172).
+    const bound = boundWorkspace(c);
+    const rows = (await listMyWorkspaces(deps.db.db, user.id)).filter(
+      (r) => bound === undefined || r.workspace.id === bound,
+    );
     return c.json(
       { workspaces: rows.map((r) => ({ ...workspaceBody(r.workspace), role: r.role })) },
       200,
@@ -384,6 +391,8 @@ export function registerWorkspaces(
   });
 
   app.openapi(createWorkspaceRoute, async (c) => {
+    // A new workspace is outside any binding, and making one is administration (ADR-0172).
+    tokenGate(c, "admin", null);
     const body = c.req.valid("json");
     const workspace = await createWorkspace(deps.db.db, deps.bus, {
       name: body.name,
@@ -505,7 +514,22 @@ export function registerWorkspaces(
       inviterRole: role,
       publicUrl: deps.env.publicUrl,
     });
-    c.get("log").info({ email: body.email, url: created.acceptUrl }, "invite link");
+    // The accept link carries the invite token: it goes to the invitee by mail when the instance
+    // has a mail server, back to the inviter always, and never into a log line (ADR-0172).
+    const mailer = mailerFor(deps.env, c.get("log"));
+    if (mailer.configured) {
+      const workspace = await getWorkspace(deps.db.db, ws);
+      void mailer.send({
+        to: created.invite.email,
+        ...MAIL.invite({
+          workspace: workspace.name,
+          inviter: currentUser(c).name,
+          role: created.invite.role,
+          url: created.acceptUrl,
+        }),
+      });
+    }
+    c.get("log").info({ email: body.email, mailed: mailer.configured }, "invite created");
     return c.json(
       {
         id: created.invite.id,
@@ -525,6 +549,8 @@ export function registerWorkspaces(
 
   app.openapi(acceptInviteRoute, async (c) => {
     const user = currentUser(c);
+    // Joining another workspace is past a bound token's reach.
+    tokenGate(c, "write", null);
     const joined = await acceptInvite(deps.db.db, deps.bus, {
       token: c.req.valid("param").token,
       user,

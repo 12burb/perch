@@ -9,6 +9,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { INBOX_KINDS, INBOX_STATUSES, type InboxItem } from "@perch/db";
 import { currentUser, requireUser } from "../auth/middleware.ts";
+import { boundWorkspace, tokenGate } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { getItem, listItems, setStatus } from "../repos/inbox.ts";
@@ -112,17 +113,27 @@ function body(row: InboxItem) {
 }
 
 export function registerInbox(app: OpenAPIHono<AppEnv>, deps: Deps): void {
-  /** An item is its owner's; to anybody else it is not there at all. */
-  const mine = async (c: Parameters<typeof currentUser>[0], id: string): Promise<InboxItem> => {
+  /**
+   * An item is its owner's; to anybody else it is not there at all. A token bound to one workspace
+   * sees that workspace's items only, and the same not_found for the rest (ADR-0172).
+   */
+  const mine = async (c: Parameters<typeof tokenGate>[0], id: string): Promise<InboxItem> => {
+    tokenGate(c, "write");
     const item = await getItem(deps.db.db, id);
     if (!item || item.userId !== currentUser(c).id) throw PerchError.notFound("inbox item");
+    const bound = boundWorkspace(c);
+    if (bound !== undefined && item.workspaceId !== bound) throw PerchError.notFound("inbox item");
     return item;
   };
 
   app.openapi(listRoute, async (c) => {
     const { status, kind, limit } = c.req.valid("query");
     const user = currentUser(c);
+    tokenGate(c, "read");
+    const bound = boundWorkspace(c);
+    const scope = bound === undefined ? {} : { workspaceId: bound };
     const items = await listItems(deps.db.db, user.id, {
+      ...scope,
       ...(status ? { status } : {}),
       ...(kind ? { kinds: [kind] } : {}),
       ...(limit ? { limit } : {}),
@@ -131,7 +142,7 @@ export function registerInbox(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const open =
       status === undefined || status === "open"
         ? items.length
-        : (await listItems(deps.db.db, user.id, { status: "open", limit: 200 })).length;
+        : (await listItems(deps.db.db, user.id, { ...scope, status: "open", limit: 200 })).length;
     return c.json({ items: items.map(body), open }, 200);
   });
 

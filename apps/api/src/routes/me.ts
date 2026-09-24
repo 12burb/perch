@@ -1,6 +1,7 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { API_TOKEN_SCOPES } from "@perch/db";
 import { currentUser, requireUser } from "../auth/middleware.ts";
+import { requireSession, tokenGate } from "../auth/token-gate.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { emailVerified } from "../repos/users.ts";
@@ -172,6 +173,8 @@ export function registerMe(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">): vo
 
   app.openapi(patchMe, async (c) => {
     const user = currentUser(c);
+    // The profile is the person's across every workspace: a session, or a wide admin token.
+    tokenGate(c, "admin", null);
     const updated = await updateProfile(deps.db.db, user, c.req.valid("json"));
     return c.json(
       {
@@ -191,11 +194,16 @@ export function registerMe(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">): vo
 
   app.openapi(listTokens, async (c) => {
     const user = currentUser(c);
+    // Every token the person holds, whatever workspace each is bound to: not a bound token's to see.
+    tokenGate(c, "read", null);
     const rows = await listApiTokens(deps.db.db, user.id);
     return c.json({ tokens: rows.map(tokenBody) }, 200);
   });
 
   app.openapi(createToken, async (c) => {
+    // Tokens are made from a session (ADR-0045): a token that could mint one could mint one wider,
+    // unbound, or longer-lived than itself (ADR-0172).
+    requireSession(c);
     const user = currentUser(c);
     const body = c.req.valid("json");
     // A token bound to a workspace is bound to a membership: the MCP routes take the workspace
@@ -218,6 +226,8 @@ export function registerMe(app: OpenAPIHono<AppEnv>, deps: Pick<Deps, "db">): vo
 
   app.openapi(deleteTokenRoute, async (c) => {
     const user = currentUser(c);
+    // Revoking reaches every token the person holds: a session, or a wide admin token.
+    tokenGate(c, "admin", null);
     await revokeApiToken(deps.db.db, user.id, c.req.valid("param").id);
     return c.body(null, 204);
   });

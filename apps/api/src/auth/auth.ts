@@ -10,15 +10,16 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { genericOAuth } from "better-auth/plugins";
 import type { Logger } from "pino";
 import type { Env } from "../env.ts";
+import { MAIL, mailerFor } from "../mail.ts";
 import { ensureProfile } from "../services/users.ts";
+import { trustedOrigins } from "./edge.ts";
 
 export type CreateAuthOptions = { env: Env; db: DbHandle; log: Logger };
 
 export function createAuth(options: CreateAuthOptions) {
   const { env, db, log } = options;
   const origin = new URL(env.publicUrl);
-  const devOrigins =
-    env.mode === "laptop" ? ["http://localhost:5173", "http://127.0.0.1:5173"] : [];
+  const mailer = mailerFor(env, log);
 
   return betterAuth({
     appName: "Perch",
@@ -26,7 +27,7 @@ export function createAuth(options: CreateAuthOptions) {
     basePath: "/api/auth",
     secret: env.sessionSecret,
     database: drizzleAdapter(db.db, { provider: "pg", schema: authSchema }),
-    trustedOrigins: [env.publicUrl, ...devOrigins],
+    trustedOrigins: [...trustedOrigins(env)],
     logger: {
       disabled: env.logLevel === "silent",
       disableColors: true,
@@ -40,8 +41,10 @@ export function createAuth(options: CreateAuthOptions) {
       enabled: true,
       minPasswordLength: 10,
       sendResetPassword: async ({ user, url }) => {
-        // Console transport until PERCH_SMTP_URL is wired (spec §8).
-        log.info({ email: user.email, url }, "password reset link");
+        // The link goes by mail (PERCH_SMTP_URL) and nowhere else: it carries a reset token, so
+        // it never reaches a log line (spec §1.6, ADR-0172), whether or not mail is configured.
+        const sent = await mailer.send({ to: user.email, ...MAIL.passwordReset(url) });
+        log.info({ email: user.email, sent }, "password reset requested");
       },
     },
     session: {

@@ -5,7 +5,7 @@
  */
 import type { Bus } from "@perch/bus";
 import { type Db, type InstanceSettingValue, schema } from "@perch/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Auth } from "../auth/auth.ts";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
@@ -17,6 +17,8 @@ const { instanceSettings } = schema;
 
 export const SETTING_KEYS = {
   setupCompleted: "setup.completed",
+  /** Who is running setup right now: an ISO timestamp, written once by whoever got there first. */
+  setupClaimed: "setup.claimed",
   instanceId: "instance.id",
   adminUserId: "instance.admin_user_id",
   telemetry: "telemetry.enabled",
@@ -94,6 +96,62 @@ export async function completeSetup(
       hint: "Change PERCH_PUBLIC_URL in .env and restart, or confirm the configured value.",
     });
   }
+  // The admin seat goes to whoever claims setup first (ADR-0057, ADR-0172): the check above and
+  // the writes below are several awaits apart, so without one atomic claim two wizards could both
+  // pass the check, and the last to finish would become the admin.
+  const claim = await claimSetup(deps.db);
+  if (!claim) throw PerchError.conflict("setup is already under way or complete");
+  try {
+    return await runSetup(deps, input);
+  } catch (error) {
+    // A failed attempt gives the seat back, so the operator can try again.
+    await releaseSetupClaim(deps.db, claim).catch(() => {});
+    throw error;
+  }
+}
+
+/** How long a claim stands without setup completing before another attempt may take it over. */
+export const SETUP_CLAIM_TTL_MS = 10 * 60_000;
+
+/**
+ * Claims first-run setup with one conditional insert. Returns the claim (its timestamp) or null
+ * when someone else holds it. A claim left behind by a process that died mid-setup is taken over
+ * once it is older than SETUP_CLAIM_TTL_MS, again with a compare-and-set, so only one taker wins.
+ */
+export async function claimSetup(db: Db, now = new Date()): Promise<string | null> {
+  const stamp = now.toISOString();
+  const inserted = await db
+    .insert(instanceSettings)
+    .values({ key: SETTING_KEYS.setupClaimed, value: stamp })
+    .onConflictDoNothing({ target: instanceSettings.key })
+    .returning({ key: instanceSettings.key });
+  if (inserted.length > 0) return stamp;
+  const held = await getSetting<string>(db, SETTING_KEYS.setupClaimed);
+  const heldAt = typeof held === "string" ? Date.parse(held) : Number.NaN;
+  if (held === undefined || !(now.getTime() - heldAt > SETUP_CLAIM_TTL_MS)) return null;
+  const taken = await db
+    .update(instanceSettings)
+    .set({ value: stamp })
+    .where(
+      and(eq(instanceSettings.key, SETTING_KEYS.setupClaimed), eq(instanceSettings.value, held)),
+    )
+    .returning({ key: instanceSettings.key });
+  return taken.length > 0 ? stamp : null;
+}
+
+/** Gives back a claim this attempt holds; a claim somebody else has since taken is left alone. */
+async function releaseSetupClaim(db: Db, claim: string): Promise<void> {
+  await db
+    .delete(instanceSettings)
+    .where(
+      and(eq(instanceSettings.key, SETTING_KEYS.setupClaimed), eq(instanceSettings.value, claim)),
+    );
+}
+
+async function runSetup(
+  deps: { db: Db; bus: Bus; auth: Auth; publicUrl: string },
+  input: SetupInput,
+): Promise<SetupResult> {
   const signedUp = await deps.auth.api.signUpEmail({
     body: { name: input.admin.name, email: input.admin.email, password: input.admin.password },
     returnHeaders: true,

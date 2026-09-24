@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { BusEvent } from "@perch/events";
 import { connectRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
+import { findRunnerById, insertRunner } from "../src/repos/runners.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -189,5 +190,28 @@ describe("runners api (task 1.3)", () => {
       ).status,
     ).toBe(404);
     await client.close();
+  });
+
+  test("the shared runner is no workspace's to remove, not even its owner's (ADR-0172)", async () => {
+    const owner = await signUp("Shared Owner", `shared-owner-${Date.now()}@example.test`);
+    const created = (await call("/api/workspaces", owner.cookie, {
+      method: "POST",
+      json: { name: "Shared runner test" },
+    })) as { body: { id: string } };
+    const ws = created.body.id;
+    const shared = await insertRunner(booted.db.db, {
+      workspaceId: null,
+      kind: "hosted",
+      name: "shared",
+    });
+    const listed = (await call(`/api/workspaces/${ws}/runners`, owner.cookie)) as {
+      body: { runners: { id: string }[] };
+    };
+    expect(listed.body.runners.map((one) => one.id)).toContain(shared.id);
+    const removed = await call(`/api/workspaces/${ws}/runners/${shared.id}`, owner.cookie, {
+      method: "DELETE",
+    });
+    expect(removed.status).toBe(404);
+    expect(await findRunnerById(booted.db.db, shared.id)).not.toBeNull();
   });
 });

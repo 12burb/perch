@@ -192,7 +192,10 @@ export function registerRunners(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const { ws, runner: runnerId } = c.req.valid("param");
     const user = currentUser(c);
     const runner = await findRunnerById(deps.db.db, runnerId);
-    if (!runner || (runner.workspaceId !== null && runner.workspaceId !== ws)) {
+    // Only a runner that belongs to this workspace is this workspace's to remove. The shared runner
+    // (workspace null) serves every workspace and is the supervisor's to manage: removing it here
+    // would disconnect every other workspace's sessions, so this route does not see it at all.
+    if (!runner || runner.workspaceId !== ws) {
       await authorize(c, deps, "runners.read", { type: "workspace", id: ws });
       throw PerchError.notFound("runner");
     }

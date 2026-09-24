@@ -21,51 +21,126 @@ const routesDir = resolve(import.meta.dir, "..", "src", "routes");
 /** The calls that decide whether a caller may do something. */
 const GATES = ["authorize", "enter", "guard"] as const;
 
+/** The calls that apply an api token's scopes and workspace binding (ADR-0172). */
+const TOKEN_GATES = ["tokenGate", "requireSession", "tokenAllows"] as const;
+
+/**
+ * How an exempt route treats an api token (ADR-0172). `authorize()` applies a token's scopes and
+ * its workspace binding; a route that does not call it has to say what it does instead:
+ * - `public`: there is no caller at all.
+ * - `gated`: the handler calls tokenGate() or requireSession(); the text is the rule.
+ * - `anyToken`: every token may, and the text is why nothing is exposed by that.
+ */
+type TokenRule = { public: string } | { gated: string } | { anyToken: string };
+
 /**
  * Routes that answer without one, and why. Each is either public by design or scoped to the caller
  * themselves — and `requireUser` still stands in front of the ones that are not public.
  */
-const EXEMPT: Record<string, string> = {
-  "GET /api/health": "liveness, before anybody has signed in",
-  "GET /api/version": "the build, which is public",
-  "GET /api/instance": "which sign-in methods exist, read by the sign-in page",
-  "POST /api/setup": "the wizard: it runs before there is anybody to authorize, and refuses twice",
-  "GET /api/me": "the caller's own profile",
-  "PATCH /api/me": "the caller's own profile",
-  "GET /api/me/tokens": "the caller's own api tokens",
-  "POST /api/me/tokens": "the caller's own api tokens",
-  "DELETE /api/me/tokens/{id}": "the caller's own api tokens",
-  "GET /api/me/push-key": "the instance's public VAPID key",
-  "GET /api/me/push-subscriptions": "the caller's own devices",
-  "POST /api/me/push-subscriptions": "the caller's own devices",
-  "DELETE /api/me/push-subscriptions": "the caller's own devices",
-  "GET /api/inbox": "the caller's own inbox rows, scoped by user id in the repository",
-  "GET /api/workspaces": "the caller's own memberships",
-  "POST /api/workspaces": "creating one: there is no resource to authorize against yet",
-  "GET /api/invites/{token}": "the invite token is the authorization",
-  "POST /api/invites/{token}/accept": "the invite token is the authorization",
-  "GET /api/connect/callback/{provider}": "the OAuth state parameter is the authorization",
-  "GET /api/templates":
-    "the starter stacks (task 4.8): files in the build, the same for every workspace, with no resource to authorize against",
-  "GET /api/hub":
-    "the Hub's index (task 4.12): what this build ships, the same for every workspace; installing one of them is authorized as whatever it does",
-  "GET {CIMD_PATH}":
-    "the CIMD document (spec §3.5): this instance as an OAuth client, public by design",
+const EXEMPT: Record<string, { why: string; tokens: TokenRule }> = {
+  "GET /api/health": {
+    why: "liveness, before anybody has signed in",
+    tokens: { public: "no caller" },
+  },
+  "GET /api/version": { why: "the build, which is public", tokens: { public: "no caller" } },
+  "GET /api/instance": {
+    why: "which sign-in methods exist, read by the sign-in page",
+    tokens: { public: "no caller" },
+  },
+  "POST /api/setup": {
+    why: "the wizard: it runs before there is anybody to authorize, and is claimed once",
+    tokens: { public: "no caller" },
+  },
+  "GET /api/me": {
+    why: "the caller's own profile",
+    tokens: { anyToken: "who a token acts as is the one thing every token may ask" },
+  },
+  "PATCH /api/me": {
+    why: "the caller's own profile",
+    tokens: { gated: "admin scope, not bound: the profile spans every workspace" },
+  },
+  "GET /api/me/tokens": {
+    why: "the caller's own api tokens",
+    tokens: { gated: "read scope, not bound: the list names other workspaces" },
+  },
+  "POST /api/me/tokens": {
+    why: "the caller's own api tokens",
+    tokens: { gated: "a session only: a token never mints a token (ADR-0045)" },
+  },
+  "DELETE /api/me/tokens/{id}": {
+    why: "the caller's own api tokens",
+    tokens: { gated: "admin scope, not bound" },
+  },
+  "GET /api/me/push-key": {
+    why: "the instance's public VAPID key",
+    tokens: { public: "a public key" },
+  },
+  "GET /api/me/push-subscriptions": {
+    why: "the caller's own devices",
+    tokens: { gated: "read scope, not bound" },
+  },
+  "POST /api/me/push-subscriptions": {
+    why: "the caller's own devices",
+    tokens: { gated: "write scope, not bound: a device hears from every workspace" },
+  },
+  "DELETE /api/me/push-subscriptions": {
+    why: "the caller's own devices",
+    tokens: { gated: "write scope, not bound" },
+  },
+  "GET /api/inbox": {
+    why: "the caller's own inbox rows, scoped by user id in the repository",
+    tokens: { gated: "read scope; a bound token sees its workspace's rows only" },
+  },
+  "POST /api/inbox/{id}/resolve": {
+    why: "the caller's own inbox row",
+    tokens: { gated: "write scope; a bound token reaches its workspace's rows only" },
+  },
+  "POST /api/inbox/{id}/snooze": {
+    why: "the caller's own inbox row",
+    tokens: { gated: "write scope; a bound token reaches its workspace's rows only" },
+  },
+  "GET /api/workspaces": {
+    why: "the caller's own memberships",
+    tokens: { gated: "read scope; a bound token sees its own workspace only" },
+  },
+  "POST /api/workspaces": {
+    why: "creating one: there is no resource to authorize against yet",
+    tokens: { gated: "admin scope, not bound" },
+  },
+  "GET /api/invites/{token}": {
+    why: "the invite token is the authorization",
+    tokens: { public: "the invite token" },
+  },
+  "POST /api/invites/{token}/accept": {
+    why: "the invite token is the authorization",
+    tokens: { gated: "write scope, not bound: joining is past any one workspace" },
+  },
+  "GET /api/connect/callback/{provider}": {
+    why: "the OAuth state parameter is the authorization",
+    tokens: { public: "the OAuth state" },
+  },
+  "GET /api/templates": {
+    why: "the starter stacks (task 4.8): files in the build, the same for every workspace, with no resource to authorize against",
+    tokens: { anyToken: "what this build ships, the same for everybody" },
+  },
+  "GET /api/hub": {
+    why: "the Hub's index (task 4.12): what this build ships, the same for every workspace; installing one of them is authorized as whatever it does",
+    tokens: { anyToken: "what this build ships, the same for everybody" },
+  },
+  "GET {CIMD_PATH}": {
+    why: "the CIMD document (spec §3.5): this instance as an OAuth client, public by design",
+    tokens: { public: "a public document" },
+  },
 };
 
 /** The exempt routes that are open to anyone, signed in or not. */
-const PUBLIC = new Set([
-  "GET /api/health",
-  "GET /api/version",
-  "GET /api/instance",
-  "POST /api/setup",
-  "GET /api/me/push-key",
-  "GET /api/invites/{token}",
-  "GET /api/connect/callback/{provider}",
-  "GET {CIMD_PATH}",
-]);
+const PUBLIC = new Set(
+  Object.entries(EXEMPT)
+    .filter(([, entry]) => "public" in entry.tokens)
+    .map(([key]) => key),
+);
 
-type Handler = { key: string; body: string; middleware: string };
+type Handler = { key: string; body: string; middleware: string; tokenGated: boolean };
 
 /**
  * The body of a `name(...) {...}` or `name = (...) => {...}` definition, by brace matching.
@@ -90,13 +165,66 @@ function definitionBody(text: string, from: number): string {
   return text.slice(open);
 }
 
-function readRoutes(): Handler[] {
-  const handlers: Handler[] = [];
-  const helpers = new Map<string, string>();
-  const files = readdirSync(routesDir).filter((file) => file.endsWith(".ts"));
+/** Names this route file imports from a sibling route file. */
+function siblingImports(text: string): Map<string, string> {
+  const imported = new Map<string, string>();
+  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/([\w-]+\.ts)"/g)) {
+    for (const name of (match[1] ?? "").split(",")) {
+      const bare =
+        name
+          .replace(/^\s*type\s+/, "")
+          .trim()
+          .split(/\s+as\s+/)[0] ?? "";
+      if (bare) imported.set(bare, match[2] ?? "");
+    }
+  }
+  return imported;
+}
 
-  for (const file of files) {
+/**
+ * Which names in each file are gates: the given calls, plus any helper that calls one, up to a few
+ * levels of delegation. A helper counts in its own file and in the files that import it by name —
+ * two files each with their own `mine` are two different helpers.
+ */
+function gateNames(
+  files: Map<string, string>,
+  helpers: Map<string, string>,
+  roots: readonly string[],
+): Map<string, Set<string>> {
+  const gated = new Set<string>(); // "file:name"
+  const visible = (file: string): Set<string> => {
+    const names = new Set<string>(roots);
+    for (const key of gated) {
+      const [owner = "", name = ""] = key.split(":");
+      if (owner === file) names.add(name);
+    }
+    for (const [name, from] of siblingImports(files.get(file) ?? "")) {
+      if (gated.has(`${from}:${name}`)) names.add(name);
+    }
+    return names;
+  };
+  for (let round = 0; round < 4; round += 1) {
+    for (const [key, body] of helpers) {
+      if (gated.has(key)) continue;
+      const [file = ""] = key.split(":");
+      if ([...visible(file)].some((gate) => new RegExp(`\\b${gate}\\(`).test(body))) gated.add(key);
+    }
+  }
+  return new Map([...files.keys()].map((file) => [file, visible(file)]));
+}
+
+function calls(body: string, names: Set<string>): boolean {
+  return [...names].some((name) => new RegExp(`\\b${name}\\(`).test(body));
+}
+
+function readRoutes(): Handler[] {
+  const found: Array<Omit<Handler, "tokenGated"> & { file: string }> = [];
+  const helpers = new Map<string, string>();
+  const files = new Map<string, string>();
+
+  for (const file of readdirSync(routesDir).filter((name) => name.endsWith(".ts"))) {
     const text = readFileSync(join(routesDir, file), "utf8");
+    files.set(file, text);
     // Every function-shaped definition in the file, so a handler that delegates its check is seen.
     for (const match of text.matchAll(
       /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(|const\s+(\w+)\s*=\s*(?:async\s*)?\(/g,
@@ -121,7 +249,8 @@ function readRoutes(): Handler[] {
     for (const match of text.matchAll(/app\.openapi\((\w+),\s*(?:async\s*)?\(c\)/g)) {
       const route = routes.get(match[1] ?? "");
       if (!route) continue;
-      handlers.push({
+      found.push({
+        file,
         key: `${route.method} ${route.path}`,
         body: definitionBody(text, (match.index ?? 0) + match[0].length),
         middleware: route.middleware,
@@ -129,20 +258,12 @@ function readRoutes(): Handler[] {
     }
   }
 
-  // A helper that calls a gate is a gate, up to a few levels of delegation.
-  const gates = new Set<string>(GATES);
-  for (let round = 0; round < 4; round += 1) {
-    for (const [key, body] of helpers) {
-      const name = key.split(":")[1] ?? "";
-      if (!name || gates.has(name)) continue;
-      if ([...gates].some((gate) => new RegExp(`\\b${gate}\\(`).test(body))) gates.add(name);
-    }
-  }
-  return handlers.map((handler) => ({
+  const gates = gateNames(files, helpers, GATES);
+  const tokenGates = gateNames(files, helpers, TOKEN_GATES);
+  return found.map(({ file, ...handler }) => ({
     ...handler,
-    body: [...gates].some((gate) => new RegExp(`\\b${gate}\\(`).test(handler.body))
-      ? "GATED"
-      : handler.body,
+    body: calls(handler.body, gates.get(file) ?? new Set(GATES)) ? "GATED" : handler.body,
+    tokenGated: calls(handler.body, tokenGates.get(file) ?? new Set(TOKEN_GATES)),
   }));
 }
 
@@ -166,6 +287,18 @@ describe("every route is authorized (task 4.5)", () => {
       .filter((one) => !one.middleware.includes("requireUser"))
       .map((one) => one.key);
     expect(anonymous).toEqual([]);
+  });
+
+  test("an exemption says how it treats an api token, and a gated one calls the gate (ADR-0172)", () => {
+    const byKey = new Map(handlers.map((one) => [one.key, one]));
+    const missing = Object.entries(EXEMPT)
+      .filter(([, entry]) => "gated" in entry.tokens)
+      .filter(([key]) => byKey.get(key)?.tokenGated !== true)
+      .map(([key]) => key);
+    expect(missing).toEqual([]);
+    // A route that decides without authorize() and without a token rule would be an open door.
+    const ungated = handlers.filter((one) => one.body !== "GATED" && !(one.key in EXEMPT));
+    expect(ungated.map((one) => one.key)).toEqual([]);
   });
 
   test("an exemption that no longer matches a route is removed", () => {

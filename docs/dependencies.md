@@ -69,7 +69,9 @@ only the packages it declares.
 | `postgres` | 3.4.9 | apps/api, packages/db | postgres.js, team mode |
 | `@electric-sql/pglite` | 0.5.8 | apps/api, packages/db | laptop mode and tests; `vector`, `citext` from `contrib` |
 | `croner` | 10.0.1 | packages/jobs | cron parsing and scheduling |
-| `pino` | 10.3.1 | apps/api | logs; `pino-pretty` 13.1.3 dev only |
+| `pino` | 10.3.1 | apps/api | logs |
+| `pino-pretty` | 13.1.3 | apps/api | `PERCH_LOG_PRETTY=on`; a runtime dependency used as an in-thread stream, so it works in the published image and the compiled binary (ADR-0172) |
+| `nodemailer` | 10.0.10 | apps/api | invite and password-reset mail over `PERCH_SMTP_URL`; MIT-0, no dependencies, ships its own types (ADR-0172) |
 | `@opentelemetry/api` | 1.9.1 | apps/api | |
 | `@opentelemetry/sdk-node` | 0.222.0 | apps/api | OTLP export off by default |
 | `@opentelemetry/exporter-trace-otlp-http` | 0.222.0 | apps/api | |

@@ -7,6 +7,14 @@ import { existsSync } from "node:fs";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { serveStatic } from "hono/bun";
 import { secureHeaders } from "hono/secure-headers";
+import {
+  clientAddress,
+  crossOriginUpgrade,
+  crossOriginWrites,
+  hostGuard,
+  ProxyTrust,
+  withResolvedClient,
+} from "./auth/edge.ts";
 import { authenticate, requireUser } from "./auth/middleware.ts";
 import { API_VERSION, type AppEnv, type Deps, SUPPORTED_API_VERSIONS } from "./context.ts";
 import { errorHandler, fromZodError, PerchError } from "./errors.ts";
@@ -84,6 +92,10 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   });
 
   app.use("*", requestLogger(deps.log));
+  // The edge (ADR-0172): a Host this instance answers to (against DNS rebinding), and the client's
+  // address, with X-Forwarded-For believed only from a trusted proxy.
+  app.use("*", hostGuard(deps.env));
+  app.use("*", clientAddress(new ProxyTrust(deps.env.trustedProxies)));
   // Perch's own framing and isolation headers; a preview's response is the dev server's and must
   // not inherit them, or the Preview tab could not frame it (spec §5.6).
   const headers = secureHeaders({ crossOriginEmbedderPolicy: false });
@@ -117,7 +129,8 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
     await next();
   });
   // better-auth owns /api/auth/* (spec §7.1); everything else resolves the caller first.
-  app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
+  // Its per-address limits see the address resolved at the edge, not a header a caller wrote.
+  app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(withResolvedClient(c)));
   if (options.runnerChannel) {
     // Runners authenticate with a connect token, not a user (spec §7.6): mounted before the user
     // authentication middleware, which never sees this route.
@@ -128,10 +141,14 @@ export function createApp(deps: Deps, options: AppOptions = {}): OpenAPIHono<App
   // own routes: on a preview hostname, "/" is the dev server's, not Perch's (spec §5.6).
   registerPreview(app, deps, options.ws);
   app.use("/api/*", authenticate(deps));
+  // A write the session cookie authenticates comes from Perch's own pages (ADR-0172): a same-site
+  // preview's requests carry the cookie too, and Origin is what tells them apart.
+  app.use("/api/*", crossOriginWrites(deps.env));
 
   if (options.ws) {
     // Upgrades need a signed-in user (cookie or bearer); the §7.8 forbidden body is returned otherwise.
-    app.get("/api/ws", requireUser, options.ws.handler);
+    // A cookie-authenticated one must also come from Perch's own pages.
+    app.get("/api/ws", requireUser, crossOriginUpgrade(deps.env), options.ws.handler);
     // Socket mode (spec §7.3; task 2.19): the bot's own token, not a person's session.
     app.get("/api/bot/socket", createBotSocket(deps, options.ws).handler);
     registerTerminal(app, deps, options.ws);

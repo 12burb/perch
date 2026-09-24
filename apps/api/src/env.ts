@@ -41,6 +41,18 @@ const rawEnvSchema = z.object({
   PERCH_S3_SECRET: z.string().optional(),
   PERCH_S3_REGION: z.string().optional(),
   PERCH_SMTP_URL: z.string().optional(),
+  /** The From address on invite and reset mail; `Perch <no-reply@<public host>>` when unset. */
+  PERCH_SMTP_FROM: z.string().min(3).optional(),
+  /**
+   * Addresses (IPs or CIDR ranges) or hostnames of the reverse proxies in front of the api, whose
+   * X-Forwarded-For is believed (ADR-0172). Unset: loopback only. The compose file names `caddy`.
+   */
+  PERCH_TRUSTED_PROXIES: z.string().optional(),
+  /**
+   * Extra hostnames this instance answers to besides PERCH_PUBLIC_URL's, the preview domain,
+   * loopback names and IP literals (ADR-0172: every other Host is refused, against DNS rebinding).
+   */
+  PERCH_ALLOWED_HOSTS: z.string().optional(),
   PERCH_TELEMETRY: onOff.default(false),
   PERCH_OTLP_ENDPOINT: z.url().optional(),
   PERCH_LOG_LEVEL: z
@@ -109,6 +121,11 @@ export type Env = {
   };
   s3: { endpoint: string; bucket: string; key: string; secret: string; region: string } | undefined;
   smtpUrl: string | undefined;
+  smtpFrom: string | undefined;
+  /** Proxies whose X-Forwarded-For is believed: IPs, CIDR ranges or hostnames (ADR-0172). */
+  trustedProxies: readonly string[];
+  /** Hostnames answered besides the public URL's, the preview domain's and loopback (ADR-0172). */
+  allowedHosts: readonly string[];
   telemetry: boolean;
   /** Where to look for a local Ollama, beyond the default port. */
   ollamaUrls: readonly string[];
@@ -146,6 +163,14 @@ export class EnvError extends Error {
     super(message);
     this.name = "EnvError";
   }
+}
+
+/** A comma-separated list, trimmed, without empty entries. */
+function list(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function expandHome(p: string): string {
@@ -231,6 +256,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     },
     s3,
     smtpUrl: raw.PERCH_SMTP_URL,
+    smtpFrom: raw.PERCH_SMTP_FROM,
+    trustedProxies: list(raw.PERCH_TRUSTED_PROXIES),
+    allowedHosts: list(raw.PERCH_ALLOWED_HOSTS).map((host) => host.toLowerCase()),
     telemetry: raw.PERCH_TELEMETRY,
     ollamaUrls: (raw.PERCH_OLLAMA_URL ?? "")
       .split(",")
