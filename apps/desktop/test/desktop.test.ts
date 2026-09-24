@@ -162,6 +162,23 @@ describe("perch-desktop flow", () => {
     expect(calls.log[0]).toContain("attaching");
   });
 
+  test("a data directory another Perch holds is refused with who holds it, and no window opens", async () => {
+    const { deps, calls } = fakeDeps({
+      startLaptop: async () => {
+        const error = new Error(
+          "/home/x/.perch is in use by another Perch (perch dev, pid 4242, at http://127.0.0.1:3000); stop it first, or pass --data-dir",
+        );
+        error.name = "DataDirInUse";
+        throw error;
+      },
+    });
+    expect(await runDesktop([], deps)).toBe(1);
+    expect(calls.windows).toEqual([]);
+    expect(calls.error).toEqual([
+      "perch-desktop: /home/x/.perch is in use by another Perch (perch dev, pid 4242, at http://127.0.0.1:3000); stop it first, or pass --data-dir",
+    ]);
+  });
+
   test("--url opens a window on a team instance without a server", async () => {
     let booted = false;
     const { deps, calls } = fakeDeps({
@@ -236,7 +253,8 @@ describe("perch-desktop flow", () => {
     });
     expect(await runDesktop([], deps)).toBe(1);
     expect(calls.error[0]).toContain("EADDRINUSE");
-    expect(calls.error[0]).toContain("--data-dir");
+    // A held data directory has its own sentence (below); anything else points at the port.
+    expect(calls.error[0]).toContain("--port");
     expect(calls.windows).toEqual([]);
 
     const ok = fakeDeps();

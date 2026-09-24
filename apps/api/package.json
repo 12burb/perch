@@ -12,6 +12,7 @@
     "./env": "./src/env.ts",
     "./logging": "./src/logging.ts",
     "./jobs": "./src/jobs/repo-index.ts",
+    "./services/backups": "./src/services/backups.ts",
     "./services/repo-index": "./src/services/repo-index.ts",
     "./services/demo": "./src/services/demo.ts",
     "./services/setup": "./src/services/setup.ts",

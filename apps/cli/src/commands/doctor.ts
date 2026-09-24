@@ -5,6 +5,7 @@
 import { accessSync, constants, existsSync, mkdirSync, statSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { createDb } from "@perch/db";
+import { DataDirInUse, lockDataDir } from "../data-lock.ts";
 import { dataDirFrom, laptopLayout, webDistDir } from "../paths.ts";
 import { pgliteRuntime } from "../pglite-runtime.ts";
 import { webAssets } from "../web-assets.gen.ts";
@@ -64,7 +65,11 @@ export async function collectChecks(options: {
   checks.push({ name: "data dir writable", ok: dataOk, required: true, detail: dataDetail });
 
   if (dataOk) {
+    // A running Perch has the database open, and a second opener would overwrite its committed
+    // work when it closes (ADR-0175): the check says who has it rather than opening it too.
+    let lock: ReturnType<typeof lockDataDir> | null = null;
     try {
+      lock = lockDataDir(layout.dataDir, "perch doctor");
       const handle = await createDb({ url: layout.databaseUrl, pglite: await pgliteRuntime() });
       try {
         const result = await handle.migrate();
@@ -78,12 +83,23 @@ export async function collectChecks(options: {
         await handle.close();
       }
     } catch (error) {
-      checks.push({
-        name: "database (PGlite)",
-        ok: false,
-        required: true,
-        detail: error instanceof Error ? error.message : String(error),
-      });
+      checks.push(
+        error instanceof DataDirInUse
+          ? {
+              name: "database (PGlite)",
+              ok: true,
+              required: true,
+              detail: `in use by ${error.holder.command} (pid ${error.holder.pid}${error.holder.url ? `, ${error.holder.url}` : ""}); not opened while it runs`,
+            }
+          : {
+              name: "database (PGlite)",
+              ok: false,
+              required: true,
+              detail: error instanceof Error ? error.message : String(error),
+            },
+      );
+    } finally {
+      lock?.release();
     }
   }
 

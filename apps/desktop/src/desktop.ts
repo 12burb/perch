@@ -193,6 +193,13 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * How laptop mode refuses a data directory another Perch holds (`DataDirInUse` in
+ * @perch/cli/laptop); matched on the sentence because on Windows it arrives from the child process
+ * as text.
+ */
+const IN_USE = /is in use by another Perch/;
+
 export async function runDesktop(argv: string[], deps: DesktopDeps): Promise<number> {
   const args = parseDesktopArgs(argv);
   switch (args.kind) {
@@ -305,9 +312,13 @@ export async function runDesktop(argv: string[], deps: DesktopDeps): Promise<num
           logLevel: args.logLevel,
         });
       } catch (error) {
+        // The data directory's lock names who holds it (ADR-0175): `perch dev` on another port,
+        // say. That sentence is the whole story; anything else gets the port as its likely cause.
         deps.error(
-          `perch-desktop: laptop mode could not start at ${url}: ${message(error)}\n` +
-            "  Is another Perch using the data directory (perch dev)? Close it, or pass --data-dir.",
+          IN_USE.test(message(error))
+            ? `perch-desktop: ${message(error)}`
+            : `perch-desktop: laptop mode could not start at ${url}: ${message(error)}\n` +
+                `  Is something else listening on port ${args.port}? Close it, or pass --port.`,
         );
         return 1;
       }
