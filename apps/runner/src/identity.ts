@@ -460,7 +460,13 @@ export class Isolation {
       if (lib.setfsuid(0xffff_ffff) !== account.uid || lib.setfsgid(0xffff_ffff) !== account.gid) {
         throw new Error(`could not take the filesystem credentials of uid ${account.uid}`);
       }
-      return fn();
+      const result = fn();
+      // Only a synchronous fn runs under these credentials: a promise would finish later, on
+      // another turn of the event loop or another thread, as root. Refuse it rather than pretend.
+      if (typeof (result as { then?: unknown } | null)?.then === "function") {
+        throw new Error("asUserFs needs a synchronous function");
+      }
+      return result;
     } finally {
       lib.setfsuid(previousUid);
       lib.setfsgid(previousGid);
