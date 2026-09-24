@@ -667,9 +667,15 @@ export class SessionService {
     const round = this.rounds.get(session.id);
     if (!round) return { cancelled: false };
     round.cancelled = true;
+    // A permission the round was stopped on is moot once it is cancelled (the engine answers it
+    // no). Left in place it held an unattended session at `idle` for ever: auto-settle waits for
+    // nobody to owe an answer (A-sm-24).
+    const waiting = this.pending.get(session.id);
+    this.pending.delete(session.id);
     try {
       await round.engine.cancel(session.id);
     } catch (error) {
+      if (waiting && this.rounds.get(session.id) === round) this.pending.set(session.id, waiting);
       throw engineFailure(error);
     }
     return { cancelled: true };

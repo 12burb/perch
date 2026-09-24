@@ -5,8 +5,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createBotEvents } from "@perch/bots";
-import { createBus } from "@perch/bus";
-import { createDb, type PgliteRuntime } from "@perch/db";
+import { type Bus, createBus } from "@perch/bus";
+import { createDb, type Db, type PgliteRuntime } from "@perch/db";
 import { type Engine, EngineError, EngineRegistry, runnerEngine } from "@perch/engines";
 import { createQueue } from "@perch/jobs";
 import { createVault } from "@perch/vault";
@@ -19,12 +19,15 @@ import { createFlags } from "./flags.ts";
 import { startInboxSubscriber } from "./inbox/subscriber.ts";
 import { createLogger, type Logger } from "./logging.ts";
 import { startPushSubscriber } from "./push/subscriber.ts";
+import { interruptHops, interruptRuns } from "./repos/bots.ts";
+import { appendEvent, interruptSessions } from "./repos/sessions.ts";
 import {
   createRunnerChannel,
   type RunnerChannel,
   type RunnerChannelOptions,
 } from "./runners/channel.ts";
 import { RunnerRegistry } from "./runners/registry.ts";
+import type { RunningServer } from "./server.ts";
 import { AgentBotsService } from "./services/agent-bots.ts";
 import { AgentsService } from "./services/agents.ts";
 import { AuditService } from "./services/audit.ts";
@@ -97,6 +100,16 @@ export type BootOptions = {
   /** Engines sessions can open on (task 1.8): tests pass the fake; adapters register with their tasks. */
   engines?: Engine[];
   sessions?: SessionServiceOptions;
+  /**
+   * Whether this process owns the work a restart interrupts — project setups, coding sessions, bot
+   * runs, the merge queue — and so settles it at boot and keeps the queue moving (ADR-0165,
+   * ADR-0177). On by default: the api entrypoint, laptop mode and the tests. The supervisor, the
+   * jobs worker, `backup` and `restore` turn it off, because they boot beside an api that is still
+   * doing that work, and settling it from there would fail it under the api's feet.
+   */
+  recover?: boolean;
+  /** How often the merge queue looks for work nothing is moving (tests shorten it). */
+  mergeQueueResumeMs?: number;
 };
 
 export type Booted = Deps & {
@@ -145,8 +158,10 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   }
   for (const engine of options.engines ?? []) engines.register(engine.id, engine);
   const flags = createFlags({ db: db.db, env });
-  // What a restart interrupted is settled before anything can ask for it (ADR-0165).
-  await resetInterruptedSetups(db.db);
+  const recover = options.recover !== false;
+  // What a restart interrupted is settled before anything can ask for it (ADR-0165) — by the
+  // process that owns it, and no other (ADR-0177).
+  if (recover) await resetInterruptedSetups(db.db);
   const brains = new BrainsService({
     db: db.db,
     bus,
@@ -283,7 +298,14 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   // What the work is planned into: cycles, modules, saved views, relations (task 3.26).
   const planning = new PlanningService({ db, bus, log });
   // And the queue those branches land through, one at a time (task 3.15).
-  const mergeQueue = new MergeQueueService({ db, bus, log, sessions, registry: runners });
+  const mergeQueue = new MergeQueueService({
+    db,
+    bus,
+    log,
+    sessions,
+    registry: runners,
+    ...(options.mergeQueueResumeMs ? { resumeEveryMs: options.mergeQueueResumeMs } : {}),
+  });
   // The same task on several engines at once, compared and decided (task 3.16).
   const races = new RaceService({ db, bus, log, sessions, mergeQueue, registry: runners });
   // A run nobody is watching, reporting as one card and waking a phone only when it has to
@@ -381,6 +403,14 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
   const stopRaces = races.watch();
   // And a background session's card is rewritten by the same seam (task 3.17).
   const stopBackground = background.watch();
+  // Now that everything that follows a session is listening: what the last process left running is
+  // ended and said so on the bus, so the board, races and cards move on (ADR-0177). Then the merge
+  // queue picks up what was waiting, and keeps an eye on it.
+  let stopMergeQueue = () => {};
+  if (recover) {
+    await settleInterrupted({ db: db.db, bus, log });
+    stopMergeQueue = mergeQueue.start();
+  }
   const ws = createWsServer({ bus, db: db.db, log });
   const runnerChannel = createRunnerChannel(
     { db: db.db, bus, registry: runners, log },
@@ -402,6 +432,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
      * while PGlite closed under it, and PGlite's own close spins forever when that happens.
      */
     close: async () => {
+      stopMergeQueue();
       stopBots();
       stopBotApi();
       stopAudit();
@@ -423,4 +454,95 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       await tracing?.shutdown().catch(() => undefined);
     },
   };
+}
+
+/** What a session or a bot run left running by a restart is marked with (ADR-0177). */
+export const INTERRUPTED = "interrupted by a restart";
+
+const SYSTEM = { actor: { type: "system" as const }, meta: {} };
+
+/**
+ * The rest of ADR-0165's boot settlement (ADR-0177). A coding session's round, its pending
+ * permission and its engine handle live in the process that ran it, and so does a bot's run: after a
+ * restart nothing will ever finish them, and whatever waits on them — a race waiting for its entrants,
+ * a board item in `running`, agent presence, an inbox permission — waits for ever. So each is ended
+ * as an error with the reason, and said so on the bus exactly as if its round had failed: the
+ * transcript gets the error, `session.status` moves the board, the race and the card, and
+ * `bot.run_failed` tells the bot's owner.
+ */
+export async function settleInterrupted(deps: {
+  db: Db;
+  bus: Bus;
+  log: Logger;
+}): Promise<{ sessions: number; runs: number; hops: number }> {
+  const sessions = await interruptSessions(deps.db, INTERRUPTED);
+  for (const session of sessions) {
+    // The same audience the session's own events have (an inline lane stays off the workspace).
+    const topics =
+      session.kind === "inline"
+        ? [`session:${session.id}`]
+        : [`session:${session.id}`, `ws:${session.workspaceId}`];
+    try {
+      const { seq } = await appendEvent(deps.db, session.id, {
+        type: "error",
+        message: INTERRUPTED,
+      });
+      const base = { workspaceId: session.workspaceId, sessionId: session.id };
+      await deps.bus.publish(
+        "session.error",
+        { ...base, seq, message: INTERRUPTED },
+        {
+          ...SYSTEM,
+          topics,
+        },
+      );
+      await deps.bus.publish("session.status", { ...base, status: "error" }, { ...SYSTEM, topics });
+    } catch (error) {
+      deps.log.error({ err: error, sessionId: session.id }, "an interrupted session was not told");
+    }
+  }
+  const runs = await interruptRuns(deps.db, INTERRUPTED);
+  for (const run of runs) {
+    await deps.bus.publish(
+      "bot.run_failed",
+      { workspaceId: run.workspaceId, botId: run.botId, runId: run.id, error: INTERRUPTED },
+      SYSTEM,
+    );
+  }
+  const hops = await interruptHops(deps.db);
+  if (sessions.length + runs.length + hops.length > 0) {
+    deps.log.warn(
+      { sessions: sessions.length, runs: runs.length, hops: hops.length },
+      "work a restart interrupted was ended",
+    );
+  }
+  return { sessions: sessions.length, runs: runs.length, hops: hops.length };
+}
+
+/** How long a stopping api waits for the requests already in flight before it closes anyway. */
+const SHUTDOWN_GRACE_MS = 5_000;
+
+/**
+ * How an entrypoint stops (A-co-17): the server first, so no request is served once the bus
+ * subscribers that record it (audit, inbox, push, bots) are gone — those already in flight run to
+ * their end, for as long as the grace allows. Then whatever else takes work (the jobs worker, the
+ * supervisor), and last the teardown `close()` does in its own order.
+ */
+export async function shutdown(
+  booted: Pick<Booted, "close">,
+  parts: { server?: RunningServer | null; stops?: Array<() => Promise<void>> } = {},
+  graceMs = SHUTDOWN_GRACE_MS,
+): Promise<void> {
+  if (parts.server) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      parts.server.server.stop(true),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, graceMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+  for (const stop of parts.stops ?? []) await stop();
+  await booted.close();
 }

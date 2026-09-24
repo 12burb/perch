@@ -17,6 +17,12 @@
  *   stopping.
  * - **The card is the surface.** One `queue_card` in the work item's thread, rewritten in place
  *   as the entry moves, so a thread reads as one queue rather than four notifications.
+ *
+ * And a branch is held to the checks or it does not land (ADR-0177): a project that has a check
+ * command and nowhere to run it fails the entry rather than landing it unchecked, a branch that is
+ * not there fails rather than being made from the base, and each entry runs as the person who
+ * queued it. The queue also survives a restart: the api picks up what was waiting when it boots and
+ * looks again on a timer, so a queue never waits on somebody queueing something else.
  */
 import type { Bus } from "@perch/bus";
 import type {
@@ -30,6 +36,7 @@ import type {
 } from "@perch/db";
 import {
   execResultSchema,
+  gitBranchResultSchema,
   gitMergeResultSchema,
   type RunnerLink,
   worktreeCreateResultSchema,
@@ -43,6 +50,7 @@ import {
   getEntry,
   landing,
   listQueue,
+  queuedProjects,
   staleLanding,
   updateEntry,
   waitingFor,
@@ -63,12 +71,18 @@ export type MergeQueueDeps = {
   sessions: SessionService;
   registry: Parameters<typeof projectRunnerLink>[0]["registry"];
   queueCheckTimeoutMs?: number;
+  /** How often a started queue looks for work nothing is moving (default a minute). */
+  resumeEveryMs?: number;
 };
 
 /** How long a project's checks may take before the queue calls it a failure. */
 const CHECK_TIMEOUT_MS = 15 * 60_000;
 /** Beyond the checks' budget, how long a landing may go on before it counts as abandoned. */
 const LANDING_GRACE_MS = 5 * 60_000;
+/** How often the api looks for a queue that has work and nothing moving it. */
+const RESUME_EVERY_MS = 60_000;
+/** Who a system-initiated failure is attributed to. */
+const SYSTEM: ActorContext = { actor: { type: "system" }, meta: {} };
 
 /** The commands a project's `run` map might call its checks, in the order they are looked for. */
 const CHECK_KEYS = ["check", "test", "ci", "verify"] as const;
@@ -88,6 +102,8 @@ export class MergeQueueService {
   private readonly running = new Set<string>();
   /** Resolves when nothing is landing, which is what the tests wait on. */
   private readonly idle: Array<() => void> = [];
+  /** When this process started landing branches (`start()`); a landing claimed before is not ours. */
+  private ownedSince: Date | null = null;
 
   constructor(private readonly deps: MergeQueueDeps) {}
 
@@ -131,8 +147,35 @@ export class MergeQueueService {
       input.by,
     );
     await this.card(entry, input.project);
-    this.pump(input.project.id, input.userId);
+    this.pump(input.project.id);
     return entry;
+  }
+
+  /**
+   * Every project with a branch waiting or landing, pumped: what a restart left in the queue is
+   * picked up without anybody queueing something else first (ADR-0177).
+   */
+  async resume(): Promise<void> {
+    for (const projectId of await queuedProjects(this.db)) this.pump(projectId);
+  }
+
+  /**
+   * Makes this process the one that lands branches (the api, or laptop mode — never the
+   * supervisor or a backup). From here a landing claimed before now belongs to a process that is
+   * gone, so it is released at once instead of after the lease; and the queue is looked at on a
+   * timer, which is both how it resumes after a restart — a tick after boot, once the runners
+   * have had a moment to reconnect — and how a lease that runs out later is released. Returns
+   * the stop.
+   */
+  start(): () => void {
+    this.ownedSince = new Date();
+    const timer = setInterval(() => {
+      void this.resume().catch((error: unknown) => {
+        this.deps.log.error({ err: error }, "the merge queue could not be resumed");
+      });
+    }, this.deps.resumeEveryMs ?? RESUME_EVERY_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
 
   queue(projectId: string, states?: readonly MergeQueueEntry["state"][]) {
@@ -156,31 +199,35 @@ export class MergeQueueService {
   }
 
   /**
-   * The landing loop, one per project. Started whenever something joins the queue and stopped
-   * when the queue is empty, so an idle project costs nothing.
+   * The landing loop, one per project. Started whenever something joins the queue (and by
+   * `resume`), and stopped when the queue is empty, so an idle project costs nothing. It carries no
+   * caller: each entry lands as the person who queued it (A-sm-15).
    */
-  private pump(projectId: string, userId: string): void {
+  private pump(projectId: string): void {
     if (this.running.has(projectId)) return;
     this.running.add(projectId);
     void (async () => {
       try {
         // A landing older than the longest a check may run plus a margin was abandoned — by an
         // api that restarted, or a check that never answered — and is failed rather than waited
-        // on for ever (ADR-0165). Anything nearer than that is still somebody's in-flight work.
+        // on for ever (ADR-0165). Anything nearer than that is still somebody's in-flight work,
+        // unless it was claimed before this process became the one that lands: then the process
+        // that claimed it is gone, and waiting out the lease only holds the queue (ADR-0177).
         const lease = (this.deps.queueCheckTimeoutMs ?? CHECK_TIMEOUT_MS) + LANDING_GRACE_MS;
-        for (const stale of await staleLanding(this.db, projectId, new Date(Date.now() - lease))) {
+        const before = Math.max(Date.now() - lease, this.ownedSince?.getTime() ?? 0);
+        for (const stale of await staleLanding(this.db, projectId, new Date(before))) {
           await this.failed(
             stale,
             "runner",
             "the landing was interrupted and never finished; queue the branch again",
-            { actor: { type: "system" }, meta: {} },
+            SYSTEM,
           );
         }
         for (;;) {
           if (await landing(this.db, projectId)) return;
           const entry = await claimNext(this.db, projectId);
           if (!entry) return;
-          await this.land(entry, userId);
+          await this.land(entry);
         }
       } catch (error) {
         this.deps.log.error({ err: error, projectId }, "the merge queue stopped");
@@ -192,11 +239,19 @@ export class MergeQueueService {
   }
 
   /** One branch: rebase it onto the base, run the checks, land it. Any of the three can say no. */
-  private async land(entry: MergeQueueEntry, userId: string): Promise<void> {
-    const by: ActorContext = { actor: { type: "system" }, meta: {} };
+  private async land(entry: MergeQueueEntry): Promise<void> {
+    const by = SYSTEM;
     const project = await findProject(this.db, entry.workspaceId, entry.projectId);
     if (!project) {
       await this.failed(entry, "runner", "the project is gone", by);
+      return;
+    }
+    // Whoever queued it is who it runs as — their runner access, their shell — not whoever
+    // happened to start the loop it landed in (A-sm-15). A row from before `requested_by` was
+    // kept falls back to the project's creator.
+    const userId = entry.requestedBy ?? project.createdBy;
+    if (!userId) {
+      await this.failed(entry, "runner", "nobody is left to land it as; queue it again", by);
       return;
     }
     await this.deps.bus.publish(
@@ -223,11 +278,49 @@ export class MergeQueueService {
       return;
     }
 
+    // The branch has to be there already. The queue lands branches; it never makes them, and a
+    // mistyped name made from the base would pass its checks and "land" nothing (A-sm-09).
+    let branches: { current: string | null; branches: string[] };
+    try {
+      const raw = await runnerCall(link, "git.branch", {
+        workspace_id: entry.workspaceId,
+        user_id: userId,
+        project: project.id,
+      });
+      branches = gitBranchResultSchema.parse(raw);
+    } catch (error) {
+      await this.failed(entry, "runner", message(error), by);
+      return;
+    }
+    for (const name of [entry.branch, entry.base]) {
+      if (!branches.branches.includes(name)) {
+        await this.failed(entry, "runner", `no such branch: \`${name}\``, by);
+        return;
+      }
+    }
+
     // The checks first, on the branch as it stands: a branch that is already broken should not
     // move the base at all, and rebasing it first would only tell us about the merge.
     const checks = MergeQueueService.checkCommand(project);
-    const worktree = checks ? await this.worktreeOf(link, project, entry, userId) : null;
-    if (checks && worktree) {
+    if (checks) {
+      // A project with checks holds every branch to them. No directory to run them in is a
+      // branch that does not land, never one that lands unchecked (X-spec-04, A-sm-08).
+      if (branches.current === entry.branch) {
+        await this.failed(
+          entry,
+          "runner",
+          `\`${entry.branch}\` is checked out in the project directory, so its checks have nowhere of their own to run; check out another branch there and queue it again`,
+          by,
+        );
+        return;
+      }
+      let worktree: string;
+      try {
+        worktree = await this.worktreeOf(link, project, entry, userId);
+      } catch (error) {
+        await this.failed(entry, "runner", `its checks could not run: ${message(error)}`, by);
+        return;
+      }
       try {
         const raw = await runnerCall(link, "exec", {
           workspace_id: entry.workspaceId,
@@ -283,7 +376,7 @@ export class MergeQueueService {
         );
         return;
       }
-      await this.landed(entry, project, result.head ?? "", userId, by);
+      await this.landed(entry, project, result.head ?? "", by);
     } catch (error) {
       await this.failed(entry, "runner", message(error), by);
     }
@@ -292,38 +385,28 @@ export class MergeQueueService {
   /**
    * The directory the checks run in: the branch's own worktree. `worktree.create` hands back
    * where a branch already is rather than making a second one, so this is a lookup that makes one
-   * the first time. Null when the project is not a repository, which is also when there is
-   * nothing to land.
+   * the first time. The branch is known to exist by now, so no base is passed: nothing here makes
+   * a branch. It throws when there is no directory to give, and the caller fails the entry.
    */
   private async worktreeOf(
     link: RunnerLink,
     project: Project,
     entry: MergeQueueEntry,
     userId: string,
-  ): Promise<string | null> {
-    try {
-      const raw = await runnerCall(link, "worktree.create", {
-        workspace_id: entry.workspaceId,
-        user_id: userId,
-        project: project.id,
-        branch: entry.branch,
-        base: entry.base,
-      });
-      return worktreeCreateResultSchema.parse(raw).path;
-    } catch (error) {
-      this.deps.log.warn(
-        { err: error, entryId: entry.id, branch: entry.branch },
-        "no worktree for this branch; its checks are skipped",
-      );
-      return null;
-    }
+  ): Promise<string> {
+    const raw = await runnerCall(link, "worktree.create", {
+      workspace_id: entry.workspaceId,
+      user_id: userId,
+      project: project.id,
+      branch: entry.branch,
+    });
+    return worktreeCreateResultSchema.parse(raw).path;
   }
 
   private async landed(
     entry: MergeQueueEntry,
     project: Project,
     head: string,
-    userId: string,
     by: ActorContext,
   ): Promise<void> {
     const done = await updateEntry(this.db, entry.id, {
@@ -353,13 +436,13 @@ export class MergeQueueService {
         await updateWorkItem(this.db, item.id, { state: "in_review" });
       }
     }
-    void userId;
   }
 
   /**
    * A branch that did not land, and the agent that wrote it asked to fix it (spec §5.7 "ask the
-   * agent to resolve"). The turn goes to the session that produced the branch, if it is still
-   * open; otherwise the card is what somebody reads.
+   * agent to resolve") when a fix is the agent's to make — a conflict or red checks. The turn goes
+   * to the session that produced the branch, if it is still open; otherwise, and for a runner that
+   * could not do its part, the card is what somebody reads.
    */
   private async failed(
     entry: MergeQueueEntry,
@@ -401,6 +484,9 @@ export class MergeQueueService {
     detail: string,
   ): Promise<void> {
     if (!entry.sessionId) return;
+    // A runner failure (no worktree, no such branch, an interrupted landing) is nothing the agent
+    // wrote, and telling it "the project's checks failed" would be untrue.
+    if (failure !== "conflict" && failure !== "checks") return;
     const session = await getSession(this.db, entry.sessionId);
     if (!session || session.status === "ended") return;
     const ask =

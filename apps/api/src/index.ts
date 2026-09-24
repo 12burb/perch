@@ -12,7 +12,7 @@
  *   bun src/index.ts restore <dir> [--force]
  */
 import { resolve } from "node:path";
-import { boot } from "./boot.ts";
+import { boot, shutdown } from "./boot.ts";
 import {
   auditJobHandlers,
   backupJobHandlers,
@@ -20,7 +20,7 @@ import {
   scheduleBackups,
 } from "./jobs/backups.ts";
 import { repoIndexJobHandlers } from "./jobs/repo-index.ts";
-import { serve } from "./server.ts";
+import { type RunningServer, serve } from "./server.ts";
 import { AUDIT_QUEUE } from "./services/audit.ts";
 import { BACKUPS_QUEUE } from "./services/backups.ts";
 import { REPO_INDEX_QUEUE } from "./services/repo-index.ts";
@@ -31,7 +31,14 @@ const entrypoint = process.argv[2] ?? "api";
 
 const booted = await boot({
   app: { webDist: resolve(import.meta.dir, "..", "..", "web", "dist") },
+  // Only the api owns the work a restart interrupts (setups, sessions, bot runs, the merge queue):
+  // the supervisor, a separate worker, backup and restore boot beside a running api, and settling
+  // its in-flight work from there would fail it under its feet (ADR-0177).
+  recover: entrypoint === "api",
 });
+
+/** The HTTP server, once the api serves: stopped first on the way down (A-co-17). */
+let server: RunningServer | null = null;
 
 if (entrypoint === "supervisor") {
   if (booted.env.runner.mode === "inprocess") {
@@ -46,13 +53,12 @@ if (entrypoint === "supervisor") {
     log: booted.log.child({ role: "supervisor" }),
   });
   await supervisor.start();
-  const shutdown = async () => {
-    await supervisor.stop();
-    await booted.close();
+  const stop = async () => {
+    await shutdown(booted, { stops: [() => supervisor.stop()] });
     process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
 }
 
 if (entrypoint === "worker" || entrypoint === "api") {
@@ -69,13 +75,13 @@ if (entrypoint === "worker" || entrypoint === "api") {
     },
   });
   worker.start();
-  const shutdown = async () => {
-    await worker.stop();
-    await booted.close();
+  const stop = async () => {
+    // The server stops taking requests before anything it relies on goes (A-co-17).
+    await shutdown(booted, { server, stops: [() => worker.stop()] });
     process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
 }
 
 if (entrypoint === "backup" || entrypoint === "restore") {
@@ -113,5 +119,5 @@ if (entrypoint === "backup" || entrypoint === "restore") {
 }
 
 if (entrypoint === "api") {
-  serve(booted);
+  server = serve(booted);
 }

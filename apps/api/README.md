@@ -26,6 +26,17 @@ bun src/index.ts supervisor            # Docker supervisor (task 1.2)
 
 Handlers → services → repositories (spec §9.1): no SQL in handlers, no HTTP in services.
 
+## Restarts and shutdown
+
+Only the `api` entrypoint (and laptop mode) owns the work a restart interrupts, so only it boots
+with `recover` on (ADR-0165, ADR-0177): project setups left `pending`/`setting_up` are failed,
+coding sessions left `running`/`needs_you` and bot runs left `running` are ended as errors with
+"interrupted by a restart" (and `session.status` / `bot.run_failed` go out, so the board, races and
+cards follow), and the merge queue is started — it resumes every project with waiting work a tick
+after boot and every minute after. `supervisor`, `worker`, `backup` and `restore` boot with it off.
+On `SIGTERM`, `shutdown()` in `src/boot.ts` stops the HTTP server first, then the jobs worker (or the
+supervisor), then `close()`.
+
 ## Authentication
 
 `/api/auth/*` is better-auth (sign-up/sign-in with email + password, passkey registration and sign-in,

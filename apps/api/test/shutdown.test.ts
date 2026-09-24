@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { schema } from "@perch/db";
 import { connectRunner } from "@perch/runner";
 import { eq } from "drizzle-orm";
-import type { Booted } from "../src/boot.ts";
+import { type Booted, shutdown } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { createRunner, mintRunnerToken } from "../src/services/runners.ts";
 import { bootTestApp } from "../src/testing.ts";
@@ -124,5 +124,40 @@ describe("shutting down", () => {
     await within(booted.close(), 20_000, "close");
     await client.close().catch(() => undefined);
     expect(offline).toEqual([before?.id ?? ""]);
+  }, 60_000);
+
+  test("a stopping api refuses requests before anything they rely on goes (A-co-17)", async () => {
+    const booted = await bootTestApp({});
+    const running = serve(booted, { port: 0, hostname: "127.0.0.1" });
+    expect((await fetch(`${running.url}/api/health`)).status).toBe(200);
+    // The jobs worker takes a moment to stop, as it does with a job in flight. That moment, and
+    // the teardown after it, is when a request used to be served with the audit, inbox and bot
+    // subscribers already gone, changing state that nothing recorded.
+    let release = () => {};
+    const stopping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let workerAsked = false;
+    const down = shutdown(booted, {
+      server: running,
+      stops: [
+        async () => {
+          workerAsked = true;
+          await stopping;
+        },
+      ],
+    });
+    for (const deadline = Date.now() + 10_000; !workerAsked; await Bun.sleep(10)) {
+      if (Date.now() > deadline) throw new Error("the worker was never asked to stop");
+    }
+    const late = await fetch(`${running.url}/api/health`).then(
+      (res) => res.status,
+      () => "refused",
+    );
+    expect(late).toBe("refused");
+    release();
+    await within(down, 20_000, "shutdown");
+    // And it closed properly behind that.
+    await expect(booted.db.db.select().from(schema.workspaces).execute()).rejects.toThrow();
   }, 60_000);
 });

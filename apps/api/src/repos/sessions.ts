@@ -281,7 +281,20 @@ export async function findInlineSession(
   return row ?? null;
 }
 
-/** Every session that has worked on this item, newest first (task 3.14). */
+/**
+ * Sessions a restart left mid-round — running, or stopped on a permission — marked `error` with the
+ * reason, and returned so the caller can say so on the bus (ADR-0177). Their rounds, pending
+ * permissions and engine handles lived in the process that stopped, so nothing else will ever move
+ * them on; `error` is the status a person can send a fresh turn from.
+ */
+export function interruptSessions(db: Db, reason: string): Promise<CodingSession[]> {
+  return db
+    .update(codingSessions)
+    .set({ status: "error", statusMessage: reason })
+    .where(inArray(codingSessions.status, ["running", "needs_you"]))
+    .returning();
+}
+
 /**
  * Every session in a workspace that is actually doing something (task 3.19): running, or stopped
  * to ask. An inline lane (⌘K) is not an agent anybody watches, so it is left out.
@@ -301,6 +314,7 @@ export function workingSessions(db: Db, workspaceId: string): Promise<CodingSess
     .limit(200);
 }
 
+/** Every session that has worked on this item, newest first (task 3.14). */
 export async function sessionsForWorkItem(db: Db, workItemId: string): Promise<CodingSession[]> {
   return db
     .select()

@@ -208,6 +208,28 @@ export async function finishRun(
   return row ?? null;
 }
 
+/**
+ * Runs a restart cut off, ended as `error` with the reason (ADR-0177). A run lives in the process
+ * that started it, so one still `running` at boot is one nothing will finish — and agent presence
+ * (task 3.19) would list it as working for ever.
+ */
+export function interruptRuns(db: Db, reason: string): Promise<BotRun[]> {
+  return db
+    .update(botRuns)
+    .set({ status: "error", endedAt: new Date(), error: reason })
+    .where(eq(botRuns.status, "running"))
+    .returning();
+}
+
+/** The chain hops those runs were, ended the same way (spec §5.4's record of every hop). */
+export function interruptHops(db: Db): Promise<BotChain[]> {
+  return db
+    .update(botChains)
+    .set({ status: "error" })
+    .where(eq(botChains.status, "running"))
+    .returning();
+}
+
 /** Every run in a workspace that is still going (task 3.19), oldest first. */
 export function runningRuns(db: Db, workspaceId: string): Promise<BotRun[]> {
   return db

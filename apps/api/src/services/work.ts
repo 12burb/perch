@@ -13,6 +13,7 @@
  */
 import type { Bus } from "@perch/bus";
 import type {
+  CodingSession,
   Db,
   DbHandle,
   Project,
@@ -26,9 +27,10 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import { getCycle, getModule } from "../repos/planning.ts";
 import { findProject, findProjectByKey } from "../repos/projects.ts";
-import { sessionsForWorkItem } from "../repos/sessions.ts";
+import { getSession, sessionsForWorkItem } from "../repos/sessions.ts";
 import {
   type BoardOptions,
+  claimWorkItem,
   getWorkItem,
   insertWorkItem,
   listIntake,
@@ -105,6 +107,51 @@ export function branchOf(projectKey: string, number: number): string {
   return `perch/${projectKey.toLowerCase()}-${number}`;
 }
 
+/** A session with a round going: running, or stopped on a permission it is waiting to hear about. */
+function working(sessions: SessionService, session: CodingSession, ended?: string): boolean {
+  // The session whose end is being handled has said so on the bus already; its round is on its
+  // way out of the map, and waiting for that would wait on nothing.
+  if (session.id === ended) return false;
+  return (
+    sessions.running(session.id) || session.status === "running" || session.status === "needs_you"
+  );
+}
+
+/**
+ * Gives worktrees back without pulling one out from under a round (A-sm-24). `rows` are sessions
+ * that worked in them, fresh from the database; a worktree is a branch, and sessions can share one
+ * (every session of a work item works on the item's branch). A worktree nobody is working in goes
+ * now. One with a round still going is not touched: that round is cancelled, and the worktree goes
+ * when the last round in it reaches the bus as `ended` or `error` — the board's and the races'
+ * `session.status` subscribers call this again then, naming the session that just `ended`. (Every
+ * session opened for an item or a race is unattended, so a cancelled round settles to `ended`.)
+ */
+export async function releaseWorktrees(
+  sessions: SessionService,
+  rows: CodingSession[],
+  log: Logger,
+  options: { ended?: string } = {},
+): Promise<void> {
+  const byWorktree = new Map<string, CodingSession[]>();
+  for (const row of rows) {
+    if (!row.worktree) continue;
+    byWorktree.set(row.worktree, [...(byWorktree.get(row.worktree) ?? []), row]);
+  }
+  for (const group of byWorktree.values()) {
+    const going = group.filter((one) => working(sessions, one, options.ended));
+    if (going.length > 0) {
+      for (const one of going) {
+        await sessions.cancel(one).catch((error: unknown) => {
+          log.warn({ err: error, sessionId: one.id }, "a round could not be cancelled");
+        });
+      }
+      continue;
+    }
+    const [first] = group;
+    if (first) await sessions.dropWorktree(first, first.userId);
+  }
+}
+
 /** What a work item cost, and where its time went (spec §5.7; task 3.22). */
 export type WorkItemCost = {
   costUsd: number;
@@ -124,6 +171,9 @@ export type WorkItemCost = {
 };
 
 export class WorkService {
+  /** Items whose session is being started in this process, claimed before the first await. */
+  private readonly starting = new Set<string>();
+
   constructor(private readonly deps: WorkDeps) {}
 
   private get db(): Db {
@@ -302,8 +352,9 @@ export class WorkService {
       );
     }
     if (reassigned) await this.announceAssignee(updated, by);
-    // Closed means nobody is working in it: the worktree goes back (task 3.14). The branch and its
-    // commits stay — a checkout is a place to work, not the work.
+    // Closed means nobody is working in it: the worktree goes back (task 3.14) — once the agent
+    // still in it, if there is one, has been stopped (A-sm-24). The branch and its commits stay: a
+    // checkout is a place to work, not the work.
     if (movedTo === "done" || movedTo === "cancelled") await this.releaseWorktrees(updated);
     return updated;
   }
@@ -362,9 +413,28 @@ export class WorkService {
   }
 
   /** The directories this item's sessions worked in, given back to the runner (task 3.14). */
-  private async releaseWorktrees(item: WorkItem): Promise<void> {
-    for (const session of await sessionsForWorkItem(this.db, item.id)) {
-      if (session.worktree) await this.deps.sessions.dropWorktree(session, session.userId);
+  private async releaseWorktrees(item: WorkItem, ended?: string): Promise<void> {
+    await releaseWorktrees(
+      this.deps.sessions,
+      await sessionsForWorkItem(this.db, item.id),
+      this.deps.log,
+      ended ? { ended } : {},
+    );
+  }
+
+  /**
+   * A session of a closed item has finished its round: the worktree it was cancelled out of can go
+   * now, unless another round is still in it (A-sm-24).
+   */
+  private async releaseIfClosed(sessionId: string): Promise<void> {
+    try {
+      const session = await getSession(this.db, sessionId);
+      if (!session?.worktree || !session.workItemId) return;
+      const item = await getWorkItem(this.db, session.workItemId);
+      if (item?.state !== "done" && item?.state !== "cancelled") return;
+      await this.releaseWorktrees(item, session.id);
+    } catch (error) {
+      this.deps.log.error({ err: error, sessionId }, "a closed item's worktree was not released");
     }
   }
 
@@ -377,7 +447,24 @@ export class WorkService {
     item: WorkItem,
     input: { userId: string; engine?: string; prompt?: string; by: ActorContext },
   ): Promise<{ item: WorkItem; sessionId: string }> {
-    if (item.sessionId) throw PerchError.conflict("this item already has a session");
+    // One agent per item (X-data-18). A second start while the first is still being set up — a
+    // double click, the board and a bot at once — is refused here, before anything is awaited;
+    // the conditional update below settles it between processes.
+    if (item.sessionId || this.starting.has(item.id)) {
+      throw PerchError.conflict("this item already has a session");
+    }
+    this.starting.add(item.id);
+    try {
+      return await this.startClaimed(item, input);
+    } finally {
+      this.starting.delete(item.id);
+    }
+  }
+
+  private async startClaimed(
+    item: WorkItem,
+    input: { userId: string; engine?: string; prompt?: string; by: ActorContext },
+  ): Promise<{ item: WorkItem; sessionId: string }> {
     const project = await this.projectOf(item);
     const open = {
       project,
@@ -404,11 +491,15 @@ export class WorkService {
       );
       session = await this.deps.sessions.create(open);
     }
-    const updated = await updateWorkItem(this.db, item.id, {
-      sessionId: session.id,
-      state: "running",
-    });
-    if (!updated) throw PerchError.notFound("work item");
+    // The item is taken only if it still points at no session: the update is the claim, so a start
+    // that loaded the item before another one finished cannot take it as well.
+    const updated = await claimWorkItem(this.db, item.id, session.id);
+    if (!updated) {
+      // Another session got there first. This one never had a turn; it ends rather than idling,
+      // and it shares the item's worktree, so nothing is dropped.
+      await this.deps.sessions.settle(session);
+      throw PerchError.conflict("this item already has a session");
+    }
     await this.moved(updated, item.state, "running", input.by);
     // The first turn is what the agent was asked to do; the item's own words when nothing else.
     const prompt = input.prompt?.trim() || `${item.title}\n\n${item.description.text}`.trim();
@@ -484,7 +575,11 @@ export class WorkService {
    */
   start(): () => void {
     return this.deps.bus.subscribe("session.status", (event) => {
-      const next = FOLLOWS[event.payload.status];
+      const status = event.payload.status;
+      // A round in a closed item's worktree has ended: that worktree can go back now (A-sm-24).
+      if (status === "ended" || status === "error")
+        void this.releaseIfClosed(event.payload.sessionId);
+      const next = FOLLOWS[status];
       if (!next) return;
       void this.followSession(event.payload.sessionId, next, {
         clearSession: event.payload.status === "ended",

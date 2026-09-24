@@ -57,6 +57,15 @@ different from a session you opened yourself, which waits for your next turn (AD
 An item that a person has already marked **Done** or **Cancelled** is never dragged back by
 anything on the bus. A person's word is the last one.
 
+An item has **one agent at a time**. A second start while the first is still being set up — a double
+click, or the board and a bot at once — is answered `409` rather than opening a second session in
+the same worktree: the item only takes a session while it points at none, in one conditional update
+(ADR-0177).
+
+A session that was mid-round when the api restarted cannot finish: its round lived in the process
+that stopped. The api that boots next marks it **error** with "interrupted by a restart", says so in
+its transcript and on the bus, and the item follows it to **Needs you**. Send it a turn to carry on.
+
 ## A directory of its own
 
 Each item's session works in its **own git worktree**, on a branch named `perch/key-123`, made
@@ -70,7 +79,9 @@ at a different directory — the isolation is git's, not Perch's. And the branch
 already the branch a pull request wants.
 
 Closing an item gives the directory back. The **branch stays**: a checkout is a place to work, not
-the work, and a branch with commits on it is still there when somebody wants it. A project that is
+the work, and a branch with commits on it is still there when somebody wants it. An agent still at
+work in the directory is **stopped first** — its round is cancelled — and the directory goes once
+that round has ended, never from under it (ADR-0177). A project that is
 not yet a repository — an empty one with no commit to branch from — has no worktree to give, and
 the session works in the project directory instead rather than refusing to start.
 
@@ -85,19 +96,32 @@ POST /api/workspaces/{ws}/projects/{p}/merge-queue  {branch} | {work_item_id}
 GET  /api/workspaces/{ws}/projects/{p}/merge-queue
 ```
 
-For each branch, in turn:
+For each branch, in turn, run as **the person who queued it** — their runner access and their
+shell, not whoever's branch happened to start the queue moving:
 
-1. **The project's checks**, run in the branch's own worktree — the first of `check`, `test`, `ci`
+1. **The branch has to exist.** The queue lands branches and never makes them: a name that is not a
+   branch in the project (a typo, say) fails as `no such branch` instead of being made from the base
+   and "landing" nothing.
+2. **The project's checks**, run in the branch's own worktree — the first of `check`, `test`, `ci`
    or `verify` in `.perch/project.json`'s `run` map. A project that names none has no checks, and
-   its branches land on git alone.
-2. **Rebase onto the base**, so what landed before it is underneath it.
-3. **Fast-forward the base onto it.** Both of those happen as one operation on the runner: two of
+   its branches land on git alone. A project that names one holds every branch to it: a branch the
+   checks have nowhere to run for — checked out in the project directory, or one git will not give
+   a worktree — **fails** rather than landing unchecked.
+3. **Rebase onto the base**, so what landed before it is underneath it.
+4. **Fast-forward the base onto it.** Both of those happen as one operation on the runner: two of
    them racing is what a queue exists to prevent.
 
 A branch that will not rebase, or whose checks go red, **does not stop the queue**. It is marked
 with git's own words or the tail of the command's output, its item goes to **Needs you**, and the
 session that wrote it is sent a turn saying what broke. The next branch lands meanwhile. A queue
-that stops at the first red branch is one that a single agent can hold hostage.
+that stops at the first red branch is one that a single agent can hold hostage. A failure that is
+not the agent's to fix — no such branch, nowhere to run the checks, the runner — is on the card and
+the item, and the agent is not asked.
+
+The queue **survives a restart**. The api looks at every project's queue a minute after it boots
+and every minute after, so what was waiting lands without anybody queueing something else first; a
+landing the previous process had claimed is failed ("interrupted … queue the branch again") at
+once rather than after its lease (ADR-0165, ADR-0177).
 
 The thread gets one **queue card** per branch, rewritten in place as it moves. A branch that lands
 takes its item to **In review** — not to Done, for the same reason a finished session does not.
@@ -140,7 +164,8 @@ and guessing would be worse than asking.
 Then one diff is applied and the rest are discarded. The winner's branch goes into the merge queue
 like any other branch, so it meets the same checks and the same one-at-a-time landing. Every other
 entrant gives its directory back and **keeps its branch**: what the engine that lost was thinking
-is still there to look at.
+is still there to look at. An entrant still mid-round when somebody picks is stopped first, and its
+directory goes once its round has ended.
 
 The thread gets one **race card**, rewritten in place — a row per engine with its diff, its cost
 and its checks, and a Pick on each while the race is open.

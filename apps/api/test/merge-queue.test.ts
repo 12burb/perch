@@ -4,10 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeEngine } from "@perch/engines";
-import { createInProcessRunner } from "@perch/runner";
+import type { ApiToRunnerMethod, RunnerCallOptions, RunnerCallParams } from "@perch/events";
+import { createInProcessRunner, type InProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
-import { enqueue, updateEntry } from "../src/repos/merge.ts";
+import { enqueue, getEntry, updateEntry } from "../src/repos/merge.ts";
 import { type RunningServer, serve } from "../src/server.ts";
+import { MergeQueueService } from "../src/services/merge-queue.ts";
 import { bootTestApp } from "../src/testing.ts";
 
 /**
@@ -31,6 +33,25 @@ let project = "";
 
 const fake = new FakeEngine({ script: () => [{ type: "done" }] });
 
+/** What the runner was asked to do, and as whom (A-sm-15: each entry runs as its own requester). */
+const asked: { method: string; userId: string | undefined; branch: string | undefined }[] = [];
+
+/** The in-process runner, with every call written down before it is answered. */
+function recording(inner: InProcessRunner): InProcessRunner {
+  return {
+    ...inner,
+    call<M extends ApiToRunnerMethod>(
+      method: M,
+      params: RunnerCallParams<M>,
+      options?: RunnerCallOptions,
+    ): Promise<unknown> {
+      const seen = params as { user_id?: string; branch?: string };
+      asked.push({ method, userId: seen.user_id, branch: seen.branch });
+      return inner.call(method, params, options);
+    },
+  };
+}
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
     cwd,
@@ -48,7 +69,7 @@ function git(cwd: string, ...args: string[]): string {
 beforeAll(async () => {
   booted = await bootTestApp({}, { engines: [fake], sessions: { silenceMs: 60_000 } });
   projectsDir = mkdtempSync(join(tmpdir(), "perch-queue-"));
-  booted.runners.attach(createInProcessRunner({ projectsDir, portsIntervalMs: 0 }));
+  booted.runners.attach(recording(createInProcessRunner({ projectsDir, portsIntervalMs: 0 })));
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
   base = running.url;
 }, 120_000);
@@ -66,10 +87,13 @@ function cookiesFrom(res: Response): string {
     .join("; ");
 }
 
-async function call(path: string, init: { method?: string; json?: unknown } = {}) {
+async function call(
+  path: string,
+  init: { method?: string; json?: unknown; as?: string } = {},
+): Promise<{ status: number; text: string; body: unknown }> {
   const res = await fetch(`${base}${path}`, {
     method: init.method ?? "GET",
-    headers: { cookie, "content-type": "application/json", origin: base },
+    headers: { cookie: init.as ?? cookie, "content-type": "application/json", origin: base },
     body: init.json === undefined ? undefined : JSON.stringify(init.json),
   });
   const text = await res.text();
@@ -310,5 +334,183 @@ describe("the merge queue (task 3.15)", () => {
     const stale = rows.find((one) => one.branch === "perch/ghost");
     expect(stale?.state).toBe("failed");
     expect(stale?.detail ?? "").toContain("interrupted");
+  }, 180_000);
+
+  test("a branch git will not give a worktree is failed, never landed without its checks (X-spec-04)", async () => {
+    // Checked out somewhere of its own already, so `worktree.create` cannot make the directory the
+    // checks run in. Its one file fails those checks.
+    const elsewhere = mkdtempSync(join(tmpdir(), "perch-elsewhere-"));
+    rmSync(elsewhere, { recursive: true, force: true });
+    git(checkout(), "worktree", "add", "-b", "perch/elsewhere", elsewhere, "main");
+    writeFileSync(join(elsewhere, "elsewhere.txt"), "not ok\n");
+    git(elsewhere, "add", ".");
+    git(elsewhere, "commit", "-m", "add elsewhere.txt");
+    const before = git(checkout(), "rev-parse", "main").trim();
+    try {
+      const added = await call(`/api/workspaces/${ws}/projects/${project}/merge-queue`, {
+        method: "POST",
+        json: { branch: "perch/elsewhere" },
+      });
+      expect(added.status, added.text).toBe(201);
+      await until(async () =>
+        (await queue()).some(
+          (one) =>
+            one.branch === "perch/elsewhere" && one.state !== "waiting" && one.state !== "landing",
+        ),
+      );
+      const entry = (await queue()).find((one) => one.branch === "perch/elsewhere");
+      expect(entry?.state).toBe("failed");
+      expect(entry?.failure).toBe("runner");
+      expect(entry?.detail ?? "").toContain("checks could not run");
+      // The base did not move: an unchecked branch is not a landed one.
+      expect(git(checkout(), "rev-parse", "main").trim()).toBe(before);
+    } finally {
+      git(checkout(), "worktree", "remove", "--force", elsewhere);
+    }
+  }, 180_000);
+
+  test("a branch checked out in the project directory is failed, not landed unchecked (A-sm-08)", async () => {
+    // Made the Git panel's way: checked out where the project is. Its one file fails the checks.
+    git(checkout(), "checkout", "-b", "perch/here", "main");
+    writeFileSync(join(checkout(), "here.txt"), "not ok\n");
+    git(checkout(), "add", "here.txt");
+    git(checkout(), "commit", "-m", "add here.txt");
+    const before = git(checkout(), "rev-parse", "main").trim();
+    try {
+      const added = await call(`/api/workspaces/${ws}/projects/${project}/merge-queue`, {
+        method: "POST",
+        json: { branch: "perch/here" },
+      });
+      expect(added.status, added.text).toBe(201);
+      await until(async () =>
+        (await queue()).some(
+          (one) =>
+            one.branch === "perch/here" && one.state !== "waiting" && one.state !== "landing",
+        ),
+      );
+      const entry = (await queue()).find((one) => one.branch === "perch/here");
+      expect(entry?.state).toBe("failed");
+      expect(entry?.failure).toBe("runner");
+      expect(entry?.detail ?? "").toContain("checked out in the project directory");
+      expect(git(checkout(), "rev-parse", "main").trim()).toBe(before);
+    } finally {
+      git(checkout(), "checkout", "main");
+    }
+  }, 180_000);
+
+  test("a branch that is not there fails, and the queue makes no branch (A-sm-09)", async () => {
+    const before = git(checkout(), "rev-parse", "main").trim();
+    const added = await call(`/api/workspaces/${ws}/projects/${project}/merge-queue`, {
+      method: "POST",
+      json: { branch: "perch/login-fix" },
+    });
+    expect(added.status, added.text).toBe(201);
+    await until(async () =>
+      (await queue()).some(
+        (one) =>
+          one.branch === "perch/login-fix" && one.state !== "waiting" && one.state !== "landing",
+      ),
+    );
+    const entry = (await queue()).find((one) => one.branch === "perch/login-fix");
+    expect(entry?.state).toBe("failed");
+    expect(entry?.failure).toBe("runner");
+    expect(entry?.detail ?? "").toContain("no such branch");
+    // Nothing was made from the base, and nothing landed.
+    expect(git(checkout(), "branch", "--list", "perch/login-fix").trim()).toBe("");
+    expect(git(checkout(), "rev-parse", "main").trim()).toBe(before);
+  }, 180_000);
+
+  test("each entry lands as the person who queued it, not whoever started the loop (A-sm-15)", async () => {
+    // A second member of the workspace, who queues a branch while the first one's is landing.
+    const email = `wren-queue-${Date.now()}@perch.test`;
+    const signUp = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({ name: "Wren", email, password: "correct horse battery staple" }),
+    });
+    expect(signUp.status).toBe(200);
+    const wrenCookie = cookiesFrom(signUp);
+    const invite = (await call(`/api/workspaces/${ws}/invites`, {
+      method: "POST",
+      json: { email, role: "member" },
+    })) as { status: number; text: string; body: { accept_url: string } };
+    expect(invite.status, invite.text).toBe(201);
+    const token = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect(
+      (await call(`/api/invites/${token}/accept`, { method: "POST", as: wrenCookie })).status,
+    ).toBe(200);
+    const robin = ((await call("/api/me")) as { body: { id: string } }).body.id;
+    const wren = ((await call("/api/me", { as: wrenCookie })) as { body: { id: string } }).body.id;
+
+    branchWith("perch/robins", "robins.txt", "ok\n");
+    branchWith("perch/wrens", "wrens.txt", "ok\n");
+    asked.length = 0;
+    const path = `/api/workspaces/${ws}/projects/${project}/merge-queue`;
+    const [first, second] = await Promise.all([
+      call(path, { method: "POST", json: { branch: "perch/robins" } }),
+      call(path, { method: "POST", json: { branch: "perch/wrens" }, as: wrenCookie }),
+    ]);
+    expect(first.status, first.text).toBe(201);
+    expect(second.status, second.text).toBe(201);
+    await until(async () =>
+      (await queue())
+        .filter((one) => one.branch === "perch/robins" || one.branch === "perch/wrens")
+        .every((one) => one.state === "landed"),
+    );
+    await booted.mergeQueue.settled(120_000);
+
+    // Whose runner access and whose shell each branch used: its own requester's, every time.
+    const as = (branch: string) =>
+      [...new Set(asked.filter((one) => one.branch === branch).map((one) => one.userId))].sort();
+    expect(as("perch/robins")).toEqual([robin]);
+    expect(as("perch/wrens")).toEqual([wren]);
+  }, 180_000);
+
+  test("after a restart the queue picks itself up without anything new being queued (X-data-13, A-sm-16)", async () => {
+    const robin = ((await call("/api/me")) as { body: { id: string } }).body.id;
+    branchWith("perch/after", "after.txt", "ok\n");
+    // As a restart leaves the queue: one landing the stopped api claimed a minute ago — well
+    // inside the lease — and one branch waiting behind it. Nobody queues anything after this.
+    const claimed = await enqueue(booted.db.db, {
+      workspaceId: ws,
+      projectId: project,
+      branch: "perch/was-landing",
+      base: "main",
+      requestedBy: robin,
+    });
+    await updateEntry(booted.db.db, claimed.id, {
+      state: "landing",
+      startedAt: new Date(Date.now() - 60_000),
+    });
+    const waiting = await enqueue(booted.db.db, {
+      workspaceId: ws,
+      projectId: project,
+      branch: "perch/after",
+      base: "main",
+      requestedBy: robin,
+    });
+
+    // The api that boots next: a queue service of its own, started the way boot starts it.
+    const next = new MergeQueueService({
+      db: booted.db,
+      bus: booted.bus,
+      log: booted.log,
+      sessions: booted.sessions,
+      registry: booted.runners,
+      resumeEveryMs: 100,
+    });
+    const stop = next.start();
+    try {
+      await until(async () => (await getEntry(booted.db.db, waiting.id))?.state === "landed");
+      // The landing the old process never finished is released at once, not after the lease.
+      const was = await getEntry(booted.db.db, claimed.id);
+      expect(was?.state).toBe("failed");
+      expect(was?.detail ?? "").toContain("interrupted");
+      git(checkout(), "checkout", "main");
+      expect(git(checkout(), "ls-tree", "--name-only", "HEAD")).toContain("after.txt");
+    } finally {
+      stop();
+      await next.settled(60_000);
+    }
   }, 180_000);
 });

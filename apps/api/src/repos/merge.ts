@@ -6,6 +6,7 @@
 import type { Db, MergeQueueEntry, MergeState, NewMergeQueueEntry } from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { isUniqueViolation } from "../errors.ts";
 
 const { mergeQueueEntries } = schema;
 
@@ -25,8 +26,7 @@ export async function enqueue(
       if (!row) throw new Error("merge queue insert returned no row");
       return row;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("merge_queue_position_idx")) throw error;
+      if (!isUniqueViolation(error, "merge_queue_position_idx")) throw error;
     }
   }
   throw new Error("could not take a place in the queue");
@@ -100,6 +100,19 @@ export async function staleLanding(
         ),
       ),
     );
+}
+
+/**
+ * Every project with something still to do in its queue: a branch waiting, or one a landing claimed.
+ * It is what a restart has to pick back up, since only a pump moves a queue and pumps live in memory.
+ */
+export async function queuedProjects(db: Db): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ projectId: mergeQueueEntries.projectId })
+    .from(mergeQueueEntries)
+    .where(inArray(mergeQueueEntries.state, ["waiting", "landing"]))
+    .limit(1000);
+  return rows.map((row) => row.projectId);
 }
 
 /** True while something is already landing on this project: a queue lands one at a time. */

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CodingSession } from "@perch/db";
 import { FakeEngine } from "@perch/engines";
 import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
@@ -42,6 +43,15 @@ const fake = new FakeEngine({
   },
 });
 
+/** An agent that stops on a permission and stays mid-round until something cancels it. */
+const hold = new FakeEngine({
+  id: "hold",
+  script: () => [
+    { type: "permission", id: "hold-1", tool: "fs.write", args: { path: "note.txt" } },
+    { type: "done" },
+  ],
+});
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
     cwd,
@@ -57,7 +67,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 beforeAll(async () => {
-  booted = await bootTestApp({}, { engines: [fake], sessions: { silenceMs: 60_000 } });
+  booted = await bootTestApp({}, { engines: [fake, hold], sessions: { silenceMs: 60_000 } });
   projectsDir = mkdtempSync(join(tmpdir(), "perch-worktrees-"));
   booted.runners.attach(createInProcessRunner({ projectsDir, portsIntervalMs: 0 }));
   running = serve(booted, { port: 0, hostname: "127.0.0.1" });
@@ -234,5 +244,53 @@ describe("a worktree per task (task 3.14)", () => {
     expect(existsSync(join(`${checkout()}.worktrees`, `perch-${projectKey.toLowerCase()}-2`))).toBe(
       true,
     );
+  }, 120_000);
+
+  test("cancelling an item stops its agent before its directory goes (A-sm-24)", async () => {
+    const item = (await call(`/api/workspaces/${ws}/projects/${project}/work-items`, {
+      method: "POST",
+      json: { title: "Fix the sidebar" },
+    })) as { status: number; text: string; body: Item };
+    expect(item.status, item.text).toBe(201);
+    const start = (await call(`/api/work-items/${item.body.id}/start-session`, {
+      method: "POST",
+      json: { engine: "hold", prompt: "note.txt" },
+    })) as { status: number; text: string; body: { session_id: string } };
+    expect(start.status, start.text).toBe(201);
+    const sessionId = start.body.session_id;
+    const session = await booted.sessions.get(sessionId);
+    const dir = join(`${checkout()}.worktrees`, (session?.worktree ?? "").replace(/\//g, "-"));
+    expect(existsSync(dir)).toBe(true);
+    // The agent is mid-round: stopped on a permission nobody has answered.
+    for (const deadline = Date.now() + 20_000; ; await Bun.sleep(50)) {
+      if ((await booted.sessions.get(sessionId))?.status === "needs_you") break;
+      if (Date.now() > deadline) throw new Error("the agent never asked");
+    }
+
+    // What the worktree's session was doing at the moment its directory was taken away.
+    const dropped: { sessionId: string; status: string | undefined }[] = [];
+    const drop = booted.sessions.dropWorktree.bind(booted.sessions);
+    booted.sessions.dropWorktree = async (one: CodingSession, userId: string) => {
+      dropped.push({ sessionId: one.id, status: (await booted.sessions.get(one.id))?.status });
+      return drop(one, userId);
+    };
+    try {
+      const cancelled = (await call(`/api/work-items/${item.body.id}`, {
+        method: "PATCH",
+        json: { state: "cancelled" },
+      })) as { status: number; text: string };
+      expect(cancelled.status, cancelled.text).toBe(200);
+      // The agent is stopped and its session ends; only then does the directory go.
+      for (const deadline = Date.now() + 20_000; ; await Bun.sleep(50)) {
+        if ((await booted.sessions.get(sessionId))?.status === "ended") break;
+        if (Date.now() > deadline) throw new Error("the agent was never stopped");
+      }
+      await until(() => !existsSync(dir));
+      const mine = dropped.filter((one) => one.sessionId === sessionId);
+      expect(mine.length).toBeGreaterThan(0);
+      for (const one of mine) expect(["running", "needs_you"]).not.toContain(one.status);
+    } finally {
+      booted.sessions.dropWorktree = drop;
+    }
   }, 120_000);
 });

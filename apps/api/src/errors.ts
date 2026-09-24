@@ -70,6 +70,35 @@ export function isPerchError(error: unknown): error is PerchError {
   return error instanceof PerchError;
 }
 
+/** What a Postgres driver's error carries: PGlite names the index `constraint`, postgres.js `constraint_name`. */
+type DriverError = {
+  code?: unknown;
+  constraint?: unknown;
+  constraint_name?: unknown;
+  cause?: unknown;
+};
+
+function asDriverError(value: unknown): DriverError | null {
+  return typeof value === "object" && value !== null ? (value as DriverError) : null;
+}
+
+/**
+ * Whether a database error is a unique violation (SQLSTATE 23505), optionally on one named index or
+ * constraint. drizzle wraps the driver's error in its own `DrizzleQueryError`, whose message is the
+ * failed SQL, so the code and the name are read from `cause` — and from the error itself, for a
+ * driver call nothing wrapped. The message is never parsed: it names the query rather than the
+ * constraint, which is how a retry that read it never ran (X-data-03).
+ */
+export function isUniqueViolation(error: unknown, constraint?: string): boolean {
+  const outer = asDriverError(error);
+  for (const one of [outer, asDriverError(outer?.cause)]) {
+    if (one?.code !== "23505") continue;
+    if (constraint === undefined) return true;
+    return one.constraint === constraint || one.constraint_name === constraint;
+  }
+  return false;
+}
+
 /** Seconds a rate-limited caller should wait, when the error said so. */
 function retryAfter(details: Record<string, unknown> | undefined): number | null {
   const seconds = details?.retry_after;

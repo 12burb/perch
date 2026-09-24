@@ -37,7 +37,7 @@ import { MergeQueueService } from "./merge-queue.ts";
 import { projectRunnerLink } from "./projects.ts";
 import { runnerCall } from "./runners.ts";
 import type { SessionService } from "./sessions.ts";
-import { identifierOf } from "./work.ts";
+import { identifierOf, releaseWorktrees } from "./work.ts";
 
 export type RaceDeps = {
   db: DbHandle;
@@ -228,6 +228,15 @@ export class RaceService {
 
   private async finished(sessionId: string): Promise<void> {
     const entrant = await entrantForSession(this.db, sessionId);
+    if (entrant?.state === "discarded") {
+      // Discarded while its round was still going: the round was cancelled, and now that it has
+      // ended its worktree can go (A-sm-24).
+      const session = await getSession(this.db, sessionId);
+      if (session) {
+        await releaseWorktrees(this.deps.sessions, [session], this.deps.log, { ended: session.id });
+      }
+      return;
+    }
     if (entrant?.state !== "running") return;
     const race = await getRace(this.db, entrant.raceId);
     if (race?.state !== "running") return;
@@ -412,13 +421,15 @@ export class RaceService {
       }
     }
 
-    // And the rest are given back: their worktrees go, their branches stay.
+    // And the rest are given back: their worktrees go, their branches stay. An entrant still
+    // mid-round is stopped first, and its worktree goes when that round has ended — never from
+    // under an agent that is still writing in it (A-sm-24).
     for (const entrant of await listEntrants(this.db, race.id)) {
       if (entrant.id === winner.id) continue;
       await updateEntrant(this.db, entrant.id, { state: "discarded" });
       if (!entrant.sessionId) continue;
       const session = await getSession(this.db, entrant.sessionId);
-      if (session) await this.deps.sessions.dropWorktree(session, session.userId);
+      if (session) await releaseWorktrees(this.deps.sessions, [session], this.deps.log);
     }
 
     await this.deps.bus.publish(

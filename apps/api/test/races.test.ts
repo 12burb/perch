@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FakeEngine } from "@perch/engines";
+import type { CodingSession } from "@perch/db";
+import { echoScript, FakeEngine } from "@perch/engines";
 import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
 import { claimDecision, getRace, insertRace } from "../src/repos/races.ts";
@@ -90,7 +91,20 @@ beforeAll(async () => {
   booted = await bootTestApp(
     {},
     {
-      engines: [engine("quick", 2, 0.1), engine("sprawl", 40, 0.9)],
+      engines: [
+        engine("quick", 2, 0.1),
+        engine("sprawl", 40, 0.9),
+        // An entrant that answers and writes nothing, and one that stops on a permission and
+        // stays mid-round until something cancels it (A-sm-24).
+        new FakeEngine({ id: "plain", script: echoScript }),
+        new FakeEngine({
+          id: "hold",
+          script: () => [
+            { type: "permission", id: "hold-1", tool: "fs.write", args: { path: "a.txt" } },
+            { type: "done" },
+          ],
+        }),
+      ],
       sessions: { silenceMs: 60_000 },
     },
   );
@@ -125,6 +139,7 @@ async function call(path: string, init: { method?: string; json?: unknown } = {}
 
 type Entrant = {
   id: string;
+  session_id: string | null;
   engine: string;
   branch: string;
   state: string;
@@ -303,4 +318,52 @@ describe("race mode (task 3.16)", () => {
     const again = await call(`/api/races/${raceId}/pick/${loser?.id ?? ""}`, { method: "POST" });
     expect(again.status).toBe(409);
   }, 120_000);
+
+  test("picking a winner stops an entrant still mid-round before its worktree goes (A-sm-24)", async () => {
+    // What the worktree's session was doing at the moment its directory was taken away.
+    const dropped: { sessionId: string; status: string | undefined }[] = [];
+    const drop = booted.sessions.dropWorktree.bind(booted.sessions);
+    booted.sessions.dropWorktree = async (session: CodingSession, userId: string) => {
+      dropped.push({
+        sessionId: session.id,
+        status: (await booted.sessions.get(session.id))?.status,
+      });
+      return drop(session, userId);
+    };
+    try {
+      const started = (await call(`/api/workspaces/${ws}/projects/${project}/races`, {
+        method: "POST",
+        json: { prompt: "tidy the header", runners: [{ engine: "plain" }, { engine: "hold" }] },
+      })) as { status: number; text: string; body: Race };
+      expect(started.status, started.text).toBe(201);
+      const id = started.body.id;
+      // `plain` finishes; `hold` is still mid-round, stopped on a permission nobody answers.
+      await until(async () => {
+        const now = ((await call(`/api/races/${id}`)) as { body: Race }).body;
+        return now.entrants.find((one) => one.engine === "plain")?.state === "finished";
+      });
+      const holding = ((await call(`/api/races/${id}`)) as { body: Race }).body.entrants.find(
+        (one) => one.engine === "hold",
+      );
+      const holdSession = holding?.session_id ?? "";
+      await until(async () => (await booted.sessions.get(holdSession))?.status === "needs_you");
+      const plain = ((await call(`/api/races/${id}`)) as { body: Race }).body.entrants.find(
+        (one) => one.engine === "plain",
+      );
+
+      // A person picks while `hold` is still working.
+      const picked = await call(`/api/races/${id}/pick/${plain?.id ?? ""}`, { method: "POST" });
+      expect(picked.status, picked.text).toBe(200);
+
+      // Its round is cancelled and its session ends; only then does its directory go.
+      await until(async () => (await booted.sessions.get(holdSession))?.status === "ended");
+      await until(() => !existsSync(worktree(holding?.branch ?? "")));
+      const forHold = dropped.filter((one) => one.sessionId === holdSession);
+      expect(forHold.length).toBeGreaterThan(0);
+      for (const one of forHold) expect(["running", "needs_you"]).not.toContain(one.status);
+      await booted.mergeQueue.settled(120_000);
+    } finally {
+      booted.sessions.dropWorktree = drop;
+    }
+  }, 180_000);
 });

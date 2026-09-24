@@ -61,7 +61,13 @@ invite link.
 ## Upgrades, backups, previews
 
 - Upgrade: change `PERCH_IMAGE_TAG` in `.env`, `docker compose pull && docker compose up -d`; migrations run
-  on boot under an advisory lock (ADR-0039).
+  on boot under an advisory lock (ADR-0039). On `SIGTERM` the api stops taking requests first, gives
+  the ones already running up to five seconds, then stops its jobs worker and closes. The api that
+  starts next settles what the restart cut off: a project setup is failed, a coding session or bot
+  reply that was mid-flight is marked as an error ("interrupted by a restart"), and the merge queue
+  picks up where it was within a minute (ADR-0165, ADR-0177). Only the `api` entrypoint does this:
+  the `supervisor`, a separate `worker`, and `backup`/`restore` boot beside a running api and leave
+  its work alone.
 - Backups: set `PERCH_BACKUP_DIR=/data/backups` (the compose file already mounts the volume for the
   api and the supervisor) and a nightly one is taken at `PERCH_BACKUP_CRON`, keeping
   `PERCH_BACKUP_KEEP` of them. `docker compose exec api bun apps/api/src/index.ts backup` takes one

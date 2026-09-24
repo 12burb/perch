@@ -6984,3 +6984,81 @@ reserves the web app's top-level route names and the server's own prefixes as wo
 (`RESERVED_SLUGS`: an explicit one is a 422, one derived from a name gets a suffix). Existing
 workspaces with such a slug keep it; renaming one away is the owner's choice. The accessibility
 sweep audits Code mode's Projects page too.
+
+## ADR-0177: The queue holds every branch to its checks, and the api settles what a restart cut off
+
+**Status:** accepted · **Task:** code review, batch merge-queue-work-restart · **Spec:** §5.7, §6, §7.1, §7.6, §8, §9.1, ADR-0069, ADR-0131, ADR-0133, ADR-0165
+
+Findings X-spec-04, A-sm-08, A-sm-09, A-sm-15, X-data-13, A-sm-16, A-sm-24, X-data-18, X-data-03,
+X-data-14, A-sm-12, A-co-16 and A-co-17. One rule under all of them: a promise Perch makes (a branch
+lands behind its checks, an item has one agent, a race waits for its entrants) has to survive the
+paths nobody drew — a failed runner call, a double click, a restart.
+
+**The queue never lands a branch unchecked, never makes one, and runs as whoever queued it.** A
+missing worktree used to mean "skip the checks": any `worktree.create` failure (the branch checked
+out in the project directory, a timeout, a name the runner's schema refuses) landed the branch
+unchecked. A project with a check command now fails the entry (`runner`, with the reason) when
+there is nowhere to run them; a branch checked out in the project directory says so. Before any of
+that the queue lists the project's branches (`git.branch`) and fails `no such branch` for a branch
+or base that is not there, so a typo is no longer made from the base and reported "landed"; the
+lookup no longer passes a base, so nothing on the queue's path creates a branch. `land()` runs as
+`entry.requestedBy` (falling back to the project's creator) instead of the user whose `add()` started
+the pump. The agent is asked to fix only what it can fix — a conflict or red checks; a runner
+failure is the card's and the item's to say, not a turn telling the agent its checks failed.
+
+**The queue picks itself up.** ADR-0165's lease was checked only when something new was queued, so
+after a restart nothing moved. `MergeQueueService.start()` (called only by the process that owns
+the work, below) resumes every project with waiting or landing entries on a timer — a minute by
+default, the first tick a minute after boot so runners have reconnected — and from `start()` on, a
+landing claimed before the process started is failed at once rather than after its lease: the
+process that claimed it is gone. This assumes one api process lands branches, which is the
+deployment spec §8 describes; a second api would have its in-flight landing failed by the other's
+boot.
+
+**A restart ends what it cut off.** Rounds, pending permissions and engine handles live in the
+process; after a restart nothing finishes them, so races waited for ever, board items stayed
+`running`, and agent presence listed ghosts. At boot the owning process marks `coding_sessions` in
+`running`/`needs_you` as `error` with "interrupted by a restart", appends that error to the
+transcript and publishes `session.error` and `session.status` (so the board moves the item to Needs
+you, a race counts the entrant as failed, and background cards follow), marks `bot_runs` in
+`running` as `error` and publishes `bot.run_failed` (the owner's inbox hears it), and marks
+`bot_chains` hops in `running` as `error` (no event: the hop's run already has one, and
+`bot.chain_breaker` means the rails paused a thread, which is not what happened). `error` rather
+than `ended`: a person can send the session another turn and carry on. It runs after every
+subscriber is listening, before the server serves.
+
+**Only the owner settles.** `boot()` takes `recover` (default on: the api, laptop mode, tests). The
+supervisor, a separate `worker`, `backup` and `restore` boot with it off, because they start beside
+a running api and settling from there failed the api's own in-flight setups — and would now fail its
+sessions and queue. The option name is `recover` rather than the `resetSetups` the review plan
+suggested, because it now covers setups, sessions, bot runs and the queue.
+
+**A worktree is not pulled out from under a round.** Deciding a race, or closing an item, removed
+worktrees (`git worktree remove --force`) under sessions that were still running.
+`releaseWorktrees()` (in `services/work.ts`, shared with races) groups sessions by worktree — an
+item's sessions share its branch — drops a worktree nobody is in, and for one with a round going
+cancels the round and leaves the directory; the board's and the races' `session.status` subscribers
+drop it when that round reaches `ended` or `error`. A cancel now also clears the permission the round
+was stopped on (the engine answers it no); left in place it held an unattended session at `idle`
+for ever, because auto-settle waits until nobody owes an answer. That last change is in
+`services/sessions.ts`.
+
+**One agent per item.** `startSession` checked the snapshot its route loaded; two starts at once both
+passed and put two agents in one worktree. The item is claimed in-process before the first await (a
+second start is a 409), and the final write is conditional (`claimWorkItem`: `session_id` set only
+where it is null), so a start from another process that loses finds nothing to take, ends its
+unused session without a turn, and answers 409. The review suggested claiming first with a
+placeholder; `work_items.session_id` references `coding_sessions`, so a placeholder would need a
+schema change, and the conditional write plus the in-process claim give the same guarantee without one.
+
+**A unique violation is recognised by its code.** drizzle wraps the driver's error, and its message
+is the failed SQL, so the retries for `KEY-123` numbers and queue positions that read the message
+never ran. `isUniqueViolation(error, constraint?)` in `src/errors.ts` reads SQLSTATE 23505 and the
+constraint name (`constraint` on PGlite, `constraint_name` on postgres.js) from the error or its
+`cause`. Mapping a leftover violation to a 409 in the error handler is left to the batch that owns
+that mapping.
+
+**The server stops first.** The api entrypoint discarded the server handle, so on SIGTERM requests
+were served after the audit, inbox and bot subscribers were gone. `shutdown()` stops the server
+(`stop(true)`: no new connections; handlers already running finish, for up to five seconds), then
+the jobs worker or the supervisor, then `close()`.

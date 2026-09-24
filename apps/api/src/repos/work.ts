@@ -14,6 +14,7 @@ import type {
 } from "@perch/db";
 import { schema } from "@perch/db";
 import { and, asc, desc, eq, ilike, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import { isUniqueViolation } from "../errors.ts";
 
 const { workItems } = schema;
 
@@ -40,8 +41,7 @@ export async function insertWorkItem(
       if (!row) throw new Error("work item insert returned no row");
       return row;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("work_items_number_idx")) throw error;
+      if (!isUniqueViolation(error, "work_items_number_idx")) throw error;
     }
   }
   throw new Error("could not allocate a work item number");
@@ -222,6 +222,24 @@ export async function updateWorkItem(
     .update(workItems)
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(workItems.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Points an item at the session doing it — only if no session is doing it already. The condition is
+ * the claim: of two starts at once, one update finds the column empty and the other finds nothing to
+ * change, however their reads interleaved (X-data-18).
+ */
+export async function claimWorkItem(
+  db: Db,
+  id: string,
+  sessionId: string,
+): Promise<WorkItem | null> {
+  const [row] = await db
+    .update(workItems)
+    .set({ sessionId, state: "running", updatedAt: new Date() })
+    .where(and(eq(workItems.id, id), isNull(workItems.sessionId)))
     .returning();
   return row ?? null;
 }

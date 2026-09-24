@@ -6,6 +6,8 @@ import { PerchBot } from "@perch/bot-sdk";
 import { echoScript, FakeEngine } from "@perch/engines";
 import { createInProcessRunner } from "@perch/runner";
 import type { Booted } from "../src/boot.ts";
+import { sessionsForWorkItem } from "../src/repos/sessions.ts";
+import { claimWorkItem, updateWorkItem } from "../src/repos/work.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -332,5 +334,48 @@ describe("work items and the board (task 3.13)", () => {
     }
     // And it is still done.
     expect((await itemNow(itemId)).state).toBe("done");
+  }, 60_000);
+
+  test("two starts at once make one agent, and the other is told it already has one (X-data-18)", async () => {
+    const made = (await call(`/api/workspaces/${ws}/projects/${project}/work-items`, {
+      method: "POST",
+      json: { title: "Fix the logout redirect" },
+    })) as { status: number; text: string; body: Item };
+    expect(made.status, made.text).toBe(201);
+    const id = made.body.id;
+    // A double click: both arrive before either has a session. The agent asks something, so the
+    // one that starts stays on the item while the other is answered.
+    const both = await Promise.all(
+      [0, 1].map(() =>
+        call(`/api/work-items/${id}/start-session`, {
+          method: "POST",
+          json: { engine: "fake", prompt: "fix the redirect" },
+        }),
+      ),
+    );
+    expect(both.map((one) => one.status).sort()).toEqual([201, 409]);
+    // One session, and the item points at it.
+    const sessions = await sessionsForWorkItem(booted.db.db, id);
+    expect(sessions).toHaveLength(1);
+    const started = both.find((one) => one.status === 201)?.body as { session_id: string };
+    expect((await itemNow(id)).session_id).toBe(started.session_id);
+    // Let it finish, so nothing is left waiting on a person.
+    await reaches(id, "needs_you");
+    expect(
+      (
+        await call(`/api/sessions/${started.session_id}/permissions/p-1`, {
+          method: "POST",
+          json: { answer: "allow" },
+        })
+      ).status,
+    ).toBe(200);
+    await reaches(id, "in_review");
+
+    // Between processes, the update itself is the claim: of two, only one finds the column empty.
+    const first = await claimWorkItem(booted.db.db, id, started.session_id);
+    const second = await claimWorkItem(booted.db.db, id, started.session_id);
+    expect(first?.sessionId).toBe(started.session_id);
+    expect(second).toBeNull();
+    await updateWorkItem(booted.db.db, id, { sessionId: null, state: "in_review" });
   }, 60_000);
 });
