@@ -6855,3 +6855,15 @@ still the root agent's, relying on Bun's recursive removal not following links. 
 be built in the sandbox this was written in (Docker Hub refused the base images), so the Dockerfile
 is checked by `scripts/dockerfiles.test.ts` and the mechanisms by the tests above, not by a built
 image.
+
+**6. A tmux server per person and directory.** tmux copies the environment of the client that
+starts a server into the server's global environment, once, and every new session starts from it
+(`update-environment` refreshes only a short list, not `HOME` or `PERCH_USER`). All shells shared
+the default server, so the second person's shell got the first one's `HOME`, `PERCH_USER` and
+project environment — on any runner, isolated or not. The shell command is now `tmux -L <name>
+new-session -A -s <name>`, the name being the existing hash of user and directory, so each session
+is the first on its own server and reattaching (same `-L`, same `-s`) still works. On a hosted
+runner the server also runs as the member's uid, under their own socket directory.
+`apps/runner/test/pty.test.ts` opens two people's shells in two directories and reads each one's
+`HOME`, `PERCH_USER` and project variable back; on the old code the first shell even landed on a
+default server left from another run and printed its environment.

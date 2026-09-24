@@ -28,6 +28,7 @@ import {
   useIsolation,
 } from "../src/identity.ts";
 import { runnerPolicy } from "../src/policy.ts";
+import { PtyManager, tmux, tmuxSessionName } from "../src/pty.ts";
 import { createStreamPair } from "../src/streams.ts";
 import { removeTree } from "./helpers/tmp.ts";
 
@@ -353,6 +354,51 @@ describe.skipIf(!rootOnLinux)(
       });
       expect((second as { commit: string }).commit).toMatch(/^[0-9a-f]+$/);
     }, 60_000);
+
+    test.skipIf(!tmux())(
+      "with tmux, each member's shell is on a server of their own, with their uid and HOME",
+      async () => {
+        const manager = new PtyManager({ root: projects, homes, graceMs: 60_000 });
+        const checkout = join(projects, WS, PROJECT);
+        const members = [ALICE, BOB];
+        try {
+          for (const member of members) {
+            const opened = await manager.open({
+              workspace_id: WS,
+              user_id: member,
+              cap: "test",
+              cols: 80,
+              rows: 24,
+              cwd: checkout,
+              user: member,
+            });
+            const pair = createStreamPair();
+            let output = "";
+            pair.a.onMessage((data) => {
+              output += data;
+            });
+            manager.attachToken(opened.stream_token, pair.b);
+            const deadline = Date.now() + 20_000;
+            while (!output.includes("\u001b[?1049h") && Date.now() < deadline) await Bun.sleep(50);
+            pair.a.send('echo "uid=[$(id -u)] home=[$HOME]" d""one\r');
+            while (!output.includes("] done") && Date.now() < deadline) await Bun.sleep(50);
+            manager.close(opened.pty_id);
+            expect(output).toContain(
+              `uid=[${iso.uidOf(member)}] home=[${join(homes, member)}] done`,
+            );
+            // The server is the member's: listed by them, under the name of their directory.
+            const listed = as(member, ["tmux", "-L", tmuxSessionName(member, checkout), "ls"]);
+            expect(listed.exitCode).toBe(0);
+          }
+        } finally {
+          manager.closeAll();
+          for (const member of members) {
+            as(member, ["tmux", "-L", tmuxSessionName(member, checkout), "kill-server"]);
+          }
+        }
+      },
+      60_000,
+    );
 
     test("a project from before isolation is made the workspace's on the runner's start", () => {
       const legacyWs = "0190f2d0-0000-7000-8000-0000000000fe";

@@ -257,7 +257,11 @@ describe("shells on a runner (task 1.7)", () => {
     if (tmux()) {
       const viaTmux = shellCommand({}, "/p/a", USER, { cols: 80, rows: 24 });
       expect(viaTmux.file).toBe(tmux() ?? "");
+      // A server of its own for the person and directory (-L), so a session starts from its own
+      // environment rather than from whoever started a shared server first (ADR-0171).
       expect(viaTmux.args).toEqual([
+        "-L",
+        tmuxSessionName(USER, "/p/a"),
         "-u",
         "new-session",
         "-A",
@@ -292,9 +296,16 @@ describe("shells on a runner (task 1.7)", () => {
         // State that only this shell process has: proof of the same shell coming back.
         a.a.send("PERCH_TMUX_TEST=alive; echo perch-tmux-marker\r");
         await out.waitFor("perch-tmux-marker");
-        // Kill the client PTY (the runner restarting); the tmux session lives on.
+        // Kill the client PTY (the runner restarting); the tmux session lives on, on its server.
         manager.close(first.pty_id);
-        const listed = Bun.spawnSync(["tmux", "ls", "-F", "#{session_name}"]).stdout.toString();
+        const listed = Bun.spawnSync([
+          "tmux",
+          "-L",
+          name,
+          "ls",
+          "-F",
+          "#{session_name}",
+        ]).stdout.toString();
         expect(listed).toContain(name);
         const second = await manager.open({ ...ctx, cols: 80, rows: 24, cwd: ".", user: USER });
         const b = createStreamPair();
@@ -306,7 +317,66 @@ describe("shells on a runner (task 1.7)", () => {
         manager.close(second.pty_id);
       } finally {
         manager.closeAll();
-        Bun.spawnSync(["tmux", "kill-session", "-t", name]);
+        Bun.spawnSync(["tmux", "-L", name, "kill-server"]);
+      }
+    },
+    60_000,
+  );
+
+  test.skipIf(!tmux())(
+    "with tmux, two people in two directories get two servers, and each shell has its own HOME",
+    async () => {
+      // tmux copies the environment of whoever starts its server, once, and every session on that
+      // server starts from it: one shared server gave the second person the first one's HOME,
+      // PERCH_USER and project environment (ADR-0171).
+      const homes = join(root, "homes");
+      const dirs = [join(root, "one"), join(root, "two")];
+      for (const dir of dirs) mkdirSync(dir, { recursive: true });
+      const manager = new PtyManager({ root, homes, graceMs: 60_000 });
+      const people = [
+        { user: USER, cwd: dirs[0] ?? "", env: { PROJECT_MARK: "first" } },
+        {
+          user: "0190f2d0-0000-7000-8000-0000000000bb",
+          cwd: dirs[1] ?? "",
+          env: { PROJECT_MARK: "second" },
+        },
+      ];
+      const servers = people.map((person) => tmuxSessionName(person.user, person.cwd));
+      try {
+        const seen: string[] = [];
+        for (const person of people) {
+          const opened = await manager.open({
+            ...ctx,
+            user_id: person.user,
+            cols: 80,
+            rows: 24,
+            cwd: person.cwd,
+            user: person.user,
+            env: person.env,
+          });
+          const pair = createStreamPair();
+          const out = tap(pair.a);
+          manager.attachToken(opened.stream_token, pair.b);
+          await out.waitFor("\u001b[?1049h");
+          pair.a.send('echo "home=[$HOME] user=[$PERCH_USER] mark=[$PROJECT_MARK]" d""one\r');
+          await out.waitFor("] done");
+          seen.push(out.output.split("\n").find((line) => line.includes("] done")) ?? "");
+          manager.close(opened.pty_id);
+        }
+        for (const [i, person] of people.entries()) {
+          expect(seen[i]).toContain(`home=[${join(homes, person.user)}]`);
+          expect(seen[i]).toContain(`user=[${person.user}]`);
+          expect(seen[i]).toContain(`mark=[${person.env.PROJECT_MARK}]`);
+        }
+        // Two servers, one session each, each reattachable by the same -L and -s.
+        expect(servers[0]).not.toBe(servers[1]);
+        for (const server of servers) {
+          const listed = Bun.spawnSync(["tmux", "-L", server, "ls", "-F", "#{session_name}"]);
+          expect(listed.stdout.toString().trim()).toBe(server);
+        }
+      } finally {
+        manager.closeAll();
+        for (const server of servers) Bun.spawnSync(["tmux", "-L", server, "kill-server"]);
       }
     },
     60_000,

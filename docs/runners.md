@@ -202,9 +202,12 @@ token is single-use. The in-process runner of laptop mode pairs stream ends in m
 same `RunnerLink.openStream(token)` interface. The `pty.data` notification the spec lists is not
 used while output has a stream of its own (ADR-0073).
 
-The shell: tmux where the machine has it (`tmux -u new-session -A -s perch-<hash> -x cols -y rows
--c cwd ; set-option status off`; the hash is of the user and directory, so a reopen finds the same
-session), otherwise `$SHELL -l` (`%COMSPEC%` on Windows). A shell whose stream closed stays for ten
+The shell: tmux where the machine has it (`tmux -L perch-<hash> -u new-session -A -s perch-<hash>
+-x cols -y rows -c cwd ; set-option status off`; the hash is of the user and directory, so a reopen
+finds the same session), otherwise `$SHELL -l` (`%COMSPEC%` on Windows). The server is the person's
+and directory's own (`-L`): tmux copies the environment of whoever starts a server into it once and
+starts every session on it from that, so on one shared server a second person's shell had the first
+one's `HOME`, `PERCH_USER` and project environment (ADR-0171). A shell whose stream closed stays for ten
 minutes (`graceMs`) with 64 KiB of scrollback (`scrollbackBytes`) replayed to the next stream. Its
 environment is the runner's with every `PERCH_*` variable blanked (the connect token never reaches
 a shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on a hosted runner,

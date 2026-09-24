@@ -11,8 +11,10 @@ per person, that survives a reload, a closed drawer, and a dropped connection. S
   `xterm-256color`. The official CLIs in the runner image (Claude Code, Codex, Gemini CLI, Hermes,
   OpenCode) run here under your own login (spec §3.6, lane C).
 - **Persistence.** On a machine with tmux the shell runs inside a tmux session named for you and the
-  directory (`perch-<12 hex>`), so the same person opening the same project gets the same session
-  back, even after the runner process restarts. Without tmux (Windows, a bare laptop) the runner
+  directory (`perch-<12 hex>`), on a tmux server of the same name that is yours alone, so the same
+  person opening the same project gets the same session back, even after the runner process
+  restarts, and a shell never starts from somebody else's environment. On a hosted runner the shell
+  runs as your own uid, and your home is readable by you only (ADR-0171). Without tmux (Windows, a bare laptop) the runner
   keeps the shell for ten minutes after the drawer disconnects.
 - **Reload keeps the shell.** The browser remembers the shell's `pty_id` per project (session
   storage); reopening the drawer or reloading the page reattaches to it and replays the last

@@ -2,7 +2,10 @@
  * Shells on a runner (spec §5.1 terminal, §7.6 pty.*, task 1.7, ADR-0073): one PTY per pty_id,
  * spawned through bun-pty (ADR-0029), inside tmux where the machine has it (`new-session -A` so
  * the same person in the same project gets the same session back, even across runner restarts)
- * and a plain login shell elsewhere. Output goes to the stream the api opens for the stream token;
+ * and a plain login shell elsewhere. Each person and directory has a tmux server of their own
+ * (`-L`): tmux copies the environment of whoever starts a server into it once, and every session
+ * on that server starts from it, so one shared server gave the second person the first one's HOME,
+ * PERCH_USER and project environment (ADR-0171). Output goes to the stream the api opens for the stream token;
  * a shell whose stream closes stays alive for a grace period so a reload or a closed drawer
  * reattaches to it, scrollback replayed.
  */
@@ -59,7 +62,7 @@ export function tmux(): string | null {
   return tmuxPath;
 }
 
-/** The tmux session for a person in a directory: stable, so a reattach finds it. */
+/** The tmux server and session for a person in a directory: stable, so a reattach finds it. */
 export function tmuxSessionName(user: string, cwd: string): string {
   return `perch-${createHash("sha1").update(`${user}\n${cwd}`).digest("hex").slice(0, 12)}`;
 }
@@ -77,14 +80,18 @@ export function shellCommand(
 ): { file: string; args: string[] } {
   const bin = options.tmux === false ? null : tmux();
   if (bin) {
+    const name = tmuxSessionName(user, cwd);
     return {
       file: bin,
       args: [
+        // A server of its own, so the session's shell starts from this person's environment.
+        "-L",
+        name,
         "-u",
         "new-session",
         "-A",
         "-s",
-        tmuxSessionName(user, cwd),
+        name,
         "-x",
         String(size.cols),
         "-y",
