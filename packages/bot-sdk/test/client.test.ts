@@ -76,3 +76,97 @@ describe("what the SDK makes of an answer", () => {
     expect(error.retryAfter).toBe(7);
   });
 });
+
+/** A WebSocket that does what the test says, when it says. */
+class FakeSocket {
+  static last: FakeSocket | null = null;
+  private readonly listeners = new Map<string, ((event: unknown) => void)[]>();
+  closed: { code?: number; reason?: string } | null = null;
+
+  constructor(readonly url: string) {
+    FakeSocket.last = this;
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  close(code?: number, reason?: string): void {
+    this.closed = { ...(code === undefined ? {} : { code }), ...(reason ? { reason } : {}) };
+  }
+
+  emit(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  say(frame: { type: string; payload?: unknown }): void {
+    this.emit("message", {
+      data: JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", payload: {}, ...frame }),
+    });
+  }
+}
+
+function socketBot(options: Partial<ConstructorParameters<typeof PerchBot>[0]> = {}): PerchBot {
+  return new PerchBot({
+    url: "https://perch.example",
+    token: "pbot_test",
+    webSocket: FakeSocket as unknown as typeof WebSocket,
+    ...options,
+  });
+}
+
+describe("socket mode, when things go wrong", () => {
+  test("a handler that throws is reported, and the handlers after it still run", async () => {
+    const reported: unknown[] = [];
+    const unhandled: unknown[] = [];
+    const onRejection = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onRejection);
+    try {
+      const bot = socketBot({ onError: (error) => reported.push(error) });
+      const heard: string[] = [];
+      bot.on("app_mention", async () => {
+        throw new Error("rate limited");
+      });
+      bot.on<{ text: string }>("app_mention", (payload) => {
+        heard.push(payload.text);
+      });
+      const connected = bot.connect();
+      FakeSocket.last?.say({ type: "hello" });
+      await connected;
+      FakeSocket.last?.say({ type: "app_mention", payload: { text: "hi" } });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(heard).toEqual(["hi"]);
+      expect(reported).toHaveLength(1);
+      expect((reported[0] as Error).message).toBe("rate limited");
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
+  test("a socket refused before hello says why, with its code", async () => {
+    const bot = socketBot();
+    const connected = bot.connect();
+    FakeSocket.last?.emit("close", { code: 1008, reason: "a valid bot token is required" });
+    const error = (await connected.then(
+      () => null,
+      (caught: unknown) => caught,
+    )) as Error;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("1008");
+    expect(error.message).toContain("a valid bot token is required");
+  });
+
+  test("a socket that drops after hello is reported, so the bot can connect again", async () => {
+    const closes: { code: number; reason: string; requested: boolean }[] = [];
+    const bot = socketBot({ onClose: (info) => closes.push(info) });
+    const connected = bot.connect();
+    FakeSocket.last?.say({ type: "hello" });
+    await connected;
+    FakeSocket.last?.emit("close", { code: 1001, reason: "api shutting down" });
+    expect(closes).toEqual([{ code: 1001, reason: "api shutting down", requested: false }]);
+    expect(bot.connected).toBe(false);
+  });
+});

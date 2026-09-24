@@ -5,17 +5,19 @@
  * subscribe op: a bot's subscription is its installs, decided by the people who put it in a channel,
  * and a socket that could ask for more than that would be a second permission system.
  *
- * The transport subscribes to `@perch/bots`' seam rather than the bus, so the socket and the signed
- * webhook see exactly the same events in exactly the same shape.
+ * The transport subscribes to `@perch/bots`' seam rather than the bus, and asks `deliversTo` who
+ * hears what, so any transport added later sees exactly the same events in the same shape. The
+ * socket is the only one: §7.3's HMAC-signed webhook is not built (ADR-0176).
  */
-import type { BotEvent } from "@perch/bots";
+import { type BotEvent, deliversTo } from "@perch/bots";
 import type { Context } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import type { WsServer } from "./server.ts";
 
 type Socket = { send: (data: string) => void; close: (code?: number, reason?: string) => void };
 
-type Connected = { botId: string; ws: Socket };
+/** One open socket: the bot it speaks for, and the workspace that bot belongs to. */
+type Connected = { botId: string; workspaceId: string; ws: Socket };
 
 export type BotSocketServer = {
   handler: WsServer["handler"];
@@ -29,8 +31,8 @@ export function createBotSocket(deps: Deps, ws: WsServer): BotSocketServer {
 
   const stop = deps.botEvents.subscribe((event: BotEvent) => {
     for (const conn of connections.values()) {
-      // `botId: null` is workspace-wide (a session finishing); anything else is addressed.
-      if (event.botId !== null && event.botId !== conn.botId) continue;
+      // A workspace's news goes to its own bots only; anything addressed, to the bot it names.
+      if (!deliversTo(event, { id: conn.botId, workspaceId: conn.workspaceId })) continue;
       try {
         conn.ws.send(JSON.stringify({ type: event.type, ts: event.ts, payload: event.payload }));
       } catch (error) {
@@ -55,7 +57,11 @@ export function createBotSocket(deps: Deps, ws: WsServer): BotSocketServer {
           return;
         }
         id = Bun.randomUUIDv7();
-        connections.set(id, { botId: caller.bot.id, ws: socket as unknown as Socket });
+        connections.set(id, {
+          botId: caller.bot.id,
+          workspaceId: caller.bot.workspaceId,
+          ws: socket as unknown as Socket,
+        });
         socket.send(
           JSON.stringify({
             type: "hello",

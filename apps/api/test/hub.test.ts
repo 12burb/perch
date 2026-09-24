@@ -276,3 +276,98 @@ describe("the Hub (task 4.12)", () => {
     );
   });
 });
+
+/**
+ * Code review (ADR-0176): the Hub is a front door to the same rules the Forge keeps — a bot the
+ * whole workspace can talk to is an admin's to make, it goes only into a channel its installer is
+ * in, and a skill changes only a bot its installer may change.
+ */
+describe("the Hub keeps the Forge's rules", () => {
+  const wren = { cookie: "", id: "" };
+  let secret = "";
+  let wrensBot = "";
+
+  const installAs = (cookie: string, json: Record<string, unknown>) =>
+    call(`/api/workspaces/${ws}/hub/install`, cookie, { method: "POST", json }) as Promise<{
+      status: number;
+      body: InstallBody;
+    }>;
+
+  test("a member, a private channel of theirs, and a private bot of theirs", async () => {
+    const stamp = Date.now();
+    const signUp = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Wren",
+        email: `wren-hub-${stamp}@perch.test`,
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(signUp.status).toBe(200);
+    wren.cookie = cookiesFrom(signUp);
+    const invite = (await call(`/api/workspaces/${ws}/invites`, robin.cookie, {
+      method: "POST",
+      json: { email: `wren-hub-${stamp}@perch.test`, role: "member" },
+    })) as { body: { accept_url: string } };
+    const token = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect(
+      (await call(`/api/invites/${token}/accept`, wren.cookie, { method: "POST" })).status,
+    ).toBe(200);
+    const made = (await call(`/api/workspaces/${ws}/channels`, wren.cookie, {
+      method: "POST",
+      json: { type: "private", name: "wren-only" },
+    })) as { status: number; body: { id: string } };
+    expect(made.status).toBe(201);
+    secret = made.body.id;
+    const bot = (await call(`/api/workspaces/${ws}/bots`, wren.cookie, {
+      method: "POST",
+      json: { handle: "wrens-own", name: "Wren's own" },
+    })) as { status: number; body: { id: string } };
+    expect(bot.status).toBe(201);
+    wrensBot = bot.body.id;
+  });
+
+  test("a member cannot make a bot the whole workspace talks to", async () => {
+    const res = await installAs(wren.cookie, { kind: "bot", id: "grok-newsroom" });
+    expect(res.status).toBe(403);
+  });
+
+  test("a bot goes only into a channel its installer can see", async () => {
+    const res = await installAs(robin.cookie, {
+      kind: "bot",
+      id: "claude-reviewer",
+      channel: secret,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("a skill changes only a bot its installer may change", async () => {
+    // Robin's shared bot: Wren may talk to it, not rewrite it.
+    const shared = await installAs(wren.cookie, {
+      kind: "skill",
+      id: "headline-brief",
+      bot: "grok",
+    });
+    expect(shared.status).toBe(403);
+    // Wren's private bot does not exist as far as Robin is concerned, owner or not.
+    const hidden = await installAs(robin.cookie, {
+      kind: "skill",
+      id: "headline-brief",
+      bot: "wrens-own",
+    });
+    expect(hidden.status).toBe(404);
+    const unchanged = (await call(`/api/workspaces/${ws}/bots/${wrensBot}`, wren.cookie)) as {
+      body: { spec: { skills?: unknown[] } };
+    };
+    expect(unchanged.body.spec.skills ?? []).toEqual([]);
+    // Her own bot is hers to teach.
+    const own = await installAs(wren.cookie, {
+      kind: "skill",
+      id: "headline-brief",
+      bot: "wrens-own",
+    });
+    expect(own.status).toBe(200);
+    expect(own.body.installed).toBe(true);
+  });
+});

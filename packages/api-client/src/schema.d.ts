@@ -9277,6 +9277,7 @@ export type paths = {
                         "application/json": {
                             installed: components["schemas"]["InstalledNestAgent"][];
                             already: string[];
+                            taken: string[];
                         };
                     };
                 };
@@ -10040,6 +10041,95 @@ export type paths = {
                 };
                 /** @description Not found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Rate limited */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bot/work.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a work item on a project's board */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["BotCreateWork"];
+                };
+            };
+            responses: {
+                /** @description The work item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            ok: true;
+                            item: components["schemas"]["BotWorkItem"];
+                        };
+                    };
+                };
+                /** @description Forbidden (including unauthenticated) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -16291,6 +16381,31 @@ export type components = {
             mime: string;
             size: number;
             url: string;
+        };
+        BotWorkItem: {
+            /** Format: uuid */
+            id: string;
+            identifier: string;
+            /** Format: uuid */
+            project_id: string;
+            title: string;
+            type: string;
+            state: string;
+            priority: number;
+            thread_ts: string | null;
+        };
+        BotCreateWork: {
+            /** Format: uuid */
+            project: string;
+            title: string;
+            description?: string;
+            /** @enum {string} */
+            type?: "task" | "bug" | "feature" | "epic";
+            /** @enum {string} */
+            state?: "backlog" | "queued" | "running" | "needs_you" | "in_review" | "done" | "cancelled";
+            priority?: number;
+            /** Format: uuid */
+            thread_ts?: string;
         };
         BotOpenSession: {
             /** Format: uuid */

@@ -168,8 +168,10 @@ it at once.
 
 This is a **Bot API** event, not a bus event: the bus catalog is exactly §7.7's list, and the shape
 above is the outward-facing one, Slack-shaped on purpose. It is handed over by `@perch/bots`, which
-is where the socket (task 2.6) and the signed webhook (2.7) subscribe. A bot is told what happened
-and by whom — never a token, a key, or anything it could reach something else with.
+is where the Bot API's socket subscribes; it goes to the bot that posted the block and to nobody else
+(a block a person posted belongs to no bot). Spec §7.3's HMAC-signed webhook is not built: the socket
+is the one transport (ADR-0176). A bot is told what happened and by whom — never a token, a key, or
+anything it could reach something else with.
 
 A question is answered once. Whoever gets there first is who it says; a second press is refused
 (409) and the block still reads as the first answer. The client draws all five kinds through

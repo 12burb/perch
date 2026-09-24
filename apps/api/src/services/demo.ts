@@ -50,6 +50,9 @@ export const DEMO_CHANNELS: { name: string; topic: string }[] = [
 /** The two bots the demo installs, by Forge template id. */
 export const DEMO_BOTS = ["gpt-helpdesk", "12birb-editor"] as const;
 
+/** The channels the demo's bots are put in, so that a brain is all they lack to answer there. */
+export const DEMO_BOT_CHANNELS = ["general", "the-nest"] as const;
+
 /** The starter stack the demo's project is made from: no install step, so it starts at once. */
 export const DEMO_STACK = "bun-api";
 
@@ -111,7 +114,7 @@ async function seedBots(deps: DemoDeps, input: SeedDemoInput) {
       out.push({ handle: template.handle, created: false });
       continue;
     }
-    await deps.bots.create({
+    const bot = await deps.bots.create({
       workspaceId: input.workspaceId,
       ownerId: input.userId,
       handle: template.handle,
@@ -126,6 +129,11 @@ async function seedBots(deps: DemoDeps, input: SeedDemoInput) {
       ...(template.budget.dailyUsd ? { budget: { dailyUsd: template.budget.dailyUsd } } : {}),
       by: input.by,
     });
+    // A bot answers only where it is installed; a demo bot in no channel would answer nowhere.
+    for (const name of DEMO_BOT_CHANNELS) {
+      const channel = await findChannelByName(deps.db, input.workspaceId, name);
+      if (channel && !channel.archivedAt) await deps.bots.install(bot, channel, input.by);
+    }
     out.push({ handle: template.handle, created: true });
   }
   return out;

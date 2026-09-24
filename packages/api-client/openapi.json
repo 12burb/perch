@@ -6131,6 +6131,102 @@
           "url"
         ]
       },
+      "BotWorkItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "thread_ts": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "identifier",
+          "project_id",
+          "title",
+          "type",
+          "state",
+          "priority",
+          "thread_ts"
+        ]
+      },
+      "BotCreateWork": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 100000
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "task",
+              "bug",
+              "feature",
+              "epic"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "queued",
+              "running",
+              "needs_you",
+              "in_review",
+              "done",
+              "cancelled"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "thread_ts": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "project",
+          "title"
+        ]
+      },
       "BotOpenSession": {
         "type": "object",
         "properties": {
@@ -21763,11 +21859,18 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "taken": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
                     "installed",
-                    "already"
+                    "already",
+                    "taken"
                   ]
                 }
               }
@@ -22659,6 +22762,105 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bot/work.create": {
+      "post": {
+        "tags": [
+          "bot-api"
+        ],
+        "summary": "Put a work item on a project's board",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotCreateWork"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The work item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "item": {
+                      "$ref": "#/components/schemas/BotWorkItem"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "item"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (including unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {

@@ -7135,3 +7135,82 @@ Backups written by this build (version-2 headers) are refused by earlier builds,
 The laptop's `projects/` directory is still not part of a laptop backup (unchanged; noted for a
 later batch). The review's finding that `laptop.stop()` skipped `booted.close()` was not a defect:
 `RunningServer.stop()` closes the instance.
+
+## ADR-0176: The bot platform keeps its own rules on every road in, and a bot's code cannot outlive its run
+
+**Status:** accepted · **Task:** code review, batch bot-platform · **Spec:** §5.3, §5.4, §7.3, §7.8, §9.1; ADR-0033, ADR-0096, ADR-0112
+
+The review found the bot platform enforcing its rules on the main road and not on the side ones:
+the Forge checked `bots.admin` and the Hub, a `bot.yaml` sync and the Nest did not all do the
+same; the socket checked which bot an event was for and not which workspace; and a code bot's tool
+that answered after the run had ended crashed the api. These are the decisions this batch made.
+
+**A code bot's run owns everything it started.** The sandbox keeps a `disposed` flag set in the
+run's `finally`; a host tool that settles after that is dropped rather than written into a freed
+QuickJS context (which threw inside a voided promise callback and ended the process). Each tool is
+handed an `AbortSignal` that fires when the run ends, and the promises nobody answered are freed
+before the context, so the runtime is disposed whole instead of tripping QuickJS's leak assertion.
+The 32-call ceiling is counted when a call is made, not when it settles, so a loop that fires calls
+without awaiting them is held to it too.
+
+**Tool output cannot close its own wrapper.** `untrusted()` escapes every `<` in the body instead of
+stripping tags (a strip rejoins a tag split around another), and the `source` label is narrowed to
+`[A-Za-z0-9_./-]`, because an upstream MCP tool's name lands in it.
+
+**Keywords are phrases, and a bot's regex has a budget.** `match` is split on commas only, and each
+trimmed phrase matches whole, with whitespace inside it as `\s+`; the shipped templates fired on
+"this", "at", "show" and "notes" before. A `regex: true` pattern is refused where it is saved — the
+Forge's create and patch, a Hub install, and a `bot.yaml` sync all go through `triggersProblem` —
+when it is over 200 characters, does not compile, repeats a group that itself repeats or
+alternates, or refers back to a group. The exponential shapes are refused; the polynomial ones
+(`.*.*x` takes seconds on 2,000 characters in JavaScriptCore) cannot be recognized statically, so
+every bot pattern runs in one small QuickJS runtime whose matcher honours the interrupt handler:
+the first 4,000 characters of a message, 25 ms, and no match when time runs out. Until that runtime
+has loaded (tens of milliseconds after boot) a regex trigger does not fire; failing closed there is
+the choice, over running a user's pattern on the event loop.
+
+**A bot hears its own workspace and nothing else.** Every transport asks one function,
+`deliversTo(event, bot)`: an event from another workspace never; an addressed one only to the bot
+it names; an unaddressed one only when it is the workspace's own news (`session.completed`,
+`work_item.updated`) — a button pressed on a block a person posted belongs to no bot. `users.info`
+answers only for members of the bot's workspace. Spec §7.3's HMAC-signed webhook transport is not
+built; the socket is the one transport, and the docs that described a webhook now say so.
+
+**`work.create` is on the Bot API** (closing the deferral in ADR-0112): `POST /api/bot/work.create`
+behind `work:write`, the project resolved in the bot's workspace, `thread_ts` in a channel the bot is
+in, the item made by `WorkService.create` with source `bot`. The SDK has it as `bot.work.create`.
+
+**An outside bot is on the chain rails.** `app_mention` carries the chain state spec §5.4 keeps:
+`BotsService.mentionRails` evaluates `mayHop` over the thread's `chainState`, as `offer()` does,
+and returns the hop, the mode a bot tagged with and what is left of the thread's allowance; a hop
+the rails refuse, or a mention in a stopped thread, is not delivered and trips the breaker. A
+mention of a bot the native runtime does not answer is recorded as a hop at no cost, so two
+outside bots tagging each other meet the hop limit and the repeat-pair breaker. Tag modes are kept
+(bounded to the last thousand) rather than consumed, because two readers now look at them. The
+Bot API's mention parser is the native one (`mentionsIn`), so a handle with a dot is heard by both.
+
+**The Hub, a sync and the Nest keep the Forge's rules.** A Hub bot is one the whole workspace talks
+to, so its install is authorized as `bots.admin`; its channel is resolved with `channelFor`, so a
+private room the installer is not in is a 404; a Hub skill changes a bot only when its installer
+owns it or is an admin, and somebody else's private bot is a 404. A `bot.yaml` sync resolves the
+syncer's role itself (the Git panel's push route did not change): an admin's sync applies the file
+as written and a file that does not say `visibility` is workspace-visible, as before; anybody
+else's makes their bots private and non-orchestrator, says so in `failed`, and leaves bots somebody
+else synced as they were, changed or removed in the repository or not. `parseSpecBot` now returns
+`visibility: null` when the file does not say, and the sync decides. Installing the Nest checks a
+roster handle against the workspace's people before anything is made and reports it in a new
+`taken` list, so a conflict no longer aborts the install after tokens were minted.
+
+**Smaller rules, written down.** Listing pending bot tool calls shows only calls asked in channels
+the caller can read, as deciding one already required. A bot's `chat_post` and a deploy card
+thread only under a message in their own channel (404 otherwise, as `chat.postMessage` already
+did). The demo's bots are installed in #general and #the-nest. `conversations.history`'s `oldest`
+is documented as a page cursor, not a tail (ids are made at insert, not commit), with socket mode as
+the way to follow a channel. The SDK reports a throwing handler to `onError` (default
+`console.error`) and keeps running the others, tells `onClose` when the socket drops after hello,
+and puts the close code and reason into `connect()`'s rejection; it does not reconnect by itself.
+The SDK's docs say it is not on npm until the repository has an `NPM_TOKEN`, and how to build and
+install it from a checkout meanwhile.
+
+**Spec deviations.** §7.3's HMAC-signed webhook transport remains unbuilt (socket only). Nothing
+else here departs from the spec; the rest brings the code to it.

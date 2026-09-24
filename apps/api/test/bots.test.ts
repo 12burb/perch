@@ -470,4 +470,32 @@ describe("a native bot (task 2.6)", () => {
     });
     expect(own.status).toBe(201);
   }, 60_000);
+
+  test("a keyword pattern that could stall the api is refused where it is saved", async () => {
+    const hostile = {
+      triggers: [{ on: "keyword" as const, match: "^(a+)+$", regex: true }],
+    };
+    const made = await call(`/api/workspaces/${ws}/bots`, wren.cookie, {
+      method: "POST",
+      json: { handle: "stall", name: "Stall", spec: hostile },
+    });
+    expect(made.status).toBe(422);
+    expect(made.text).toContain("cannot repeat a group");
+    // Nor can a bot that exists be changed into one.
+    const patched = await call(`/api/workspaces/${ws}/bots/${botId}`, robin.cookie, {
+      method: "PATCH",
+      json: { spec: hostile },
+    });
+    expect(patched.status).toBe(422);
+    // A pattern without that shape is a pattern like any other.
+    const fine = await call(`/api/workspaces/${ws}/bots`, wren.cookie, {
+      method: "POST",
+      json: {
+        handle: "ticketbot",
+        name: "Tickets",
+        spec: { triggers: [{ on: "keyword", match: "PERCH-\\d+", regex: true }] },
+      },
+    });
+    expect(fine.status).toBe(201);
+  }, 60_000);
 });

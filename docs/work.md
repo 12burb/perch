@@ -26,8 +26,9 @@ request that finished it.
 - **Typed in**, on the board in Work mode.
 - **From a message.** Pass `thread_root_id` and the item remembers the conversation that started
   it, so the work and the talking stay one thing.
-- **From an agent**, over `/mcp/perch` or the Bot API — `work.create` is one of the tools an
-  outside agent has (see [the MCP gateway](./mcp-gateway.md)).
+- **From an agent**, over `/mcp/perch` (`work.create`, `work.update`; see
+  [the MCP gateway](./mcp-gateway.md)) or the Bot API's `POST /api/bot/work.create` with a
+  `work:write` token (see [the Bot API](./bot-api.md)). Either way the item's source is `bot`.
 
 ```
 POST /api/workspaces/{ws}/projects/{p}/work-items  {title, type?, priority?, thread_root_id?}

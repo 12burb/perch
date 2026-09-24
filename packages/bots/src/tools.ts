@@ -65,10 +65,16 @@ export type BotHost = {
 /**
  * Anything a tool brings back is data, not instruction. The wrapper is what a bot's system prompt
  * tells it to distrust, and it is on every tool's output without exception (AGENTS §1.6).
+ *
+ * Every `<` in the body is escaped rather than tags being stripped: a strip can be defeated by a
+ * tag split around another one, which the strip itself joins back together, while an escaped body
+ * cannot open or close a tag at all. The source label is narrowed to a plain name for the same
+ * reason, because an upstream tool's name lands in it.
  */
 export function untrusted(source: string, body: string): string {
-  const clean = body.replace(/<\/?untrusted[^>]*>/gi, "");
-  return `<untrusted source="${source}">\n${clean}\n</untrusted>`;
+  const label = source.replace(/[^A-Za-z0-9_./-]/g, "_").slice(0, 128) || "tool";
+  const clean = body.replaceAll("<", "&lt;");
+  return `<untrusted source="${label}">\n${clean}\n</untrusted>`;
 }
 
 const MAX_TOOL_TEXT = 8_000;

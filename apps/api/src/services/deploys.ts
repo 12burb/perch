@@ -117,13 +117,17 @@ export class DeployService {
     threadRootId?: string | undefined;
     by: ActorContext;
   }): Promise<{ deployment: Deployment; message: Message }> {
+    // A thread is a thread of this channel: checked before the provider is asked for anything.
+    const threadRootId = input.threadRootId
+      ? await this.rootIn(input.channel, input.threadRootId)
+      : undefined;
     const deployment = await this.create(
       input.project,
       input.connection,
       input.target,
       input.branch,
     );
-    const message = await this.card(input, deployment);
+    const message = await this.card({ ...input, threadRootId }, deployment);
     await this.deps.bus.publish(
       "deploy.started",
       {
@@ -139,6 +143,18 @@ export class DeployService {
       input.by,
     );
     return { deployment, message };
+  }
+
+  /**
+   * The thread a card goes under: a message in the card's own channel, and that message's own root
+   * when it is a reply. One from anywhere else is not there, as it is for a bot's postMessage.
+   */
+  private async rootIn(channel: Channel, messageId: string): Promise<string> {
+    const root = await getMessage(this.deps.db.db, messageId);
+    if (!root || root.deletedAt || root.channelId !== channel.id) {
+      throw PerchError.notFound("message");
+    }
+    return root.threadRootId ?? root.id;
   }
 
   /**

@@ -241,6 +241,58 @@ describe("the Nest (task 3.9)", () => {
     expect(installed.body.installed.map((one) => one.handle)).toContain("dawn");
   }, 60_000);
 
+  test("a person here who holds a roster handle is skipped, and the rest still install", async () => {
+    // Code review (ADR-0176): the conflict used to abort the install part-way, after tokens for
+    // the agents before it had been minted and could never be shown again.
+    const stamp = Date.now();
+    const signed = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Julius",
+        email: "julius@perch.test",
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(signed.status).toBe(200);
+    const his = cookiesFrom(signed);
+    const fresh = (await call("/api/workspaces", {
+      method: "POST",
+      json: { name: `Julius's team ${stamp}` },
+    })) as { body: { id: string } };
+    const invite = (await call(`/api/workspaces/${fresh.body.id}/invites`, {
+      method: "POST",
+      json: { email: "julius@perch.test", role: "member" },
+    })) as { body: { accept_url: string } };
+    const token = invite.body.accept_url.split("/invite/")[1] ?? "";
+    const accepted = await fetch(`${base}/api/invites/${token}/accept`, {
+      method: "POST",
+      headers: { cookie: his, origin: base },
+    });
+    expect(accepted.status).toBe(200);
+
+    const installed = (await call(`/api/workspaces/${fresh.body.id}/nest`, {
+      method: "POST",
+      json: {},
+    })) as {
+      status: number;
+      text: string;
+      body: { installed: { handle: string; token?: string }[]; already: string[]; taken: string[] };
+    };
+    expect(installed.status, installed.text).toBe(201);
+    expect(installed.body.taken).toEqual(["julius"]);
+    const handles = installed.body.installed.map((one) => one.handle);
+    expect(handles).not.toContain("julius");
+    expect(handles.length).toBe(NEST_AGENTS.length - 1);
+    // Every token minted is in the answer, because it is the only time it can be.
+    for (const agent of NEST_AGENTS.filter(
+      (one) => one.door === "bot_api" && one.handle !== "julius",
+    )) {
+      const made = installed.body.installed.find((one) => one.handle === agent.handle);
+      expect(made?.token?.startsWith("pbot_")).toBe(true);
+    }
+  }, 60_000);
+
   test("the acceptance: a Nest agent posts via the Bot API on a granted Supabase connection", async () => {
     const botId = kimi?.bot_id ?? "";
     const botToken = kimi?.token ?? "";

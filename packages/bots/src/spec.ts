@@ -18,6 +18,7 @@ import {
   botSpecSchema,
 } from "@perch/db";
 import { parse as parseYaml } from "yaml";
+import { triggersProblem } from "./triggers.ts";
 
 /** Where a project keeps its bots, and what names the one file that must be there. */
 export const SPEC_BOTS_DIR = "bots";
@@ -57,7 +58,11 @@ export type SpecBot = {
   name: string;
   /** `code` when the directory has a `bot.js`, `spec` otherwise (spec §5.3's four ways). */
   level: "spec" | "code";
-  visibility: BotVisibility;
+  /**
+   * What the file asked for, or null when it did not say. Who may have what is not the file's to
+   * decide: the sync resolves it against the role of whoever is syncing (ADR-0176).
+   */
+  visibility: BotVisibility | null;
   orchestrator: boolean;
   budget: BotBudget;
   spec: BotSpec;
@@ -197,6 +202,8 @@ export function parseSpecBot(dir: string, files: SpecBotFiles): SpecBot {
       spec.error.issues.map((i) => `${i.path.join(".")} ${i.message}`)[0] ?? "is not a bot",
     );
   }
+  const triggers = triggersProblem(spec.data);
+  if (triggers) throw new SpecBotError(file, triggers);
 
   const budget = botBudgetSchema.safeParse(
     doc.budget === undefined ? {} : camelKeys(object(doc.budget, file, "budget")),
@@ -205,7 +212,8 @@ export function parseSpecBot(dir: string, files: SpecBotFiles): SpecBot {
     throw new SpecBotError(file, `budget: ${budget.error.issues[0]?.message ?? "is not a budget"}`);
   }
 
-  const visibility = doc.visibility === "private" ? "private" : "workspace";
+  const visibility =
+    doc.visibility === "private" || doc.visibility === "workspace" ? doc.visibility : null;
   const code = files.code?.trim() ? files.code : null;
   return {
     handle,

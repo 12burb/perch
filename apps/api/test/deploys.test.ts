@@ -243,6 +243,34 @@ describe("deploys and the database panel (task 2.15)", () => {
     ).toBe(false);
   }, 60_000);
 
+  test("a card threads only under a message in its own channel", async () => {
+    // Code review (ADR-0176): a thread root from another channel would file the card under a
+    // conversation somewhere else, which the bot runtime would then read as this thread.
+    const other = (await call(`/api/workspaces/${ws}/channels`, cookie, {
+      method: "POST",
+      json: { type: "public", name: "elsewhere" },
+    })) as { status: number; body: { id: string } };
+    expect(other.status).toBe(201);
+    const said = (await call(`/api/workspaces/${ws}/channels/${other.body.id}/messages`, cookie, {
+      method: "POST",
+      json: { text: "a thread over here" },
+    })) as { status: number; body: { id: string } };
+    expect(said.status).toBe(201);
+    const before = vercel.created.length;
+    const posted = await call(`/api/workspaces/${ws}/projects/${projectId}/deploys`, cookie, {
+      method: "POST",
+      json: {
+        connection_id: vercelId,
+        channel_id: channelId,
+        target: "preview",
+        thread_root_id: said.body.id,
+      },
+    });
+    expect(posted.status).toBe(404);
+    // Refused before anything was asked of the provider.
+    expect(vercel.created.length).toBe(before);
+  }, 60_000);
+
   test("the database panel reads, and refuses anything that writes", async () => {
     const tables = (await call(
       `/api/workspaces/${ws}/connections/${supabaseId}/db/tables`,

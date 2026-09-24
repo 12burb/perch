@@ -226,9 +226,18 @@ describe("the demo workspace (task 4.8)", () => {
     const names = channels.body.channels.map((one) => one.name);
     for (const { name } of DEMO_CHANNELS) expect(names).toContain(name);
     const bots = (await call(`/api/workspaces/${ws}/bots`)) as {
-      body: { bots: { handle: string }[] };
+      body: { bots: { handle: string; channels: string[] }[] };
     };
     expect(bots.body.bots.length).toBeGreaterThanOrEqual(2);
+    // Each bot is in the rooms the demo made for talking to them, so a brain is all it lacks
+    // (code review, ADR-0176).
+    const rooms = channels.body.channels as { id?: string; name: string | null }[];
+    const idOf = (name: string) => rooms.find((one) => one.name === name)?.id ?? "";
+    for (const handle of first.bots.map((one) => one.handle)) {
+      const bot = bots.body.bots.find((one) => one.handle === handle);
+      expect(bot?.channels).toContain(idOf("general"));
+      expect(bot?.channels).toContain(idOf("the-nest"));
+    }
 
     // …and #general opens with a message that says what is here.
     const general = channels.body.channels.find((one) => one.name === "general");

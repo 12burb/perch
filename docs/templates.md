@@ -113,6 +113,7 @@ perch demo: http://127.0.0.1:3000
 ```
 
 Change that password if the machine is not only yours, or pass `--email` and `--password`. The
-bots need a model before they can answer — Settings → Brains. `perch demo --no-project` skips the
+bots are in #general and #the-nest, and need a model before they can answer there — Settings →
+Brains. `perch demo --no-project` skips the
 project; `--template <id>` picks a different stack; `--data-dir` puts it somewhere other than
 `~/.perch-demo`, so a demo never lands on top of the Perch you actually use.

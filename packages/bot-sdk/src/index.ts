@@ -30,7 +30,22 @@ export type PerchBotOptions = {
   fetch?: typeof fetch;
   /** Swapped in tests; the platform's `WebSocket` otherwise. */
   webSocket?: typeof WebSocket;
+  /**
+   * Where an event handler's error goes. A handler that throws — a refused `postMessage`, a 429 —
+   * is reported here and the other handlers still run; without this it is `console.error`, never
+   * an unhandled rejection that ends the process.
+   */
+  onError?: (error: unknown, frame: BotEventFrame) => void;
+  /**
+   * The socket closed after Perch said hello: the api restarted, the network dropped, or
+   * `disconnect()` was called (`requested`). A bot that should keep listening calls `connect()`
+   * again from here, after a pause of its choosing.
+   */
+  onClose?: (info: BotSocketClose) => void;
 };
+
+/** How a socket ended: its close code and reason, and whether this bot asked for it. */
+export type BotSocketClose = { code: number; reason: string; requested: boolean };
 
 export type BotMessage = {
   ok: true;
@@ -64,6 +79,19 @@ export type BotHistoryMessage = {
   author_id: string;
   text: string;
   blocks: { type: string }[];
+};
+
+/** A work item as `work.create` answers with it. */
+export type BotWorkItem = {
+  id: string;
+  /** `KEY-123`. */
+  identifier: string;
+  project_id: string;
+  title: string;
+  type: string;
+  state: string;
+  priority: number;
+  thread_ts: string | null;
 };
 
 /** Anything a bot is told (spec §7.3), plus the `hello` the socket opens with. */
@@ -140,12 +168,18 @@ export class PerchBot {
   private readonly handlers = new Map<string, Set<BotEventHandler<never>>>();
   private socket: WebSocket | null = null;
   private closing = false;
+  private readonly onError: (error: unknown, frame: BotEventFrame) => void;
+  private readonly onClose: ((info: BotSocketClose) => void) | undefined;
 
   constructor(options: PerchBotOptions) {
     this.base = options.url.replace(/\/+$/, "");
     this.token = options.token;
     this.doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.Socket = options.webSocket ?? globalThis.WebSocket;
+    this.onError =
+      options.onError ??
+      ((error, frame) => console.error(`perch-bot-sdk: a ${frame.type} handler failed`, error));
+    this.onClose = options.onClose;
   }
 
   /** Spec §7.3's `chat.*`. */
@@ -206,6 +240,19 @@ export class PerchBot {
       this.post<{ session_id: string; status: string }>("sessions.open", input),
   };
 
+  /** Spec §7.3's `work.create`: an item on a project's board, made by this bot. */
+  readonly work = {
+    create: (input: {
+      project: string;
+      title: string;
+      description?: string;
+      type?: "task" | "bug" | "feature" | "epic";
+      state?: string;
+      priority?: number;
+      thread_ts?: string;
+    }) => this.post<{ item: BotWorkItem }>("work.create", input),
+  };
+
   /** Something happened where this bot is installed. Returns the function that stops listening. */
   on<P = Record<string, unknown>>(event: BotEventName, handler: BotEventHandler<P>): () => void {
     const set = this.handlers.get(event) ?? new Set();
@@ -246,9 +293,20 @@ export class PerchBot {
       socket.addEventListener("error", () => {
         if (!greeted) reject(new Error("the bot socket would not open"));
       });
-      socket.addEventListener("close", () => {
-        if (!greeted) reject(new Error("the bot socket closed before saying hello"));
-        this.socket = null;
+      socket.addEventListener("close", (event: CloseEvent) => {
+        const code = typeof event?.code === "number" ? event.code : 1006;
+        const reason = typeof event?.reason === "string" ? event.reason : "";
+        if (this.socket === socket) this.socket = null;
+        if (!greeted) {
+          // A refused token closes with 1008 and says why; that is worth more than "it closed".
+          reject(
+            new Error(
+              `the bot socket closed before saying hello (${code}${reason ? `: ${reason}` : ""})`,
+            ),
+          );
+          return;
+        }
+        this.onClose?.({ code, reason, requested: this.closing });
       });
     });
   }
@@ -264,9 +322,18 @@ export class PerchBot {
     return this.socket !== null && !this.closing;
   }
 
+  /** Every handler for the frame, in order; one that throws is reported and does not stop the rest. */
   private async dispatch(frame: BotEventFrame): Promise<void> {
     for (const handler of this.handlers.get(frame.type) ?? []) {
-      await (handler as BotEventHandler)(frame.payload, frame);
+      try {
+        await (handler as BotEventHandler)(frame.payload, frame);
+      } catch (error) {
+        try {
+          this.onError(error, frame);
+        } catch {
+          // An error handler that throws has nowhere left to report to.
+        }
+      }
     }
   }
 

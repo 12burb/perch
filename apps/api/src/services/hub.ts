@@ -18,8 +18,8 @@ import { type HubItem, hubItem } from "@perch/hub";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import { botByHandle } from "../repos/bots.ts";
-import { getChannel } from "../repos/channels.ts";
 import type { BotsService } from "./bots.ts";
+import { channelFor } from "./channels.ts";
 import { createProject, type ProjectDeps } from "./projects.ts";
 
 export type HubDeps = ProjectDeps & { bots: BotsService };
@@ -31,6 +31,11 @@ export function hubDepsFrom(projects: ProjectDeps, bots: BotsService): HubDeps {
 export type HubInstallInput = {
   workspaceId: string;
   userId: string;
+  /**
+   * Whether the caller answers for the workspace's bots (`bots.admin`). A skill changes a bot, and
+   * changing somebody else's bot is that person's or an admin's — the same rule as the Forge.
+   */
+  botsAdmin: boolean;
   kind: string;
   id: string;
   /** For a skill: the handle of the bot it goes on. */
@@ -125,17 +130,37 @@ async function installBot(
   };
 }
 
-/** The channel a bot install was asked to put it in, if it was asked for one. */
+/**
+ * The channel a bot install was asked to put it in, if it was asked for one. Putting a bot somewhere
+ * is putting it in a channel you are in yourself, so a private channel the installer is not in is
+ * not there — the same answer the Forge's install gives.
+ */
 async function putInChannel(
   deps: HubDeps,
   input: HubInstallInput,
   bot: Bot,
 ): Promise<{ id: string; name: string | null } | null> {
   if (!input.channel) return null;
-  const channel = await getChannel(deps.db, input.channel);
-  if (!channel || channel.workspaceId !== input.workspaceId) throw PerchError.notFound("channel");
+  const channel = await channelFor(
+    { db: { db: deps.db }, bus: deps.bus },
+    input.workspaceId,
+    input.channel,
+    input.userId,
+  );
   await deps.bots.install(bot, channel, input.by);
   return { id: channel.id, name: channel.name };
+}
+
+/** Whether the bot a Hub install would change is the caller's to change. */
+function mayChange(input: HubInstallInput, bot: Bot): void {
+  if (bot.ownerId === input.userId) return;
+  // Somebody else's private bot is not there at all; a shared one is visible but not theirs.
+  if (bot.visibility === "private") throw PerchError.notFound("bot");
+  if (!input.botsAdmin) {
+    throw PerchError.forbidden("changing a bot is its owner's, or an admin's", {
+      action: "bots.admin",
+    });
+  }
 }
 
 async function installSkill(
@@ -150,6 +175,7 @@ async function installSkill(
   }
   const bot = await botByHandle(deps.db, input.workspaceId, handle);
   if (!bot) throw PerchError.notFound("bot");
+  mayChange(input, bot);
   const source = item.parent ? templateById(item.parent) : undefined;
   const skill = source?.skills?.find((one) => one.name === item.id);
   if (!skill) throw PerchError.notFound("hub item");

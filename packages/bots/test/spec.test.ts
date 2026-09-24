@@ -37,7 +37,8 @@ describe("a bot directory", () => {
     });
     expect(bot.handle).toBe("grok");
     expect(bot.name).toBe("Grok");
-    expect(bot.visibility).toBe("workspace");
+    // The file does not say, so the sync decides from who is syncing (ADR-0176).
+    expect(bot.visibility).toBeNull();
     expect(bot.spec.persona).toContain("You read the news");
     // `model:` names the workspace's model profile: a self-hosted Perch reaches every model
     // through one, and a raw vendor id would be a credential nobody granted (ADR-0116).
@@ -73,6 +74,12 @@ describe("a bot directory", () => {
       { on: "reaction", match: "eyes" },
       { on: "channel_join" },
     ]);
+  });
+
+  test("refuses a keyword pattern that could stall the api, as the Forge does", () => {
+    const yaml = 'triggers:\n  - on: keyword\n    match: "^(a+)+$"\n    regex: true\n';
+    expect(() => parseSpecBot("stall", { yaml })).toThrow(SpecBotError);
+    expect(() => parseSpecBot("stall", { yaml })).toThrow(/cannot repeat a group/);
   });
 
   test("says which file is wrong, and why", () => {

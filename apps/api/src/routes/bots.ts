@@ -24,6 +24,7 @@ import {
 } from "../repos/bots.ts";
 import { scheduledJobsFor } from "../repos/jobs.ts";
 import { getMessage } from "../repos/messages.ts";
+import { visibleChannelIds } from "../repos/search.ts";
 import { botTokenHint, botTokenValue } from "../services/bot-api.ts";
 import { botFor, DEFAULT_CATCH_UP_MINUTES } from "../services/bots.ts";
 import { channelFor } from "../services/channels.ts";
@@ -631,6 +632,8 @@ const nestInstallRoute = createRoute({
           schema: z.object({
             installed: z.array(installedNestSchema),
             already: z.array(z.string()),
+            /** Roster handles a person here already has; those agents were not installed. */
+            taken: z.array(z.string()),
           }),
         },
       },
@@ -915,8 +918,12 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
     const { ws } = c.req.valid("param");
     const { limit } = c.req.valid("query");
     await authorize(c, deps, "bots.read", { type: "workspace", id: ws });
-    const rows = await pendingBotToolCalls(deps.db.db, ws, limit ?? 50);
-    return c.json({ calls: rows.map(toolCallBody) }, 200);
+    // A call's arguments are built from its thread, so they are shown to the people who can read
+    // that thread and nobody else — the same rule deciding it holds (channelFor below).
+    const visible = new Set(await visibleChannelIds(deps.db.db, ws, currentUser(c).id));
+    const rows = await pendingBotToolCalls(deps.db.db, ws, 200);
+    const calls = rows.filter((row) => visible.has(row.channelId)).slice(0, limit ?? 50);
+    return c.json({ calls: calls.map(toolCallBody) }, 200);
   });
 
   app.openapi(decideToolCallRoute, async (c) => {
@@ -981,6 +988,7 @@ export function registerBots(app: OpenAPIHono<AppEnv>, deps: Deps): void {
           connections: one.connections,
         })),
         already: result.already,
+        taken: result.taken,
       },
       201,
     );

@@ -3,6 +3,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Booted } from "../src/boot.ts";
+import { insertBotToolCall } from "../src/repos/bots.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { bootTestApp } from "../src/testing.ts";
 
@@ -445,5 +446,100 @@ describe("MCP attach for bots (task 3.6)", () => {
     expect(offered).toContain("mcp__github__list_issues");
     expect(offered).not.toContain("mcp__github__create_issue");
     expect(called).toEqual([]);
+  }, 60_000);
+
+  test("a bot's chat_post threads only under a message in the channel it posts in", async () => {
+    // Code review (ADR-0176): a root from another channel would file the reply under somebody
+    // else's conversation, and the chain rails would then read that thread as this one.
+    const elsewhere = (await call(`/api/workspaces/${ws}/channels`, robin.cookie, {
+      method: "POST",
+      json: { type: "public", name: "elsewhere" },
+    })) as { body: { id: string } };
+    const there = (await call(
+      `/api/workspaces/${ws}/channels/${elsewhere.body.id}/messages`,
+      robin.cookie,
+      { method: "POST", json: { text: "a thread in another room" } },
+    )) as { status: number; body: MessageBody };
+    expect(there.status).toBe(201);
+    const herald = (await call(`/api/workspaces/${ws}/bots`, robin.cookie, {
+      method: "POST",
+      json: {
+        handle: "herald",
+        name: "Herald",
+        visibility: "workspace",
+        spec: {
+          persona: "You announce things.",
+          brain: { profile: "Stub brain" },
+          triggers: [{ on: "mention" }],
+          tools: ["chat_post"],
+        },
+      },
+    })) as { status: number; body: { id: string } };
+    expect(herald.status).toBe(201);
+    await call(`/api/workspaces/${ws}/bots/${herald.body.id}/install`, robin.cookie, {
+      method: "POST",
+      json: { channel_id: channel },
+    });
+
+    asked.length = 0;
+    script = [
+      {
+        tool: "chat_post",
+        args: { channel, text: "misfiled announcement", thread_root_id: there.body.id },
+      },
+      { text: "That did not go through." },
+    ];
+    const question = await say("<@herald> announce it");
+    expect(question.status).toBe(201);
+    await booted.bots.settled();
+
+    const posted = (await call(
+      `/api/workspaces/${ws}/channels/${channel}/messages`,
+      robin.cookie,
+    )) as {
+      body: { messages: MessageBody[] };
+    };
+    expect(JSON.stringify(posted.body)).not.toContain("misfiled announcement");
+    expect(JSON.stringify(await thread(there.body.id))).not.toContain("misfiled announcement");
+    // The model was told the post was refused, rather than that it happened.
+    expect(asked.join("\n")).toContain("message not found");
+    expect(asked.join("\n")).not.toMatch(/posted [0-9a-f]{8}-/);
+  }, 60_000);
+
+  test("a call asked in a private channel is listed only for the people in it", async () => {
+    // Code review (ADR-0176): the arguments are built from the thread, so they are the thread's.
+    const room = (await call(`/api/workspaces/${ws}/channels`, robin.cookie, {
+      method: "POST",
+      json: { type: "private", name: "legal" },
+    })) as { status: number; body: { id: string } };
+    expect(room.status).toBe(201);
+    const parked = await insertBotToolCall(booted.db.db, {
+      workspaceId: ws,
+      botId,
+      channelId: room.body.id,
+      connectionId,
+      tool: "create_issue",
+      args: { title: "what the private thread said" },
+    });
+
+    const stamp = Date.now();
+    const wren = await signUp("Wren", `wren-attach-${stamp}@perch.test`);
+    const invite = (await call(`/api/workspaces/${ws}/invites`, robin.cookie, {
+      method: "POST",
+      json: { email: `wren-attach-${stamp}@perch.test`, role: "member" },
+    })) as { body: { accept_url: string } };
+    const token = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect(
+      (await call(`/api/invites/${token}/accept`, wren.cookie, { method: "POST" })).status,
+    ).toBe(200);
+
+    const listed = async (cookie: string) =>
+      (
+        (await call(`/api/workspaces/${ws}/bot-tool-calls`, cookie)) as {
+          body: { calls: { id: string }[] };
+        }
+      ).body.calls.map((one) => one.id);
+    expect(await listed(robin.cookie)).toContain(parked.id);
+    expect(await listed(wren.cookie)).not.toContain(parked.id);
   }, 60_000);
 });

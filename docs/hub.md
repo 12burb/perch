@@ -31,9 +31,14 @@ provenance and a way to revoke, none of which v1 pretends to have.
 Every install is the same call the screen behind it would have made. A bot from the Hub is the same
 bot the Forge makes, a project from a template is the same project the New project button makes, and
 a skill lands on the bot's spec the same way an edit would. Nothing here has a second code path, and
-nothing here has a permission of its own either: installing a bot needs `bots.write`, a template
-needs `projects.create`, and a connection needs no more than being able to read the workspace's
-connections, because it does not connect anything — it takes you to where you can.
+nothing here has a permission of its own either, and none it could lend. A bot from the Hub is one
+the whole workspace can talk to, and making one of those is an admin's (`bots.admin`), as it is in
+the Forge; it goes only into a channel its installer is in, the same answer (404) the Forge's install
+gives for a private room somebody is not in. A skill changes a bot, so it goes only onto a bot its
+installer owns, or any shared bot for an admin, and somebody else's private bot is not there at all
+(ADR-0176). A template needs `projects.create`, and a connection needs no more than being able to
+read the workspace's connections, because it does not connect anything — it takes you to where you
+can.
 
 Installing something twice is not an error and not a duplicate. The Hub says the thing is already
 here and leaves it alone.

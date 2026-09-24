@@ -24,8 +24,10 @@ import {
 } from "@perch/bots/spec";
 import type { Bot, Db, NewBot, Project } from "@perch/db";
 import { fsReadResultSchema, type RunnerLink } from "@perch/events";
+import { can } from "@perch/policy";
 import type { Logger } from "../logging.ts";
 import { deleteBot, findBotByHandle, insertBot, listSpecBots, updateBot } from "../repos/bots.ts";
+import { findMembership } from "../repos/workspaces.ts";
 import type { BotsService } from "./bots.ts";
 import { runnerCall } from "./runners.ts";
 
@@ -58,6 +60,15 @@ type Entry = { name: string; type: "file" | "dir" | "symlink" | "other"; size: n
 
 export class SpecBotsService {
   constructor(private readonly deps: SpecBotsDeps) {}
+
+  /** Whether this person answers for the workspace's bots (`bots.admin`). */
+  private async answersForBots(workspaceId: string, userId: string): Promise<boolean> {
+    const membership = await findMembership(this.deps.db, workspaceId, userId);
+    return can({ userId, role: membership?.role ?? null }, "bots.admin", {
+      type: "workspace",
+      id: workspaceId,
+    });
+  }
 
   private async list(link: RunnerLink, ctx: Ctx, at: string): Promise<Entry[]> {
     const raw = (await runnerCall(link, "fs.list", {
@@ -139,6 +150,10 @@ export class SpecBotsService {
    */
   async sync(link: RunnerLink, project: Project, userId: string): Promise<SpecBotSync> {
     const ctx: Ctx = { workspaceId: project.workspaceId, userId, projectId: project.id };
+    // Who is syncing decides what the sync may do, as it does in the Forge (ADR-0096): a bot the
+    // whole workspace can talk to, or one that directs others, is an admin's to make, and a bot
+    // somebody else made is theirs or an admin's to change. The file does not get a say in that.
+    const admin = await this.answersForBots(project.workspaceId, userId);
     const existing = await listSpecBots(this.deps.db, project.id);
     const byPath = new Map<string, Bot>(existing.map((bot) => [bot.sourcePath ?? bot.handle, bot]));
     const report: SpecBotSync = { added: [], updated: [], removed: [], failed: [] };
@@ -178,16 +193,36 @@ export class SpecBotsService {
         level: parsed.level,
         code: parsed.code,
         spec: parsed.spec,
-        visibility: parsed.visibility,
-        orchestrator: parsed.orchestrator,
+        // A file that does not say is as wide as its syncer may make it; one that asks for more
+        // than that gets less, and the report says so.
+        visibility: admin ? (parsed.visibility ?? "workspace") : "private",
+        orchestrator: admin && parsed.orchestrator,
         budget: parsed.budget,
         status: "active",
         sourceProjectId: project.id,
         sourcePath: path,
         sourceError: null,
       };
+      const narrowed = !admin && (parsed.visibility === "workspace" || parsed.orchestrator);
+      const narrowedNote = {
+        handle: parsed.handle,
+        error: `@${parsed.handle} is private: a bot the whole workspace talks to, or an orchestrator, is an admin's to make`,
+      };
 
       if (was) {
+        // Somebody else's bot is theirs or an admin's to change, from a repository as in the
+        // Forge. Its reach is not this sync's to judge, so only the rest of the file is compared.
+        if (!admin && was.ownerId !== userId) {
+          const rest = { ...values, visibility: was.visibility, orchestrator: was.orchestrator };
+          if (changed(was, rest)) {
+            report.failed.push({
+              handle: was.handle,
+              error: `@${was.handle} is somebody else's: their sync or an admin's changes it`,
+            });
+          }
+          continue;
+        }
+        if (narrowed) report.failed.push(narrowedNote);
         if (!changed(was, values)) continue;
         const row = await updateBot(this.deps.db, was.id, values);
         if (row) await this.deps.bots.reschedule(row);
@@ -203,6 +238,7 @@ export class SpecBotsService {
         });
         continue;
       }
+      if (narrowed) report.failed.push(narrowedNote);
       const row = await insertBot(this.deps.db, {
         ...(values as NewBot),
         workspaceId: project.workspaceId,
@@ -214,6 +250,13 @@ export class SpecBotsService {
 
     for (const [path, bot] of byPath) {
       if (seen.has(path)) continue;
+      if (!admin && bot.ownerId !== userId) {
+        report.failed.push({
+          handle: bot.handle,
+          error: `@${bot.handle} is somebody else's: their sync or an admin's removes it`,
+        });
+        continue;
+      }
       await this.deps.bots.reschedule({ ...bot, status: "disabled" });
       await deleteBot(this.deps.db, bot.id);
       report.removed.push(bot.handle);

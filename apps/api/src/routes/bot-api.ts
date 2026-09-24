@@ -6,12 +6,13 @@
  * its workspace, and a bot that had to say which workspace it was in could try to say the wrong one.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import type { BOT_SCOPES } from "@perch/db";
+import { type BOT_SCOPES, WORK_ITEM_STATES, WORK_ITEM_TYPES } from "@perch/db";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import { type BotCaller, textOf } from "../services/bot-api.ts";
 import { storeUpload } from "../services/files.ts";
 import { parseBlocks, textBlocks } from "../services/messages.ts";
+import { identifierOf } from "../services/work.ts";
 import { errorResponses } from "./shared.ts";
 
 /** A bot token is a bearer like any other; the `pbot_` prefix is what tells them apart. */
@@ -298,6 +299,60 @@ const filesUploadRoute = createRoute({
   },
 });
 
+const workCreateRoute = createRoute({
+  method: "post",
+  path: "/api/bot/work.create",
+  tags: ["bot-api"],
+  summary: "Put a work item on a project's board",
+  security: BOT_BEARER,
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z
+            .object({
+              project: z.uuid(),
+              title: z.string().min(1).max(500),
+              description: z.string().max(100_000).optional(),
+              type: z.enum(WORK_ITEM_TYPES).optional(),
+              state: z.enum(WORK_ITEM_STATES).optional(),
+              /** 0 none, 1 urgent … 4 low, as on the board. */
+              priority: z.number().int().min(0).max(4).optional(),
+              /** A message in a channel this bot is in, which the item hangs off. */
+              thread_ts: z.uuid().optional(),
+            })
+            .openapi("BotCreateWork"),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "The work item",
+      content: {
+        "application/json": {
+          schema: z.object({
+            ok: z.literal(true),
+            item: z
+              .object({
+                id: z.uuid(),
+                identifier: z.string(),
+                project_id: z.uuid(),
+                title: z.string(),
+                type: z.string(),
+                state: z.string(),
+                priority: z.number().int(),
+                thread_ts: z.string().nullable(),
+              })
+              .openapi("BotWorkItem"),
+          }),
+        },
+      },
+    },
+    ...errorResponses(403, 404, 409, 422, 429),
+  },
+});
+
 const sessionsOpenRoute = createRoute({
   method: "post",
   path: "/api/bot/sessions.open",
@@ -445,8 +500,8 @@ export function registerBotApi(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   });
 
   app.openapi(userInfoRoute, async (c) => {
-    await enter(c, "channels:read");
-    const user = await deps.botApi.userInfo(c.req.valid("query").user);
+    const caller = await enter(c, "channels:read");
+    const user = await deps.botApi.userInfo(caller, c.req.valid("query").user);
     return c.json({ ok: true as const, user }, 200);
   });
 
@@ -480,6 +535,44 @@ export function registerBotApi(app: OpenAPIHono<AppEnv>, deps: Deps): void {
           size: Number(row.size),
           // What a bot puts in a `file` block, and what a person's browser will ask for.
           url: `/api/files/${row.id}`,
+        },
+      },
+      200,
+    );
+  });
+
+  app.openapi(workCreateRoute, async (c) => {
+    const caller = await enter(c, "work:write");
+    const body = c.req.valid("json");
+    const { project, threadRootId } = await deps.botApi.workTarget(caller, {
+      projectId: body.project,
+      ...(body.thread_ts ? { threadRootId: body.thread_ts } : {}),
+    });
+    const item = await deps.work.create({
+      project,
+      // The bot made it; `source: bot` is what the board shows, and the actor on every event.
+      userId: caller.bot.id,
+      title: body.title,
+      source: "bot",
+      by: { actor: { type: "bot", id: caller.bot.id }, meta: {} },
+      ...(body.description ? { description: body.description } : {}),
+      ...(body.type ? { type: body.type } : {}),
+      ...(body.state ? { state: body.state } : {}),
+      ...(body.priority === undefined ? {} : { priority: body.priority }),
+      ...(threadRootId ? { threadRootId } : {}),
+    });
+    return c.json(
+      {
+        ok: true as const,
+        item: {
+          id: item.id,
+          identifier: identifierOf(project.key, item.number),
+          project_id: item.projectId,
+          title: item.title,
+          type: item.type,
+          state: item.state,
+          priority: item.priority,
+          thread_ts: item.threadRootId,
         },
       },
       200,

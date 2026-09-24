@@ -8,6 +8,19 @@ It is deliberately Slack-shaped. If you have written a Slack app, you already kn
 
 ## The short version
 
+The SDK is `packages/bot-sdk` in this repository, and the release builds it as the npm package
+`perch-bot-sdk`. **It is not on npm yet**: the release publishes it only when the repository has an
+`NPM_TOKEN`, and none has been set, so `npm install perch-bot-sdk` answers 404 today. Until it is
+there, build it from a checkout and install the directory:
+
+```bash
+bun run build:bot-sdk -- --out ./perch-bot-sdk   # in a Perch checkout: one ESM file, its types
+npm install ./perch-bot-sdk                       # in your bot's project (or bun add ./perch-bot-sdk)
+```
+
+Each release run also keeps the same staged package as its `bot-sdk` workflow artifact. Once it is
+published, this is one line:
+
 ```bash
 npm install perch-bot-sdk
 ```
@@ -61,7 +74,7 @@ DELETE /api/workspaces/{ws}/bots/{bot}/tokens/{token}   # revoke
 | `files:write` | `files.upload` |
 | `tools:call` | `tools.call` — a connection's tools through the MCP gateway |
 | `sessions:open` | `sessions.open` — an agent session on a project |
-| `work:write` | reserved — `work.create` is not on the Bot API yet; a bot outside Perch puts work on the board through Perch's own MCP server (`work.create`, `work.update`; [`mcp-gateway.md`](mcp-gateway.md)) |
+| `work:write` | `work.create` — an item on a project's board in the bot's workspace |
 
 A scope that was not minted is **refused**, not quietly narrowed: the call answers `403` and says
 which scope it wanted. A bot that needs more is given a new token, by a person.
@@ -82,14 +95,27 @@ All under `/api/bot/`, all with `Authorization: Bearer pbot_…`.
 | POST | `files.upload` (multipart, field `file`) | `files:write` |
 | POST | `tools.call` `{connection_id, tool, args}` | `tools:call` |
 | POST | `sessions.open` `{project, engine?, prompt?}` | `sessions:open` |
+| POST | `work.create` `{project, title, description?, type?, state?, priority?, thread_ts?}` | `work:write` |
 
-Two rules hold everywhere:
+`work.create` answers `{ok, item: {id, identifier, project_id, title, type, state, priority,
+thread_ts}}`. The project is one of the bot's workspace (anything else is a `404`), `thread_ts`
+must be a message in a channel the bot is in, and the item's source is `bot`; the SDK has it as
+`bot.work.create(…)`.
+
+Three rules hold everywhere:
 
 - **A bot sees only the channels it is installed in.** `conversations.list` is its installs, and
   every other call is checked against them. Installing a bot is a person's decision, made in the
   Forge; there is no way for a bot to widen its own reach.
 - **A bot edits and deletes only its own messages.** `chat.update` on somebody else's message is a
   `403`; on a message that does not exist, or one in a channel the bot is not in, a `404`.
+- **A bot knows only its own workspace.** `users.info` answers for people in the bot's workspace
+  and `404` for anybody else, the same `404` as for nobody at all.
+
+`conversations.history`'s `oldest` is a page cursor, not a tail. Message ids are made when a message
+is written, not when it commits, so under concurrent posts a message can land with an id just older
+than one already seen; a bot polling `oldest=<last id>` can miss it. To follow a channel as it
+happens, use socket mode below, and use `history` to catch up on what came before.
 
 Errors are the same shape as everywhere else in Perch (spec §7.8):
 
@@ -109,19 +135,51 @@ bot is a program that may be running in one. The socket opens with a `hello` fra
 and its scopes — `await bot.connect()` resolves on it, so nothing said afterwards is missed.
 
 Every frame is `{ type, ts, payload }`. There is no subscribe operation: a bot's subscription **is**
-its installs. Adding one would be a second permission system disagreeing with the first.
+its installs. Adding one would be a second permission system disagreeing with the first. Nothing
+from another workspace ever reaches it: a bot's token names one bot, and that bot one workspace.
+
+The socket is the one transport. Spec §7.3 also names an HMAC-signed webhook; it is not built
+(ADR-0176), so a bot that cannot hold a socket open polls the endpoints above instead.
 
 | Event | When |
 |---|---|
 | `message.created` | anybody says anything in a channel the bot is in — except the bot itself |
-| `app_mention` | that message said the bot's handle; adds `mentioned_by`, `mode`, `root_id`, `hop`, `budget_remaining` |
+| `app_mention` | that message said the bot's handle; adds `mentioned_by`, `mode`, `root_id`, `hop`, `budget_remaining` (see below) |
 | `reaction.added` | somebody reacts in one of those channels |
 | `channel.joined` | somebody puts the bot in a channel |
 | `interaction.received` | somebody presses a button on a block the bot posted |
 | `session.completed` | an agent session in the workspace ends |
 | `work_item.updated` | a work item in the workspace changes: its identifier, title, state and assignee |
 
-A bot never hears its own message. An echo is not an event.
+A bot never hears its own message. An echo is not an event. An `interaction.received` goes to the
+bot that posted the block, and a block a person posted belongs to no bot, so nobody hears it.
+
+`app_mention` carries the thread's chain state, the same rails spec §5.4 holds Perch's own bots to
+(ADR-0176): `hop` is which hop of the thread this is (a person's first tag is `1`), `mode` is how a
+bot meant its tag (`consult` unless it said otherwise; `null` for a person's), and
+`budget_remaining` is what is left of the thread's budget in dollars, or `null` when nothing caps
+it. A mention of an outside bot is recorded as a hop, so a chain through outside bots meets the hop
+limit and the repeat-pair breaker too; a hop the rails refuse, or any mention in a thread somebody
+has `/stop`ped, is not delivered at all. What an outside bot spends it spends outside, so its hops
+cost the thread nothing.
+
+### When a handler fails, or the socket drops
+
+```ts
+const bot = new PerchBot({
+  url, token,
+  onError: (error, frame) => log.warn({ error, type: frame.type }),   // default: console.error
+  onClose: ({ code, reason, requested }) => {
+    if (!requested) setTimeout(() => bot.connect().catch(log.error), 5_000);
+  },
+});
+```
+
+A handler that throws — a refused `postMessage`, a `429` — goes to `onError`, and the other handlers
+for that event still run; it never becomes an unhandled rejection that ends the process. `onClose` is
+told when the socket closes after hello, with its code and reason: an api restart is `1001`. The SDK
+does not reconnect by itself, because when to try again is the bot's call. A token that is refused
+closes with `1008` before hello, and `connect()` rejects with the code and reason in its message.
 
 ## Rate limit
 

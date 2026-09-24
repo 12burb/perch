@@ -21,6 +21,7 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { insertBotToken } from "../repos/bot-tokens.ts";
 import { botByHandle } from "../repos/bots.ts";
 import { listProjects } from "../repos/projects.ts";
+import { handleTaken } from "../repos/users.ts";
 import { botTokenHint, botTokenValue } from "./bot-api.ts";
 import type { BotsService } from "./bots.ts";
 import { hashToken } from "./tokens.ts";
@@ -49,6 +50,8 @@ export type NestResult = {
   installed: NestInstalled[];
   /** Agents that were already here: left exactly as they are. */
   already: string[];
+  /** Roster handles a person in this workspace already has: those agents are not installed. */
+  taken: string[];
 };
 
 export type NestDeps = { db: Db; bots: BotsService };
@@ -88,15 +91,22 @@ export class NestService {
     const projects = (await listProjects(this.deps.db, input.workspaceId)).map((one) => one.name);
     const installed: NestInstalled[] = [];
     const already: string[] = [];
+    const taken: string[] = [];
     for (const agent of wanted) {
       if (await botByHandle(this.deps.db, input.workspaceId, agent.handle)) {
         already.push(agent.handle);
         continue;
       }
+      // Checked before anything is made: a conflict half-way would lose the tokens already minted
+      // for the agents before it, and those are shown once.
+      if (await handleTaken(this.deps.db, agent.handle, input.workspaceId)) {
+        taken.push(agent.handle);
+        continue;
+      }
       const bot = await this.make(agent, projects, input);
       installed.push(bot);
     }
-    return { installed, already };
+    return { installed, already, taken };
   }
 
   private async make(

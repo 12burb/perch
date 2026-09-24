@@ -113,6 +113,73 @@ describe("a code bot", () => {
     expect(run.calls.filter((one) => one.ok)).toHaveLength(5);
   });
 
+  test("counts its tool calls as it makes them, so a loop that never awaits is still capped", async () => {
+    let invoked = 0;
+    const run = await runCodeBot({
+      code: `export default bot({
+        async onMessage(event, perch) {
+          const all = [];
+          for (let i = 0; i < 500; i += 1) all.push(perch.chat_post({ text: String(i) }).catch(() => "refused"));
+          return (await Promise.all(all)).filter((one) => one === "refused").length;
+        },
+      });`,
+      event: MENTION,
+      tools: {
+        chat_post: async () => {
+          invoked += 1;
+          return { ok: true };
+        },
+      },
+      limits: { toolCalls: 32 },
+    });
+    expect(invoked).toBe(32);
+    expect(run.returned).toBe(468);
+    expect(run.calls.filter((one) => one.ok)).toHaveLength(32);
+  });
+
+  test("whose tool answers after the run has ended leaves the process alone", async () => {
+    const unhandled: unknown[] = [];
+    const onRejection = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onRejection);
+    let aborted = false;
+    try {
+      const run = await runCodeBot({
+        code: `export default bot({
+          async onMessage(event, perch) {
+            await perch.wait_for_replies({ handles: ["x"] });
+            return "too late";
+          },
+        });`,
+        event: MENTION,
+        tools: {
+          wait_for_replies: (_args, options) =>
+            new Promise((resolve) => {
+              options?.signal.addEventListener("abort", () => {
+                aborted = true;
+              });
+              // Answers regardless of the signal, as a tool that ignores it would.
+              setTimeout(() => resolve({ replies: [] }), 250);
+            }),
+        },
+        limits: { wallMs: 80 },
+      });
+      expect(run.error).toBe("the run took longer than it is allowed to");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(unhandled).toEqual([]);
+      // The tool was told the run had ended, and the sandbox is still good for the next bot.
+      expect(aborted).toBe(true);
+      const next = await runCodeBot({
+        code: "export default bot({ onMessage: () => 'ok' });",
+        event: MENTION,
+      });
+      expect(next.returned).toBe("ok");
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
   test("with no handler for the event does nothing, quietly", async () => {
     const run = await runCodeBot({
       code: "export default bot({ onSchedule: () => 'tick' });",

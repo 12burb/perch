@@ -11,6 +11,7 @@
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import { type catalog, HUB_KINDS, hubCounts, searchHub } from "@perch/hub";
+import { can } from "@perch/policy";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
@@ -116,10 +117,14 @@ const installRoute = createRoute({
   },
 });
 
-/** The action a kind's install performs, which is what it is authorized as. */
+/**
+ * The action a kind's install performs, which is what it is authorized as. A bot from the Hub is
+ * one the whole workspace can talk to, and making one of those is an admin's (ADR-0096), as it is
+ * in the Forge and for the Nest.
+ */
 const ACTION = {
   connector: "connections.read",
-  bot: "bots.write",
+  bot: "bots.admin",
   skill: "bots.write",
   template: "projects.create",
 } as const;
@@ -151,7 +156,8 @@ export function registerHub(app: OpenAPIHono<AppEnv>, deps: Deps): void {
   app.openapi(installRoute, async (c) => {
     const { ws } = c.req.valid("param");
     const body = c.req.valid("json");
-    await authorize(c, deps, ACTION[body.kind], { type: "workspace", id: ws });
+    const resource = { type: "workspace", id: ws } as const;
+    const { ctx } = await authorize(c, deps, ACTION[body.kind], resource);
     const workspace = await findWorkspaceById(deps.db.db, ws);
     if (!workspace) throw PerchError.notFound("workspace");
     const user = currentUser(c);
@@ -160,6 +166,7 @@ export function registerHub(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       {
         workspaceId: ws,
         userId: user.id,
+        botsAdmin: can(ctx, "bots.admin", resource),
         kind: body.kind,
         id: body.id,
         bot: body.bot,

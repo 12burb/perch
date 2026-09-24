@@ -28,6 +28,7 @@ export {
   type ChannelJoined,
   channelJoinedSchema,
   createBotEvents,
+  deliversTo,
   type InteractionReceived,
   interactionReceivedSchema,
   type MessageCreated,
@@ -77,7 +78,10 @@ export {
   inScope,
   matchesKeyword,
   names,
+  PATTERN_MAX,
+  patternProblem,
   schedules,
   type TriggerEvent,
   type TriggerMatch,
+  triggersProblem,
 } from "./triggers.ts";

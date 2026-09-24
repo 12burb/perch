@@ -6,10 +6,10 @@
  * this is the outward-facing shape a bot is handed, which is Slack-shaped on purpose so that
  * anybody who has written a Slack app can read it.
  *
- * Task 2.5 ships the envelope, the dispatcher, and the one event a person can cause on their own —
- * `interaction.received`. The transports (the socket and the signed webhook) arrive with the bot
- * runtime in 2.6 and its webhooks in 2.7; they subscribe here rather than being wired into the
- * features that emit.
+ * Task 2.5 shipped the envelope, the dispatcher, and the one event a person can cause on their own —
+ * `interaction.received`. The transport — the Bot API's socket; §7.3's signed webhook is not built
+ * (ADR-0176) — subscribes here rather than being wired into the features that emit, and asks
+ * `deliversTo` which bot hears what.
  */
 import { z } from "zod";
 
@@ -76,14 +76,16 @@ export type MessageCreated = z.infer<typeof messageCreatedSchema>;
 /**
  * `app_mention` (spec §7.3 `{mentioned_by, mode, root_id, hop, budget_remaining}`): somebody said
  * this bot's name. A bot saying it counts the same as a person saying it, which is what makes a
- * chain a chain — and why the hop and what is left of the budget travel with it.
+ * chain a chain — and why the hop and what is left of the budget travel with it. They are the chain
+ * state the native runtime keeps (spec §5.4), and a hop its rails forbid is not delivered at all.
  */
 export const appMentionSchema = messageCreatedSchema
   .extend({
     mentioned_by: botActorSchema,
-    /** How the tag was meant when a bot made it (spec §5.4): consult, handoff, fan-out. */
+    /** How a bot meant the tag (spec §5.4): consult, handoff, fan-out; null for a person's. */
     mode: z.string().nullable(),
     root_id: z.uuid(),
+    /** Which hop of the thread's chain this is: 1 for the first tag. */
     hop: z.number().int().nonnegative(),
     /** What is left of the chain's budget in dollars, or null when nothing caps it. */
     budget_remaining: z.number().nullable(),
@@ -167,6 +169,27 @@ export type BotEvent<T extends keyof BotEventPayloads = keyof BotEventPayloads> 
   payload: BotEventPayloads[T];
   ts: string;
 };
+
+/**
+ * The events a bot hears without being addressed: its own workspace's news (spec §7.3
+ * `session.completed`, `work_item.updated`). Anything else with no bot on it — a button pressed
+ * on a block a person posted — is nobody's to hear.
+ */
+const WORKSPACE_WIDE: ReadonlySet<BotEventName> = new Set([
+  "session.completed",
+  "work_item.updated",
+]);
+
+/**
+ * Whether `bot` is told about `event`. Every transport asks this and nothing else, so what one
+ * delivers another cannot: never an event from another workspace, and an addressed one only to the
+ * bot it names.
+ */
+export function deliversTo(event: BotEvent, bot: { id: string; workspaceId: string }): boolean {
+  if (event.workspaceId !== bot.workspaceId) return false;
+  if (event.botId !== null) return event.botId === bot.id;
+  return WORKSPACE_WIDE.has(event.type);
+}
 
 export type BotEventHandler = (event: BotEvent) => void | Promise<void>;
 export type Unsubscribe = () => void;

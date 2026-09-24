@@ -25,7 +25,9 @@ const stop = events.subscribe((event) => send(event));
 await events.emit({ type: "interaction.received", botId, workspaceId, payload, ts });
 ```
 
-Task 2.5 ships the envelope, the dispatcher, and `interaction.received` — the one event a person
-causes on their own, by answering an interactive block. The transports (`wss://…/api/bot/socket`
-and the HMAC-signed webhook) arrive with the runtime in 2.6 and its webhooks in 2.7; they subscribe
-here rather than being wired into the features that emit.
+Task 2.5 shipped the envelope, the dispatcher, and `interaction.received` — the one event a person
+causes on their own, by answering an interactive block. The one transport is the socket
+(`wss://…/api/bot/socket`, `apps/api/src/ws/bot-socket.ts`); spec §7.3's HMAC-signed webhook is not
+built (ADR-0176). Whatever carries an event asks `deliversTo(event, bot)` and nothing else: an event
+from another workspace never, an addressed one only to the bot it names, and an unaddressed one
+only when it is a workspace's own news (`session.completed`, `work_item.updated`).

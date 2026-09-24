@@ -1,6 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import type { BotSpec } from "@perch/db";
-import { firesOn, inScope, matchesKeyword, names, schedules } from "../src/triggers.ts";
+import { loadPatternEngine } from "../src/sandbox.ts";
+import {
+  firesOn,
+  inScope,
+  matchesKeyword,
+  names,
+  patternProblem,
+  schedules,
+} from "../src/triggers.ts";
 
 /** Task 2.6: what sets a bot off (spec §5.3 "Triggers"). */
 
@@ -34,6 +42,11 @@ function said(
 }
 
 describe("triggers (task 2.6)", () => {
+  // A `regex: true` trigger runs in QuickJS, which loads asynchronously; until it has, none fires.
+  beforeAll(async () => {
+    await loadPatternEngine();
+  });
+
   test("a mention is the handle, however it was typed", () => {
     expect(names("morning <@wren>", "wren")).toBe(true);
     expect(names("morning @Wren", "wren")).toBe(true);
@@ -73,6 +86,48 @@ describe("triggers (task 2.6)", () => {
       false,
     );
     expect(matchesKeyword({ on: "keyword" }, "anything")).toBe(false);
+  });
+
+  test("a keyword is a whole phrase between commas, not every word in it", () => {
+    const reviewer = { on: "keyword" as const, match: "review, look at this" };
+    expect(matchesKeyword(reviewer, "meet at noon")).toBe(false);
+    expect(matchesKeyword(reviewer, "is this ready?")).toBe(false);
+    expect(matchesKeyword(reviewer, "could you look at this PR")).toBe(true);
+    expect(matchesKeyword(reviewer, "could you look  at\nthis PR")).toBe(true);
+    expect(matchesKeyword(reviewer, "ready for review")).toBe(true);
+    const notes = { on: "keyword" as const, match: "show notes" };
+    expect(matchesKeyword(notes, "show me the build")).toBe(false);
+    expect(matchesKeyword(notes, "my notes from today")).toBe(false);
+    expect(matchesKeyword(notes, "draft the Show Notes please")).toBe(true);
+    // Punctuation inside a phrase is literal, and a lone comma is no phrase at all.
+    expect(matchesKeyword({ on: "keyword", match: "v1.2" }, "shipping v1.2 today")).toBe(true);
+    expect(matchesKeyword({ on: "keyword", match: "v1.2" }, "shipping v1x2 today")).toBe(false);
+    expect(matchesKeyword({ on: "keyword", match: " , " }, "anything")).toBe(false);
+  });
+
+  test("a regex a person could write by mistake to stall the api is refused, and none runs long", () => {
+    expect(patternProblem("^(a+)+$")).not.toBeNull();
+    expect(patternProblem("(a|aa)*b")).not.toBeNull();
+    expect(patternProblem("(x+x+)+y")).not.toBeNull();
+    expect(patternProblem("(\\w+)\\1")).not.toBeNull();
+    expect(patternProblem("(unclosed")).not.toBeNull();
+    expect(patternProblem("x".repeat(201))).not.toBeNull();
+    expect(patternProblem("PERCH-\\d+")).toBeNull();
+    expect(patternProblem("\\b(deploy|release)\\b")).toBeNull();
+    expect(patternProblem("^!help( \\w+)?$")).toBeNull();
+    // A nested quantifier is refused where it is tested, too, for a bot saved before the check.
+    expect(
+      matchesKeyword({ on: "keyword", match: "^(a+)+$", regex: true }, `${"a".repeat(40)}!`),
+    ).toBe(false);
+  });
+
+  test("a regex that passes the check but backtracks hard is stopped at its budget", () => {
+    const slow = { on: "keyword" as const, match: ".*.*x", regex: true };
+    const started = performance.now();
+    expect(matchesKeyword(slow, "a".repeat(2_000))).toBe(false);
+    expect(performance.now() - started).toBeLessThan(500);
+    // …and a pattern that answers in time still answers.
+    expect(matchesKeyword(slow, "a lot of text and then an x")).toBe(true);
   });
 
   test("channel join is the bot's own arrival; a reaction can be any emoji or one", () => {

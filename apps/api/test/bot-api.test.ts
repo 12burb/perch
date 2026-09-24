@@ -450,3 +450,298 @@ describe("the Bot API (task 2.19)", () => {
     expect((denied as PerchBotError).status).toBe(401);
   }, 60_000);
 });
+
+/**
+ * Code review (ADR-0176): a bot's token names one workspace, and nothing the Bot API says or hears
+ * crosses out of it — not an event on the socket, not a person's name.
+ */
+describe("the Bot API stays inside its workspace", () => {
+  let other = { cookie: "", ws: "", userId: "" };
+  let herald = { id: "", token: "" };
+  let outsider = { id: "", token: "" };
+
+  async function as(who: string, path: string, init: { method?: string; json?: unknown } = {}) {
+    const res = await fetch(`${base}${path}`, {
+      method: init.method ?? "GET",
+      headers: { cookie: who, "content-type": "application/json", origin: base },
+      body: init.json === undefined ? undefined : JSON.stringify(init.json),
+    });
+    const text = await res.text();
+    return { status: res.status, text, body: (text ? JSON.parse(text) : null) as unknown };
+  }
+
+  async function botWithToken(
+    who: string,
+    workspace: string,
+    handle: string,
+    scopes: string[],
+    channel?: string,
+  ) {
+    const made = (await as(who, `/api/workspaces/${workspace}/bots`, {
+      method: "POST",
+      json: { handle, name: handle, level: "external" },
+    })) as { status: number; text: string; body: Id };
+    expect(made.status, made.text).toBe(201);
+    if (channel) {
+      const installed = await as(who, `/api/workspaces/${workspace}/bots/${made.body.id}/install`, {
+        method: "POST",
+        json: { channel_id: channel },
+      });
+      expect(installed.status).toBe(200);
+    }
+    const minted = (await as(who, `/api/workspaces/${workspace}/bots/${made.body.id}/tokens`, {
+      method: "POST",
+      json: { name: `${handle}-token`, scopes },
+    })) as { status: number; body: { token: string } };
+    expect(minted.status).toBe(201);
+    return { id: made.body.id, token: minted.body.token };
+  }
+
+  test("a second workspace, somebody who is only in it, and a bot in each", async () => {
+    const signed = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Bo",
+        email: `bo-botapi-${Date.now()}@perch.test`,
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(signed.status).toBe(200);
+    const boCookie = cookiesFrom(signed);
+    const me = (await as(boCookie, "/api/me")) as { body: Id };
+    const made = (await as(boCookie, "/api/workspaces", {
+      method: "POST",
+      json: { name: "Elsewhere" },
+    })) as { body: Id };
+    other = { cookie: boCookie, ws: made.body.id, userId: me.body.id };
+
+    // A dot in the handle, which the native runtime's mentions have always matched.
+    herald = await botWithToken(
+      cookie,
+      ws,
+      "herald.ai",
+      ["chat:write", "chat:read", "channels:read", "work:write"],
+      channelId,
+    );
+    outsider = await botWithToken(other.cookie, other.ws, "outsider", ["channels:read"]);
+  }, 60_000);
+
+  test("a socket hears its own workspace's news and nobody else's", async () => {
+    const heard: { bot: string; type: string; workspace: string }[] = [];
+    const listen = (name: string, bot: PerchBot) => {
+      for (const type of ["session.completed", "work_item.updated", "interaction.received"]) {
+        bot.on<{ workspace_id: string }>(type as "session.completed", (payload) => {
+          heard.push({ bot: name, type, workspace: payload.workspace_id });
+        });
+      }
+    };
+    const inside = new PerchBot({ url: base, token: herald.token });
+    const outside = new PerchBot({ url: base, token: outsider.token });
+    listen("herald", inside);
+    listen("outsider", outside);
+    await inside.connect();
+    await outside.connect();
+
+    const now = new Date().toISOString();
+    const session = (workspace: string) => ({
+      type: "session.completed" as const,
+      botId: null,
+      workspaceId: workspace,
+      ts: now,
+      payload: {
+        workspace_id: workspace,
+        session_id: crypto.randomUUID(),
+        project_id: crypto.randomUUID(),
+        status: "ended",
+        message: null,
+        ts: now,
+      },
+    });
+    await booted.botEvents.emit(session(ws));
+    // A button pressed on a block a person posted belongs to no bot, so no bot hears it.
+    await booted.botEvents.emit({
+      type: "interaction.received",
+      botId: null,
+      workspaceId: ws,
+      ts: now,
+      payload: {
+        workspace_id: ws,
+        channel_id: channelId,
+        message_id: crypto.randomUUID(),
+        block_id: "b1",
+        action: "form.submit",
+        block_type: "form",
+        values: { answer: "private" },
+        user: { type: "user", id: crypto.randomUUID() },
+        at: now,
+      },
+    });
+    // The other workspace's own news, last, so its arrival says everything before it has landed.
+    await booted.botEvents.emit(session(other.ws));
+
+    const deadline = Date.now() + 15_000;
+    while (heard.filter((one) => one.bot === "outsider").length === 0 && Date.now() < deadline) {
+      await Bun.sleep(25);
+    }
+    await Bun.sleep(100);
+    expect(heard.filter((one) => one.bot === "outsider")).toEqual([
+      { bot: "outsider", type: "session.completed", workspace: other.ws },
+    ]);
+    expect(heard.filter((one) => one.bot === "herald")).toEqual([
+      { bot: "herald", type: "session.completed", workspace: ws },
+    ]);
+    inside.disconnect();
+    outside.disconnect();
+  }, 60_000);
+
+  test("a mention the native runtime hears is one an outside bot hears too", async () => {
+    const bot = new PerchBot({ url: base, token: herald.token });
+    const mentions: string[] = [];
+    bot.on<{ text: string }>("app_mention", (payload) => {
+      mentions.push(payload.text);
+    });
+    await bot.connect();
+    const said = await call(`/api/workspaces/${ws}/channels/${channelId}/messages`, {
+      method: "POST",
+      json: { text: "a question for (@herald.ai) about <@herald.ai>" },
+    });
+    expect(said.status).toBe(201);
+    const deadline = Date.now() + 15_000;
+    while (mentions.length === 0 && Date.now() < deadline) await Bun.sleep(25);
+    expect(mentions).toEqual(["a question for (@herald.ai) about <@herald.ai>"]);
+    bot.disconnect();
+  }, 60_000);
+
+  test("users.info knows the people in the bot's workspace, and nobody else", async () => {
+    const headers = { authorization: `Bearer ${herald.token}` };
+    const me = (await call("/api/me")) as { body: Id };
+    const known = await fetch(`${base}/api/bot/users.info?user=${me.body.id}`, { headers });
+    expect(known.status).toBe(200);
+    const stranger = await fetch(`${base}/api/bot/users.info?user=${other.userId}`, { headers });
+    expect(stranger.status).toBe(404);
+  }, 60_000);
+
+  test("work.create puts an item on a board in the bot's own workspace", async () => {
+    const project = (await call(`/api/workspaces/${ws}/projects`, {
+      method: "POST",
+      json: { name: "the-board" },
+    })) as { status: number; text: string; body: Id };
+    expect(project.status, project.text).toBe(201);
+    const post = (token: string, json: unknown) =>
+      fetch(`${base}/api/bot/work.create`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(json),
+      });
+
+    // Through the SDK, the way a bot author would write it.
+    const { item } = await new PerchBot({ url: base, token: herald.token }).work.create({
+      project: project.body.id,
+      title: "Rotate the staging key",
+      type: "bug",
+      priority: 2,
+    });
+    expect(item.title).toBe("Rotate the staging key");
+    expect(item.type).toBe("bug");
+    expect(item.state).toBe("backlog");
+    expect(item.identifier).toMatch(/^[A-Z0-9-]+-1$/);
+    const board = (await call(`/api/workspaces/${ws}/projects/${project.body.id}/work-items`)) as {
+      body: { items: { id: string; source?: string }[] };
+    };
+    expect(board.body.items.map((one) => one.id)).toContain(item.id);
+
+    // A token without the scope is refused, and a project in another workspace is not there.
+    expect((await post(outsider.token, { project: project.body.id, title: "x" })).status).toBe(403);
+    const elsewhere = (await as(other.cookie, `/api/workspaces/${other.ws}/projects`, {
+      method: "POST",
+      json: { name: "not-yours" },
+    })) as { body: Id };
+    expect((await post(herald.token, { project: elsewhere.body.id, title: "x" })).status).toBe(404);
+  }, 60_000);
+});
+
+/**
+ * Code review (ADR-0176): an `app_mention` carries the chain state spec §5.4 keeps — which hop it is,
+ * how a bot meant the tag, what is left of the thread's budget — and a hop the rails forbid is not
+ * a mention the bot hears. Two outside bots tagging each other meet the same repeat-pair breaker
+ * two native bots would.
+ */
+describe("app_mention and the chain rails", () => {
+  test("hops are counted between outside bots, and a pair that keeps bouncing is stopped", async () => {
+    const make = async (handle: string) => {
+      const made = (await call(`/api/workspaces/${ws}/bots`, {
+        method: "POST",
+        json: { handle, name: handle, level: "external" },
+      })) as { status: number; body: Id };
+      expect(made.status).toBe(201);
+      await call(`/api/workspaces/${ws}/bots/${made.body.id}/install`, {
+        method: "POST",
+        json: { channel_id: channelId },
+      });
+      const minted = (await call(`/api/workspaces/${ws}/bots/${made.body.id}/tokens`, {
+        method: "POST",
+        json: { name: handle, scopes: ["chat:write", "chat:read"] },
+      })) as { body: { token: string } };
+      const bot = new PerchBot({ url: base, token: minted.body.token });
+      const heard: { text: string; hop: number; mode: string | null; left: number | null }[] = [];
+      bot.on<{ text: string; hop: number; mode: string | null; budget_remaining: number | null }>(
+        "app_mention",
+        (payload) => {
+          heard.push({
+            text: payload.text,
+            hop: payload.hop,
+            mode: payload.mode,
+            left: payload.budget_remaining,
+          });
+        },
+      );
+      await bot.connect();
+      return { bot, heard };
+    };
+    const one = await make("relay-one");
+    const two = await make("relay-two");
+    const until = async (list: unknown[], count: number) => {
+      const deadline = Date.now() + 15_000;
+      while (list.length < count && Date.now() < deadline) await Bun.sleep(25);
+    };
+
+    const root = (await call(`/api/workspaces/${ws}/channels/${channelId}/messages`, {
+      method: "POST",
+      json: { text: "<@relay-one> start a chain" },
+    })) as { status: number; body: Id };
+    expect(root.status).toBe(201);
+    await until(one.heard, 1);
+    // A person's tag is the first hop, and has no mode.
+    expect(one.heard[0]).toMatchObject({ hop: 1, mode: null, left: null });
+
+    await one.bot.chat.postMessage({
+      channel: channelId,
+      text: "<@relay-two> over to you",
+      thread_ts: root.body.id,
+    });
+    await until(two.heard, 1);
+    // A bot's tag is the next hop, a consult unless it said otherwise.
+    expect(two.heard[0]).toMatchObject({ hop: 2, mode: "consult" });
+
+    await two.bot.chat.postMessage({
+      channel: channelId,
+      text: "<@relay-one> and back",
+      thread_ts: root.body.id,
+    });
+    await until(one.heard, 2);
+    expect(one.heard[1]).toMatchObject({ hop: 3, mode: "consult" });
+
+    // One -> two -> one -> two would be the pair's third bounce: the breaker stops it.
+    await one.bot.chat.postMessage({
+      channel: channelId,
+      text: "<@relay-two> and again",
+      thread_ts: root.body.id,
+    });
+    await Bun.sleep(500);
+    expect(two.heard).toHaveLength(1);
+
+    one.bot.disconnect();
+    two.bot.disconnect();
+  }, 60_000);
+});

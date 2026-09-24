@@ -11,7 +11,13 @@
  * the CPU slice, a memory limit, and host tools as QuickJS promises settled from the host with
  * `executePendingJobs()`, which is what makes `await perch.chat.post(…)` work inside bot code.
  */
-import { getQuickJS, type QuickJSContext, type QuickJSRuntime } from "quickjs-emscripten";
+import {
+  getQuickJS,
+  type QuickJSContext,
+  type QuickJSDeferredPromise,
+  type QuickJSHandle,
+  type QuickJSRuntime,
+} from "quickjs-emscripten";
 
 /** What one run may take (spec §9.3: "a 200 ms CPU budget"). */
 export type CodeBotLimits = {
@@ -52,7 +58,15 @@ const HANDLER: Record<CodeBotEvent["kind"], string> = {
   webhook: "onWebhook",
 };
 
-export type CodeBotTools = Record<string, (args: unknown) => Promise<unknown>>;
+/**
+ * A host tool. `signal` aborts when the run ends — finished, failed, or out of time — so a tool that
+ * is still waiting (a `wait_for_replies`, a slow `http_fetch`) can stop instead of answering a
+ * sandbox that no longer exists.
+ */
+export type CodeBotTools = Record<
+  string,
+  (args: unknown, options: { signal: AbortSignal }) => Promise<unknown>
+>;
 
 export type CodeBotRun = {
   /** What the handler returned, when it returned something JSON can carry. */
@@ -79,7 +93,6 @@ export function prepare(code: string): string {
 }
 
 type Sandbox = { runtime: QuickJSRuntime; ctx: QuickJSContext; dispose: () => void };
-
 /** The preamble the bot is evaluated on top of: `bot()`, `perch`, and nothing else. */
 function preamble(tools: readonly string[]): string {
   const sugar = tools
@@ -123,35 +136,71 @@ async function open(input: {
   ctx.setProp(ctx.global, "__log", log);
   log.dispose();
 
+  // A run can end while a tool is still out: the wall clock does not wait for a slow fetch. From
+  // then on every handle below belongs to a disposed context, so whatever settles late is dropped
+  // here — touching a freed context throws inside a promise callback nobody catches, which ends
+  // the process. `pending` lets dispose() free the promises nobody answered, so the runtime is
+  // freed whole.
+  let disposed = false;
+  const pending = new Set<QuickJSDeferredPromise>();
+  const ended = new AbortController();
+  // Counted when the call is made, not when it answers: a loop that never awaits makes all its
+  // calls before the first one settles.
+  let started = 0;
+
   const call = ctx.newFunction("__call", (nameHandle, argsHandle) => {
     const name = ctx.getString(nameHandle);
     const raw = ctx.getString(argsHandle);
     const deferred = ctx.newPromise();
+    pending.add(deferred);
     const impl = input.tools[name];
-    const over = input.run.calls.length >= input.limits.toolCalls;
-    const answer =
-      over || !impl
-        ? Promise.reject(new Error(over ? "too many tool calls in one run" : `no tool ${name}`))
-        : impl(JSON.parse(raw) as unknown);
+    const over = started >= input.limits.toolCalls;
+    started += 1;
+    let answer: Promise<unknown>;
+    if (over || !impl) {
+      answer = Promise.reject(
+        new Error(over ? "too many tool calls in one run" : `no tool ${name}`),
+      );
+    } else {
+      try {
+        answer = impl(JSON.parse(raw) as unknown, { signal: ended.signal });
+      } catch (error) {
+        answer = Promise.reject(error);
+      }
+    }
+    const settle = (ok: boolean, outcome: unknown) => {
+      if (disposed) return;
+      pending.delete(deferred);
+      try {
+        input.run.calls.push({ name, ok });
+        if (ok) {
+          const value = ctx.newString(JSON.stringify(outcome ?? null));
+          deferred.resolve(value);
+          value.dispose();
+        } else {
+          const thrown = ctx.newError(outcome instanceof Error ? outcome.message : String(outcome));
+          deferred.reject(thrown);
+          thrown.dispose();
+        }
+      } catch {
+        // The sandbox went away between the check and the answer; nothing is left to tell.
+      }
+    };
     void answer.then(
-      (result) => {
-        input.run.calls.push({ name, ok: true });
-        const value = ctx.newString(JSON.stringify(result ?? null));
-        deferred.resolve(value);
-        value.dispose();
-      },
-      (error: unknown) => {
-        input.run.calls.push({ name, ok: false });
-        const thrown = ctx.newError(error instanceof Error ? error.message : String(error));
-        deferred.reject(thrown);
-        thrown.dispose();
-      },
+      (result) => settle(true, result),
+      (error: unknown) => settle(false, error),
     );
     void deferred.settled.then(() => {
-      // The bot gets a fresh slice for what it does with the answer, not the remains of the last
-      // one — otherwise a bot that awaits twice trips on the second `await` rather than on a loop.
-      input.slice.until = Date.now() + input.limits.cpuMs;
-      runtime.executePendingJobs();
+      if (disposed) return;
+      try {
+        // The bot gets a fresh slice for what it does with the answer, not the remains of the
+        // last one — otherwise a bot that awaits twice trips on the second `await` rather than on
+        // a loop.
+        input.slice.until = Date.now() + input.limits.cpuMs;
+        runtime.executePendingJobs();
+      } catch {
+        // As above: a run that has ended has no jobs left worth running.
+      }
     });
     return deferred.handle;
   });
@@ -170,6 +219,16 @@ async function open(input: {
     runtime,
     ctx,
     dispose: () => {
+      disposed = true;
+      ended.abort(new Error("the run has ended"));
+      for (const deferred of pending) {
+        try {
+          deferred.dispose();
+        } catch {
+          // Already gone with its context; nothing to free.
+        }
+      }
+      pending.clear();
       ctx.dispose();
       runtime.dispose();
     },
@@ -246,6 +305,74 @@ export async function runCodeBot(input: {
     }
   }
   return run;
+}
+
+/**
+ * A bot's own regular expression — a `keyword` trigger with `regex: true` — runs here rather than
+ * on the api's engine. QuickJS's matcher calls the interrupt handler while it backtracks, so a
+ * pattern that would take seconds on a long message stops at its budget instead of holding the
+ * event loop every request shares. One small runtime serves every pattern, and it is built once.
+ */
+type PatternEngine = {
+  ctx: QuickJSContext;
+  test: QuickJSHandle;
+  budget: { until: number };
+};
+
+let patternEngine: PatternEngine | null = null;
+let patternLoading: Promise<void> | null = null;
+
+/** Builds the pattern runtime; safe to call any number of times. */
+export function loadPatternEngine(): Promise<void> {
+  patternLoading ??= getQuickJS()
+    .then((QuickJS) => {
+      const runtime = QuickJS.newRuntime();
+      runtime.setMemoryLimit(8 * 1024 * 1024);
+      runtime.setMaxStackSize(512 * 1024);
+      const budget = { until: Number.POSITIVE_INFINITY };
+      runtime.setInterruptHandler(() => Date.now() > budget.until);
+      const ctx = runtime.newContext();
+      const test = ctx.unwrapResult(
+        ctx.evalCode("(pattern, text) => new RegExp(pattern, 'i').test(text)", "pattern.js"),
+      );
+      patternEngine = { ctx, test, budget };
+    })
+    .catch(() => {
+      // A load that failed is tried again by the next pattern; until then none matches.
+      patternLoading = null;
+    });
+  return patternLoading;
+}
+
+/**
+ * Whether `pattern` matches `text`, case-insensitively, decided within `budgetMs`. `null` when it
+ * could not be decided: the engine is still loading, the pattern did not compile, or it ran out of
+ * time or memory.
+ */
+export function testPattern(pattern: string, text: string, budgetMs: number): boolean | null {
+  const engine = patternEngine;
+  if (!engine) {
+    void loadPatternEngine();
+    return null;
+  }
+  const { ctx } = engine;
+  const patternHandle = ctx.newString(pattern);
+  const textHandle = ctx.newString(text);
+  engine.budget.until = Date.now() + budgetMs;
+  try {
+    const result = ctx.callFunction(engine.test, ctx.undefined, patternHandle, textHandle);
+    if (result.error) {
+      result.error.dispose();
+      return null;
+    }
+    const matched = ctx.dump(result.value) === true;
+    result.value.dispose();
+    return matched;
+  } finally {
+    engine.budget.until = Number.POSITIVE_INFINITY;
+    patternHandle.dispose();
+    textHandle.dispose();
+  }
 }
 
 /** What to write in the ledger when a run stops badly, without a QuickJS handle in it. */

@@ -69,10 +69,20 @@ credential behind it is decrypted for the length of one call and never reaches t
 a log line or a client.
 
 **Triggers.** `dm` (a conversation with the bot), `mention` (`@handle`, however it was typed),
-`keyword` (whole words, or `regex: true` for the pattern itself), `channel_join` (the bot's own
-arrival — a greeting, not a doorbell), `reaction` (any emoji, or the one `match` names), and
-`schedule` (a cron expression, run by the queue, posting into the channel it names). A bot never
-answers its own message, and a trigger only fires where the bot is installed and in scope.
+`keyword`, `channel_join` (the bot's own arrival — a greeting, not a doorbell), `reaction` (any
+emoji, or the one `match` names), and `schedule` (a cron expression, run by the queue, posting into
+the channel it names). A bot never answers its own message, and a trigger only fires where the bot
+is installed and in scope.
+
+A `keyword` trigger's `match` is a list of phrases separated by commas, and each phrase fires on its
+own, whole: `"review, look at this"` fires on "ready for review" and "look at this PR", never on
+"meet at noon". Case does not matter, and a space inside a phrase matches any run of spaces. With
+`regex: true`, `match` is a regular expression instead, held to three rules so that no bot's pattern
+can stall the api for everybody (ADR-0176): it is at most 200 characters; it may not repeat a group
+that itself repeats or has alternatives (`(a+)+`, `(a|aa)*`) or refer back to a group (`\1`), which
+are refused with a `422` where the bot is saved (the Forge, a Hub install, or `bot.yaml`); and it
+runs in QuickJS against the first 4,000 characters of a message with 25 ms to answer, after which it
+counts as no match.
 
 **Tools.** The native set (spec §5.3), each one the bot's own: `web_search`, `http_fetch`,
 `chat_post`, `chat_read`, `remember`, `recall`, `thread_facts`. A bot gets exactly what its spec
@@ -100,6 +110,14 @@ bots/
       headlines/
         SKILL.md
 ```
+
+Who syncs decides how far a synced bot reaches, as in the Forge (ADR-0176). A sync by an admin
+(`bots.admin`) applies the file as written, and a `bot.yaml` that does not say `visibility` makes a
+bot the whole workspace can talk to. A sync by anybody else makes their bots private and never an
+orchestrator: a file that asks for `visibility: workspace` or `orchestrator: true` still syncs, as a
+private bot, and the report's `failed` says why. A bot somebody else synced is theirs or an admin's —
+another member's sync leaves it as it was, changed or deleted in the repository or not, and says so
+in `failed`. A push through the Git panel syncs as whoever pushed.
 
 `bot.yaml` is written the way spec §5.3 writes it:
 
@@ -160,8 +178,10 @@ Returning a string posts it. A handler that posts for itself and returns nothing
 It runs in **QuickJS with no host** (ADR-0033): no `fetch`, no `process`, no `require`, no timers,
 no filesystem — `perch` is the whole of the outside. And it runs under a ceiling: 200 ms of
 uninterrupted JavaScript at a time, 15 seconds for the whole run including tool calls, 16 MB of
-memory, and 32 tool calls. A bot that loops is stopped and says so where it was asked; the run is a
-failed `bot_runs` row and nothing else in Perch notices.
+memory, and 32 tool calls — counted as they are made, so a loop that fires calls without awaiting
+them is held to 32 as well. A bot that loops is stopped and says so where it was asked; the run is a
+failed `bot_runs` row and nothing else in Perch notices. A tool still waiting when the run ends is
+told to stop, and whatever it answers afterwards is dropped (ADR-0176).
 
 `import` is refused rather than ignored, because a bot that thinks it imported something fails in a
 way nobody can read.
@@ -274,6 +294,10 @@ Each joins through one of two doors, and the door is what the bot becomes:
 | Bot API | an **external** bot with a token, minted once | wherever the agent already runs — a Hermes process, a script, a laptop |
 | Hermes | an **agent bot** on the [`hermes` engine](sessions.md#the-hermes-engine-hermes-task-38) | Perch, on a project's runner |
 
+The answer is `{installed, already, taken}`: what was made (with each Bot API agent's token, shown
+this once), who was here already, and the handles a person in this workspace already has — those
+agents are skipped rather than taking somebody's name, and everything else still installs.
+
 Installing is an admin's to do, and it makes **ordinary bots**: edit them, put them in channels,
 change their brains, delete them. Nothing about a Nest agent is privileged, and in particular
 **installing one grants it nothing** — Kimi expects a Supabase connection, and until an admin grants
@@ -352,7 +376,8 @@ POST /api/workspaces/{ws}/bot-tool-calls/{id}/decide  {"decision": "approved" | 
 ```
 
 Deciding needs `connections.write` and membership of the channel the question was asked in: somebody
-who cannot see the thread cannot answer for it.
+who cannot see the thread cannot answer for it. Listing follows the same rule — a call's arguments
+were built from its thread, so the list shows only the calls asked in channels you can read.
 
 ## Bots tagging bots
 

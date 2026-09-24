@@ -35,10 +35,11 @@ import {
   type ToolSet,
   type TriggerEvent,
   toolsFor,
+  triggersProblem,
   withinBudget,
   wrapResult,
 } from "@perch/bots";
-import { type CodeBotEvent, runCodeBot } from "@perch/bots/sandbox";
+import { type CodeBotEvent, type CodeBotTools, runCodeBot } from "@perch/bots/sandbox";
 import type { Bus } from "@perch/bus";
 import type {
   Bot,
@@ -109,6 +110,14 @@ import type { LocalMcpService } from "./local-mcp.ts";
 import type { McpGateway } from "./mcp.ts";
 import type { ModelGatewayService } from "./model-gateway.ts";
 import type { PolicyService } from "./policy.ts";
+
+/** What the rails say about a bot hearing a mention over the Bot API (`mentionRails`). */
+export type MentionRails =
+  | { ok: true; hop: number; mode: ChainMode | null; budgetRemaining: number | null }
+  | { ok: false; reason: string };
+
+/** How many tags' modes are kept for the bots they are offered to. */
+const MODES_KEPT = 1_000;
 
 export type BotsDeps = {
   db: Db;
@@ -881,7 +890,6 @@ export class BotsService {
         mode: this.modes.get(message.id) ?? "consult",
         status: "running",
       });
-      this.modes.delete(message.id);
       await this.deps.bus.publish(
         "bot.chain_hop",
         {
@@ -1141,7 +1149,7 @@ export class BotsService {
       const posted = await this.post(channel, threadRootId, bot, [
         { type: "text", text: `<@${one.handle}> ${one.text}` },
       ]);
-      this.modes.set(posted.id, "fanout");
+      this.rememberMode(posted.id, "fanout");
     }
 
     const replies = await this.replies(bot, channel, threadRootId, {
@@ -1171,6 +1179,102 @@ export class BotsService {
   }
 
   /** The thread as the rails see it: its hops, and what the bot that started it allowed. */
+  /**
+   * How a bot meant a tag it made (spec §5.4). Read by every bot the message offers itself to — the
+   * native runtime and the Bot API alike — so it is kept rather than taken, and the oldest go first.
+   */
+  private rememberMode(messageId: string, mode: ChainMode): void {
+    this.modes.set(messageId, mode);
+    while (this.modes.size > MODES_KEPT) {
+      const oldest = this.modes.keys().next().value;
+      if (oldest === undefined) break;
+      this.modes.delete(oldest);
+    }
+  }
+
+  /**
+   * The rails for a bot that is told about a mention over the Bot API (spec §5.4, §7.3
+   * `app_mention`): the chain state `offer()` holds a native bot to, so an outside bot hears which
+   * hop this is, how the tag was meant, and what is left of the thread's budget — and is not told
+   * at all when the rails say the hop may not happen.
+   *
+   * A bot the native runtime answers here has its hop recorded by `offer()`. Any other bot's hop is
+   * recorded here, at no cost Perch can see, so a chain through outside bots meets the same hop
+   * limit, repeat-pair breaker and budget as one through native bots.
+   */
+  async mentionRails(input: {
+    channel: Channel;
+    message: Message;
+    bot: Bot;
+  }): Promise<MentionRails> {
+    const { channel, message, bot } = input;
+    const threadRootId = message.threadRootId ?? message.id;
+    if (await this.stopped(threadRootId)) {
+      return { ok: false, reason: "this thread has been stopped" };
+    }
+    const from = {
+      fromType: message.authorType,
+      fromId: message.authorId,
+      toBotId: bot.id,
+    } as const;
+    const text = textOf(message.blocks);
+    const native =
+      bot.status === "active" &&
+      inScope(bot.spec, { id: channel.id, name: channel.name }) &&
+      firesOn(
+        { id: bot.id, handle: bot.handle, spec: bot.spec },
+        {
+          kind: "message",
+          channelId: channel.id,
+          channelType: channel.type,
+          text,
+          mentions: mentionsIn(text),
+          authorType: message.authorType,
+          authorId: message.authorId,
+        },
+      ) !== null;
+    const state = await this.chainState(threadRootId, bot, channel);
+    const verdict = mayHop(state, from);
+    if (!verdict.ok) {
+      // The native path trips the breaker for its own bots; this one does for the rest.
+      if (!native && verdict.kind !== "self")
+        await this.trip(channel, message, verdict.reason, bot);
+      return { ok: false, reason: verdict.reason };
+    }
+    // A person's tag has no mode; a bot's is what it said it meant, and a consult otherwise.
+    const mode = message.authorType === "bot" ? (this.modes.get(message.id) ?? "consult") : null;
+    if (!native) {
+      const chain = await startHop(this.deps.db, {
+        workspaceId: channel.workspaceId,
+        rootMessageId: threadRootId,
+        threadRootId,
+        hop: verdict.hop,
+        fromType: message.authorType,
+        fromId: message.authorId,
+        toBotId: bot.id,
+        mode: mode ?? "consult",
+        status: "running",
+      });
+      // What an outside bot spends, it spends outside: the hop is counted, its cost is not known.
+      await finishHop(this.deps.db, chain.id, { status: "done", tokens: 0, costUsd: 0 });
+      await this.deps.bus.publish(
+        "bot.chain_hop",
+        {
+          workspaceId: channel.workspaceId,
+          chainId: chain.id,
+          threadRootId,
+          hop: verdict.hop,
+          fromType: message.authorType === "system" ? "user" : message.authorType,
+          fromId: message.authorId,
+          toBotId: bot.id,
+          mode: mode ?? "consult",
+        },
+        botActor(bot.id),
+      );
+    }
+    return { ok: true, hop: verdict.hop, mode, budgetRemaining: verdict.leftUsd };
+  }
+
   private async chainState(
     threadRootId: string,
     bot: Bot,
@@ -1299,6 +1403,7 @@ export class BotsService {
     by: ActorContext;
   }): Promise<Bot> {
     const handle = normalizeHandle(input.handle);
+    if (input.spec) checkTriggers(input.spec);
     if (await botByHandle(this.deps.db, input.workspaceId, handle)) {
       throw PerchError.conflict("that handle is taken");
     }
@@ -1328,6 +1433,7 @@ export class BotsService {
       Pick<Bot, "name" | "spec" | "visibility" | "status" | "budget" | "orchestrator">
     >,
   ): Promise<Bot> {
+    if (values.spec !== undefined) checkTriggers(values.spec);
     const updated = await updateBot(this.deps.db, bot.id, values);
     if (!updated) throw PerchError.notFound("bot");
     if (values.spec !== undefined || values.status !== undefined) await this.reschedule(updated);
@@ -1545,16 +1651,17 @@ export class BotsService {
   ): Promise<RunOutcome> {
     const allowed = this.toolsAllowed(bot.spec, input.install ?? null);
     const set = toolsFor(allowed, this.hostFor(bot, channel, input));
-    const tools: Record<string, (args: unknown) => Promise<unknown>> = {};
+    const tools: CodeBotTools = {};
     for (const [name, one] of Object.entries(set)) {
       const shaped = one as {
         inputSchema?: { parse: (value: unknown) => unknown };
         execute?: (args: unknown, options: unknown) => Promise<unknown>;
       };
       if (!shaped.execute) continue;
-      tools[name] = async (args) => {
+      // The run's signal goes through, so a tool still waiting when the run ends can stop.
+      tools[name] = async (args, { signal }) => {
         const parsed = shaped.inputSchema ? shaped.inputSchema.parse(args ?? {}) : (args ?? {});
-        return await shaped.execute?.(parsed, {});
+        return await shaped.execute?.(parsed, { abortSignal: signal });
       };
     }
 
@@ -1999,6 +2106,10 @@ export class BotsService {
         const target = await getChannel(this.deps.db, found.id);
         if (!target) throw PerchError.notFound("channel");
         const asked = root ? ((await getMessage(this.deps.db, root)) ?? undefined) : undefined;
+        // A reply goes under a message in the channel it is posted in, as over the Bot API.
+        if (root && (!asked || asked.deletedAt || asked.channelId !== target.id)) {
+          throw PerchError.notFound("message");
+        }
         const posted = await this.say(bot, target, asked, text);
         return posted.id;
       },
@@ -2095,7 +2206,7 @@ export class BotsService {
         const posted = await this.post(channel, threadRootId, bot, [
           { type: "text", text: `<@${tagged.handle}> ${text}` },
         ]);
-        this.modes.set(posted.id, mode);
+        this.rememberMode(posted.id, mode);
         return { ok: true, hop: verdict.hop };
       },
       fanOut: async ({ tasks, wait, quorum, timeoutMs }) => {
@@ -2153,6 +2264,12 @@ export function capped(
     ...(perRunUsd === undefined ? {} : { perRunUsd }),
     ...(perThreadUsd === undefined ? {} : { perThreadUsd }),
   };
+}
+
+/** A spec whose triggers would stall the api is refused where it is saved (task 2.6; ADR-0176). */
+function checkTriggers(spec: BotSpec): void {
+  const problem = triggersProblem(spec);
+  if (problem) throw PerchError.validation(problem);
 }
 
 export function normalizeHandle(raw: string): string {

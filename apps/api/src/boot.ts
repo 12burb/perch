@@ -291,6 +291,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     mcp,
     connections,
     sessions,
+    // The chain rails an app_mention carries (spec §5.4, §7.3).
+    chains: bots,
     log,
   });
   // Work items, and the board that follows the sessions doing them (task 3.13).

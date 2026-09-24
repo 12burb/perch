@@ -9,12 +9,21 @@
  *
  * Events go out on `@perch/bots`' own seam rather than the bus: the bus catalog is §7.7's list and
  * nothing else, and what a bot is handed is a different, outward-facing shape. This service is what
- * turns one into the other, so the socket and the webhook subscribe in one place.
+ * turns one into the other, so a transport (the socket; ADR-0176) subscribes in one place.
  */
 
 import type { AppMention, BotEvent, BotEvents, MessageCreated } from "@perch/bots";
 import type { Bus } from "@perch/bus";
-import type { Bot, BotScope, BotToken, Channel, Db, Message, MessageBlock } from "@perch/db";
+import type {
+  Bot,
+  BotScope,
+  BotToken,
+  Channel,
+  Db,
+  Message,
+  MessageBlock,
+  Project,
+} from "@perch/db";
 import type { Logger } from "pino";
 import { PerchError } from "../errors.ts";
 import { findBotTokenByHash, touchBotToken } from "../repos/bot-tokens.ts";
@@ -31,6 +40,8 @@ import {
 import { getSession } from "../repos/sessions.ts";
 import { findUserById } from "../repos/users.ts";
 import { getWorkItem } from "../repos/work.ts";
+import { findMembership } from "../repos/workspaces.ts";
+import { type BotsService, mentionsIn } from "./bots.ts";
 import type { ConnectionsService } from "./connections.ts";
 import type { McpGateway } from "./mcp.ts";
 import { getProject } from "./projects.ts";
@@ -63,6 +74,11 @@ export type BotApiDeps = {
   connections: Pick<ConnectionsService, "mayUse">;
   /** Where `sessions.open` lands (spec §7.3). */
   sessions: SessionService;
+  /**
+   * The chain rails (spec §5.4), so an `app_mention` carries the hop, mode and budget the native
+   * runtime would hold the bot to. Without it (a bare test harness) a mention carries none.
+   */
+  chains?: Pick<BotsService, "mentionRails"> | undefined;
   log: Logger;
 };
 
@@ -275,11 +291,32 @@ export class BotApiService {
     return [root, ...rows.filter((one) => one.id !== root.id)];
   }
 
-  /** A person, as a bot may know them: who they are, never how to be them. */
-  async userInfo(userId: string) {
-    const user = await findUserById(this.deps.db, userId);
+  /**
+   * A person, as a bot may know them: who they are, never how to be them — and only somebody in the
+   * bot's own workspace. Anyone else is not there as far as the bot is concerned.
+   */
+  async userInfo(caller: BotCaller, userId: string) {
+    const member = await findMembership(this.deps.db, caller.bot.workspaceId, userId);
+    const user = member ? await findUserById(this.deps.db, userId) : null;
     if (!user) throw PerchError.notFound("user");
     return { id: user.id, name: user.name, handle: user.handle };
+  }
+
+  /**
+   * Where a bot's `work.create` lands (spec §7.3): a project of its own workspace, and, when it
+   * names one, a thread in a channel it is installed in. The item itself is the board's to make.
+   */
+  async workTarget(
+    caller: BotCaller,
+    input: { projectId: string; threadRootId?: string },
+  ): Promise<{ project: Project; threadRootId: string | null }> {
+    const project = await getProject(this.deps.db, caller.bot.workspaceId, input.projectId);
+    if (!project) throw PerchError.notFound("project");
+    if (!input.threadRootId) return { project, threadRootId: null };
+    const root = await getMessage(this.deps.db, input.threadRootId);
+    if (!root || root.deletedAt) throw PerchError.notFound("message");
+    await this.channelFor(caller, root.channelId);
+    return { project, threadRootId: root.threadRootId ?? root.id };
   }
 
   /**
@@ -395,7 +432,8 @@ export class BotApiService {
     if (installed.length === 0) return;
     const author = await this.actorOf(payload.authorType, payload.authorId);
     const text = textOf(message.blocks);
-    const said = new Set(mentionedHandles(text));
+    // The native runtime's own parser, so a handle it hears is one an outside bot hears too.
+    const said = new Set(mentionsIn(text));
     const base: MessageCreated = {
       workspace_id: channel.workspaceId,
       channel_id: channel.id,
@@ -412,13 +450,18 @@ export class BotApiService {
       if (payload.authorType === "bot" && payload.authorId === bot.id) continue;
       await this.emit({ type: "message.created", botId: bot.id, payload: base });
       if (!said.has(bot.handle.toLowerCase())) continue;
+      // The same rails a native bot is held to: a hop they forbid is not a mention the bot hears.
+      const rails = this.deps.chains
+        ? await this.deps.chains.mentionRails({ channel, message, bot })
+        : ({ ok: true, hop: 1, mode: null, budgetRemaining: null } as const);
+      if (!rails.ok) continue;
       const mention: AppMention = {
         ...base,
         mentioned_by: author,
-        mode: null,
+        mode: rails.mode,
         root_id: message.threadRootId ?? message.id,
-        hop: payload.authorType === "bot" ? 1 : 0,
-        budget_remaining: null,
+        hop: rails.hop,
+        budget_remaining: rails.budgetRemaining,
       };
       await this.emit({ type: "app_mention", botId: bot.id, payload: mention });
     }
@@ -543,11 +586,4 @@ export class BotApiService {
       ...(user ? { name: user.name, ...(user.handle ? { handle: user.handle } : {}) } : {}),
     };
   }
-}
-
-/** Every `@handle` in a line of text, lower case. */
-export function mentionedHandles(text: string): string[] {
-  return [...text.matchAll(/<@([a-z0-9_-]+)>|(?:^|\s)@([a-z0-9_-]+)/gi)]
-    .map((match) => (match[1] ?? match[2] ?? "").toLowerCase())
-    .filter(Boolean);
 }

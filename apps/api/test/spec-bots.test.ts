@@ -360,3 +360,95 @@ describe("bots that live in a repository (task 3.1)", () => {
     expect((await botsNow()).find((one) => one.handle === "scribe")).toBeUndefined();
   }, 120_000);
 });
+
+/**
+ * Code review (ADR-0176): a sync does what its syncer may do in the Forge, and no more. A member's
+ * bots are private and direct nobody, and a bot somebody else made is theirs or an admin's.
+ */
+describe("a repository's bots answer to whoever syncs them", () => {
+  let member = "";
+
+  const as = async (who: string, path: string, init: { method?: string; json?: unknown } = {}) => {
+    const res = await fetch(`${base}${path}`, {
+      method: init.method ?? "GET",
+      headers: { cookie: who, "content-type": "application/json", origin: base },
+      body: init.json === undefined ? undefined : JSON.stringify(init.json),
+    });
+    const text = await res.text();
+    return { status: res.status, text, body: (text ? JSON.parse(text) : null) as unknown };
+  };
+  const reloadAs = async (who: string): Promise<Sync> =>
+    (
+      (await as(who, `/api/workspaces/${ws}/projects/${project}/bots/reload`, {
+        method: "POST",
+      })) as { body: Sync }
+    ).body;
+
+  test("a member's bot is private and directs nobody, whatever its file asks", async () => {
+    const stamp = Date.now();
+    const signed = await fetch(`${base}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({
+        name: "Mo",
+        email: `mo-specbots-${stamp}@perch.test`,
+        password: "correct horse battery staple",
+      }),
+    });
+    expect(signed.status).toBe(200);
+    member = cookiesFrom(signed);
+    const invite = (await call(`/api/workspaces/${ws}/invites`, {
+      method: "POST",
+      json: { email: `mo-specbots-${stamp}@perch.test`, role: "member" },
+    })) as { body: { accept_url: string } };
+    const token = invite.body.accept_url.split("/invite/")[1] ?? "";
+    expect((await as(member, `/api/invites/${token}/accept`, { method: "POST" })).status).toBe(200);
+
+    expect(
+      (
+        await write(
+          "bots/helper/bot.yaml",
+          "name: Helper\norchestrator: true\nbudget:\n  daily_usd: 50\n",
+        )
+      ).status,
+    ).toBe(200);
+    const synced = await reloadAs(member);
+    expect(synced.added).toEqual(["helper"]);
+    expect(synced.failed.map((one) => one.handle)).toEqual(["helper"]);
+    expect(synced.failed[0]?.error).toContain("admin");
+
+    const mine = (await as(member, `/api/workspaces/${ws}/bots`)) as {
+      body: { bots: { handle: string; visibility: string; orchestrator: boolean }[] };
+    };
+    const helper = mine.body.bots.find((one) => one.handle === "helper");
+    expect(helper?.visibility).toBe("private");
+    expect(helper?.orchestrator).toBe(false);
+    // Private means private: the admin does not see it in the list either.
+    expect((await botsNow()).find((one) => one.handle === "helper")).toBeUndefined();
+  }, 120_000);
+
+  test("a member's sync leaves somebody else's bot as it was, and an admin's applies it", async () => {
+    expect(
+      (
+        await write(
+          "bots/tally/bot.yaml",
+          "handle: tally\nname: Tally the Renamed\ntools: [chat_post]\ntriggers:\n  - mention\n",
+        )
+      ).status,
+    ).toBe(200);
+    const byMember = await reloadAs(member);
+    expect(byMember.updated).toEqual([]);
+    expect(byMember.failed.map((one) => one.handle)).toContain("tally");
+    expect((await botsNow()).find((one) => one.handle === "tally")?.name).toBe("Tally");
+
+    // Taking its directory away is not the member's to do either.
+    rmSync(join(projectsDir, ws, project, "bots", "tally"), { recursive: true, force: true });
+    const removed = await reloadAs(member);
+    expect(removed.removed).toEqual([]);
+    expect((await botsNow()).find((one) => one.handle === "tally")).toBeDefined();
+
+    // The admin's sync does both.
+    const byAdmin = await reload();
+    expect(byAdmin.removed).toContain("tally");
+  }, 120_000);
+});
