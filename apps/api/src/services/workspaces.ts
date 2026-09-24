@@ -18,6 +18,39 @@ import {
 
 export const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
+/**
+ * Slugs a workspace cannot have, because a path of that name is already something else: the web
+ * app's top-level routes (a workspace at `/settings` or `/welcome` would be shadowed by the route,
+ * or taken for it) and the prefixes the server keeps for itself (`isReservedPath`, `/assets`).
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+  "settings",
+  "welcome",
+  "connections",
+  "setup",
+  "sign-in",
+  "sign-up",
+  "invite",
+  "api",
+  "p",
+  "hooks",
+  "mcp",
+  "v1",
+  "assets",
+]);
+
+/** A slug a workspace may have: the pattern, and not a path the app already uses. */
+function checkSlug(slug: string): void {
+  if (!SLUG_PATTERN.test(slug)) {
+    throw PerchError.validation("slug must be 1-40 lowercase letters, digits, or dashes");
+  }
+  if (RESERVED_SLUGS.has(slug)) {
+    throw PerchError.validation("slug is reserved: a page of Perch already has that path", {
+      slug,
+    });
+  }
+}
+
 export function slugify(name: string): string {
   const slug = name
     .toLowerCase()
@@ -30,7 +63,8 @@ export function slugify(name: string): string {
 }
 
 async function uniqueSlug(db: Db, base: string): Promise<string> {
-  if (!(await findWorkspaceBySlug(db, base))) return base;
+  // A reserved slug is as good as taken: the name "Settings" becomes `settings-2`.
+  if (!RESERVED_SLUGS.has(base) && !(await findWorkspaceBySlug(db, base))) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base.slice(0, 40 - String(i).length - 1)}-${i}`;
     if (!(await findWorkspaceBySlug(db, candidate))) return candidate;
@@ -46,7 +80,8 @@ export async function createWorkspace(
   const userId = input.by.actor.id;
   if (!userId) throw PerchError.forbidden("authentication required");
   const requested = input.slug ?? slugify(input.name);
-  if (!SLUG_PATTERN.test(requested)) {
+  if (input.slug) checkSlug(requested);
+  else if (!SLUG_PATTERN.test(requested)) {
     throw PerchError.validation("slug must be 1-40 lowercase letters, digits, or dashes");
   }
   // An explicit slug must be free; a slug derived from the name gets a numeric suffix instead.
@@ -81,9 +116,7 @@ export async function updateWorkspace(
   if (input.patch.name !== undefined) patch.name = input.patch.name.trim();
   if (input.patch.settings !== undefined) patch.settings = input.patch.settings;
   if (input.patch.slug !== undefined) {
-    if (!SLUG_PATTERN.test(input.patch.slug)) {
-      throw PerchError.validation("slug must be 1-40 lowercase letters, digits, or dashes");
-    }
+    checkSlug(input.patch.slug);
     const holder = await findWorkspaceBySlug(db, input.patch.slug);
     if (holder && holder.id !== input.workspaceId) {
       throw PerchError.conflict("slug is taken", { slug: input.patch.slug });

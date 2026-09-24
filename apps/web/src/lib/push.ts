@@ -99,6 +99,46 @@ export async function turnOff(): Promise<PushState> {
   return "off";
 }
 
+/** How long sign-out waits on this device's push subscription before it goes on without it. */
+const RELEASE_WAIT_MS = 5_000;
+
+/**
+ * Sign-out's half (A-wc-11): this device stops receiving the signed-out person's notifications,
+ * and their message previews stop reaching whoever signs in next. Perch forgets the subscription
+ * first, while the session cookie still works; the browser then forgets it whatever Perch
+ * answered, which also leaves a dead endpoint behind any row that stayed. It registers no worker
+ * (a device that never had one has nothing to release), never throws, and gives up after a few
+ * seconds: sign-out goes on whatever happens here.
+ */
+export async function releaseForSignOut(): Promise<void> {
+  if (!supported()) return;
+  const release = async () => {
+    const worker = registration ?? (await navigator.serviceWorker.getRegistration()) ?? null;
+    const subscription = await worker?.pushManager.getSubscription();
+    if (!subscription) return;
+    try {
+      await api.DELETE("/api/me/push-subscriptions", {
+        body: { endpoint: subscription.endpoint },
+      });
+    } finally {
+      await subscription.unsubscribe();
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      release(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, RELEASE_WAIT_MS);
+      }),
+    ]);
+  } catch {
+    // Best effort by design: an unreachable api or push service does not keep anyone signed in.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type PushNote = { title: string; body: string; url: string; tag: string };
 
 /** What the worker passes on while a tab is open, so the app can say it in place. */

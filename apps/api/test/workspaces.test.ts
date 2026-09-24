@@ -100,6 +100,40 @@ describe("workspaces, RBAC, audit (task 0.9)", () => {
     expect(nest).not.toBe(other);
   });
 
+  test("a slug the app's own top-level paths use is refused; a name that derives one gets a suffix (A-wc-22)", async () => {
+    // A workspace at /settings or /welcome would be shadowed by the route of that name.
+    for (const slug of ["settings", "welcome", "sign-in", "api"]) {
+      const res = await call("/api/workspaces", {
+        method: "POST",
+        cookie: dawn.cookie,
+        json: { name: "Taken", slug },
+      });
+      expect(res.status).toBe(422);
+      expect((await json<{ error: { code: string } }>(res)).error.code).toBe("validation");
+    }
+    const derived = await json<{ id: string; slug: string }>(
+      await call("/api/workspaces", {
+        method: "POST",
+        cookie: dawn.cookie,
+        json: { name: "Settings" },
+      }),
+    );
+    expect(derived.slug).toBe("settings-2");
+    // A slug that only starts like a route is a slug like any other.
+    const lab = await call(`/api/workspaces/${derived.id}`, {
+      method: "PATCH",
+      cookie: dawn.cookie,
+      json: { slug: "settings-lab" },
+    });
+    expect(lab.status).toBe(200);
+    const renamed = await call(`/api/workspaces/${derived.id}`, {
+      method: "PATCH",
+      cookie: dawn.cookie,
+      json: { slug: "connections" },
+    });
+    expect(renamed.status).toBe(422);
+  });
+
   test("a member cannot read another workspace: every route answers not_found", async () => {
     for (const path of [
       `/api/workspaces/${other}`,

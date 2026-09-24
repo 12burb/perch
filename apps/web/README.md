@@ -16,10 +16,10 @@ E2E_SCREENSHOTS=1 bun run e2e        # also refreshes docs/screenshots/0.12 (144
 | Route | What |
 |---|---|
 | `/` | redirects to the last workspace's Home, the first membership, or `/welcome` |
-| `/sign-in`, `/sign-up`, `/invite/$token` | standalone auth pages |
+| `/sign-in`, `/sign-up`, `/invite/$token` | standalone auth pages; signing in, signing up and signing out each end in a full page load (`src/lib/fresh-start.ts`), so nothing one person's session held in memory is shown to the next one in the same tab (ADR-0178) |
 | `/welcome` | create the first (or another) workspace |
 | `/$workspace/home` … `/search` | the six rail tabs: Home (members with presence), Code, Work, Bots, Inbox, Search, each with its sidebar sections and empty state |
-| `/$workspace/settings` | workspace name and slug, members and roles, invites, audit log |
+| `/$workspace/settings` | workspace name and slug (never one of the app's own top-level paths: `settings`, `welcome`, `sign-in`, `api`, …), members and roles, invites, audit log |
 | `/settings/profile`, `/settings/security` | name, handle, locale, time zone, theme and density; passkeys and api tokens |
 
 `src/shell/app-shell.tsx` wires the `@perch/ui` Shell to routing: rail tabs as links, the mobile tab bar

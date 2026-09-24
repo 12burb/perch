@@ -23,7 +23,7 @@ import {
   useIsMobile,
   useShellShortcuts,
 } from "@perch/ui";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
 import {
@@ -37,6 +37,8 @@ import {
 } from "react";
 import { editorOwnsCommandKey } from "../code/editor-focus.ts";
 import { authClient } from "../lib/auth-client.ts";
+import { startFresh } from "../lib/fresh-start.ts";
+import { releaseForSignOut } from "../lib/push.ts";
 import { type Me, type MyWorkspace, workspacesQuery } from "../lib/queries.ts";
 import { forgetWorkspace, rememberWorkspace } from "../lib/workspace.ts";
 import { resetSocket } from "../lib/ws.ts";
@@ -97,7 +99,9 @@ export function modeFromPath(
   pathname: string,
   workspaceSlug: string | null,
 ): RailMode | "settings" | "welcome" {
-  if (pathname.startsWith("/settings")) return "settings";
+  // The account's own settings: `/settings` and below, and not a workspace whose slug merely
+  // starts with the word (`/settings-lab/code` is that workspace's Code mode).
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return "settings";
   if (pathname === "/welcome") return "welcome";
   const parts = pathname.split("/").filter(Boolean);
   if (workspaceSlug && parts[0] === workspaceSlug) {
@@ -164,14 +168,24 @@ export function AppShell(props: { me: Me; workspace: MyWorkspace | null; childre
     [navigate, workspace],
   );
 
+  const queryClient = useQueryClient();
   const signOut = useCallback(async () => {
     setAccountOpen(false);
     setMoreOpen(false);
-    await navigate({ to: "/sign-in" });
-    resetSocket();
-    forgetWorkspace();
-    await authClient.signOut();
-  }, [navigate]);
+    try {
+      // While the session still works: this device stops receiving this person's notifications.
+      await releaseForSignOut();
+      resetSocket();
+      forgetWorkspace();
+      await authClient.signOut();
+    } finally {
+      // Nothing of this person stays in memory for whoever signs in next in this tab: not the
+      // query cache (identity, workspaces, channels, inbox), not the editor's buffers, chips or
+      // queues. The cache is dropped at once and the sign-in page loads from scratch.
+      queryClient.clear();
+      startFresh("/sign-in", "replace");
+    }
+  }, [queryClient]);
 
   const commands = useMemo<PaletteCommand[]>(() => {
     const modes: RailMode[] = ["home", "code", "work", "bots", "inbox", "search"];

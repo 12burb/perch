@@ -1,8 +1,9 @@
 import { Button, Field, Input, t } from "@perch/ui";
-import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
+import { startFresh } from "../lib/fresh-start.ts";
 import { useInstance } from "../lib/instance.ts";
 import { passkeyAuth } from "../lib/passkeys.ts";
 import { instanceQuery } from "../lib/queries.ts";
@@ -19,7 +20,6 @@ export const Route = createFileRoute("/sign-in")({
 
 function SignIn() {
   const { redirect } = Route.useSearch();
-  const router = useRouter();
   const instance = useInstance();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,8 @@ function SignIn() {
       setError(t("auth.invalidCredentials"));
       return;
     }
-    router.history.push(destination);
+    // A full load: nothing a previous person left in this tab's memory is shown to this one.
+    startFresh(destination);
   }
 
   async function withPasskey() {
@@ -49,7 +50,8 @@ function SignIn() {
       setError(t("auth.passkeyFailed"));
       return;
     }
-    router.history.push(destination);
+    // A full load: nothing a previous person left in this tab's memory is shown to this one.
+    startFresh(destination);
   }
 
   async function withOidc() {

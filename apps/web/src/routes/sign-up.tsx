@@ -1,8 +1,9 @@
 import { Button, Field, Input, t } from "@perch/ui";
-import { createFileRoute, Link, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { AuthLayout, Card } from "../components/card.tsx";
 import { authClient } from "../lib/auth-client.ts";
+import { startFresh } from "../lib/fresh-start.ts";
 import { instanceQuery } from "../lib/queries.ts";
 import { redirectSearch } from "../lib/redirect.ts";
 
@@ -17,7 +18,6 @@ export const Route = createFileRoute("/sign-up")({
 
 function SignUp() {
   const { redirect } = Route.useSearch();
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +35,8 @@ function SignUp() {
       setError(result.error.message ?? t("auth.signUpFailed"));
       return;
     }
-    router.history.push(redirect ?? "/");
+    // A full load: nothing a previous person left in this tab's memory is shown to this one.
+    startFresh(redirect ?? "/");
   }
 
   return (

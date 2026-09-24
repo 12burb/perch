@@ -235,6 +235,11 @@ sealed by the vault: a laptop-mode Perch notifies people with no configuration a
 While the tab is open the worker passes the message to the page instead, and it shows as a live
 region at the bottom of the shell with a link to follow.
 
+Signing out releases the device: Perch deletes its subscription row while the session still works,
+then the browser unsubscribes, so the person who signed out gets no more notifications there and
+whoever signs in next sees none of theirs. Turning push on again after the next sign-in makes a new
+subscription for that person.
+
 
 ## Search
 
