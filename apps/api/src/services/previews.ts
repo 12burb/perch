@@ -88,27 +88,26 @@ export class PreviewService {
   /**
    * Where a port actually is. Only a runner this workspace uses, only a port it reported listening,
    * and only a runner that told us where it can be reached.
+   *
+   * The direct lane — the api opening a connection to `host:port` itself — is taken only for a
+   * runner whose `preview_host` the api can vouch for (see `trustedHostOf`), and only for a port
+   * that runner reported. Everything else goes through the tunnel, which reaches nothing but the
+   * runner's own ports, from the runner's own side.
    */
   reach(workspaceId: string, port: number): PreviewReach {
     if (NEVER.has(port)) throw PerchError.forbidden("that port is not a preview");
     const candidates = this.deps.registry.forWorkspace(workspaceId);
     if (candidates.length === 0) throw PerchError.conflict("this workspace has no runner online");
     const listening = candidates.filter((runner) => runner.ports.some((p) => p.port === port));
-    // A port the poller has not caught up with yet is still worth trying on the workspace's own
-    // runner: ports.changed is a hint, not a gate.
-    const pool = listening.length > 0 ? listening : candidates;
-    // A runner that said where it is gets the direct lane; one that did not gets the tunnel, which
-    // needs only the socket it already opened.
-    const direct = pool.find((runner) => hostOf(runner));
-    if (direct) {
-      return {
-        kind: "direct",
-        link: direct.link,
-        runnerId: direct.link.id,
-        host: hostOf(direct) as string,
-        port,
-      };
+    const direct = listening.find((runner) => trustedHostOf(runner));
+    const host = direct ? trustedHostOf(direct) : undefined;
+    if (direct && host) {
+      return { kind: "direct", link: direct.link, runnerId: direct.link.id, host, port };
     }
+    // A port the poller has not caught up with yet is still worth trying on the workspace's own
+    // runner: ports.changed is a hint, not a gate — for the tunnel, which cannot reach past the
+    // runner that serves it.
+    const pool = listening.length > 0 ? listening : candidates;
     const tunnelled = pool.find((runner) => runner.link.openStream);
     if (!tunnelled) {
       throw PerchError.conflict("this workspace has no runner that can serve a preview", { port });
@@ -135,7 +134,7 @@ export class PreviewService {
     const seen = new Map<number, PreviewPort>();
     for (const runner of this.deps.registry.forWorkspace(workspace.id)) {
       // Either lane will do: a hosted runner is proxied to, a laptop is tunnelled through.
-      if (!hostOf(runner) && !runner.link.openStream) continue;
+      if (!trustedHostOf(runner) && !runner.link.openStream) continue;
       for (const { port } of runner.ports) {
         if (NEVER.has(port) || seen.has(port)) continue;
         seen.set(port, {
@@ -264,9 +263,23 @@ export class PreviewService {
   }
 }
 
-/** Where the api can reach this runner's ports, if the runner said (task 1.18). */
-function hostOf(runner: RegisteredRunner): string | undefined {
-  return runner.link.info.preview_host;
+/**
+ * Where the api can reach this runner's ports directly (task 1.18), when that is something the api
+ * can vouch for rather than something a runner merely said (ADR-0173).
+ *
+ * Two kinds of runner share the api's network on purpose: a hosted runner, which only the
+ * supervisor creates (the control channel refuses a registration whose kind differs from its
+ * runner row's, and members can only make `local` and `remote` rows), and the in-process runner of
+ * laptop mode, which is attached directly and never through the control channel (so its id is not
+ * a runner row's uuid). Anyone else's `preview_host` — a member's own machine — is ignored: the api
+ * would otherwise open connections to whatever host that machine named, from inside the api's own
+ * network. Such a runner is reached through its tunnel instead.
+ */
+function trustedHostOf(runner: RegisteredRunner): string | undefined {
+  const host = runner.link.info.preview_host;
+  if (!host) return undefined;
+  const inProcess = !UUID.test(runner.link.id);
+  return inProcess || runner.link.info.kind === "hosted" ? host : undefined;
 }
 
 /** The dev server port the project's own config names (spec §5.1 `preview.port`). */

@@ -70,6 +70,15 @@ Nothing about this is visible in the tab: the same URLs, the same share links. T
 is which way the bytes go. A runner that shares a network with the api is still reached directly,
 because that is faster and there is no reason not to.
 
+"Shares a network with the api" is something the api vouches for, not something a runner says
+(ADR-0173). A runner's `preview_host` is honoured only for a hosted runner — one the supervisor
+made; members can only connect `local` and `remote` runners, and a registration whose kind differs
+from its runner's is refused — and for laptop mode's in-process runner. A machine somebody connected
+is always reached through its tunnel, whatever host it names, so it cannot point the api's proxy at
+an address inside the api's own network. And the direct lane is only for a port that runner
+reported listening; a port nobody has reported yet is tried through the tunnel, which cannot reach
+past the runner serving it.
+
 On a stream, the side that sent the last frame never hangs up (ADR-0091): the runner says `end` and
 the api, which is reading, closes. A client socket discards whatever it has not written yet when it
 is closed, so a runner that hung up on its own answer would deliver a page with its tail missing and
