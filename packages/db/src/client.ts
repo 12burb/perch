@@ -113,7 +113,17 @@ function guardClosing(pglite: PGlite): { closing: () => Promise<void>; refuseFro
     closing: async () => {
       const until = Date.now() + PGLITE_DRAIN_MS;
       while (inFlight.size > 0 && Date.now() < until) {
-        await Promise.allSettled([...inFlight]);
+        // Raced against what is left of the deadline: a transaction whose callback never settles
+        // keeps its promise pending for ever, and awaiting it alone would make the deadline
+        // bound nothing.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.allSettled([...inFlight]),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, Math.max(0, until - Date.now()));
+          }),
+        ]);
+        clearTimeout(timer);
       }
     },
   };
