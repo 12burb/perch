@@ -6748,7 +6748,9 @@ container, the runner agent and everything it started ran as one uid, so any chi
 agent's connect token out of `/proc/1/environ` (ADR-0160 blanked it only in the children's own
 environment) and members of a workspace could read each other's homes, where personal CLI logins
 live (§1.6: personal subscription credentials are user-scoped). A replaced container's token stayed
-valid for thirty days.
+valid for thirty days. Under tmux, every shell started from the environment of whoever had started
+the tmux server. And git holding a connection token ran the repository's hooks, asked the
+repository's credential helpers, and answered any host that asked for the token.
 
 **1. A workspace's container mounts its own directory of each volume.** In docker mode the
 supervisor mounts `<workspace>/` of the homes volume at `/data/homes` and `<workspace>/` of the
@@ -6850,12 +6852,6 @@ written by Alice through `fs.write` or her own shell is changed by Bob, and both
 repository; a legacy project becomes shared at start; and a non-isolated runner's token is readable
 by a same-uid child without `makeUndumpable` and not with it.
 
-**Not done here.** Removing a whole project or worktree (`rm -rf` of a member-writable tree) is
-still the root agent's, relying on Bun's recursive removal not following links. The image could not
-be built in the sandbox this was written in (Docker Hub refused the base images), so the Dockerfile
-is checked by `scripts/dockerfiles.test.ts` and the mechanisms by the tests above, not by a built
-image.
-
 **6. A tmux server per person and directory.** tmux copies the environment of the client that
 starts a server into the server's global environment, once, and every new session starts from it
 (`update-environment` refreshes only a short list, not `HOME` or `PERCH_USER`). All shells shared
@@ -6902,3 +6898,28 @@ helper the repository configured never sees the token, an `insteadOf` rewrite to
 host is refused with neither host hearing anything, and a repository `http.proxy` is refused; each
 of those failed on the old code (the hook ran, the rewrite sent the token to the second host, the
 proxy was used).
+
+**Consequences.** Team mode's "one container per workspace" is now a boundary: a workspace's
+container holds its own files, a member's home is theirs, and nothing a runner starts can read its
+token. Homes are per workspace, copied once from the old per-person homes. Members of one workspace
+still share their projects on purpose. Shared mode keeps one container and the whole volumes, and
+is documented as single-tenant. The runner image runs its agent as root, which is what lets it run
+nothing else as root; a runner that cannot isolate (not root, not Linux) says so and protects its
+token as far as it can.
+
+**Not done here.**
+
+- Removing a whole project or worktree (`rm -rf` of a member-writable tree) is still the root
+  agent's, relying on Bun's recursive removal not following links.
+- A credentialed push checks the push URL and the repository's transport settings, then runs git;
+  a member who changes `.git/config` in the moment between the two can change where git connects.
+  The token still goes only to the checked scheme and host (the scoped helper is on git's own
+  command line), so what that race reaches is a proxy or CA set for the same host, not another host.
+- The expected host of a push is trusted on first use for a project never cloned on this runner,
+  and a clone URL that names a host a connection was never for is not the runner's to catch; both
+  need the api to say which host a connection's token is for (a §7.6 change, left for when a
+  connection carries its host).
+- The runner image could not be built in the sandbox this was written in (Docker Hub refused the
+  base images), so the Dockerfile is checked by `scripts/dockerfiles.test.ts` and the mechanisms by
+  the tests above, not by a built image; the image build in CI is the first real run of the root
+  agent, `setpriv` and `perch-as` together.
