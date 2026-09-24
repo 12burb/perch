@@ -151,8 +151,9 @@ install and out of both images (task 4.7, ADR-0153).
 | `oven/bun` | `1.3.11`, `1.3.11-slim` | `deploy/Dockerfile.api` |
 | `node` | `24.21.0-bookworm-slim` (LTS; the `node` binary for Vite in the api build stage) | `deploy/Dockerfile.api` |
 | `ubuntu` | `24.04` | `deploy/Dockerfile.runner` |
-| Node tarball | `24.21.0` (SHASUMS256-verified) | `deploy/Dockerfile.runner` |
-| uv | `0.12.13` | `deploy/Dockerfile.runner` |
+| Node tarball | `24.21.0` (its signed `SHASUMS256.txt.asc` checked with `gpgv` against `nodejs/release-keys` at the pinned `NODE_KEYS_COMMIT`, then the tarball against the checksums; ADR-0170) | `deploy/Dockerfile.runner` |
+| Bun | `1.3.11` (copied out of `oven/bun:1.3.11`, whose build verifies Bun's signature; ADR-0170) | `deploy/Dockerfile.runner` |
+| uv | `0.12.13` (copied out of `ghcr.io/astral-sh/uv:0.12.13`; ADR-0170) | `deploy/Dockerfile.runner` |
 | Playwright Chromium | `1.62.1` | `deploy/Dockerfile.runner` |
 | `@openai/codex` (Codex CLI) | `0.154.0` | `deploy/agents.json` → the runner image's `agents` stage |
 | `@anthropic-ai/claude-code` (Claude Code) | `2.1.273` | `deploy/agents.json` |

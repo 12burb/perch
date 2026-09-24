@@ -6714,3 +6714,25 @@ intervals after the HMR edit, so the spec now tells a hot reload from a reload, 
 **Consequences.** A preview keeps its state between polls; HMR is meaningful; the tell for the
 next bug of this shape is in `docs/handoff.md`: read the trace before calling an e2e failure a
 flake.
+
+## ADR-0170: The runner image's third-party binaries are verified by signature
+
+**Status:** accepted · **Task:** code review, image supply chain · **Spec:** §1.3, §8, ADR-0168
+
+ADR-0168 left the runner image checking Bun, Node and uv against checksums published beside the
+downloads, which proves the transfer and not who cut the release. Each now arrives through its
+maker's own verification. **Bun** is copied out of `oven/bun:${BUN_VERSION}`, whose build checks
+Bun's release against the GPG key Bun pins in its own Dockerfile; **uv** is copied out of
+`ghcr.io/astral-sh/uv:${UV_VERSION}`, the install uv's documentation gives for images. Neither is
+downloaded in our Dockerfile any more, so neither is checked twice or by a weaker rule. **Node** is
+still the official tarball, but its `SHASUMS256.txt.asc` is checked with `gpgv` against the keyring
+in `nodejs/release-keys` at a pinned commit (`NODE_KEYS_COMMIT`) before the tarball is checked
+against the checksums. A release signed by a key newer than that commit fails the build; the fix is
+to move the commit forward, which a Renovate `git-refs` manager does, beside new managers for
+`UV_VERSION` (docker) and `NODE_VERSION` (node-version). `scripts/dockerfiles.test.ts` fails if a
+Dockerfile pipes a download into a shell, if Node's signature check goes, or if Bun or uv is
+downloaded again.
+
+**Consequences.** The image trusts Docker Hub's `oven/bun` and GHCR's `astral-sh/uv` as publishers
+(as the api image already trusts `oven/bun`), and GitHub's raw content for Node's keyring at a
+commit that cannot change under us.

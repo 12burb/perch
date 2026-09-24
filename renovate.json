@@ -83,6 +83,31 @@
       ],
       "depNameTemplate": "NousResearch/hermes-agent",
       "datasourceTemplate": "github-tags"
+    },
+    {
+      "customType": "regex",
+      "description": "uv comes out of Astral's image in the runner Dockerfile (ADR-0170)",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/"],
+      "matchStrings": ["ARG UV_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "ghcr.io/astral-sh/uv",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Node in the runner image, an LTS tarball",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/"],
+      "matchStrings": ["ARG NODE_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
+    },
+    {
+      "customType": "regex",
+      "description": "The commit of nodejs/release-keys the runner image checks Node's signature against (ADR-0170)",
+      "managerFilePatterns": ["/^deploy/Dockerfile\\.runner$/"],
+      "matchStrings": ["ARG NODE_KEYS_COMMIT=(?<currentDigest>[0-9a-f]{40})"],
+      "depNameTemplate": "https://github.com/nodejs/release-keys",
+      "currentValueTemplate": "main",
+      "datasourceTemplate": "git-refs"
     }
   ]
 }
