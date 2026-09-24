@@ -12,6 +12,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -107,6 +108,22 @@ export function Composer(props: ComposerProps) {
     writeDraft(props.draftKey, text);
   }, [props.draftKey, text]);
 
+  /**
+   * Where the caret goes once the text it belongs to is on screen. Placed in a layout effect, right
+   * after React writes the new value and before the next key is handled: a frame later, a key typed
+   * in between would already have landed at the old caret (the end of the box).
+   */
+  const caretAfterRender = useRef<{ start: number; end: number } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs for the text it was set with
+  useLayoutEffect(() => {
+    const wanted = caretAfterRender.current;
+    const el = textareaRef.current;
+    if (!wanted || !el) return;
+    caretAfterRender.current = null;
+    el.focus();
+    el.setSelectionRange(wanted.start, wanted.end);
+  }, [text]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure whenever the text changes
   useEffect(() => {
     const el = textareaRef.current;
@@ -135,13 +152,10 @@ export function Composer(props: ComposerProps) {
       const caret = el ? el.selectionStart : text.length;
       const next = `${text.slice(0, mention.start)}${suggestion.insert} ${text.slice(caret)}`;
       const at = mention.start + suggestion.insert.length + 1;
+      caretAfterRender.current = { start: at, end: at };
       setText(next);
       setMention(null);
       setActive(0);
-      requestAnimationFrame(() => {
-        el?.focus();
-        el?.setSelectionRange(at, at);
-      });
     },
     [mention, text],
   );
@@ -189,11 +203,8 @@ export function Composer(props: ComposerProps) {
     const end = el.selectionEnd;
     const selected = text.slice(start, end);
     const next = `${text.slice(0, start)}${before}${selected}${after}${text.slice(end)}`;
+    caretAfterRender.current = { start: start + before.length, end: end + before.length };
     setText(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + before.length, end + before.length);
-    });
   }
 
   function onSubmit(event: FormEvent) {

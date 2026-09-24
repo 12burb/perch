@@ -19,17 +19,35 @@ test("the Connections card: the App wizard's URLs, and a token refused on its sh
   test.setTimeout(180_000);
   await signUp(page, "Connect Owner", uniqueEmail("connect"));
   const slug = await createWorkspace(page, "Connect Nest");
+  // A webhook posts its cards into a channel, so the workspace has one to choose.
+  await page.evaluate(async (wanted) => {
+    const mine = (await (await fetch("/api/workspaces")).json()) as {
+      workspaces: { id: string; slug: string }[];
+    };
+    const ws = mine.workspaces.find((one) => one.slug === wanted)?.id ?? "";
+    await fetch(`/api/workspaces/${ws}/channels`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "public", name: "github" }),
+    });
+  }, slug);
   await page.goto(`/${slug}/settings`);
 
   const connections = page.getByRole("region", { name: "Connections" });
   await expect(connections.getByRole("heading", { name: "Nothing connected yet" })).toBeVisible();
 
-  // The App wizard prefills the callback and webhook URLs from this instance's public URL.
+  // The App wizard prefills the callback URL from this instance's public URL, and makes the App a
+  // webhook endpoint of its own: a URL with that endpoint's id in it, and the secret GitHub signs
+  // deliveries with, shown once (ADR-0173; the old prefilled /hooks/github/<workspace> URL was a
+  // route nothing served).
   const form = connections.getByRole("form", { name: "Connect" });
   await form.getByLabel("Service").selectOption("github");
   await form.getByLabel("How to connect").selectOption("github_app");
   await expect(form.getByText("/api/connect/callback/github")).toBeVisible();
-  await expect(form.getByText("/hooks/github/")).toBeVisible();
+  const webhook = form.getByRole("region", { name: "Webhook" });
+  await webhook.getByRole("button", { name: "Make webhook endpoint" }).click();
+  await expect(webhook.getByText(/\/hooks\/github\/[0-9a-f-]{36}/)).toBeVisible();
+  await expect(webhook.getByRole("status")).toContainText("shown this once");
   await expect(form.getByLabel("App ID")).toBeVisible();
   await expect(form.getByLabel("Private key (PEM)")).toBeVisible();
 
