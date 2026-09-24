@@ -33,6 +33,7 @@ import {
   threadQuery,
 } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
+import { canPick, internalHref, raceView } from "./cards.ts";
 
 function message(error: unknown): string {
   return error instanceof RequestFailed ? error.message : t("common.error");
@@ -144,6 +145,8 @@ const INTERACTIVE = new Set(["button", "select", "form", "approve_deny"]);
 function Blocks(props: {
   blocks: MessageRow["blocks"];
   files?: MessageRow["files"];
+  /** Who posted them: a race card acts only when the system did (ADR-0174). */
+  authorType?: MessageRow["author_type"] | undefined;
   /** Left out for a reader: the blocks still show, they just take no answer (task 2.5). */
   onAct?: ((input: BlockAct) => void) | undefined;
   acting?: string | null;
@@ -177,7 +180,13 @@ function Blocks(props: {
           return <QueueCard key={key} block={block as Record<string, unknown>} />;
         }
         if (block.type === "race_card") {
-          return <RaceCard key={key} block={block as Record<string, unknown>} />;
+          return (
+            <RaceCard
+              key={key}
+              block={block as Record<string, unknown>}
+              authorType={props.authorType}
+            />
+          );
         }
         if (block.type === "preflight_card") {
           return <PreflightCard key={key} block={block as Record<string, unknown>} />;
@@ -308,6 +317,7 @@ function MessageItem(props: {
       <Blocks
         blocks={row.blocks}
         files={row.files}
+        authorType={row.author_type}
         {...(actions.onAct ? { onAct: (input: BlockAct) => actions.onAct?.(row, input) } : {})}
         acting={actions.acting ?? null}
       />
@@ -1050,7 +1060,8 @@ function WebhookCard(props: { block: Record<string, unknown> }) {
  */
 function WorkCard(props: { kind: "session_card" | "diff_card"; block: Record<string, unknown> }) {
   const said = String(props.block.summary ?? props.block.text ?? "");
-  const url = typeof props.block.url === "string" ? props.block.url : "";
+  // "Open" goes into this Perch, so a link that would leave it is not drawn (ADR-0174).
+  const url = internalHref(props.block.url) ?? "";
   const prUrl = typeof props.block.prUrl === "string" ? props.block.prUrl : "";
   const prNumber = typeof props.block.prNumber === "number" ? props.block.prNumber : 0;
   // With a summary, `text` is the aside under it — why it stopped where it did.
@@ -1200,7 +1211,7 @@ function PreflightCard(props: { block: Record<string, unknown> }) {
 
 function BackgroundCard(props: { block: Record<string, unknown> }) {
   const state = String(props.block.state ?? "running");
-  const url = String(props.block.url ?? "");
+  const url = internalHref(props.block.url) ?? "";
   const said = String(props.block.text ?? "");
   const detail = String(props.block.detail ?? "");
   const waitingOn = String(props.block.waitingOn ?? "");
@@ -1270,13 +1281,29 @@ function BackgroundCard(props: { block: Record<string, unknown> }) {
   );
 }
 
-function RaceCard(props: { block: Record<string, unknown> }) {
+/**
+ * A race card draws the race the api has, not the one the card describes: the rows come from
+ * `GET /api/races/{id}` once it answers, and Pick is offered only then, only on a card the system
+ * posted (ADR-0174). The card's own rows are shown while the race loads, to read.
+ */
+function RaceCard(props: {
+  block: Record<string, unknown>;
+  authorType?: MessageRow["author_type"] | undefined;
+}) {
   const client = useQueryClient();
   const raceId = String(props.block.raceId ?? "");
-  const state = String(props.block.state ?? "running");
-  const entrants = Array.isArray(props.block.entrants)
-    ? (props.block.entrants as Record<string, unknown>[])
-    : [];
+  // The card is rewritten in place as the race moves; its own state is part of the key so the
+  // race is read again whenever the card changes.
+  const stamp = JSON.stringify([props.block.state, props.block.entrants]);
+  const race = useQuery({
+    queryKey: ["race", raceId, stamp],
+    enabled: raceId !== "",
+    retry: false,
+    queryFn: async () =>
+      unwrap(await api.GET("/api/races/{id}", { params: { path: { id: raceId } } })),
+  });
+  const view = raceView(props.block, race.data);
+  const state = view.state;
   const [failed, setFailed] = useState("");
   const pick = useMutation({
     mutationFn: async (entrant: string) => {
@@ -1300,8 +1327,6 @@ function RaceCard(props: { block: Record<string, unknown> }) {
         : one === "discarded"
           ? "neutral"
           : "warning";
-  const number = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) ? value : null;
 
   return (
     <div
@@ -1318,26 +1343,23 @@ function RaceCard(props: { block: Record<string, unknown> }) {
         {props.block.identifier ? (
           <span className="font-mono text-sm text-fg-muted">{String(props.block.identifier)}</span>
         ) : null}
-        {props.block.decidedBy ? (
+        {view.decidedBy ? (
           <span className="text-sm text-fg-muted">
-            {t(`chat.raceBy.${String(props.block.decidedBy)}` as "chat.raceBy.checks")}
+            {t(`chat.raceBy.${view.decidedBy}` as "chat.raceBy.checks")}
           </span>
         ) : null}
       </span>
       <ul aria-label={t("chat.raceEntrants")} className="flex flex-col gap-1">
-        {entrants.map((one) => {
-          const entrantState = String(one.state ?? "running");
-          const checks = number(one.checks);
-          const cost = number(one.costUsd);
-          const additions = number(one.additions);
-          const deletions = number(one.deletions);
+        {view.entrants.map((one) => {
+          const entrantState = one.state;
+          const { checks, costUsd: cost, additions, deletions } = one;
           return (
             <li
-              key={String(one.id ?? one.engine ?? "")}
+              key={one.id}
               data-testid="race-entrant"
               className="flex flex-wrap items-center gap-2 text-sm"
             >
-              <span className="font-medium">{String(one.engine ?? "")}</span>
+              <span className="font-medium">{one.engine}</span>
               <Badge tone={tone(entrantState)}>
                 {t(`chat.raceEntrant.${entrantState}` as "chat.raceEntrant.running")}
               </Badge>
@@ -1359,13 +1381,13 @@ function RaceCard(props: { block: Record<string, unknown> }) {
                   {checks === 0 ? t("chat.raceChecksPass") : t("chat.raceChecksFail")}
                 </span>
               ) : null}
-              {state === "running" && entrantState !== "failed" ? (
+              {canPick(view, props.authorType, one) ? (
                 <Button
                   size="sm"
                   variant="ghost"
-                  aria-label={t("chat.racePickOne", { engine: String(one.engine ?? "") })}
+                  aria-label={t("chat.racePickOne", { engine: one.engine })}
                   disabled={pick.isPending}
-                  onClick={() => pick.mutate(String(one.id ?? ""))}
+                  onClick={() => pick.mutate(one.id)}
                 >
                   {t("chat.racePick")}
                 </Button>

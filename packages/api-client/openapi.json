@@ -19642,6 +19642,7 @@
           "messages"
         ],
         "summary": "Take it down",
+        "description": "The author's, or a moderator's. In an archived channel only a moderator may (409 otherwise).",
         "security": [
           {
             "session": []
@@ -19686,6 +19687,16 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -19849,7 +19860,8 @@
         "tags": [
           "messages"
         ],
-        "summary": "Everything you saved for later",
+        "summary": "What you saved for later in this workspace, newest save first",
+        "description": "Only messages in channels you can open now: a bookmark outlives a membership, and a message in a channel you have left is not listed.",
         "security": [
           {
             "session": []
@@ -19867,6 +19879,25 @@
             "required": true,
             "name": "ws",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
           }
         ],
         "responses": {

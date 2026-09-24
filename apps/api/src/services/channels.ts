@@ -23,6 +23,7 @@ import {
   removeMember,
   updateChannel,
 } from "../repos/channels.ts";
+import { findProject } from "../repos/projects.ts";
 import { findMembership } from "../repos/workspaces.ts";
 
 export type ChannelDeps = { db: { db: Db }; bus: Bus };
@@ -106,14 +107,19 @@ export async function createChannel(
     const taken = await findChannelByName(deps.db.db, input.workspaceId, name);
     if (taken) throw PerchError.conflict(`#${name} already exists`);
   }
-  // Everybody named is a member of the workspace (spec §9.1 scoping), checked before anything
-  // is written so a bad name leaves no half-made channel behind.
+  // Everybody named is a member of the workspace (spec §9.1 scoping), and so is the project,
+  // checked before anything is written so a bad id leaves no half-made channel behind.
   const people = new Set<string>([input.userId, ...(input.members ?? [])]);
   for (const person of people) {
     if (person === input.userId) continue;
     if (!(await findMembership(deps.db.db, input.workspaceId, person))) {
       throw PerchError.notFound("user");
     }
+  }
+  // The project it belongs to is one of this workspace's: an id that names nothing, or another
+  // workspace's project, is not found rather than a broken or cross-workspace link.
+  if (input.projectId && !(await findProject(deps.db.db, input.workspaceId, input.projectId))) {
+    throw PerchError.notFound("project");
   }
   const channel = await insertChannel(deps.db.db, {
     workspaceId: input.workspaceId,

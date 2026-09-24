@@ -13,12 +13,13 @@ import { currentUser, requireUser } from "../auth/middleware.ts";
 import type { AppEnv, Deps } from "../context.ts";
 import { PerchError } from "../errors.ts";
 import type { MessageRow } from "../repos/messages.ts";
-import { getMessage, getMessageRow, listBookmarks, listPinned } from "../repos/messages.ts";
+import { getMessage, getMessageRow, listPinned } from "../repos/messages.ts";
 import { channelFor } from "../services/channels.ts";
 import { fileIdsIn, filesByIds } from "../services/files.ts";
 import { act } from "../services/interactions.ts";
 import {
   bookmark,
+  bookmarks,
   edit,
   history,
   messages as listChannelMessages,
@@ -186,10 +187,12 @@ const deleteRoute = createRoute({
   path: "/api/workspaces/{ws}/messages/{message}",
   tags: ["messages"],
   summary: "Take it down",
+  description:
+    "The author's, or a moderator's. In an archived channel only a moderator may (409 otherwise).",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
   request: { params: messageParam },
-  responses: { 204: { description: "Gone" }, ...errorResponses(403, 404) },
+  responses: { 204: { description: "Gone" }, ...errorResponses(403, 404, 409) },
 });
 
 const historyRoute = createRoute({
@@ -227,10 +230,19 @@ const bookmarksRoute = createRoute({
   method: "get",
   path: "/api/workspaces/{ws}/bookmarks",
   tags: ["messages"],
-  summary: "Everything you saved for later",
+  summary: "What you saved for later in this workspace, newest save first",
+  description:
+    "Only messages in channels you can open now: a bookmark outlives a membership, and a message in a channel you have left is not listed.",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
-  request: { params: workspaceParam },
+  request: {
+    params: workspaceParam,
+    query: z.object({
+      /** The page after this message's bookmark: older saves. */
+      before: z.uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(200).optional(),
+    }),
+  },
   responses: {
     200: { description: "Bookmarks", content: { "application/json": { schema: messagesSchema } } },
     ...errorResponses(403, 404),
@@ -454,8 +466,14 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
 
   app.openapi(bookmarksRoute, async (c) => {
     const { ws } = c.req.valid("param");
+    const query = c.req.valid("query");
     await authorize(c, deps, "messages.read", { type: "workspace", id: ws });
-    const rows = await listBookmarks(deps.db.db, currentUser(c).id);
+    const rows = await bookmarks(deps, {
+      workspaceId: ws,
+      userId: currentUser(c).id,
+      before: query.before,
+      limit: query.limit,
+    });
     return c.json({ messages: await bodies(rows) }, 200);
   });
 
@@ -485,8 +503,9 @@ export function registerMessages(app: OpenAPIHono<AppEnv>, deps: Deps): void {
       channel,
       message,
       userId: user.id,
-      // The emoji is a path segment, so it arrives percent-encoded from every client there is.
-      emoji: decodeURIComponent(emoji),
+      // A path segment arrives percent-encoded, and the router has already decoded it once;
+      // decoding it again would turn a literal `%` into a thrown URIError.
+      emoji,
       on: false,
       by: actorOf(c),
     });

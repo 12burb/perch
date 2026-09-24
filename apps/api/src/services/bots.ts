@@ -2076,18 +2076,23 @@ export class BotsService {
     return message;
   }
 
-  /** The placeholder, rewritten as the answer arrives. Not an edit: nobody rewrote anything. */
+  /**
+   * The placeholder, rewritten as the answer arrives. Not an edit: nobody rewrote anything. Null
+   * once somebody has deleted it, and the stream stops writing there (the callers hold the result
+   * as the placeholder, so a null ends every later rewrite).
+   */
   private async rewrite(
     bot: Bot,
     channel: Channel,
     message: Message,
     text: string,
-  ): Promise<Message> {
+  ): Promise<Message | null> {
     const updated = await updateMessageBlocks(this.deps.db, message, [{ type: "text", text }], {
       type: "bot",
       id: bot.id,
       history: false,
     });
+    if (!updated) return null;
     await this.deps.bus.publish(
       "message.updated",
       { workspaceId: channel.workspaceId, channelId: channel.id, messageId: message.id },

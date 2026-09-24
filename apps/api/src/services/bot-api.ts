@@ -241,6 +241,8 @@ export class BotApiService {
       type: "bot",
       id: caller.bot.id,
     });
+    // Deleted between the read and the write: there is nothing of the bot's left to change.
+    if (!updated) throw PerchError.notFound("message");
     await this.deps.bus.publish(
       "message.updated",
       {
@@ -255,7 +257,8 @@ export class BotApiService {
 
   async deleteMessage(caller: BotCaller, messageId: string): Promise<void> {
     const message = await this.ownMessage(caller, messageId);
-    await softDeleteMessage(this.deps.db, message);
+    // A delete that lost the race to another one changed nothing, and nobody is told twice.
+    if (!(await softDeleteMessage(this.deps.db, message))) return;
     await this.deps.bus.publish(
       "message.deleted",
       {

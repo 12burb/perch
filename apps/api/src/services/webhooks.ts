@@ -37,7 +37,7 @@ export type WebhooksDeps = {
   db: Db;
   bus: Bus;
   vault: Vault;
-  connections: Pick<ConnectionsService, "manifest">;
+  connections: Pick<ConnectionsService, "manifest" | "connectionFor">;
   /** A delivery may set a bot off (spec §5.3 `webhook` trigger). */
   bots: { onWebhook: (input: WebhookTrigger) => Promise<void> };
   log: Logger;
@@ -88,6 +88,16 @@ export class WebhooksService {
     if (!channel || channel.workspaceId !== input.workspaceId) {
       throw PerchError.notFound("channel");
     }
+    // A connection it names is one this person may use in this workspace (§3.5): an id that names
+    // nothing, another workspace's, or somebody else's personal one is not found.
+    const connection = input.connectionId
+      ? await this.deps.connections.connectionFor(
+          input.workspaceId,
+          input.createdBy,
+          input.connectionId,
+        )
+      : null;
+    if (input.connectionId && !connection) throw PerchError.notFound("connection");
     const theirs = keyIsTheProviders(manifest);
     if (input.key !== undefined && !theirs) {
       throw PerchError.validation(
@@ -107,7 +117,7 @@ export class WebhooksService {
       provider: input.provider,
       name: input.name,
       channelId: channel.id,
-      connectionId: input.connectionId ?? null,
+      connectionId: connection?.id ?? null,
       ciphertext: await this.deps.vault.encrypt(secret),
       createdBy: input.createdBy,
     });

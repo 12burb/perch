@@ -60,6 +60,14 @@ export const MAX_IDENTIFIERS = 20;
 
 export type UnfurlDeps = { db: { db: Db } };
 
+/**
+ * A reference is an id only when it is shaped like one. Length alone is not enough — the grammar
+ * allows any 36 characters, and handing Postgres a non-uuid where a uuid column is compared is an
+ * error, not a miss — so anything else is a name, a key or a prefix.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (ref: string): boolean => UUID.test(ref);
+
 type Who = { workspaceId: string; userId: string };
 
 /**
@@ -72,21 +80,20 @@ async function sessionCard(
   found: Identifier,
 ): Promise<UnfurlCard | null> {
   const ref = found.ref.toLowerCase();
-  const session =
-    ref.length === 36
-      ? await getSession(deps.db.db, ref)
-      : ((
-          await deps.db.db
-            .select()
-            .from(codingSessions)
-            .where(
-              and(
-                eq(codingSessions.workspaceId, who.workspaceId),
-                sql`${codingSessions.id}::text like ${sql.param(`${ref}%`, codingSessions.title)}`,
-              ),
-            )
-            .limit(2)
-        )[0] ?? null);
+  const session = isUuid(ref)
+    ? await getSession(deps.db.db, ref)
+    : ((
+        await deps.db.db
+          .select()
+          .from(codingSessions)
+          .where(
+            and(
+              eq(codingSessions.workspaceId, who.workspaceId),
+              sql`${codingSessions.id}::text like ${sql.param(`${ref}%`, codingSessions.title)}`,
+            ),
+          )
+          .limit(2)
+      )[0] ?? null);
   if (!session || session.workspaceId !== who.workspaceId) return null;
   const slug = await slugOf(deps, who.workspaceId);
   return {
@@ -103,11 +110,10 @@ async function projectCard(
   who: Who,
   found: Identifier,
 ): Promise<UnfurlCard | null> {
-  const project =
-    found.ref.length === 36
-      ? await findProject(deps.db.db, who.workspaceId, found.ref)
-      : // `key` is citext, so NEST and nest are the same project (spec §6).
-        await findProjectByKey(deps.db.db, who.workspaceId, found.ref);
+  const project = isUuid(found.ref)
+    ? await findProject(deps.db.db, who.workspaceId, found.ref)
+    : // `key` is citext, so NEST and nest are the same project (spec §6).
+      await findProjectByKey(deps.db.db, who.workspaceId, found.ref);
   if (!project) return null;
   const slug = await slugOf(deps, who.workspaceId);
   return {
@@ -138,10 +144,9 @@ async function channelCard(
   who: Who,
   found: Identifier,
 ): Promise<UnfurlCard | null> {
-  const channel: Channel | null =
-    found.ref.length === 36
-      ? await channelById(deps, who.workspaceId, found.ref)
-      : await findChannelByName(deps.db.db, who.workspaceId, found.ref);
+  const channel: Channel | null = isUuid(found.ref)
+    ? await channelById(deps, who.workspaceId, found.ref)
+    : await findChannelByName(deps.db.db, who.workspaceId, found.ref);
   if (!channel) return null;
   if (channel.type !== "public") {
     const mine = await memberChannelIds(deps.db.db, who.userId);
@@ -163,7 +168,7 @@ async function messageCard(
   who: Who,
   found: Identifier,
 ): Promise<UnfurlCard | null> {
-  if (found.ref.length !== 36) return null;
+  if (!isUuid(found.ref)) return null;
   const message = await getMessage(deps.db.db, found.ref);
   if (!message || message.workspaceId !== who.workspaceId || message.deletedAt) return null;
   const card = await channelCard(deps, who, {

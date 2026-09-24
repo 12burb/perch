@@ -182,4 +182,27 @@ describe("unfurls (task 2.3)", () => {
     const asked = await ask(robin.cookie, [`channel:${theirChannel.body.id}`]);
     expect(asked.body.cards).toEqual([]);
   }, 30_000);
+
+  test("a 36-character reference that is not a uuid is a name, or nothing — never a 500 (A-sm-31)", async () => {
+    const odd = "a".repeat(36);
+    const asked = await ask(wren.cookie, [
+      `session:${odd}`,
+      `project:${odd}`,
+      `channel:${odd}`,
+      `message:${odd}`,
+    ]);
+    expect(asked.status).toBe(200);
+    expect(asked.body.cards).toEqual([]);
+
+    // A channel whose name happens to be 36 characters long is found by that name.
+    const long = "b".repeat(36);
+    const made = await call(`/api/workspaces/${ws}/channels`, wren.cookie, {
+      method: "POST",
+      json: { type: "public", name: long },
+    });
+    expect(made.status).toBe(201);
+    const byName = await ask(wren.cookie, [`channel:${long}`]);
+    expect(byName.status).toBe(200);
+    expect(byName.body.cards.map((card) => card.title)).toEqual([`#${long}`]);
+  }, 30_000);
 });

@@ -296,6 +296,9 @@ POST /api/workspaces/{ws}/webhooks  {provider, name, channel_id, connection_id?}
 → {webhook: {…, url}, secret}
 ```
 
+A `connection_id` names a connection you may use in this workspace — a shared one, or your own
+personal one; anything else is `404` and nothing is made.
+
 The answer carries the URL to paste into the provider and a secret **shown exactly once** — paste it
 into the provider's own "secret" field. Perch verifies every delivery against it, with that
 provider's scheme, taken from its manifest (ADR-0119):

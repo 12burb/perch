@@ -273,6 +273,15 @@ describe("channels (task 2.1)", () => {
     expect(topic.status).toBe(200);
     expect(topic.body.topic).toBe("release week");
 
+    // Robin leaves first, so the join below is a real one: somebody in the workspace, outside
+    // the channel, who could join it if it were not archived (X-test-07).
+    const left = await call(
+      `/api/workspaces/${ws}/channels/${general.id}/members/${member.id}`,
+      member.cookie,
+      { method: "DELETE" },
+    );
+    expect(left.status).toBe(204);
+
     // A member may not archive; the owner may, and it stays visible with a mark on it.
     const refused = await call(`/api/workspaces/${ws}/channels/${general.id}`, member.cookie, {
       method: "PATCH",
@@ -286,19 +295,63 @@ describe("channels (task 2.1)", () => {
     expect(archived.status).toBe(200);
     expect(archived.body.archived).toBe(true);
 
-    // Nobody joins an archive.
+    // Nobody joins an archive, not even a member of the workspace the channel is open to.
     const joinAttempt = await call(
       `/api/workspaces/${ws}/channels/${general.id}/members`,
-      outsider.cookie,
+      member.cookie,
       { method: "POST", json: {} },
     );
-    expect([403, 404, 409]).toContain(joinAttempt.status);
+    expect(joinAttempt.status).toBe(409);
 
-    // And it comes back out.
+    // And it comes back out, open to joining again.
     const back = (await call(`/api/workspaces/${ws}/channels/${general.id}`, owner.cookie, {
       method: "PATCH",
       json: { archived: false },
     })) as { body: ChannelBody };
     expect(back.body.archived).toBe(false);
+    const rejoined = await call(
+      `/api/workspaces/${ws}/channels/${general.id}/members`,
+      member.cookie,
+      { method: "POST", json: {} },
+    );
+    expect(rejoined.status).toBe(200);
+  });
+
+  test("a project a channel names is one of this workspace's (A-rt-19)", async () => {
+    // An id that names nothing is not found — not a foreign-key failure answered as a 500.
+    const nowhere = await call(`/api/workspaces/${ws}/channels`, owner.cookie, {
+      method: "POST",
+      json: { type: "public", name: "linked-to-nothing", project_id: crypto.randomUUID() },
+    });
+    expect(nowhere.status).toBe(404);
+
+    // Another workspace's project is not a link this workspace can make.
+    const elsewhere = (await call("/api/workspaces", owner.cookie, {
+      method: "POST",
+      json: { name: "Other Nest" },
+    })) as { body: { id: string } };
+    const theirs = (await call(`/api/workspaces/${elsewhere.body.id}/projects`, owner.cookie, {
+      method: "POST",
+      json: { name: "Theirs", key: "THEIRS" },
+    })) as { status: number; body: { id: string } };
+    expect(theirs.status).toBe(201);
+    const foreign = await call(`/api/workspaces/${ws}/channels`, owner.cookie, {
+      method: "POST",
+      json: { type: "public", name: "linked-elsewhere", project_id: theirs.body.id },
+    });
+    expect(foreign.status).toBe(404);
+
+    // This workspace's own project links as it always did.
+    const ours = (await call(`/api/workspaces/${ws}/projects`, owner.cookie, {
+      method: "POST",
+      json: { name: "Ours", key: "OURS" },
+    })) as { status: number; body: { id: string } };
+    expect(ours.status).toBe(201);
+    const linked = (await call(`/api/workspaces/${ws}/channels`, owner.cookie, {
+      method: "POST",
+      json: { type: "public", name: "ours-talk", project_id: ours.body.id },
+    })) as { status: number; body: { project_id: string | null } };
+    expect(linked.status).toBe(201);
+    expect(linked.body.project_id).toBe(ours.body.id);
   });
 });

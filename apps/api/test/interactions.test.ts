@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { BotEvent } from "@perch/bots";
+import type { ActorContext } from "../src/auth/authorize.ts";
 import type { Booted } from "../src/boot.ts";
+import { getChannel } from "../src/repos/channels.ts";
+import { getMessage } from "../src/repos/messages.ts";
 import { type RunningServer, serve } from "../src/server.ts";
+import { act } from "../src/services/interactions.ts";
 import { bootTestApp } from "../src/testing.ts";
 
 /**
@@ -263,5 +267,49 @@ describe("interactive blocks (task 2.5)", () => {
     ).toBe(204);
     const gone = await press(wren.cookie, asked.body.id, "deploy-3", { decision: "approved" });
     expect(gone.status).toBe(409);
+  });
+
+  test("an answer is recorded against the block as it is now, not as it was read (X-data-19, A-sa-19)", async () => {
+    const deps = { db: booted.db, bus: booted.bus, botEvents: booted.botEvents };
+    const room = await getChannel(booted.db.db, channel);
+    if (!room) throw new Error("no channel");
+    const asked = await postBlocks(wren.cookie, [approveBlock("first"), approveBlock("second")]);
+    // Every answer below starts from the copy read before any of them landed.
+    const snapshot = await getMessage(booted.db.db, asked.body.id);
+    if (!snapshot) throw new Error("no message");
+    const by: ActorContext = { actor: { type: "user", id: wren.id }, meta: {} };
+    const answer = (blockId: string, decision: string) =>
+      act(deps, {
+        channel: room,
+        message: snapshot,
+        userId: wren.id,
+        blockId,
+        values: { decision },
+        by,
+      });
+
+    seen.length = 0;
+    await answer("first", "approved");
+    // The same block again, from the stale copy: already answered, and nobody is told twice.
+    await expect(answer("first", "denied")).rejects.toMatchObject({ code: "conflict" });
+    // The other block, from the stale copy: answered, and the first one keeps its answer.
+    await answer("second", "denied");
+    const row = await getMessage(booted.db.db, asked.body.id);
+    const states = (row?.blocks ?? []).map((block) =>
+      block.type === "approve_deny" ? block.state?.values : undefined,
+    );
+    expect(states).toEqual([{ decision: "approved" }, { decision: "denied" }]);
+    expect(seen.filter((event) => event.type === "interaction.received")).toHaveLength(2);
+  });
+
+  test("two presses at once: one is the answer, the other is told so", async () => {
+    const asked = await postBlocks(wren.cookie, [approveBlock("both-at-once")]);
+    seen.length = 0;
+    const both = await Promise.all([
+      press(wren.cookie, asked.body.id, "both-at-once", { decision: "approved" }),
+      press(wren.cookie, asked.body.id, "both-at-once", { decision: "denied" }),
+    ]);
+    expect(both.map((one) => one.status).sort()).toEqual([200, 409]);
+    expect(seen.filter((event) => event.type === "interaction.received")).toHaveLength(1);
   });
 });

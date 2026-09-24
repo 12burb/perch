@@ -48,7 +48,7 @@ messages written in the same instant cannot confuse it.
 | Route | Does |
 |---|---|
 | `GET /api/workspaces/{ws}/channels` | every channel you can see, with `member`, `unread` and `member_count` |
-| `POST /api/workspaces/{ws}/channels` | start one: `{type, name?, topic?, project_id?, members?}` |
+| `POST /api/workspaces/{ws}/channels` | start one: `{type, name?, topic?, project_id?, members?}`; a `project_id` or member outside this workspace is 404 |
 | `GET /api/workspaces/{ws}/channels/{channel}` | one channel |
 | `PATCH /api/workspaces/{ws}/channels/{channel}` | `{name?, topic?, archived?}` |
 | `GET /api/workspaces/{ws}/channels/{channel}/members` | who is in it |
@@ -64,9 +64,19 @@ WebSocket, writes the audit line, and makes the sidebar update itself in every o
 ## Messages
 
 A message is **blocks**, never a string (spec §6 `messages.blocks`). The composer sends `text` and
-the api makes the one text block it is; a bot sends blocks itself, which is how a diff card, a
-session card or a button arrives in the same column as "morning". The blocks a client may send are
+the api makes the one text block it is; a bot sends blocks itself, which is how a code block, a
+tool card or a button arrives in the same column as "morning". The blocks a client may send are
 the discriminated union in `packages/db/src/shapes`; anything else is refused before it is stored.
+
+The cards Perch posts about its own work — `session_card`, `diff_card`, `race_card`,
+`deploy_card`, `queue_card`, `background_card`, `preflight_card`, `plan_card`, `webhook_card` —
+are in the same union but are **not** a client's to send: the transcript draws them as records
+Perch vouches for, and some carry an action (a race's Pick) or a link into the app. They are written
+only by the service that did the work, and `POST`/`PATCH` a message (and the Bot API's
+`chat.postMessage`/`chat.update`) answer 422 for any of them (ADR-0174). The transcript still takes
+nothing on a card's word: a race card reads its race back from `GET /api/races/{id}` and offers Pick
+only on a system-posted card once the api has answered, and a card's "Open" is drawn only for a
+path on this origin.
 
 | Route | Does |
 |---|---|
@@ -76,7 +86,7 @@ the discriminated union in `packages/db/src/shapes`; anything else is refused be
 | `PATCH …/messages/{m}` | `{text \| blocks}` to edit, `{pinned}`, `{bookmarked}` |
 | `DELETE …/messages/{m}` | take it down |
 | `GET …/messages/{m}/edits` | what it said before |
-| `GET …/channels/{c}/pins` · `GET …/bookmarks` | the channel's pins; your own Later list |
+| `GET …/channels/{c}/pins` · `GET …/bookmarks?before&limit` | the channel's pins; your own Later list in this workspace |
 | `POST …/channels/{c}/read` | `{message_id}`: where you have read up to |
 
 Paging is by message id. Ids are UUIDv7 (ADR-0025), so `before` is "older than this" and `after` is
@@ -92,14 +102,24 @@ it, and replies stay out of the channel's flow — they are read in the thread.
 ### Editing and deleting
 
 Editing is the author's own; each edit files the blocks it replaced in `message_edits`, so
-"(edited)" can be opened rather than merely believed. Deleting is the author's, or an admin's when
-something has to go (`messages.moderate`); the row stays, empty, so a thread keeps its shape and a
-reply count stays honest.
+"(edited)" can be opened rather than merely believed. The version filed is the one in the row when
+the edit lands (the row is locked for the change), so two quick edits from two tabs keep every
+version. Deleting is the author's, or an admin's when something has to go (`messages.moderate`);
+the row stays, empty, so a thread keeps its shape and a reply count stays honest. A delete takes the
+message's history with it: `…/edits` of a deleted message is empty, and a rewrite still on its way
+(a bot's streaming reply, a card moving) finds nothing to write into. Two deletes at once are one:
+the second changes nothing, takes nothing off the thread's count, and publishes nothing (ADR-0174).
+
+An **archived** channel is a record. Nobody edits a message in it, and only an admin
+(`messages.moderate`) takes one down; everybody else is answered 409.
 
 ### Pins, bookmarks, and what is unread
 
 A **pin** belongs to the channel: everybody sees it, anybody in the channel sets it. A **bookmark**
-is one person's own Later list and is published to nobody.
+is one person's own Later list and is published to nobody. The list is per workspace and is read
+against the channels you can open now: a bookmark outlives leaving a channel, but the message it
+points at stops being listed when you can no longer read it there. It is a page, newest save first
+(`limit` up to 200, default 50; `before=<message id>` for the next one).
 
 The unread count is every message in the channel's flow that arrived after the one you last read —
 not your own, not deleted ones, and **not replies in a thread**, because a reply is not in the flow
@@ -112,7 +132,8 @@ A mention is `<@handle>` for a person and `<#name>` for a channel — the shape 
 bots ("a bot posting `<@dawn>` triggers exactly the same mention path as a human"). The composer
 writes the token when somebody picks from its list, and the client renders it back as a name; the
 api resolves the handles, and every mentioned member of that channel gets one more on their mention
-count. Typing `@` or `#` at a word boundary opens the list, the arrows move through it, Enter or Tab
+count. Editing a message counts only the mentions the edit adds: fixing a typo in a line that names
+somebody does not name them again. Typing `@` or `#` at a word boundary opens the list, the arrows move through it, Enter or Tab
 takes the highlighted one, and Esc closes it — the caret never leaves the composer.
 
 
@@ -127,7 +148,8 @@ under everybody's copy of the message at once. Emoji only: a handful of code poi
 and nothing invisible.
 
 `POST /api/workspaces/{ws}/messages/{m}/reactions {emoji}` and
-`DELETE …/reactions/{emoji}` both answer with the message, pills and all.
+`DELETE …/reactions/{emoji}` both answer with the message, pills and all. The emoji in the `DELETE`
+path is percent-encoded once, as any path segment is, and decoded once by the router.
 
 ### Interactive blocks
 
@@ -174,7 +196,9 @@ is the one transport (ADR-0176). A bot is told what happened and by whom — nev
 anything it could reach something else with.
 
 A question is answered once. Whoever gets there first is who it says; a second press is refused
-(409) and the block still reads as the first answer. The client draws all five kinds through
+(409) and the block still reads as the first answer. "First" is decided against the row, which is
+locked while the answer is written: two presses at the same moment are one answer, one 409 and one
+`interaction.received`, and answers to two different blocks of one card are both kept (ADR-0174). The client draws all five kinds through
 `BlockRenderer` (`@perch/ui/blocks`), which also draws them answered — the chosen option by its
 label, the decision as a badge, a form's fields as what they were filled in with — and offers no
 controls at all to somebody who is only reading the channel.
@@ -213,7 +237,9 @@ Every Perch object has an identifier (spec §1), and pasting one in a message tu
 `POST /api/workspaces/{ws}/unfurl` once for the page; the api answers with a card for each — a
 title, a line under it, and where it lives — and with nothing at all for anything the caller could
 not have opened anyway. A private channel unfurls for the people in it and for nobody else, and an
-identifier from another workspace is not a card.
+identifier from another workspace is not a card. A reference is looked up as an id only when it is
+shaped like a uuid; anything else is a name, a key or a session-id prefix, so a 36-character name is
+found by its name and a 36-character token that names nothing is simply not a card.
 
 Work items (`NEST-123`) and pull requests (`pr:42`) unfurl when they exist: Phase 3 and task 2.14.
 

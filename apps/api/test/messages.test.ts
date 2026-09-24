@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { type Message, messageBlocksSchema, schema } from "@perch/db";
+import { eq } from "drizzle-orm";
+import type { ActorContext } from "../src/auth/authorize.ts";
 import type { Booted } from "../src/boot.ts";
+import { getChannel } from "../src/repos/channels.ts";
+import { getMessage, updateMessageBlocks } from "../src/repos/messages.ts";
 import { type RunningServer, serve } from "../src/server.ts";
-import { mentionedHandles } from "../src/services/messages.ts";
+import { edit, mentionedHandles, parseBlocks, remove } from "../src/services/messages.ts";
 import { bootTestApp } from "../src/testing.ts";
 
 /**
@@ -296,5 +301,279 @@ describe("messages (task 2.2)", () => {
       method: "DELETE",
     });
     expect(moderated.status).toBe(204);
+  });
+
+  test("bookmarks are this workspace's, in channels you can still open (A-rt-04, A-co-06)", async () => {
+    const room = (await call(`/api/workspaces/${ws}/channels`, wren.cookie, {
+      method: "POST",
+      json: { type: "private", name: "finance", members: [robin.id] },
+    })) as { status: number; body: { id: string } };
+    expect(room.status).toBe(201);
+    const said = (await call(
+      `/api/workspaces/${ws}/channels/${room.body.id}/messages`,
+      wren.cookie,
+      {
+        method: "POST",
+        json: { text: "the quarter's numbers" },
+      },
+    )) as { status: number; body: MessageBody };
+    expect(said.status).toBe(201);
+    await call(`/api/workspaces/${ws}/messages/${said.body.id}`, robin.cookie, {
+      method: "PATCH",
+      json: { bookmarked: true },
+    });
+    const saved = (await call(`/api/workspaces/${ws}/bookmarks`, robin.cookie)) as Listing;
+    expect(saved.body.messages.map((m) => m.id)).toContain(said.body.id);
+
+    // Taken out of the channel, Robin's bookmark no longer opens it.
+    const removed = await call(
+      `/api/workspaces/${ws}/channels/${room.body.id}/members/${robin.id}`,
+      wren.cookie,
+      { method: "DELETE" },
+    );
+    expect(removed.status).toBe(204);
+    const after = (await call(`/api/workspaces/${ws}/bookmarks`, robin.cookie)) as Listing;
+    expect(after.body.messages.map((m) => m.id)).not.toContain(said.body.id);
+    // The public one saved earlier is still there.
+    expect(after.body.messages.length).toBeGreaterThan(0);
+
+    // The list is a page: newest first, as long as asked, and `before` turns it.
+    const another = await say(wren.cookie, "worth keeping too");
+    await call(`/api/workspaces/${ws}/messages/${another.body.id}`, robin.cookie, {
+      method: "PATCH",
+      json: { bookmarked: true },
+    });
+    const all = (await call(`/api/workspaces/${ws}/bookmarks`, robin.cookie)) as Listing;
+    expect(all.body.messages.length).toBeGreaterThanOrEqual(2);
+    const one = (await call(`/api/workspaces/${ws}/bookmarks?limit=1`, robin.cookie)) as Listing;
+    expect(one.body.messages.map((m) => m.id)).toEqual([another.body.id]);
+    const next = (await call(
+      `/api/workspaces/${ws}/bookmarks?limit=1&before=${another.body.id}`,
+      robin.cookie,
+    )) as Listing;
+    expect(next.body.messages.map((m) => m.id)).toEqual([all.body.messages[1]?.id ?? ""]);
+
+    // Another workspace's path lists that workspace's bookmarks, which here is none.
+    const elsewhere = (await call("/api/workspaces", robin.cookie, {
+      method: "POST",
+      json: { name: "Robin's Own" },
+    })) as { body: { id: string } };
+    const theirs = (await call(
+      `/api/workspaces/${elsewhere.body.id}/bookmarks`,
+      robin.cookie,
+    )) as Listing;
+    expect(theirs.status).toBe(200);
+    expect(theirs.body.messages).toEqual([]);
+  });
+
+  test("a deleted message keeps no history, and nothing writes it back (X-data-15)", async () => {
+    const posted = await say(wren.cookie, "the key is k-1234");
+    await call(`/api/workspaces/${ws}/messages/${posted.body.id}`, wren.cookie, {
+      method: "PATCH",
+      json: { text: "the key is in the vault" },
+    });
+    const gone = await call(`/api/workspaces/${ws}/messages/${posted.body.id}`, wren.cookie, {
+      method: "DELETE",
+    });
+    expect(gone.status).toBe(204);
+
+    const history = (await call(
+      `/api/workspaces/${ws}/messages/${posted.body.id}/edits`,
+      robin.cookie,
+    )) as { status: number; body: { edits: unknown[] } };
+    expect(history.status).toBe(200);
+    expect(history.body.edits).toEqual([]);
+    const kept = await booted.db.db
+      .select()
+      .from(schema.messageEdits)
+      .where(eq(schema.messageEdits.messageId, posted.body.id));
+    expect(kept).toHaveLength(0);
+
+    // A rewrite that was already on its way — a bot's stream, a card moving — finds nothing to
+    // write into, and says so rather than putting the words back.
+    const row = await getMessage(booted.db.db, posted.body.id);
+    if (!row) throw new Error("no row");
+    const stale: Message = { ...row, deletedAt: null };
+    const rewritten = await updateMessageBlocks(
+      booted.db.db,
+      stale,
+      [{ type: "text", text: "the key is k-1234" }],
+      { type: "bot", id: wren.id, history: false },
+    );
+    expect(rewritten).toBeNull();
+    expect((await getMessage(booted.db.db, posted.body.id))?.blocks).toEqual([]);
+  });
+
+  test("two deletes of one reply take one off the count, and say so once (X-data-26)", async () => {
+    const deps = { db: booted.db, bus: booted.bus };
+    const room = await getChannel(booted.db.db, channel);
+    if (!room) throw new Error("no channel");
+    const root = await say(wren.cookie, "roll call");
+    const first = await say(robin.cookie, "here", root.body.id);
+    await say(wren.cookie, "here too", root.body.id);
+    const snapshot = await getMessage(booted.db.db, first.body.id);
+    if (!snapshot) throw new Error("no reply");
+
+    const told: string[] = [];
+    const stop = booted.bus.subscribe("message.deleted", (event) => {
+      told.push(event.payload.messageId);
+    });
+    // The author and a moderator, both holding the copy they read before either delete landed.
+    const byRobin: ActorContext = { actor: { type: "user", id: robin.id }, meta: {} };
+    const byWren: ActorContext = { actor: { type: "user", id: wren.id }, meta: {} };
+    await remove(deps, {
+      channel: room,
+      message: snapshot,
+      userId: robin.id,
+      canModerate: false,
+      by: byRobin,
+    });
+    await remove(deps, {
+      channel: room,
+      message: snapshot,
+      userId: wren.id,
+      canModerate: true,
+      by: byWren,
+    });
+    stop();
+    expect((await getMessage(booted.db.db, root.body.id))?.replyCount).toBe(1);
+    expect(told.filter((id) => id === first.body.id)).toHaveLength(1);
+  });
+
+  test("two edits from one stale copy keep every version (X-data-26)", async () => {
+    const deps = { db: booted.db, bus: booted.bus };
+    const room = await getChannel(booted.db.db, channel);
+    if (!room) throw new Error("no channel");
+    const posted = await say(wren.cookie, "version one");
+    const snapshot = await getMessage(booted.db.db, posted.body.id);
+    if (!snapshot) throw new Error("no message");
+    const by: ActorContext = { actor: { type: "user", id: wren.id }, meta: {} };
+    for (const text of ["version two", "version three"]) {
+      await edit(deps, {
+        channel: room,
+        message: snapshot,
+        userId: wren.id,
+        blocks: [{ type: "text", text }],
+        by,
+      });
+    }
+    const history = (await call(
+      `/api/workspaces/${ws}/messages/${posted.body.id}/edits`,
+      wren.cookie,
+    )) as { body: { edits: { blocks: { text?: string }[] }[] } };
+    expect(history.body.edits.map((one) => one.blocks[0]?.text).sort()).toEqual([
+      "version one",
+      "version two",
+    ]);
+  });
+
+  test("editing a message does not name anybody twice (X-data-25, A-sm-27)", async () => {
+    const mentions = async () => {
+      const listed = (await call(`/api/workspaces/${ws}/channels`, robin.cookie)) as Channels;
+      return listed.body.channels.find((c) => c.id === channel)?.mentions ?? -1;
+    };
+    const before = await mentions();
+    const posted = await say(wren.cookie, `<@${robin.handle}> can you look`);
+    expect(await mentions()).toBe(before + 1);
+    for (const text of [
+      `<@${robin.handle}> can you look at this`,
+      `<@${robin.handle}> could you look at this`,
+    ]) {
+      const edited = await call(`/api/workspaces/${ws}/messages/${posted.body.id}`, wren.cookie, {
+        method: "PATCH",
+        json: { text },
+      });
+      expect(edited.status).toBe(200);
+    }
+    expect(await mentions()).toBe(before + 1);
+  });
+
+  test("an archived channel is a record: no edits, and only a moderator takes one down (A-sm-28)", async () => {
+    const room = (await call(`/api/workspaces/${ws}/channels`, wren.cookie, {
+      method: "POST",
+      json: { type: "public", name: "incident" },
+    })) as { body: { id: string } };
+    await call(`/api/workspaces/${ws}/channels/${room.body.id}/members`, robin.cookie, {
+      method: "POST",
+      json: {},
+    });
+    const post = (text: string) =>
+      call(`/api/workspaces/${ws}/channels/${room.body.id}/messages`, robin.cookie, {
+        method: "POST",
+        json: { text },
+      }) as Promise<{ status: number; body: MessageBody }>;
+    const first = await post("the database is down");
+    const second = await post("it is back");
+    const archived = await call(`/api/workspaces/${ws}/channels/${room.body.id}`, wren.cookie, {
+      method: "PATCH",
+      json: { archived: true },
+    });
+    expect(archived.status).toBe(200);
+
+    const rewrite = await call(`/api/workspaces/${ws}/messages/${first.body.id}`, robin.cookie, {
+      method: "PATCH",
+      json: { text: "nothing happened" },
+    });
+    expect(rewrite.status).toBe(409);
+    const takeDown = await call(`/api/workspaces/${ws}/messages/${first.body.id}`, robin.cookie, {
+      method: "DELETE",
+    });
+    expect(takeDown.status).toBe(409);
+    const moderated = await call(`/api/workspaces/${ws}/messages/${second.body.id}`, wren.cookie, {
+      method: "DELETE",
+    });
+    expect(moderated.status).toBe(204);
+  });
+
+  test("a card Perch vouches for is Perch's to post (A-wr-06)", async () => {
+    const raceId = crypto.randomUUID();
+    const forged = await call(`/api/workspaces/${ws}/channels/${channel}/messages`, wren.cookie, {
+      method: "POST",
+      json: { blocks: [{ type: "race_card", raceId, state: "running", entrants: [] }] },
+    });
+    expect(forged.status).toBe(422);
+    const posted = await say(wren.cookie, "an ordinary line");
+    const rewritten = await call(`/api/workspaces/${ws}/messages/${posted.body.id}`, wren.cookie, {
+      method: "PATCH",
+      json: {
+        blocks: [
+          { type: "session_card", sessionId: crypto.randomUUID(), url: "https://elsewhere.test" },
+        ],
+      },
+    });
+    expect(rewritten.status).toBe(422);
+
+    // Each of these is a well-formed block — the schema takes it — and is refused for what it is.
+    const id = crypto.randomUUID();
+    const cards: Record<string, unknown>[] = [
+      { type: "diff_card", sessionId: id },
+      { type: "session_card", sessionId: id },
+      { type: "webhook_card", provider: "github", event: "push", title: "3 commits" },
+      {
+        type: "deploy_card",
+        provider: "vercel",
+        deploymentId: "dpl_1",
+        target: "preview",
+        state: "ready",
+      },
+      { type: "race_card", raceId: id, state: "running", entrants: [] },
+      { type: "preflight_card", state: "passed", verdict: "warn", rows: [] },
+      { type: "background_card", sessionId: id, state: "running", prompt: "tidy up" },
+      { type: "queue_card", branch: "fix", base: "main", state: "waiting", position: 1 },
+      { type: "plan_card", steps: [] },
+    ];
+    for (const card of cards) {
+      expect(messageBlocksSchema.safeParse([card]).success).toBe(true);
+      expect(() => parseBlocks([card])).toThrow();
+    }
+    // What a person or a bot composes is still theirs to send.
+    expect(
+      parseBlocks([
+        { type: "text", text: "Ship it?" },
+        { type: "code", code: "bun test" },
+        { type: "approve_deny", id: "ship", text: "Ship?", action: "ship" },
+        { type: "progress", value: 0.5 },
+      ]),
+    ).toHaveLength(4);
   });
 });

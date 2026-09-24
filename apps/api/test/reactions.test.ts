@@ -191,4 +191,25 @@ describe("reactions (task 2.3)", () => {
     const refused = await reactTo(robin.cookie, said.body.id, "👀");
     expect(refused.status).toBe(409);
   }, 30_000);
+
+  test("a path segment is decoded once, so a stray percent sign is not a server error (A-rt-22)", async () => {
+    const said = (await call(`/api/workspaces/${ws}/channels/${channel}/messages`, wren.cookie, {
+      method: "POST",
+      json: { text: "percent" },
+    })) as { body: MessageBody };
+    // `%25zz` arrives at the handler as `%zz`, which is nobody's reaction: nothing to take off.
+    for (const segment of ["%25zz", "%25E0"]) {
+      const res = await call(
+        `/api/workspaces/${ws}/messages/${said.body.id}/reactions/${segment}`,
+        robin.cookie,
+        { method: "DELETE" },
+      );
+      expect(res.status).toBe(200);
+    }
+    // And an emoji put there and taken off by its encoded name still round-trips.
+    await reactTo(robin.cookie, said.body.id, "🎉");
+    const off = await unreact(robin.cookie, said.body.id, "🎉");
+    expect(off.status).toBe(200);
+    expect(off.body.reactions).toEqual([]);
+  }, 30_000);
 });

@@ -7523,7 +7523,10 @@ export type paths = {
         get?: never;
         put?: never;
         post?: never;
-        /** Take it down */
+        /**
+         * Take it down
+         * @description The author's, or a moderator's. In an archived channel only a moderator may (409 otherwise).
+         */
         delete: {
             parameters: {
                 query?: never;
@@ -7554,6 +7557,15 @@ export type paths = {
                 };
                 /** @description Not found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -7754,10 +7766,16 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Everything you saved for later */
+        /**
+         * What you saved for later in this workspace, newest save first
+         * @description Only messages in channels you can open now: a bookmark outlives a membership, and a message in a channel you have left is not listed.
+         */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    before?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     ws: string;

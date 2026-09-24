@@ -13,7 +13,7 @@ import type { Bus } from "@perch/bus";
 import type { BlockState, Channel, Db, Message, MessageBlock } from "@perch/db";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
-import { updateMessageBlocks } from "../repos/messages.ts";
+import { rewriteMessageBlocks } from "../repos/messages.ts";
 import { requireWriteable } from "./messages.ts";
 
 export type InteractionDeps = { db: { db: Db }; bus: Bus; botEvents: BotEvents };
@@ -108,29 +108,47 @@ export type ActResult = { message: Message; event: InteractionReceived };
  * Pressing the button. Being in the channel is what allows it — the same rule as saying something
  * there — and a block that has already been answered is not answered twice: whoever got there
  * first is who it says.
+ *
+ * "First" is decided against the row, not against the copy this request read: the answer is
+ * written while the row is locked, after checking the block as it is at that moment. Two presses
+ * at once are one answer and one conflict, one `interaction.received`, and an answer to another
+ * block on the same card is written beside it rather than over it.
  */
 export async function act(deps: InteractionDeps, input: ActInput): Promise<ActResult> {
   await requireWriteable(deps, input.channel, input.userId);
   if (input.message.deletedAt) throw PerchError.conflict("that message is gone");
-  const { block, at } = findBlock(input.message, input.blockId);
-  if (block.state) throw PerchError.conflict("somebody has already answered that");
+  // A wrong block or a wrong answer is refused against what was read, before anything is locked.
+  const read = findBlock(input.message, input.blockId);
+  if (read.block.state) throw PerchError.conflict("somebody has already answered that");
+  readValues(read.block, input.values);
 
-  const state: BlockState = {
-    byType: "user",
-    byId: input.userId,
-    ...(input.userName ? { byName: input.userName } : {}),
-    at: new Date().toISOString(),
-    values: readValues(block, input.values),
-  };
-  const blocks = [...input.message.blocks];
-  blocks[at] = resolve(block, state);
+  const at = new Date().toISOString();
+  const answered: { block?: Interactive; state?: BlockState } = {};
   // The edit is the api's, not the author's: it is the answer being recorded, not a rewrite, so it
   // keeps no edit history and sets no "(edited)" mark.
-  const message = await updateMessageBlocks(deps.db.db, input.message, blocks, {
-    type: "system",
-    id: input.userId,
-    history: false,
-  });
+  const message = await rewriteMessageBlocks(
+    deps.db.db,
+    input.message.id,
+    (current) => {
+      const found = findBlock(current, input.blockId);
+      if (found.block.state) throw PerchError.conflict("somebody has already answered that");
+      const state: BlockState = {
+        byType: "user",
+        byId: input.userId,
+        ...(input.userName ? { byName: input.userName } : {}),
+        at,
+        values: readValues(found.block, input.values),
+      };
+      answered.block = found.block;
+      answered.state = state;
+      const blocks = [...current.blocks];
+      blocks[found.at] = resolve(found.block, state);
+      return blocks;
+    },
+    { type: "system", id: input.userId, history: false },
+  );
+  const { block, state } = answered;
+  if (!message || !block || !state) throw PerchError.conflict("that message is gone");
 
   const event: InteractionReceived = {
     workspace_id: input.channel.workspaceId,

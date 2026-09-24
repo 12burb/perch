@@ -17,18 +17,20 @@ import {
   bookmarkMessage,
   getMessage,
   insertMessage,
+  listBookmarks,
   listEdits,
   listMessages,
   type MessageRow,
   markRead,
   pinMessage,
   removeReaction,
+  rewriteMessageBlocks,
   softDeleteMessage,
   unbookmarkMessage,
   unpinMessage,
-  updateMessageBlocks,
   usersByHandle,
 } from "../repos/messages.ts";
+import { visibleChannelIds } from "../repos/search.ts";
 import { fileIdsIn, filesByIds } from "./files.ts";
 
 export type MessageDeps = { db: { db: Db }; bus: Bus };
@@ -60,10 +62,40 @@ export function textBlocks(text: string): MessageBlock[] {
   return [{ type: "text", text: trimmed }];
 }
 
+/**
+ * The cards Perch posts about its own work: a session, a diff, a race, a deploy, the merge queue,
+ * a background run, preflight, an orchestrator's plan, a webhook delivery. Each is a record Perch
+ * vouches for — the transcript draws it as trusted and some of them carry an action (a race's
+ * Pick) or a link into the app — so each is written only by the service that did the work, which
+ * inserts it directly. A person composing a message, or a bot over the Bot API, sends what spec
+ * §5.2 calls a message's own blocks: text, code, a file, a tool card, the interactive ones.
+ */
+export const SYSTEM_CARD_TYPES: ReadonlySet<string> = new Set([
+  "diff_card",
+  "session_card",
+  "webhook_card",
+  "deploy_card",
+  "race_card",
+  "preflight_card",
+  "background_card",
+  "queue_card",
+  "plan_card",
+]);
+
+/**
+ * Blocks sent by a person (`POST`/`PATCH` a message) or a bot over the Bot API, checked against
+ * the schema and against the cards only Perch's own services write (ADR-0174).
+ */
 export function parseBlocks(blocks: unknown): MessageBlock[] {
   const parsed = messageBlocksSchema.safeParse(blocks);
   if (!parsed.success) throw PerchError.validation("those blocks are not a message");
   if (parsed.data.length === 0) throw PerchError.validation("a message needs something in it");
+  const card = parsed.data.find((block) => SYSTEM_CARD_TYPES.has(block.type));
+  if (card) {
+    throw PerchError.validation(`a ${card.type} is posted by Perch itself, not sent as a message`, {
+      type: card.type,
+    });
+  }
   return parsed.data;
 }
 
@@ -159,14 +191,19 @@ export async function post(deps: MessageDeps, input: PostInput): Promise<Message
   return message;
 }
 
-/** Everybody named who is in the channel, except the person doing the naming. */
+/**
+ * Everybody named who is in the channel, except the person doing the naming. `alreadyNamed` is the
+ * handles an earlier version of the same message named: an edit that keeps a mention is not a
+ * second mention, so only the ones it adds count.
+ */
 async function notifyMentions(
   deps: MessageDeps,
   channel: Channel,
   blocks: MessageBlock[],
   authorId: string,
+  alreadyNamed: readonly string[] = [],
 ): Promise<void> {
-  const handles = mentionedHandles(blocks);
+  const handles = mentionedHandles(blocks).filter((handle) => !alreadyNamed.includes(handle));
   if (handles.length === 0) return;
   const people = await usersByHandle(deps.db.db, handles);
   const named: string[] = [];
@@ -177,7 +214,10 @@ async function notifyMentions(
   if (named.length > 0) await addMentions(deps.db.db, channel.id, named);
 }
 
-/** Editing is the author's own; the history keeps what was there (spec §5.2). */
+/**
+ * Editing is the author's own; the history keeps what was there (spec §5.2). An archived channel is
+ * a record, so nothing in it is rewritten.
+ */
 export async function edit(
   deps: MessageDeps,
   input: {
@@ -192,12 +232,22 @@ export async function edit(
   if (input.message.authorType !== "user" || input.message.authorId !== input.userId) {
     throw PerchError.forbidden("only the person who wrote a message edits it");
   }
+  if (input.channel.archivedAt) throw PerchError.conflict("this channel is archived");
   await requireOwnFiles(deps, input.channel.workspaceId, input.blocks);
-  const row = await updateMessageBlocks(deps.db.db, input.message, input.blocks, {
-    type: "user",
-    id: input.userId,
-  });
-  await notifyMentions(deps, input.channel, input.blocks, input.userId);
+  // The version this edit replaces is the one in the row when it lands, not the one this request
+  // read: that is what the history keeps, and what decides which mentions are new.
+  let replaced: MessageBlock[] = [];
+  const row = await rewriteMessageBlocks(
+    deps.db.db,
+    input.message.id,
+    (current) => {
+      replaced = current.blocks;
+      return input.blocks;
+    },
+    { type: "user", id: input.userId },
+  );
+  if (!row) throw PerchError.conflict("that message is gone");
+  await notifyMentions(deps, input.channel, input.blocks, input.userId, mentionedHandles(replaced));
   await deps.bus.publish(
     "message.updated",
     {
@@ -210,11 +260,16 @@ export async function edit(
   return row;
 }
 
+/** What a message said before. A deleted message said nothing, then or now. */
 export async function history(deps: MessageDeps, message: Message) {
+  if (message.deletedAt) return [];
   return listEdits(deps.db.db, message.id);
 }
 
-/** Deleting is the author's, or an admin's when something has to go (spec §5.2). */
+/**
+ * Deleting is the author's, or an admin's when something has to go (spec §5.2). In an archived
+ * channel only the admin may: the record stays as it was unless it has to change.
+ */
 export async function remove(
   deps: MessageDeps,
   input: {
@@ -230,7 +285,12 @@ export async function remove(
     throw PerchError.forbidden("only the person who wrote a message deletes it");
   }
   if (input.message.deletedAt) return;
-  await softDeleteMessage(deps.db.db, input.message);
+  if (input.channel.archivedAt && !input.canModerate) {
+    throw PerchError.conflict("this channel is archived");
+  }
+  // Two deletes of one message are one: whichever lands second finds nothing to take down, and
+  // nobody is told twice.
+  if (!(await softDeleteMessage(deps.db.db, input.message))) return;
   await deps.bus.publish(
     "message.deleted",
     {
@@ -340,6 +400,29 @@ export async function bookmark(
   } else {
     await unbookmarkMessage(deps.db.db, input.userId, input.message.id);
   }
+}
+
+/**
+ * One person's Later list in one workspace (spec §4). A bookmark is kept when its channel is left,
+ * so what it points at is checked against the channels this person can open now — the same scope
+ * search uses — every time the list is read.
+ */
+export async function bookmarks(
+  deps: MessageDeps,
+  input: {
+    workspaceId: string;
+    userId: string;
+    before?: string | undefined;
+    limit?: number | undefined;
+  },
+): Promise<MessageRow[]> {
+  return listBookmarks(deps.db.db, {
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    scope: await visibleChannelIds(deps.db.db, input.workspaceId, input.userId),
+    before: input.before,
+    limit: input.limit,
+  });
 }
 
 /** Where somebody has read up to. Reading clears what named them there. */

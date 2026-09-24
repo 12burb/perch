@@ -7390,3 +7390,63 @@ platform fetch resolves the name again, so DNS rebinding inside that window is n
 closed; the per-call MCP gateway, pull-request and deploy fetches and the AI SDK's model calls still
 use the stored URL with the platform fetch (their URLs are checked when stored — the bots-runtime
 batch reuses the guard for `http_fetch`, and those call sites should adopt it too).
+
+## ADR-0174: Perch's cards are Perch's to post, a message is changed against the row, and a bookmark is read through today's access
+
+**Status:** accepted · **Task:** code review, batch chat-messages · **Spec:** §5.2, §5.3, §5.7, §6, §7.1, §7.3, §9.1
+
+Eleven issues from the code review (fourteen finding ids) about messages. Four decisions cover them.
+
+**The cards Perch posts about its own work are written only by the service that did it.**
+`session_card`, `diff_card`, `race_card`, `deploy_card`, `queue_card`, `background_card`,
+`preflight_card`, `plan_card` and `webhook_card` are records Perch vouches for: the transcript draws
+them as trusted, a race card carries a Pick that decides the race, and several carry an "Open" link
+into the app. Every one of them is inserted directly by its service (races, merge queue, deploys,
+background runs, preflight, the bot runtime's agent and orchestrator paths, webhooks), and nothing
+legitimate sends one through `parseBlocks`, which only the message routes and the Bot API call. So
+`parseBlocks` now refuses them (422), for a person composing a message and for a bot over the Bot
+API alike. Spec §5.2 lists `diff_card` and `session_card` among a message's blocks and §5.3 has agent
+bots post them; that is still true of Perch's own agent bots, which post through the runtime, but
+an external bot can no longer send one — a **spec deviation** for the Bot API, recorded here.
+`tool_card` stays sendable: it links nowhere and acts on nothing. The transcript does not take a
+card's word either: a race card reads its race from `GET /api/races/{id}` and draws the entrants the
+api returns, Pick appears only once that answer is in, only on a system-authored card, and a
+session, diff or background card's "Open" is drawn only for a path on this origin
+(`apps/web/src/chat/cards.ts`). Author type alone could not be the client's rule, because deploy
+and preflight cards are posted as the person who pressed the button.
+
+**A message is changed against the row as it is, not as a request read it.** Two helpers in
+`repos/messages.ts` carry this. `rewriteMessageBlocks(db, id, change, by)` locks the row
+(`SELECT … FOR UPDATE` in a transaction), refuses a deleted one (null), hands `change` the current
+row, files the current blocks as history when the change is an edit, and writes. Edits use it, so
+two quick edits each file the version before their own; interactive answers use it, re-finding the
+block in the locked row and refusing it if already answered, so two presses at once are one answer,
+one 409 and one `interaction.received`, and answers to two blocks of one card are both kept.
+`updateMessageBlocks` with `history: false` (a streaming reply, a card moving) is a single
+`UPDATE … WHERE deleted_at IS NULL`; both return null for a deleted message, and the bot runtime's
+stream stops writing there instead of putting a deleted reply's words back. `softDeleteMessage` is
+conditional on `deleted_at IS NULL`, and in the same transaction deletes the message's
+`message_edits` and takes one off its thread's `reply_count`; a delete that lost the race returns
+null, decrements nothing, and publishes nothing. `…/edits` of a deleted message is empty.
+
+**An edit names only whom it adds, and an archived channel is a record.** Editing counts only the
+mentions the new blocks have and the replaced ones did not, so fixing a typo does not inflate
+anybody's mention badge. In an archived channel nobody edits, and only a moderator
+(`messages.moderate`) deletes; everybody else is answered 409, the same refusal `requireWriteable`
+already gives a post, a pin or a reaction there.
+
+**Ids in a body and in the Later list are resolved inside the workspace, through access as it is
+now.** `GET /api/workspaces/{ws}/bookmarks` lists only messages in that workspace and in the
+channels the caller can open now (`visibleChannelIds`, the scope search uses), newest save first, as
+a page (`limit` ≤ 200, default 50; `before=<message id>`): a bookmark outlives a membership, but
+reading through it does not. A channel's `project_id` must be one of the workspace's projects, and a
+webhook's `connection_id` a connection the caller may use there (`connectionFor`); anything else is
+404 rather than a foreign-key 500 or a cross-workspace link. Unfurls look a reference up as an id
+only when it is shaped like a uuid, so a 36-character name is found by name and a 36-character
+token that names nothing is no card rather than a 500. The reaction route no longer decodes its
+path segment a second time: the router already has, and a literal `%` was a thrown `URIError`.
+
+**Consequences.** Cards are trustworthy by construction, and a client cannot forge one. Concurrent
+answers, edits and deletes are serialized per message by a row lock, which costs one short
+transaction per edit or answer (streaming rewrites stay a single statement). The Later list is a
+paged, workspace-scoped read. No migration: the change is in queries and services.

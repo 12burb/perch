@@ -238,36 +238,76 @@ export async function insertMessage(
   return row;
 }
 
+/** Who changed a message's blocks, and whether the change is an edit that keeps history. */
+export type EditedBy = { type: "user" | "bot" | "system"; id: string; history?: boolean };
+
 /**
  * Editing keeps what was there: the old blocks become a row in the history.
  *
  * `history: false` is for a change that is not an edit — an interactive block recording the answer
- * it was given (task 2.5). Nobody rewrote the message, so it keeps no history and gains no
- * "(edited)" mark; what changed is visible in the block itself.
+ * it was given (task 2.5), a streaming reply, a card moving. Nobody rewrote the message, so it
+ * keeps no history and gains no "(edited)" mark; what changed is visible in the block itself.
+ *
+ * A deleted message is never written to: the answer is null, and the caller stops there (a bot's
+ * stream, a card's next state) rather than putting the words back into a row somebody took down.
  */
 export async function updateMessageBlocks(
   db: Db,
   message: Message,
   blocks: MessageBlock[],
-  editedBy: { type: "user" | "bot" | "system"; id: string; history?: boolean },
-): Promise<Message> {
-  const keepHistory = editedBy.history !== false;
-  if (keepHistory) {
-    await db.insert(messageEdits).values({
-      messageId: message.id,
-      blocks: message.blocks,
-      editedByType: editedBy.type,
-      editedById: editedBy.id,
-    });
+  editedBy: EditedBy,
+): Promise<Message | null> {
+  if (editedBy.history !== false) {
+    return rewriteMessageBlocks(db, message.id, () => blocks, editedBy);
   }
   const now = new Date();
   const [row] = await db
     .update(messages)
-    .set({ blocks, ...(keepHistory ? { editedAt: now } : {}), updatedAt: now })
-    .where(eq(messages.id, message.id))
+    .set({ blocks, updatedAt: now })
+    .where(and(eq(messages.id, message.id), isNull(messages.deletedAt)))
     .returning();
-  if (!row) throw new Error("message update returned no row");
-  return row;
+  return row ?? null;
+}
+
+/**
+ * Blocks rewritten from the row as it is now, not as some caller read it earlier. The row is
+ * locked for the length of the change, so two edits each record the version before their own, and
+ * two answers to one card see each other: `change` is handed the current row and may throw to
+ * refuse (a block somebody already answered), which rolls the whole change back.
+ *
+ * `change` runs inside the transaction and must not query anything itself.
+ */
+export async function rewriteMessageBlocks(
+  db: Db,
+  messageId: string,
+  change: (current: Message) => MessageBlock[],
+  editedBy: EditedBy,
+): Promise<Message | null> {
+  const keepHistory = editedBy.history !== false;
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(messages)
+      .where(and(eq(messages.id, messageId), isNull(messages.deletedAt)))
+      .for("update");
+    if (!current) return null;
+    const blocks = change(current);
+    if (keepHistory) {
+      await tx.insert(messageEdits).values({
+        messageId,
+        blocks: current.blocks,
+        editedByType: editedBy.type,
+        editedById: editedBy.id,
+      });
+    }
+    const now = new Date();
+    const [row] = await tx
+      .update(messages)
+      .set({ blocks, ...(keepHistory ? { editedAt: now } : {}), updatedAt: now })
+      .where(eq(messages.id, messageId))
+      .returning();
+    return row ?? null;
+  });
 }
 
 export async function listEdits(db: Db, messageId: string): Promise<MessageEdit[]> {
@@ -278,22 +318,32 @@ export async function listEdits(db: Db, messageId: string): Promise<MessageEdit[
     .orderBy(desc(messageEdits.createdAt));
 }
 
-/** Deleting leaves the row: a thread keeps its shape and a reply count stays honest. */
-export async function softDeleteMessage(db: Db, message: Message): Promise<Message> {
-  const now = new Date();
-  const [row] = await db
-    .update(messages)
-    .set({ deletedAt: now, blocks: [], updatedAt: now })
-    .where(eq(messages.id, message.id))
-    .returning();
-  if (!row) throw new Error("message delete returned no row");
-  if (message.threadRootId) {
-    await db
+/**
+ * Deleting leaves the row: a thread keeps its shape and a reply count stays honest. What the
+ * message said goes with it — its blocks and every earlier version in its history — so a delete is
+ * one, however many people pressed it at once.
+ *
+ * Null when it was already gone: the second of two deletes changes nothing, and takes nothing off
+ * the thread's count.
+ */
+export async function softDeleteMessage(db: Db, message: Message): Promise<Message | null> {
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const [row] = await tx
       .update(messages)
-      .set({ replyCount: sql`greatest(${messages.replyCount} - 1, 0)`, updatedAt: now })
-      .where(eq(messages.id, message.threadRootId));
-  }
-  return row;
+      .set({ deletedAt: now, blocks: [], updatedAt: now })
+      .where(and(eq(messages.id, message.id), isNull(messages.deletedAt)))
+      .returning();
+    if (!row) return null;
+    await tx.delete(messageEdits).where(eq(messageEdits.messageId, row.id));
+    if (row.threadRootId) {
+      await tx
+        .update(messages)
+        .set({ replyCount: sql`greatest(${messages.replyCount} - 1, 0)`, updatedAt: now })
+        .where(eq(messages.id, row.threadRootId));
+    }
+    return row;
+  });
 }
 
 export async function pinMessage(
@@ -355,8 +405,43 @@ export async function unbookmarkMessage(
   return rows.length > 0;
 }
 
-/** Everything one person saved for later (spec §4 "Later"), newest first. */
-export async function listBookmarks(db: Db, userId: string): Promise<MessageRow[]> {
+export type BookmarkQuery = {
+  userId: string;
+  workspaceId: string;
+  /**
+   * The channels the caller may open right now. A bookmark outlives a membership, so what it
+   * points at is checked against this every time rather than when it was saved.
+   */
+  scope: string[];
+  /** The page after this message's bookmark: older saves. */
+  before?: string | undefined;
+  limit?: number | undefined;
+};
+
+/**
+ * One person's saved-for-later list (spec §4 "Later") in one workspace, newest save first. Only
+ * messages in `scope` come back: a message in a channel the caller has since left, or in another
+ * workspace, is not theirs to read through a bookmark.
+ */
+export async function listBookmarks(db: Db, query: BookmarkQuery): Promise<MessageRow[]> {
+  if (query.scope.length === 0) return [];
+  const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+  const where = [
+    eq(bookmarks.userId, query.userId),
+    eq(messages.workspaceId, query.workspaceId),
+    inArray(messages.channelId, query.scope),
+    isNull(messages.deletedAt),
+  ];
+  if (query.before) {
+    // Bookmark ids are UUIDv7 (ADR-0025), so "saved before that one" is an id comparison.
+    const [cursor] = await db
+      .select({ id: bookmarks.id })
+      .from(bookmarks)
+      .where(and(eq(bookmarks.userId, query.userId), eq(bookmarks.messageId, query.before)))
+      .limit(1);
+    if (!cursor) return [];
+    where.push(lt(bookmarks.id, cursor.id));
+  }
   const rows = await db
     .select({
       message: messages,
@@ -369,10 +454,16 @@ export async function listBookmarks(db: Db, userId: string): Promise<MessageRow[
     .innerJoin(messages, eq(bookmarks.messageId, messages.id))
     .leftJoin(users, and(eq(messages.authorType, "user"), eq(messages.authorId, users.id)))
     .leftJoin(bots, and(eq(messages.authorType, "bot"), eq(messages.authorId, bots.id)))
-    .where(and(eq(bookmarks.userId, userId), isNull(messages.deletedAt)))
-    .orderBy(desc(bookmarks.createdAt));
+    .where(and(...where))
+    .orderBy(desc(bookmarks.id))
+    .limit(limit);
   const ids = rows.map((row) => row.message.id);
-  return decorate(rows, await pinnedIn(db, ids), new Set(ids), await reactionsOn(db, ids, userId));
+  return decorate(
+    rows,
+    await pinnedIn(db, ids),
+    new Set(ids),
+    await reactionsOn(db, ids, query.userId),
+  );
 }
 
 /** Where somebody has read up to, and how many of the unread ones named them. */

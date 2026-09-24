@@ -209,6 +209,28 @@ describe("inbound webhooks (task 3.4)", () => {
     expect(res.status).toBe(404);
   }, 60_000);
 
+  test("a connection an endpoint names is one this workspace has (A-rt-19)", async () => {
+    // An id that names no connection here is not found, and nothing is made — not a foreign-key
+    // failure answered as a 500.
+    const before = (await call(`/api/workspaces/${ws}/webhooks`)) as {
+      body: { webhooks: unknown[] };
+    };
+    const nowhere = await call(`/api/workspaces/${ws}/webhooks`, {
+      method: "POST",
+      json: {
+        provider: "github",
+        name: "Linked to nothing",
+        channel_id: channelId,
+        connection_id: crypto.randomUUID(),
+      },
+    });
+    expect(nowhere.status).toBe(404);
+    const after = (await call(`/api/workspaces/${ws}/webhooks`)) as {
+      body: { webhooks: unknown[] };
+    };
+    expect(after.body.webhooks).toHaveLength(before.body.webhooks.length);
+  }, 60_000);
+
   test("a provider that signs with its own key is set up the other way round (task 3.25)", async () => {
     const discord = parseManifest(MANIFESTS.discord ?? "");
     const keys = await ed25519Keypair();

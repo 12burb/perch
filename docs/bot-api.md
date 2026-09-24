@@ -108,9 +108,15 @@ Three rules hold everywhere:
   every other call is checked against them. Installing a bot is a person's decision, made in the
   Forge; there is no way for a bot to widen its own reach.
 - **A bot edits and deletes only its own messages.** `chat.update` on somebody else's message is a
-  `403`; on a message that does not exist, or one in a channel the bot is not in, a `404`.
+  `403`; on a message that does not exist, has been deleted, or is in a channel the bot is not in, a
+  `404`.
 - **A bot knows only its own workspace.** `users.info` answers for people in the bot's workspace
   and `404` for anybody else, the same `404` as for nobody at all.
+- **A bot sends a message's own blocks, not Perch's cards.** `text`, `code`, `file`, `tool_card`
+  and the interactive blocks are a bot's to send; the cards Perch posts about its own work
+  (`session_card`, `diff_card`, `race_card`, `deploy_card`, `queue_card`, `background_card`,
+  `preflight_card`, `plan_card`, `webhook_card`) are written only by the service that did the work,
+  and `chat.postMessage`/`chat.update` answer `422` for them (ADR-0174).
 
 `conversations.history`'s `oldest` is a page cursor, not a tail. Message ids are made when a message
 is written, not when it commits, so under concurrent posts a message can land with an id just older
