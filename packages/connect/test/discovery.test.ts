@@ -6,8 +6,10 @@ import {
   registerClient,
   resourceMetadataFromChallenge,
   resourceMetadataUrls,
+  sameResource,
   serverMetadataUrls,
 } from "../src/discovery.ts";
+import { deleteGitHubGrant, refreshTokens, revokeToken } from "../src/oauth.ts";
 
 /**
  * Task 2.14 (spec §3.5): finding the authorization server in front of an MCP server, its endpoints,
@@ -147,5 +149,147 @@ describe("MCP OAuth discovery", () => {
     await expect(
       registerClient("https://auth.example.test/register", {}, fetcher),
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  test("a protected-resource document for some other resource is not used (RFC 9728 §3.3)", async () => {
+    const { fetcher } = server({
+      "https://mcp.example.test/.well-known/oauth-protected-resource/mcp": {
+        resource: "https://elsewhere.example.test/mcp",
+        authorization_servers: ["https://auth.example.test"],
+      },
+    });
+    expect(await protectedResource("https://mcp.example.test/mcp", fetcher)).toBeNull();
+    // The same server in another spelling is still the same server.
+    expect(sameResource("https://MCP.example.test:443/mcp/", "https://mcp.example.test/mcp")).toBe(
+      true,
+    );
+    expect(sameResource("https://mcp.example.test/other", "https://mcp.example.test/mcp")).toBe(
+      false,
+    );
+  });
+
+  test("a document a 401 points at is held to the same rule", async () => {
+    const { fetcher } = server(
+      {
+        "https://mcp.example.test/mcp/meta": {
+          resource: "https://elsewhere.example.test/mcp",
+          authorization_servers: ["https://auth.example.test"],
+        },
+      },
+      { challenge: "https://mcp.example.test/mcp" },
+    );
+    expect(await protectedResource("https://mcp.example.test/mcp", fetcher)).toBeNull();
+  });
+
+  test("a server document for another issuer, or with plain-http endpoints, is not used", async () => {
+    const endpoints = {
+      authorization_endpoint: "https://auth.example.test/authorize",
+      token_endpoint: "https://auth.example.test/token",
+    };
+    const other = server({
+      "https://auth.example.test/.well-known/oauth-authorization-server": {
+        issuer: "https://impostor.example.test",
+        ...endpoints,
+      },
+    });
+    expect(await authorizationServer("https://auth.example.test", other.fetcher)).toBeNull();
+    const plain = server({
+      "https://auth.example.test/.well-known/oauth-authorization-server": {
+        issuer: "https://auth.example.test",
+        ...endpoints,
+        token_endpoint: "http://auth.example.test/token",
+      },
+    });
+    expect(await authorizationServer("https://auth.example.test", plain.fetcher)).toBeNull();
+    // On this machine, plain http is what a local server has.
+    const local = server({
+      "http://127.0.0.1:9999/.well-known/oauth-authorization-server": {
+        issuer: "http://127.0.0.1:9999",
+        authorization_endpoint: "http://127.0.0.1:9999/authorize",
+        token_endpoint: "http://127.0.0.1:9999/token",
+        revocation_endpoint: "http://127.0.0.1:9999/revoke",
+      },
+    });
+    const found = await authorizationServer("http://127.0.0.1:9999", local.fetcher);
+    expect(found?.revocation_endpoint).toBe("http://127.0.0.1:9999/revoke");
+  });
+});
+
+describe("refresh and revocation (ADR-0173)", () => {
+  type Sent = { url: string; method: string; headers: Headers; body: string };
+  function recorder(status = 200, answer: unknown = {}) {
+    const sent: Sent[] = [];
+    const fetcher = async (url: string, init?: RequestInit) => {
+      sent.push({
+        url,
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        body: String(init?.body ?? ""),
+      });
+      return Response.json(answer, { status });
+    };
+    return { sent, fetcher };
+  }
+
+  test("a refresh names the resource it is for (RFC 8707)", async () => {
+    const { sent, fetcher } = recorder(200, { access_token: "new", expires_in: 60 });
+    const tokens = await refreshTokens({
+      tokenUrl: "https://auth.example.test/token",
+      clientId: "dcr-1",
+      clientSecret: "shh",
+      refreshToken: "r-1",
+      resource: "https://mcp.example.test/mcp",
+      fetcher,
+    });
+    expect(tokens.accessToken).toBe("new");
+    const form = new URLSearchParams(sent[0]?.body);
+    expect(form.get("resource")).toBe("https://mcp.example.test/mcp");
+    expect(sent[0]?.headers.get("authorization")).toBe(`Basic ${btoa("dcr-1:shh")}`);
+  });
+
+  test("RFC 7009: the token goes back with its type and the client that holds it", async () => {
+    const { sent, fetcher } = recorder(200);
+    await revokeToken({
+      endpoint: "https://auth.example.test/revoke",
+      token: "r-1",
+      tokenTypeHint: "refresh_token",
+      clientId: "dcr-1",
+      fetcher,
+    });
+    const form = new URLSearchParams(sent[0]?.body);
+    expect(sent[0]?.method).toBe("POST");
+    expect(form.get("token")).toBe("r-1");
+    expect(form.get("token_type_hint")).toBe("refresh_token");
+    expect(form.get("client_id")).toBe("dcr-1");
+    expect(sent[0]?.headers.get("authorization")).toBeNull();
+    const refused = recorder(503);
+    await expect(
+      revokeToken({
+        endpoint: "https://auth.example.test/revoke",
+        token: "r-1",
+        clientId: "dcr-1",
+        fetcher: refused.fetcher,
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+
+  test("GitHub's grant deletion is the app's call, naming a token of the grant", async () => {
+    const { sent, fetcher } = recorder(204);
+    await deleteGitHubGrant({
+      apiBase: "https://api.github.test/",
+      clientId: "app-1",
+      clientSecret: "app-secret",
+      accessToken: "gho_1",
+      fetcher: async (url, init) => {
+        await fetcher(url, init);
+        return new Response(null, { status: 204 });
+      },
+    });
+    expect(sent[0]).toMatchObject({
+      url: "https://api.github.test/applications/app-1/grant",
+      method: "DELETE",
+    });
+    expect(sent[0]?.headers.get("authorization")).toBe(`Basic ${btoa("app-1:app-secret")}`);
+    expect(JSON.parse(sent[0]?.body ?? "{}")).toEqual({ access_token: "gho_1" });
   });
 });

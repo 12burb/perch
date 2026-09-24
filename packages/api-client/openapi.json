@@ -2974,9 +2974,6 @@
           },
           "callback_url": {
             "type": "string"
-          },
-          "webhook_url": {
-            "type": "string"
           }
         },
         "required": [
@@ -2985,8 +2982,7 @@
           "lanes",
           "api_base",
           "token_prefix",
-          "callback_url",
-          "webhook_url"
+          "callback_url"
         ]
       },
       "Connection": {
@@ -16796,7 +16792,7 @@
         "tags": [
           "connections"
         ],
-        "summary": "The services this instance can connect to, with its callback and webhook URLs",
+        "summary": "The services this instance can connect to, with the callback URL each one needs",
         "security": [
           {
             "session": []

@@ -64,6 +64,12 @@ const rawEnvSchema = z.object({
   PERCH_OIDC_CLIENT_ID: z.string().optional(),
   PERCH_OIDC_CLIENT_SECRET: z.string().optional(),
   PERCH_ALLOW_LOOPBACK_REDIRECTS: onOff.optional(),
+  /**
+   * Whether a URL a member supplies (a connection's API base or MCP server, a brain's base URL, a
+   * push endpoint) may reach private, loopback and link-local addresses (ADR-0173). On in laptop
+   * mode, where the network is the person's own; off in team mode unless the operator says so.
+   */
+  PERCH_OUTBOUND_ALLOW_PRIVATE: onOff.optional(),
   PERCH_DEFAULT_LOCALE: z.string().min(2).default("en"),
   PERCH_DEMO_WORKSPACE: onOff.optional(),
   /** Feature flags to turn on, comma-separated (spec §9.1; the instance setting `flags` wins). */
@@ -151,6 +157,8 @@ export type Env = {
   logPretty: boolean;
   oidc: { issuer: string; clientId: string; clientSecret: string } | undefined;
   allowLoopbackRedirects: boolean;
+  /** Member-supplied URLs may reach private addresses (ADR-0173). */
+  outboundAllowPrivate: boolean;
   defaultLocale: string;
   demoWorkspace: boolean;
   commit: string | undefined;
@@ -283,6 +291,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     logPretty: raw.PERCH_LOG_PRETTY ?? false,
     oidc,
     allowLoopbackRedirects: raw.PERCH_ALLOW_LOOPBACK_REDIRECTS ?? mode === "laptop",
+    outboundAllowPrivate: raw.PERCH_OUTBOUND_ALLOW_PRIVATE ?? mode === "laptop",
     defaultLocale: raw.PERCH_DEFAULT_LOCALE,
     demoWorkspace: raw.PERCH_DEMO_WORKSPACE ?? true,
     commit: raw.PERCH_COMMIT,

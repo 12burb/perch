@@ -14,6 +14,13 @@ import { schema } from "@perch/db";
 import type { Vault } from "@perch/vault";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import {
+  type FetchLike,
+  type OutboundOptions,
+  OutboundRefused,
+  outboundFetch,
+  requireReachable,
+} from "../net/outbound.ts";
+import {
   base64UrlDecode,
   base64UrlEncode,
   encryptPush,
@@ -43,8 +50,24 @@ export type PushMessage = {
 export type PushDeps = {
   db: { db: Db };
   vault: Vault;
-  env: { publicUrl: string };
+  /** `outboundAllowPrivate` is ADR-0173's setting: absent means public https endpoints only. */
+  env: { publicUrl: string; outboundAllowPrivate?: boolean | undefined };
 };
+
+/** How long one push service gets to take a message before it is given up on (ADR-0173). */
+export const PUSH_TIMEOUT_MS = 10_000;
+/** A push service answers with a status and next to nothing else; more than this is not one. */
+const PUSH_MAX_ANSWER_BYTES = 64 * 1024;
+
+/**
+ * Where a push endpoint may be (ADR-0173): a browser's push service is always a public https URL,
+ * so anything else — a plain-http URL, an address inside the api's own network — is refused when a
+ * device subscribes and again every time a message goes out. Laptop mode, or an operator who set
+ * PERCH_OUTBOUND_ALLOW_PRIVATE, relaxes both, which is where a stand-in push service lives.
+ */
+function endpointRules(deps: PushDeps): OutboundOptions {
+  return { policy: { allowPrivate: deps.env.outboundAllowPrivate ?? false }, requireHttps: true };
+}
 
 /**
  * The instance's VAPID keys, made once. The public half is handed to browsers; the private half
@@ -90,6 +113,7 @@ export async function subscribe(
     userAgent?: string | undefined;
   },
 ): Promise<PushSubscription> {
+  await requireReachable(input.endpoint, "endpoint", endpointRules(deps));
   const values = {
     userId: input.userId,
     endpoint: input.endpoint,
@@ -134,13 +158,16 @@ export type Delivery = { ok: boolean; status: number; gone: boolean };
 
 /**
  * One message to one device. A 404 or 410 is the push service saying that browser is gone for good,
- * and the subscription is retired rather than retried.
+ * and the subscription is retired rather than retried; so is an endpoint the outbound rules no
+ * longer allow (ADR-0173). A push service that does not answer within PUSH_TIMEOUT_MS is a failed
+ * delivery, not a message that waits on it.
  */
 export async function deliver(
   deps: PushDeps,
   subscription: PushSubscription,
   message: PushMessage,
-  fetcher: typeof fetch = fetch,
+  fetcher: FetchLike = fetch,
+  options: { timeoutMs?: number; signal?: AbortSignal | undefined } = {},
 ): Promise<Delivery> {
   const keys = await vapidKeys(deps);
   const body = await encryptPush(new TextEncoder().encode(JSON.stringify(message)), subscription);
@@ -148,9 +175,15 @@ export async function deliver(
     endpoint: subscription.endpoint,
     subject: subjectOf(deps),
   });
+  const guarded = outboundFetch({
+    ...endpointRules(deps),
+    transport: fetcher,
+    timeoutMs: options.timeoutMs ?? PUSH_TIMEOUT_MS,
+    maxBytes: PUSH_MAX_ANSWER_BYTES,
+  });
   let status = 0;
   try {
-    const res = await fetcher(subscription.endpoint, {
+    const res = await guarded(subscription.endpoint, {
       method: "POST",
       headers: {
         authorization,
@@ -160,18 +193,23 @@ export async function deliver(
         urgency: "normal",
       },
       body,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     status = res.status;
-  } catch {
-    // A push service that cannot be reached is not a subscription that is gone.
+    await res.body?.cancel().catch(() => {});
+  } catch (error) {
+    if (error instanceof OutboundRefused && error.kind === "refused") {
+      // Not a push service Perch will talk to: retired, like one that said it is gone.
+      await retire(deps, subscription);
+      return { ok: false, status: 0, gone: true };
+    }
+    // A push service that cannot be reached, or does not answer in time, is not a subscription
+    // that is gone.
     return { ok: false, status: 0, gone: false };
   }
   const gone = status === 404 || status === 410;
   if (gone) {
-    await deps.db.db
-      .update(pushSubscriptions)
-      .set({ expiredAt: new Date(), updatedAt: new Date() })
-      .where(eq(pushSubscriptions.id, subscription.id));
+    await retire(deps, subscription);
   } else if (status >= 200 && status < 300) {
     await deps.db.db
       .update(pushSubscriptions)
@@ -181,17 +219,26 @@ export async function deliver(
   return { ok: status >= 200 && status < 300, status, gone };
 }
 
-/** Every device one person has, told the same thing. */
+async function retire(deps: PushDeps, subscription: PushSubscription): Promise<void> {
+  await deps.db.db
+    .update(pushSubscriptions)
+    .set({ expiredAt: new Date(), updatedAt: new Date() })
+    .where(eq(pushSubscriptions.id, subscription.id));
+}
+
+/**
+ * Every device one person has, told the same thing — all at once, so one slow push service does
+ * not hold up the phone next to it.
+ */
 export async function notify(
   deps: PushDeps,
   userId: string,
   message: PushMessage,
-  fetcher: typeof fetch = fetch,
+  fetcher: FetchLike = fetch,
+  options: { timeoutMs?: number; signal?: AbortSignal | undefined } = {},
 ): Promise<Delivery[]> {
   const subscriptions = await subscriptionsOf(deps.db.db, userId);
-  const out: Delivery[] = [];
-  for (const subscription of subscriptions) {
-    out.push(await deliver(deps, subscription, message, fetcher));
-  }
-  return out;
+  return Promise.all(
+    subscriptions.map((subscription) => deliver(deps, subscription, message, fetcher, options)),
+  );
 }

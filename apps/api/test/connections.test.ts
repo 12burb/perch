@@ -121,7 +121,7 @@ describe("connections (task 1.16)", () => {
           id: string;
           lanes: string[];
           callback_url: string;
-          webhook_url: string;
+          webhook_url?: string;
           token_prefix: string[];
         }[];
       };
@@ -130,7 +130,10 @@ describe("connections (task 1.16)", () => {
     const github = providers.body.providers.find((p) => p.id === "github");
     expect(github?.lanes).toEqual(["github_app", "oauth2", "token"]);
     expect(github?.callback_url).toMatch(/\/api\/connect\/callback\/github$/);
-    expect(github?.webhook_url).toMatch(new RegExp(`/hooks/github/${ws}$`));
+    // No webhook URL is advertised here: one made from the workspace's id could never be
+    // delivered to. A webhook URL belongs to an endpoint made under .../webhooks (its id is in it),
+    // which is what the GitHub App card makes (webhooks.test.ts delivers to one).
+    expect(github?.webhook_url).toBeUndefined();
 
     // The paste lane. The token is checked against the provider before it is kept.
     const pasted = (await call(`/api/workspaces/${ws}/connections`, owner.cookie, {

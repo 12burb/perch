@@ -116,7 +116,7 @@ const EXEMPT: Record<string, { why: string; tokens: TokenRule }> = {
     tokens: { gated: "write scope, not bound: joining is past any one workspace" },
   },
   "GET /api/connect/callback/{provider}": {
-    why: "the OAuth state parameter is the authorization",
+    why: "the OAuth state, checked against the signed-in person who started the flow and its provider (ADR-0173)",
     tokens: { public: "the OAuth state" },
   },
   "GET /api/templates": {

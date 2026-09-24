@@ -231,6 +231,17 @@ a VAPID assertion (RFC 8292), so the push service carries ciphertext and learns 
 is for, not what it says. A push service that answers 404 or 410 has retired that device, and Perch
 stops using it.
 
+A push endpoint is somewhere the api posts to from its own network, so it has to look like what a
+browser's push service is (ADR-0173): an `https` URL on a public address. Anything else — plain
+`http`, loopback, a private range, the cloud metadata address — is refused with a `422` when the
+device subscribes, and again when a message goes out (a subscription that no longer passes is
+retired). Laptop mode, or `PERCH_OUTBOUND_ALLOW_PRIVATE=on`, relaxes both.
+
+A notification never holds up the message it is about. The push subscriber works detached from the
+`message.created` event, a push service gets ten seconds to take each message, and a person's
+devices are told at the same time rather than one after another. At shutdown, pushes still waiting
+on a push service are abandoned.
+
 The instance's VAPID key pair is made on first use and kept in `instance_settings`, the private half
 sealed by the vault: a laptop-mode Perch notifies people with no configuration at all.
 

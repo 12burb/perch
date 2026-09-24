@@ -17,6 +17,7 @@ export {
   registerClient,
   resourceMetadataFromChallenge,
   resourceMetadataUrls,
+  sameResource,
   serverMetadataUrls,
 } from "./discovery.ts";
 export {
@@ -63,12 +64,14 @@ export {
   type UpstreamTool,
 } from "./mcp.ts";
 export {
+  deleteGitHubGrant,
   exchangeCode,
   exchangeCodeAt,
   OAuthError,
   type OAuthStart,
   type OAuthTokens,
   refreshTokens,
+  revokeToken,
   startAuthorization,
   startAuthorizationAt,
 } from "./oauth.ts";

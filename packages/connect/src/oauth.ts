@@ -231,6 +231,8 @@ export async function refreshTokens(options: {
   clientSecret?: string | null | undefined;
   refreshToken: string;
   scopes?: readonly string[] | undefined;
+  /** RFC 8707: the MCP server the token is for, as on the exchange that issued it. */
+  resource?: string | undefined;
   fetcher?: ((input: string, init?: RequestInit) => Promise<Response>) | undefined;
 }): Promise<OAuthTokens> {
   const form = new URLSearchParams({
@@ -239,6 +241,7 @@ export async function refreshTokens(options: {
     client_id: options.clientId,
   });
   if (options.scopes?.length) form.set("scope", options.scopes.join(" "));
+  if (options.resource) form.set("resource", options.resource);
   const headers: Record<string, string> = {
     "content-type": "application/x-www-form-urlencoded",
     accept: "application/json",
@@ -274,4 +277,88 @@ export async function refreshTokens(options: {
     ...(expiresIn ? { expiresAt: new Date(Date.now() + expiresIn * 1000) } : {}),
     scopes: scope.split(/[\s,]+/).filter(Boolean),
   };
+}
+
+/** How long a provider gets to take a token back before Perch stops waiting (RFC 7009, GitHub). */
+const REVOKE_TIMEOUT_MS = 10_000;
+
+/**
+ * RFC 7009: hand a token back to the authorization server that issued it, so it stops working
+ * there too — revoking a refresh token ends the grant, access tokens included. The server answers
+ * 200 whether or not it still knew the token; anything else is an error the caller logs.
+ */
+export async function revokeToken(options: {
+  endpoint: string;
+  token: string;
+  tokenTypeHint?: "refresh_token" | "access_token" | undefined;
+  clientId: string;
+  clientSecret?: string | null | undefined;
+  fetcher?: ((input: string, init?: RequestInit) => Promise<Response>) | undefined;
+}): Promise<void> {
+  const form = new URLSearchParams({ token: options.token, client_id: options.clientId });
+  if (options.tokenTypeHint) form.set("token_type_hint", options.tokenTypeHint);
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  if (options.clientSecret) {
+    headers.authorization = `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`;
+  }
+  let response: Response;
+  try {
+    response = await (options.fetcher ?? fetch)(options.endpoint, {
+      method: "POST",
+      headers,
+      body: form.toString(),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new OAuthError(
+      `could not reach ${options.endpoint}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  await response.body?.cancel().catch(() => {});
+  if (!response.ok) {
+    throw new OAuthError(`the revocation endpoint answered ${response.status}`, response.status);
+  }
+}
+
+/**
+ * GitHub's own way to take an OAuth app's authorization back (its OAuth apps have no RFC 7009
+ * endpoint): `DELETE /applications/{client_id}/grant`, authenticated as the app, naming a token of
+ * the grant. Every token of that grant stops working. 204 is done; 404 is a grant already gone.
+ */
+export async function deleteGitHubGrant(options: {
+  apiBase: string;
+  clientId: string;
+  clientSecret: string;
+  accessToken: string;
+  fetcher?: ((input: string, init?: RequestInit) => Promise<Response>) | undefined;
+}): Promise<void> {
+  const url = `${options.apiBase.replace(/\/+$/, "")}/applications/${encodeURIComponent(options.clientId)}/grant`;
+  let response: Response;
+  try {
+    response = await (options.fetcher ?? fetch)(url, {
+      method: "DELETE",
+      headers: {
+        authorization: `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`,
+        accept: "application/vnd.github+json",
+        "content-type": "application/json",
+        "user-agent": "perch",
+      },
+      body: JSON.stringify({ access_token: options.accessToken }),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new OAuthError(
+      `could not reach ${options.apiBase}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  await response.body?.cancel().catch(() => {});
+  if (!response.ok && response.status !== 404) {
+    throw new OAuthError(
+      `GitHub answered ${response.status} to the grant deletion`,
+      response.status,
+    );
+  }
 }

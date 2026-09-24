@@ -33,7 +33,7 @@ export type BackgroundDeps = {
   bus: Bus;
   log: Logger;
   vault: Vault;
-  env: { publicUrl: string };
+  env: { publicUrl: string; outboundAllowPrivate?: boolean };
   sessions: Pick<SessionService, "create" | "sendTurn">;
   /** Overridable so a test can be the push service. */
   fetcher?: typeof fetch;

@@ -7318,3 +7318,75 @@ answers `not_found` there and stays the supervisor's to manage.
 must list it. A proxy other than the compose file's Caddy must be named, or every client is
 recorded as the proxy. Scripts that used a narrow or bound token for account-wide calls now get
 403, and should use a session or an unbound token with the scope the call needs.
+
+## ADR-0173: One checked door for member-supplied URLs, OAuth bound to its starter, and previews only where the api can vouch
+
+**Status:** accepted · **Task:** code review, batch connections-outbound · **Spec:** §3.5, §5.2,
+§5.6, §7.1, §7.6, §8, AGENTS.md §1.6
+
+The review found the api fetching URLs members typed with nothing between them and the api's own
+network (a connection's `api_base` and `mcp_url` and everything discovery finds from one, a brain's
+base URL, a push endpoint), a local runner's self-reported `preview_host` used as a proxy target,
+an OAuth callback not bound to the person who started it, the workspace's registered app secret
+reachable from a member-typed MCP server, MCP-lane connections that never refreshed, refreshes
+that raced each other into `invalid`, disconnects that never told the provider, a GitHub App card
+advertising a webhook URL nothing answers, and a message post that waited on a push service.
+
+**Decision.**
+
+1. **One outbound guard**, `apps/api/src/net/`: resolve the host, refuse if *any* address it
+   resolves to is loopback, private, link-local, CGN, multicast, reserved, or an IPv6 form of one
+   (IPv4-mapped, NAT64, 6to4); follow redirects by hand, checking each hop and dropping credentials
+   across origins; one deadline for the whole exchange (15 s default); a body cap (10 MiB default).
+   It is the default inside each service rather than something boot wires, and every
+   member-supplied URL goes through it — at the entry point as a `422` naming the field, and on
+   every fetch. URLs the operator configured (a manifest's own endpoints, `PERCH_OLLAMA_URL`, a
+   provider's built-in default) are exempt from the address check but keep the deadline and cap.
+2. **`PERCH_OUTBOUND_ALLOW_PRIVATE`** (new; on in laptop mode, off in team mode) relaxes the address
+   check. Laptop mode's whole point is local services, and a team instance next to a self-hosted
+   provider on a private network needs a way in; a boolean mirrors `PERCH_ALLOW_LOOPBACK_REDIRECTS`.
+   *Spec deviation:* §8's env list gains a variable.
+3. **The OAuth callback** finishes only for the signed-in user who started the flow and only on
+   its provider's path; the state is spent on refusal; the audit actor comes from the state. A flow
+   started with a bearer token is finished in a browser signed in as the same person — binding the
+   state to the user agent (RFC 6749 §10.12) is the point, so "no session" is refused rather than
+   trusted. The route stays public (it redirects with the reason).
+4. **Discovery**: a protected-resource document naming another resource, an authorization-server
+   document naming another issuer, or one whose endpoints are plain http off-loopback is not used
+   (RFC 9728 §3.3, RFC 8414 §3.3). The connection stores the typed (or manifest) MCP URL, the RFC
+   8707 resource, and the revocation endpoint.
+5. **The workspace's registered app** is used on the MCP lane only with the manifest's own MCP
+   server; a typed server gets CIMD or DCR. Refreshes apply the same rule to the stored row (a
+   legacy row whose MCP URL is not the manifest's never sends the registered secret). We chose
+   "manifest's own URL" over "issuer matches one stored with the registration": oauth_clients has
+   no issuer column, and the manifest is already the operator's statement of which server is real.
+6. **MCP-lane refresh** uses the stored token endpoint, client id and resource; a DCR-issued client
+   secret is sealed with the connection (in its vaulted pair, AAD = workspace). **Single-flight**
+   per connection id in process, the row re-read before refreshing, and a refused refresh re-reads
+   again: if the stored secret changed meanwhile (another process refreshed and spent the token),
+   its token is used and the connection stays active. We chose this compare-after-refusal over a
+   Postgres advisory lock because the lock would be held across an upstream HTTP call, pinning a
+   pooled connection — and on PGlite serialising every query — for the length of a provider's
+   answer.
+7. **Disconnect revokes**: RFC 7009 at the endpoint an MCP lane's authorization server names
+   (rediscovered for rows made before it was stored), GitHub's `DELETE /applications/{id}/grant`
+   for the GitHub OAuth-app lane. Best effort, logged, deleted anyway. Other oauth2 manifests name
+   no revocation endpoint; adding `oauth.revoke_url` to the manifest schema is left for a connector
+   change rather than done here.
+8. **Previews**: `preview_host` is honoured only for hosted runners (only the supervisor makes
+   those rows, and the channel refuses a registration whose kind differs from its row's) and the
+   in-process runner (never attached through the channel, so its id is not a runner uuid). Everyone
+   else is tunnel-only. The direct lane requires the port to be one that runner reported.
+9. **Push**: endpoints must be public https (relaxed by the setting above) at subscribe time and on
+   delivery; delivery has a 10 s deadline; a person's devices are told concurrently; the subscriber
+   runs detached from `message.created` with its own catch, and shutdown aborts what is still
+   waiting and awaits the rest before the database closes.
+10. **The GitHub App card** makes a real webhook endpoint (`POST .../webhooks {provider: "github"}`)
+    and shows its URL and one-time secret; `webhook_url` is dropped from `connection-providers`.
+
+**Consequences.** A team instance cannot be pointed at its own network by a member through any of
+these fields; laptop mode behaves as before. What remains: the guard checks addresses before the
+platform fetch resolves the name again, so DNS rebinding inside that window is narrowed, not
+closed; the per-call MCP gateway, pull-request and deploy fetches and the AI SDK's model calls still
+use the stored URL with the platform fetch (their URLs are checked when stored — the bots-runtime
+batch reuses the guard for `http_fetch`, and those call sites should adopt it too).

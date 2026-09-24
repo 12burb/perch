@@ -30,13 +30,27 @@ refused on its shape before Perch asks anyone anything.
 Server, a GitLab of your own. An empty box means the public one. It is stored with the connection,
 so every call Perch makes on it — the check above, a clone, a push, a pull request — goes there.
 
+An API base or MCP server you type is fetched by Perch's api, from the api's own network, so on a
+team instance it has to be a **public address** (ADR-0173): a URL whose host is, or resolves to,
+loopback, a private range, link-local (the cloud metadata address among them), carrier-grade NAT
+or an IPv6 form of any of those is refused with a `422` naming the field, before anything is
+called or kept. Redirects are followed one hop at a time and each hop is checked the same way. In
+laptop mode, where the network is your own, private addresses are allowed; an operator running a
+team instance next to a self-hosted provider on a private network can allow them too with
+`PERCH_OUTBOUND_ALLOW_PRIVATE=on`. A connector's own manifest endpoints are the operator's choice
+and are not checked.
+
 ### Setting up a GitHub App
 
 GitHub's remote MCP has no dynamic client registration, so an app is the way to give Perch a real
-identity there. The Connections card prefills the two URLs GitHub asks for:
+identity there. The Connections card gives you what GitHub's form asks for:
 
-- **Callback URL** — `<your Perch>/api/connect/callback/github`
-- **Webhook URL** — `<your Perch>/hooks/github/<workspace>`
+- **Callback URL** — `<your Perch>/api/connect/callback/github`, prefilled.
+- **Webhook URL** and **Webhook secret** — choose the channel the app's cards should go to and
+  press **Make webhook endpoint**. That makes an [inbound webhook](#inbound-webhooks) for GitHub
+  (an admin's call, like every webhook), and the card shows its URL,
+  `<your Perch>/hooks/github/<endpoint id>`, and its secret — **shown this once**, so paste both
+  into the app's webhook settings straight away.
 
 Create the app on GitHub with those, install it on the repositories you want, then paste its **App
 ID**, its **private key**, and the **installation ID** into the card. Perch stores only the private
@@ -58,13 +72,33 @@ server three questions, in the order the MCP authorization spec gives them:
    registered on the spot (RFC 7591). A server that offers none of the three leaves the paste lane,
    which every provider always has.
 
+Each answer is held to its own standard before it is used. A protected-resource document that
+names some other resource than the server asked about is passed over (RFC 9728 §3.3), whether it
+was found at the well-known path or through a `401`'s pointer; an authorization server's document
+whose `issuer` is not the one asked about is passed over (RFC 8414 §3.3); and one whose
+authorization, token, registration or revocation endpoint is plain `http` anywhere but this machine
+is passed over too, since a code, a token or a client secret would travel there.
+
 Then it is an ordinary OAuth 2.1 round-trip: PKCE with `S256`, and a `resource` parameter naming
 the MCP server the token is for, so a token minted for one server cannot be replayed at another
-(RFC 8707). The access token and its refresh token go into the vault; the card shows the lane the
-connection was made on and nothing else.
+(RFC 8707). The access token and its refresh token go into the vault — and, for a client the server
+registered on the spot, the secret it issued, which a refresh needs again; the card shows the lane
+the connection was made on and nothing else. The connection's MCP server is the one the manifest
+names, or the one you typed — never whatever a metadata document called itself.
 
 **MCP server** is the same escape hatch **API base** is: leave it empty for the provider's public
 server, fill it in for one you host yourself.
+
+### Finishing a sign-in
+
+The provider sends you back to `/api/connect/callback/<provider>` with the state Perch gave you when
+you pressed Connect. Perch finishes only for **the person who started it, in a browser signed in to
+Perch as them**, and only on the provider it was started for (RFC 6749 §10.12). An authorize link
+opened by somebody else — sent on, or pasted into the wrong window — is refused, and so is a
+browser with no Perch session: the state is spent either way, the code is never traded, and nobody's
+account is attached to a connection its owner did not start. A flow started from the SDK or the
+CLI is finished the same way, in a browser signed in as you. The connection is recorded as made by
+whoever started it.
 
 ### Using your own app
 
@@ -73,6 +107,12 @@ the callback URL shown in the card, and paste the client id — and the secret, 
 one, which is sealed in the vault like any other credential. Perch prefers that app over registering
 one itself, which is what you want when the provider's dashboard is where your organisation's
 audit trail lives.
+
+On the MCP lane the registered app is used only with **the provider's own MCP server** — the one
+its manifest names. An MCP server somebody types in is somewhere the app was never registered, and
+its metadata could name any token endpoint at all, so a sign-in through one uses this instance's
+client metadata document or a client that server registers, never the workspace's app or its secret
+(ADR-0173). Refreshes follow the same rule.
 
 ## Who may use a connection
 
@@ -147,6 +187,31 @@ there is one, else the client the provider issued through dynamic registration. 
 refuses — a refresh token revoked, an app deleted — the connection is marked **Not accepted** and
 the call fails with that, rather than with whatever the provider says a moment later to a token it
 has already rejected.
+
+A connection made through **Sign in through its MCP server** refreshes the same way, at the token
+endpoint discovery found when it was made, as the client it was made with — with the secret that
+client was issued, sealed with the connection — and naming the same resource (ADR-0173).
+
+One refresh runs at a time per connection: calls that arrive while it is out wait for its answer
+rather than spending the same refresh token again, which a provider that rotates refresh tokens
+would refuse. And a refusal is not taken at its word if what is stored changed while the refresh
+was out — another api process refreshed first, spending the token this one used — in which case
+its fresh token is used and the connection stays **Active**.
+
+## Disconnecting
+
+**Disconnect** hands the tokens back to the provider before Perch forgets them (spec §3.5 "revoke
+on disconnect"; ADR-0173):
+
+- a connection made through **Sign in through its MCP server** is revoked at the RFC 7009 endpoint
+  its authorization server names — the refresh token, which ends the whole grant;
+- a GitHub connection made through **Sign in** deletes its grant through GitHub's API
+  (`DELETE /applications/{client_id}/grant`), as the app you registered;
+- other providers' manifests name no revocation endpoint, and a pasted token or an app installation
+  is yours to revoke where you made it.
+
+Handing back is best effort: a provider that is down or refuses is logged, and the connection is
+removed from Perch either way.
 
 ## Connectors
 

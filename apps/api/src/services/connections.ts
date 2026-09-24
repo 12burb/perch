@@ -18,6 +18,7 @@ import {
   callbackUrl,
   chooseClient,
   clientMetadata,
+  deleteGitHubGrant,
   exchangeCode,
   exchangeCodeAt,
   type FetchLike,
@@ -29,6 +30,7 @@ import {
   protectedResource,
   type RegistrationLane,
   refreshTokens,
+  revokeToken,
   startAuthorization,
   startAuthorizationAt,
   tokenHeaders,
@@ -46,8 +48,16 @@ import type {
 } from "@perch/db";
 import type { Vault } from "@perch/vault";
 import type { Logger } from "pino";
+import { z } from "zod";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
+import {
+  type OutboundPolicy,
+  outboundFetch,
+  PUBLIC_ONLY,
+  requireReachable,
+  sameUrl,
+} from "../net/outbound.ts";
 import {
   deleteConnection,
   deleteGrant,
@@ -72,6 +82,12 @@ export type ConnectionsDeps = {
   publicUrl: string;
   /** Overridable so a test can stand in for a provider. */
   fetch?: FetchLike;
+  /**
+   * What a URL a member supplied may reach (ADR-0173): a connection's `api_base` or `mcp_url`, and
+   * everything MCP discovery finds from one. Absent means public addresses only; boot passes laptop
+   * mode's (or the operator's) allowance. The manifest's own endpoints are the operator's, and exempt.
+   */
+  outbound?: OutboundPolicy | undefined;
   /**
    * A directory of `<id>/manifest.yaml` to read on top of the built-in connectors (spec §5.5
    * "Everything else via manifests"; task 3.11, PERCH_CONNECTORS_DIR).
@@ -138,10 +154,44 @@ const AAD = (workspaceId: string) => `connection:${workspaceId}`;
 /** How close to expiry a token is refreshed at: a minute, so a call in flight does not run out. */
 const REFRESH_SKEW_MS = 60_000;
 
+/**
+ * What an OAuth connection keeps in the vault: both tokens, and — for a client a server registered
+ * on the spot (RFC 7591) — the secret it issued, which a refresh and a revocation need again.
+ */
+const tokenPairSchema = z.object({
+  access: z.string(),
+  refresh: z.string().optional(),
+  client_secret: z.string().optional(),
+});
+type TokenPair = z.infer<typeof tokenPairSchema>;
+
+/** Whether a token is close enough to expiry to be swapped before it is used. */
+function dueForRefresh(row: Connection): boolean {
+  const expires = row.expiresAt?.getTime();
+  return expires !== undefined && expires - Date.now() <= REFRESH_SKEW_MS;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Where and as whom a connection's tokens are refreshed and handed back. */
+type ClientFor = {
+  tokenUrl: string;
+  clientId: string;
+  clientSecret: string | null;
+  resource?: string | undefined;
+  fetcher: FetchLike;
+};
+
 export class ConnectionsService {
   private readonly manifests = new Map<string, Manifest>();
   /** Authorizations in flight, by state (see Pending below). */
   private readonly pending = new Map<string, Pending>();
+  /** Refreshes in flight, by connection id: one at a time per connection (ADR-0173). */
+  private readonly refreshing = new Map<string, Promise<string | null>>();
 
   constructor(private readonly deps: ConnectionsDeps) {
     // The ones this build ships, then any this instance was given a directory of. A manifest that
@@ -226,6 +276,7 @@ export class ConnectionsService {
         expected: manifest.token_prefix,
       });
     }
+    await this.checkOverrides(manifest, input);
     const checked = await this.check(manifest, token, input.apiBase);
     return this.store({
       ...input,
@@ -265,6 +316,7 @@ export class ConnectionsService {
     }
     const secret: AppSecret = { appId: input.appId.trim(), privateKey: input.privateKey };
     if (!secret.appId) throw PerchError.validation("an app connection needs the app id");
+    await this.checkOverrides(manifest, input);
     // Minting once proves the key, the app id, and the installation all line up before it is kept.
     let minted: { token: string; expiresAt: Date };
     try {
@@ -273,7 +325,7 @@ export class ConnectionsService {
         privateKeyPem: secret.privateKey,
         installationId: input.installationId,
         apiBase: apiBaseOf(manifest, input.apiBase),
-        ...(this.deps.fetch ? { fetch: this.deps.fetch } : {}),
+        fetch: this.restFetch(manifest, input.apiBase),
       });
     } catch (error) {
       throw this.upstream(error, manifest);
@@ -340,16 +392,42 @@ export class ConnectionsService {
   /**
    * The other half: the code comes back, is traded for tokens, and becomes a connection. The state
    * is single-use — a replayed callback finds nothing, which is the point of keeping it.
+   *
+   * The state is bound to the person who started the flow and the provider it was started for
+   * (RFC 6749 §10.12). A callback that arrives in a browser signed in as somebody else — someone
+   * handed another person's authorize link — or on another provider's path is refused, and the
+   * state is spent either way, so an account can never be attached to a connection its owner did
+   * not start. Who the connection is recorded as having been made by is the starter, from the
+   * state, never whoever's browser it happens to be.
    */
-  async finishOAuth(input: { state: string; code: string; by: ActorContext }): Promise<Connection> {
+  async finishOAuth(input: {
+    state: string;
+    code: string;
+    /** The provider named in the callback's path. */
+    provider: string;
+    /** Who is signed in to Perch in the browser that came back, or null for nobody. */
+    userId: string | null;
+    /** The request's own id and address, for the audit row. */
+    meta: ActorContext["meta"];
+  }): Promise<Connection> {
     const pending = this.pending.get(input.state);
     this.pending.delete(input.state);
     if (!pending || pending.expiresAt < Date.now()) {
       throw PerchError.validation("this authorization is not one Perch is waiting for");
     }
+    if (pending.provider !== input.provider) {
+      throw PerchError.validation("this authorization was started for another service");
+    }
+    if (input.userId !== pending.userId) {
+      throw PerchError.forbidden(
+        "finish connecting in a browser signed in to Perch as the person who started it",
+        { reason: "authorization_started_by_someone_else" },
+      );
+    }
+    const by: ActorContext = { actor: { type: "user", id: pending.userId }, meta: input.meta };
     const manifest = this.manifest(pending.provider);
     // The MCP lane traded at endpoints discovery found, not at the manifest's (task 2.14).
-    if (pending.mcp) return this.finishMcpOAuth(manifest, pending, input);
+    if (pending.mcp) return this.finishMcpOAuth(manifest, pending, { code: input.code, by });
     const client = await findOauthClient(this.deps.db, pending.workspaceId, pending.provider);
     if (!client) throw PerchError.validation("the app this started with is gone");
     const secret = client.ciphertextSecret
@@ -379,11 +457,11 @@ export class ConnectionsService {
       secret: JSON.stringify({
         access: tokens.accessToken,
         ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
-      }),
+      } satisfies TokenPair),
       scopes: tokens.scopes.length > 0 ? tokens.scopes : checked.scopes,
       expiresAt: tokens.expiresAt ?? null,
       metadata: checked.account ? { account: checked.account } : {},
-      by: input.by,
+      by,
     });
   }
 
@@ -406,7 +484,7 @@ export class ConnectionsService {
       code: input.code,
       codeVerifier: pending.codeVerifier,
       resource: mcp.resource,
-      ...(this.deps.fetch ? { fetcher: this.deps.fetch } : {}),
+      fetcher: mcp.override ? this.guarded() : this.direct(),
     }).catch((error: unknown) => {
       throw PerchError.validation(
         `${manifest.name} refused the code: ${error instanceof Error ? error.message : String(error)}`,
@@ -421,16 +499,24 @@ export class ConnectionsService {
       secret: JSON.stringify({
         access: tokens.accessToken,
         ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
-      }),
+        // A client registered on the spot is this connection's alone: its secret is sealed with
+        // it, for the refreshes and the revocation that need it again. A workspace's own app's
+        // secret stays with the app.
+        ...(mcp.lane === "dcr" && mcp.clientSecret ? { client_secret: mcp.clientSecret } : {}),
+      } satisfies TokenPair),
       scopes: tokens.scopes,
       expiresAt: tokens.expiresAt ?? null,
       // Everything here is public: which lane, which server, which client. The secret is vaulted.
+      // The MCP server is the one the member typed, if they typed one — never whatever a metadata
+      // document said it was.
       metadata: {
         lane: mcp.lane,
         issuer: mcp.issuer,
         tokenEndpoint: mcp.tokenEndpoint,
         clientId: mcp.clientId,
-        mcpUrl: mcp.resource,
+        resource: mcp.resource,
+        ...(mcp.override ? { mcpUrl: mcp.override } : {}),
+        ...(mcp.revocationEndpoint ? { revocationEndpoint: mcp.revocationEndpoint } : {}),
       },
       by: input.by,
     });
@@ -441,6 +527,11 @@ export class ConnectionsService {
    * task 2.14). Ask the provider's MCP server which authorization server guards it, ask that server
    * where its endpoints are, and be somebody it will talk to — an app registered here, this
    * instance's own metadata document, or a client registered on the spot.
+   *
+   * An MCP server a member typed is somewhere the operator never vouched for (ADR-0173): every
+   * request discovery makes from it goes through the outbound checks, and the workspace's own
+   * registered app — whose secret would travel to whatever token endpoint that server names — is
+   * used only with the manifest's own MCP server. A typed server gets CIMD or a client of its own.
    */
   async startMcpOAuth(input: {
     workspaceId: string;
@@ -452,11 +543,13 @@ export class ConnectionsService {
     mcpUrl?: string | undefined;
   }): Promise<{ url: string; state: string; lane: RegistrationLane }> {
     const manifest = this.manifest(input.provider);
-    const mcpUrl = input.mcpUrl?.trim() || mcpUrlOf(manifest);
+    const override = this.mcpOverride(manifest, input.mcpUrl);
+    const mcpUrl = override ?? mcpUrlOf(manifest);
     if (!mcpUrl) {
       throw PerchError.validation(`${manifest.name} has no MCP server; paste a token instead`);
     }
-    const fetcher: FetchLike = this.deps.fetch ?? fetch;
+    if (override) await requireReachable(override, "mcp_url", { policy: this.policy() });
+    const fetcher = override ? this.guarded() : this.direct();
     const resource = await protectedResource(mcpUrl, fetcher);
     const issuer = resource?.authorization_servers[0];
     if (!issuer) {
@@ -468,7 +561,9 @@ export class ConnectionsService {
     if (!server) {
       throw PerchError.validation(`${issuer} does not publish its endpoints`);
     }
-    const registered = await findOauthClient(this.deps.db, input.workspaceId, input.provider);
+    const registered = override
+      ? null
+      : await findOauthClient(this.deps.db, input.workspaceId, input.provider);
     const secret = registered?.ciphertextSecret
       ? await this.deps.vault
           .decryptString(registered.ciphertextSecret, AAD(input.workspaceId))
@@ -489,12 +584,15 @@ export class ConnectionsService {
       ),
       fetcher,
     });
+    // The resource the token is asked for: the document's own spelling of it, which RFC 9728 has
+    // already checked names the server asked about.
+    const resourceId = resource?.resource ?? mcpUrl;
     const started = startAuthorizationAt({
       authorizeUrl: server.authorization_endpoint,
       clientId: choice.clientId,
       redirectUri: this.callback(input.provider),
       scopes: input.scopes ?? resource?.scopes_supported ?? server.scopes_supported ?? [],
-      resource: resource?.resource ?? mcpUrl,
+      resource: resourceId,
     });
     this.pending.set(started.state, {
       workspaceId: input.workspaceId,
@@ -509,7 +607,9 @@ export class ConnectionsService {
         ...(choice.clientSecret ? { clientSecret: choice.clientSecret } : {}),
         issuer,
         tokenEndpoint: server.token_endpoint,
-        resource: resource?.resource ?? mcpUrl,
+        resource: resourceId,
+        ...(server.revocation_endpoint ? { revocationEndpoint: server.revocation_endpoint } : {}),
+        ...(override ? { override } : {}),
       },
     });
     this.sweep();
@@ -559,31 +659,43 @@ export class ConnectionsService {
    * token, and one that is being used gets a fresh one at the moment it matters. A refresh that
    * fails marks the connection invalid and says so rather than handing back a token that will be
    * refused by the provider a moment later.
+   *
+   * One refresh at a time per connection (ADR-0173): callers that arrive while one is running wait
+   * for its answer instead of spending the same refresh token a second time — a provider that
+   * rotates refresh tokens refuses the second use, and that refusal is not a dead connection.
    */
   private async refreshed(
     manifest: Manifest,
     row: Connection,
-    pair: { access: string; refresh?: string },
+    pair: TokenPair,
   ): Promise<string | null> {
-    if (!manifest.oauth?.refresh || !pair.refresh) return null;
-    const expires = row.expiresAt?.getTime();
-    if (expires === undefined || expires - Date.now() > REFRESH_SKEW_MS) return null;
-    const client = await findOauthClient(this.deps.db, row.workspaceId, row.provider);
-    const issuer = row.metadata.tokenEndpoint ?? manifest.oauth.token_url;
-    const clientId = row.metadata.clientId ?? client?.clientId;
-    if (!clientId) return null;
-    const clientSecret = client?.ciphertextSecret
-      ? await this.deps.vault
-          .decryptString(client.ciphertextSecret, AAD(row.workspaceId))
-          .catch(() => null)
-      : null;
+    if (!pair.refresh || !dueForRefresh(row)) return null;
+    const running = this.refreshing.get(row.id);
+    if (running) return running;
+    const work = this.refreshOnce(manifest, row).finally(() => {
+      this.refreshing.delete(row.id);
+    });
+    this.refreshing.set(row.id, work);
+    return work;
+  }
+
+  private async refreshOnce(manifest: Manifest, seen: Connection): Promise<string | null> {
+    // Start from what is stored now, not from the row the caller read: another api process may
+    // have refreshed this connection in between, and then its token is the one to use.
+    const row = (await getConnection(this.deps.db, seen.id)) ?? seen;
+    const pair = await this.pairOf(row);
+    if (!dueForRefresh(row)) return pair.access;
+    if (!pair.refresh) return null;
+    const client = await this.clientFor(manifest, row, pair);
+    if (!client) return null;
     try {
       const tokens = await refreshTokens({
-        tokenUrl: issuer,
-        clientId,
-        clientSecret,
+        tokenUrl: client.tokenUrl,
+        clientId: client.clientId,
+        clientSecret: client.clientSecret,
         refreshToken: pair.refresh,
-        ...(this.deps.fetch ? { fetcher: this.deps.fetch } : {}),
+        resource: client.resource,
+        fetcher: client.fetcher,
       });
       await updateConnectionSecret(this.deps.db, row.id, {
         ciphertext: await this.deps.vault.encrypt(
@@ -592,7 +704,8 @@ export class ConnectionsService {
             // `refreshTokens` hands back the one it was given when the provider does not rotate,
             // so this is always the refresh token to keep.
             ...(tokens.refreshToken ? { refresh: tokens.refreshToken } : {}),
-          }),
+            ...(pair.client_secret ? { client_secret: pair.client_secret } : {}),
+          } satisfies TokenPair),
           AAD(row.workspaceId),
         ),
         expiresAt: tokens.expiresAt ?? null,
@@ -606,6 +719,12 @@ export class ConnectionsService {
       );
       return tokens.accessToken;
     } catch (error) {
+      // Refused — but if what is stored changed while this refresh was out, another process's
+      // refresh landed first (and spent the refresh token this one used). Its token is good.
+      const latest = await getConnection(this.deps.db, row.id);
+      if (latest && !sameBytes(latest.ciphertext, row.ciphertext)) {
+        return (await this.pairOf(latest)).access;
+      }
       // The provider said no: the connection needs somebody to sign in again, and a card that says
       // "invalid" is more use than a call that fails a second later for a reason nobody sees.
       await setConnectionStatus(this.deps.db, row.id, "invalid");
@@ -618,29 +737,80 @@ export class ConnectionsService {
   }
 
   /**
+   * Where a connection's tokens are refreshed and handed back, and as which client — or null when
+   * this connection has no such place.
+   *
+   * The MCP lane uses the token endpoint and client stored with it. Its client secret depends on
+   * the lane: a client registered on the spot has its own, sealed with the connection; the
+   * workspace's own app's secret is used only against the manifest's own MCP server (ADR-0173) and
+   * only while that app is still the one registered; a CIMD client has none.
+   */
+  private async clientFor(
+    manifest: Manifest,
+    row: Connection,
+    pair: TokenPair,
+  ): Promise<ClientFor | null> {
+    if (row.kind === "mcp_oauth") {
+      const tokenUrl = row.metadata.tokenEndpoint;
+      const clientId = row.metadata.clientId;
+      if (!tokenUrl || !clientId) return null;
+      const override = this.mcpOverride(manifest, row.metadata.mcpUrl);
+      const clientSecret =
+        row.metadata.lane === "dcr"
+          ? (pair.client_secret ?? null)
+          : row.metadata.lane === "pre_registered" && !override
+            ? await this.registeredSecret(row.workspaceId, row.provider, clientId)
+            : null;
+      // Rows made before the resource was stored kept it as their MCP server's URL.
+      const resource = row.metadata.resource ?? row.metadata.mcpUrl;
+      return {
+        tokenUrl,
+        clientId,
+        clientSecret,
+        ...(resource ? { resource } : {}),
+        fetcher: override ? this.guarded() : this.direct(),
+      };
+    }
+    if (row.kind === "oauth2" && manifest.oauth?.refresh) {
+      const client = await findOauthClient(this.deps.db, row.workspaceId, row.provider);
+      if (!client) return null;
+      return {
+        tokenUrl: manifest.oauth.token_url,
+        clientId: client.clientId,
+        clientSecret: await this.registeredSecret(row.workspaceId, row.provider, client.clientId),
+        fetcher: this.direct(),
+      };
+    }
+    return null;
+  }
+
+  /** The workspace's registered app's secret, while `clientId` is still that app's id. */
+  private async registeredSecret(
+    workspaceId: string,
+    provider: string,
+    clientId: string,
+  ): Promise<string | null> {
+    const client = await findOauthClient(this.deps.db, workspaceId, provider);
+    if (!client?.ciphertextSecret || client.clientId !== clientId) return null;
+    return this.deps.vault
+      .decryptString(client.ciphertextSecret, AAD(workspaceId))
+      .catch(() => null);
+  }
+
+  /**
    * The token to call this provider with, right now. For a pasted token that is what was pasted;
    * for an app it is an installation token minted for this call. The only place a secret leaves
    * the vault, and it is never returned to a caller — only handed to the code making the request.
    */
   async tokenFor(row: Connection): Promise<string> {
     const manifest = this.manifest(row.provider);
-    const secret = await this.secret(row);
     // Both OAuth kinds store the pair (`{ access, refresh }`); only the access token ever leaves.
     if (row.kind === "oauth2" || row.kind === "mcp_oauth") {
-      let pair: { access: string; refresh?: string };
-      try {
-        pair = JSON.parse(secret) as { access: string; refresh?: string };
-      } catch {
-        throw new PerchError(
-          "upstream_failed",
-          "this connection could not be read",
-          undefined,
-          502,
-        );
-      }
+      const pair = await this.pairOf(row);
       const fresher = await this.refreshed(manifest, row, pair);
       return fresher ?? pair.access;
     }
+    const secret = await this.secret(row);
     if (row.kind !== "github_app") return secret;
     let app: AppSecret;
     try {
@@ -658,7 +828,7 @@ export class ConnectionsService {
         privateKeyPem: app.privateKey,
         installationId: installation,
         apiBase: apiBaseOf(manifest, row.metadata.apiBase),
-        ...(this.deps.fetch ? { fetch: this.deps.fetch } : {}),
+        fetch: this.restFetch(manifest, row.metadata.apiBase),
       });
       return minted.token;
     } catch (error) {
@@ -801,13 +971,133 @@ export class ConnectionsService {
     };
   }
 
+  /**
+   * Disconnects: the tokens are handed back to the provider first (spec §3.5 "revoke on
+   * disconnect"; ADR-0173), then forgotten here. Handing back is best effort — a provider that is
+   * down, or names nowhere to revoke at, is logged — and the connection goes either way.
+   */
   async remove(row: Connection, by: ActorContext): Promise<void> {
+    await this.revokeUpstream(row).catch((error: unknown) => {
+      this.deps.log.warn(
+        { err: error, connectionId: row.id, provider: row.provider },
+        "a connection's tokens could not be revoked at the provider",
+      );
+    });
     await deleteConnection(this.deps.db, row.id);
     await this.deps.bus.publish(
       "connection.revoked",
       { workspaceId: row.workspaceId, connectionId: row.id, provider: row.provider },
       { ...by, topics: [`ws:${row.workspaceId}`] },
     );
+  }
+
+  /**
+   * The provider's side of a disconnect. An MCP-lane connection revokes at the RFC 7009 endpoint
+   * its authorization server named (discovered again for a connection made before it was kept); a
+   * GitHub OAuth-app connection deletes its grant through GitHub's API, as the registered app.
+   * Other OAuth providers' manifests name no revocation endpoint, so there is nothing to call.
+   */
+  private async revokeUpstream(row: Connection): Promise<void> {
+    if (row.kind !== "oauth2" && row.kind !== "mcp_oauth") return;
+    const manifest = this.manifests.get(row.provider);
+    if (!manifest) return;
+    const pair = await this.pairOf(row);
+    if (row.kind === "mcp_oauth") {
+      const clientId = row.metadata.clientId;
+      if (!clientId) return;
+      const override = this.mcpOverride(manifest, row.metadata.mcpUrl);
+      const fetcher = override ? this.guarded() : this.direct();
+      let endpoint = row.metadata.revocationEndpoint;
+      if (!endpoint && row.metadata.issuer) {
+        endpoint = (await authorizationServer(row.metadata.issuer, fetcher))?.revocation_endpoint;
+      }
+      if (!endpoint) return;
+      const client = await this.clientFor(manifest, row, pair);
+      await revokeToken({
+        endpoint,
+        // Revoking the refresh token ends the whole grant, access token included (RFC 7009 §2.1).
+        token: pair.refresh ?? pair.access,
+        tokenTypeHint: pair.refresh ? "refresh_token" : "access_token",
+        clientId,
+        clientSecret: client?.clientSecret ?? null,
+        fetcher,
+      });
+      return;
+    }
+    if (manifest.id !== "github") return;
+    const registered = await findOauthClient(this.deps.db, row.workspaceId, row.provider);
+    if (!registered) return;
+    const secret = await this.registeredSecret(row.workspaceId, row.provider, registered.clientId);
+    if (!secret) return;
+    await deleteGitHubGrant({
+      apiBase: apiBaseOf(manifest, row.metadata.apiBase),
+      clientId: registered.clientId,
+      clientSecret: secret,
+      accessToken: pair.access,
+      fetcher: this.restFetch(manifest, row.metadata.apiBase),
+    });
+  }
+
+  private policy(): OutboundPolicy {
+    return this.deps.outbound ?? PUBLIC_ONLY;
+  }
+
+  /**
+   * The fetch for an endpoint the manifest names. That is the operator's say-so, so there are no
+   * address checks (ADR-0173) — but the same deadline, redirect handling and size cap, so a
+   * provider that hangs cannot hold a request, or a disconnect, open.
+   */
+  private direct(): FetchLike {
+    return outboundFetch({ policy: { allowPrivate: true }, transport: this.deps.fetch });
+  }
+
+  /** The fetch for anything a member supplied, or that was found from it (ADR-0173). */
+  private guarded(): FetchLike {
+    return outboundFetch({ policy: this.policy(), transport: this.deps.fetch });
+  }
+
+  /** A member's `api_base`, when it is not simply the manifest's own; null otherwise. */
+  private apiOverride(manifest: Manifest, apiBase: string | null | undefined): string | null {
+    const value = apiBase?.trim();
+    return value && !sameUrl(value, manifest.api_base) ? value : null;
+  }
+
+  /** A member's `mcp_url`, when it is not simply the manifest's own; null otherwise. */
+  private mcpOverride(manifest: Manifest, mcpUrl: string | null | undefined): string | null {
+    const value = mcpUrl?.trim();
+    return value && !sameUrl(value, manifest.mcp_url) ? value : null;
+  }
+
+  /** How the REST API behind this connection is called: checked when a member chose where it is. */
+  private restFetch(manifest: Manifest, apiBase: string | null | undefined): FetchLike {
+    return this.apiOverride(manifest, apiBase) ? this.guarded() : this.direct();
+  }
+
+  /** The URLs a member typed, checked before anything is called or kept (ADR-0173). */
+  private async checkOverrides(
+    manifest: Manifest,
+    input: { apiBase?: string | undefined; mcpUrl?: string | undefined },
+  ): Promise<void> {
+    const api = this.apiOverride(manifest, input.apiBase);
+    if (api) await requireReachable(api, "api_base", { policy: this.policy() });
+    const mcp = this.mcpOverride(manifest, input.mcpUrl);
+    if (mcp) await requireReachable(mcp, "mcp_url", { policy: this.policy() });
+  }
+
+  /** An OAuth connection's stored pair, read through its schema. */
+  private async pairOf(row: Connection): Promise<TokenPair> {
+    const secret = await this.secret(row);
+    let raw: unknown = null;
+    try {
+      raw = JSON.parse(secret);
+    } catch {
+      raw = null;
+    }
+    const parsed = tokenPairSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new PerchError("upstream_failed", "this connection could not be read", undefined, 502);
+    }
+    return parsed.data;
   }
 
   /** The manifest's test call. The token goes out in one header and appears nowhere else. */
@@ -817,7 +1107,7 @@ export class ConnectionsService {
     apiBase?: string | null,
   ): Promise<{ account: string | null; scopes: string[] }> {
     const base = apiBaseOf(manifest, apiBase);
-    const call: FetchLike = this.deps.fetch ?? fetch;
+    const call = this.restFetch(manifest, apiBase);
     let response: Response;
     try {
       response = await call(`${base}${manifest.test_path}`, {
@@ -932,6 +1222,10 @@ export type Pending = {
     issuer: string;
     tokenEndpoint: string;
     resource: string;
+    /** RFC 7009's endpoint, when the authorization server names one. */
+    revocationEndpoint?: string | undefined;
+    /** The MCP server the member typed, when it is not the manifest's own (ADR-0173). */
+    override?: string | undefined;
   };
 };
 

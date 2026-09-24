@@ -16,6 +16,7 @@ import {
   botsQuery,
   type ConnectionProviderRow,
   type ConnectionRow,
+  channelsQuery,
   connectionGrantsQuery,
   connectionProvidersQuery,
   connectionsQuery,
@@ -443,7 +444,12 @@ function Connect(props: {
       ) : null}
 
       {chosen === "github_app" && provider ? (
-        <AppWizard formId={formId} provider={provider} />
+        <AppWizard
+          formId={formId}
+          workspaceId={props.workspaceId}
+          canAdmin={props.canAdmin}
+          provider={provider}
+        />
       ) : null}
 
       {(chosen === "mcp_oauth" || chosen === "oauth2") && provider ? (
@@ -570,16 +576,21 @@ function ByoApp(props: { workspaceId: string; provider: ConnectionProviderRow })
   );
 }
 
-/** The two URLs a GitHub App needs, prefilled, because nobody should have to work them out. */
-function AppWizard(props: { formId: string; provider: ConnectionProviderRow }) {
+/**
+ * What a GitHub App needs from Perch, so nobody has to work it out: the callback URL, prefilled,
+ * and a webhook endpoint of its own (below) — a URL with that endpoint's id in it and the secret
+ * GitHub signs deliveries with.
+ */
+function AppWizard(props: {
+  formId: string;
+  workspaceId: string;
+  canAdmin: boolean;
+  provider: ConnectionProviderRow;
+}) {
   const [copied, setCopied] = useState<string | null>(null);
   const copy = (label: string, value: string) => {
     void navigator.clipboard?.writeText(value).then(() => setCopied(label));
   };
-  const rows: { label: string; value: string }[] = [
-    { label: t("connections.callbackUrl"), value: props.provider.callback_url },
-    { label: t("connections.webhookUrl"), value: props.provider.webhook_url },
-  ];
   return (
     <div className="flex flex-col gap-3 rounded border border-border p-3">
       <div className="flex flex-col gap-1">
@@ -596,23 +607,19 @@ function AppWizard(props: { formId: string; provider: ConnectionProviderRow }) {
           </a>
         ) : null}
       </div>
-      {rows.map((row) => (
-        <div key={row.label} className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{row.label}</span>
-          {/* Wrapped, not scrolled: a scrollable box would need its own focus stop, and a URL
-              that wraps is easier to read on a phone than one that scrolls sideways. */}
-          <code className="min-w-0 flex-1 break-all rounded bg-raised px-2 py-1 text-xs">
-            {row.value}
-          </code>
-          <Button
-            size="sm"
-            onClick={() => copy(row.label, row.value)}
-            aria-label={t("connections.copy", { label: row.label })}
-          >
-            {copied === row.label ? t("connections.copied") : t("common.copy")}
-          </Button>
-        </div>
-      ))}
+      <CopyRow
+        label={t("connections.callbackUrl")}
+        value={props.provider.callback_url}
+        copied={copied}
+        onCopy={copy}
+      />
+      <AppWebhook
+        workspaceId={props.workspaceId}
+        canAdmin={props.canAdmin}
+        provider={props.provider}
+        copied={copied}
+        onCopy={copy}
+      />
       <Field id={`${props.formId}-app-id`} label={t("connections.appId")}>
         {(control) => <Input {...control} name="app_id" required maxLength={64} />}
       </Field>
@@ -632,5 +639,137 @@ function AppWizard(props: { formId: string; provider: ConnectionProviderRow }) {
         )}
       </Field>
     </div>
+  );
+}
+
+/** One value to paste somewhere else, with a button that copies it. */
+function CopyRow(props: {
+  label: string;
+  value: string;
+  copied: string | null;
+  onCopy: (label: string, value: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-sm font-medium">{props.label}</span>
+      {/* Wrapped, not scrolled: a scrollable box would need its own focus stop, and a URL that
+          wraps is easier to read on a phone than one that scrolls sideways. */}
+      <code className="min-w-0 flex-1 break-all rounded bg-raised px-2 py-1 text-xs">
+        {props.value}
+      </code>
+      <Button
+        size="sm"
+        onClick={() => props.onCopy(props.label, props.value)}
+        aria-label={t("connections.copy", { label: props.label })}
+      >
+        {props.copied === props.label ? t("connections.copied") : t("common.copy")}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The webhook half of a GitHub App. A delivery lands on an endpoint made under `.../webhooks`: its
+ * URL carries the endpoint's id, its secret is what GitHub signs with, and it is wired to the
+ * channel its cards go to. So the card makes one — an admin's call, like every webhook — and shows
+ * the URL and the secret, the secret exactly once.
+ */
+function AppWebhook(props: {
+  workspaceId: string;
+  canAdmin: boolean;
+  provider: ConnectionProviderRow;
+  copied: string | null;
+  onCopy: (label: string, value: string) => void;
+}) {
+  const id = useId();
+  const channels = useQuery({
+    ...channelsQuery(props.workspaceId),
+    enabled: props.canAdmin && props.workspaceId !== "",
+  });
+  const named = (channels.data ?? []).filter((row) => row.name);
+  const [channelId, setChannelId] = useState("");
+  const chosen = channelId || (named[0]?.id ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const make = useMutation({
+    mutationFn: async (channel: string) =>
+      unwrap(
+        await api.POST("/api/workspaces/{ws}/webhooks", {
+          params: { path: { ws: props.workspaceId } },
+          body: {
+            provider: props.provider.id,
+            name: t("connections.webhookName", { name: props.provider.name }),
+            channel_id: channel,
+          },
+        }),
+      ),
+    onSuccess: () => setError(null),
+    onError: (err) => setError(message(err)),
+  });
+  if (!props.canAdmin) {
+    return <p className="text-sm text-fg-muted">{t("connections.webhookAdminOnly")}</p>;
+  }
+  const made = make.data;
+  return (
+    <section
+      aria-label={t("connections.webhook")}
+      className="flex flex-col gap-2 rounded border border-border bg-raised p-2"
+    >
+      <h4 className="text-sm font-semibold">{t("connections.webhook")}</h4>
+      <p className="text-sm text-fg-muted">{t("connections.webhookHint")}</p>
+      {made ? (
+        <>
+          <CopyRow
+            label={t("connections.webhookUrl")}
+            value={made.webhook.url}
+            copied={props.copied}
+            onCopy={props.onCopy}
+          />
+          {made.secret ? (
+            <CopyRow
+              label={t("connections.webhookSecret")}
+              value={made.secret}
+              copied={props.copied}
+              onCopy={props.onCopy}
+            />
+          ) : null}
+          <p role="status" className="text-sm text-fg-muted">
+            {t("connections.webhookSecretOnce")}
+          </p>
+        </>
+      ) : named.length === 0 ? (
+        <p className="text-sm text-fg-muted">{t("connections.webhookNoChannels")}</p>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2">
+          <Field id={`${id}-channel`} label={t("connections.webhookChannel")}>
+            {(control) => (
+              <select
+                {...control}
+                value={chosen}
+                onChange={(event) => setChannelId(event.target.value)}
+                className="h-9 rounded border border-border bg-surface px-2"
+              >
+                {named.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {`#${row.name}`}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Button
+            size="sm"
+            disabled={!chosen || make.isPending}
+            onClick={() => make.mutate(chosen)}
+          >
+            {t("connections.webhookMake")}
+          </Button>
+        </div>
+      )}
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }

@@ -168,6 +168,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     vault,
     log,
     ...(env.ollamaUrls.length > 0 ? { ollamaUrls: env.ollamaUrls } : {}),
+    outbound: { allowPrivate: env.outboundAllowPrivate },
   });
   const connections = new ConnectionsService({
     db: db.db,
@@ -177,6 +178,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     publicUrl: env.publicUrl,
     // Connectors this instance was given rather than built with (spec §5.5; task 3.11).
     connectorsDir: env.connectorsDir,
+    // What a member-supplied URL may reach (ADR-0173).
+    outbound: { allowPrivate: env.outboundAllowPrivate },
   });
   const mcp = new McpGateway({
     db: db.db,
@@ -317,7 +320,7 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
     bus,
     log,
     vault,
-    env: { publicUrl: env.publicUrl },
+    env: { publicUrl: env.publicUrl, outboundAllowPrivate: env.outboundAllowPrivate },
     sessions,
   });
   // The project's own tests after a round that wrote something, with a failure fed back as the
@@ -451,6 +454,8 @@ export async function boot(options: BootOptions = {}): Promise<Booted> {
       // What a bot was in the middle of saying finishes, so its `bot_runs` row is not left
       // `running` for ever (task 2.6's note in ADR-0096, possible again since ADR-0109).
       await bots.settled();
+      // A push already under way finishes its bookkeeping before the database goes (ADR-0173).
+      await stopPush.settled();
       await db.close();
       // Last: a span written while the exporter was shutting down is a span nobody gets.
       await tracing?.shutdown().catch(() => undefined);

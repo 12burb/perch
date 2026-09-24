@@ -40,6 +40,8 @@ const serverSchema = z
     authorization_endpoint: z.string(),
     token_endpoint: z.string(),
     registration_endpoint: z.string().optional(),
+    /** RFC 7009: where a token is handed back when a connection is removed. */
+    revocation_endpoint: z.string().optional(),
     scopes_supported: z.array(z.string()).optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
     grant_types_supported: z.array(z.string()).optional(),
@@ -88,6 +90,62 @@ export function resourceMetadataUrls(mcpUrl: string): string[] {
   return urls;
 }
 
+/**
+ * Whether two resource identifiers name the same MCP server: scheme and host case-insensitively,
+ * default ports dropped, and a trailing slash ignored — the spellings the same server publishes.
+ */
+export function sameResource(a: string, b: string): boolean {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    const path = (url: URL) => url.pathname.replace(/\/+$/, "");
+    return (
+      left.protocol === right.protocol &&
+      left.host === right.host &&
+      path(left) === path(right) &&
+      left.search === right.search
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * RFC 9728 §3.3: a protected-resource document is for the resource it names, and one that names a
+ * different resource than the one asked about must not be used — otherwise a document reached
+ * through any pointer could send the token somewhere else.
+ */
+function resourceFor(body: unknown, mcpUrl: string): ProtectedResource | null {
+  const parsed = resourceSchema.safeParse(body);
+  if (!parsed.success || parsed.data.authorization_servers.length === 0) return null;
+  if (parsed.data.resource !== undefined && !sameResource(parsed.data.resource, mcpUrl)) {
+    return null;
+  }
+  return parsed.data;
+}
+
+/** This machine, by name or by number: the one place a plain-http OAuth endpoint is acceptable. */
+function isLoopback(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    /^127(?:\.\d{1,3}){3}$/.test(host) ||
+    host === "::1"
+  );
+}
+
+/** An endpoint a token or a code may be sent to: https, or plain http on this machine only. */
+function safeEndpoint(value: string | undefined): boolean {
+  if (value === undefined) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || (url.protocol === "http:" && isLoopback(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
 /** What a 401 says about where its metadata is (RFC 9728 §5.1), when it says anything. */
 export function resourceMetadataFromChallenge(header: string | null): string | null {
   if (!header) return null;
@@ -97,7 +155,8 @@ export function resourceMetadataFromChallenge(header: string | null): string | n
 
 /**
  * Which authorization server guards this MCP server. The published document first; failing that,
- * the server's own 401, which is what an implementation that predates RFC 9728 gives you.
+ * the server's own 401, which is what an implementation that predates RFC 9728 gives you. A
+ * document that names some other resource is passed over (RFC 9728 §3.3).
  */
 export async function protectedResource(
   mcpUrl: string,
@@ -106,8 +165,8 @@ export async function protectedResource(
   for (const url of resourceMetadataUrls(mcpUrl)) {
     const body = await json(fetcher, url);
     if (body) {
-      const parsed = resourceSchema.safeParse(body);
-      if (parsed.success && parsed.data.authorization_servers.length > 0) return parsed.data;
+      const found = resourceFor(body, mcpUrl);
+      if (found) return found;
     }
   }
   // Ask the resource itself: an MCP server that wants a token says so, and may say where to get one.
@@ -119,9 +178,8 @@ export async function protectedResource(
     if (answer.status === 401) {
       const pointed = resourceMetadataFromChallenge(answer.headers.get("www-authenticate"));
       if (pointed) {
-        const body = await json(fetcher, pointed);
-        const parsed = resourceSchema.safeParse(body);
-        if (parsed.success && parsed.data.authorization_servers.length > 0) return parsed.data;
+        const found = resourceFor(await json(fetcher, pointed), mcpUrl);
+        if (found) return found;
       }
     }
   } catch {
@@ -142,15 +200,31 @@ export function serverMetadataUrls(issuer: string): string[] {
   ];
 }
 
+/**
+ * The authorization server's endpoints. A document is used only when it is the issuer's own (RFC
+ * 8414 §3.3: its `issuer` is the one asked about) and every endpoint it names is https — plain
+ * http only on this machine — since a code, a token and a client secret all travel to them.
+ */
 export async function authorizationServer(
   issuer: string,
   fetcher: FetchLike = fetch,
 ): Promise<AuthorizationServer | null> {
+  const asked = issuer.replace(/\/+$/, "");
   for (const url of serverMetadataUrls(issuer)) {
     const body = await json(fetcher, url);
     if (!body) continue;
     const parsed = serverSchema.safeParse(body);
-    if (parsed.success) return parsed.data;
+    if (!parsed.success) continue;
+    const server = parsed.data;
+    if (server.issuer.replace(/\/+$/, "") !== asked) continue;
+    const endpoints = [
+      server.authorization_endpoint,
+      server.token_endpoint,
+      server.registration_endpoint,
+      server.revocation_endpoint,
+    ];
+    if (!endpoints.every(safeEndpoint)) continue;
+    return server;
   }
   return null;
 }

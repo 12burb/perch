@@ -5416,7 +5416,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** The services this instance can connect to, with its callback and webhook URLs */
+        /** The services this instance can connect to, with the callback URL each one needs */
         get: {
             parameters: {
                 query?: never;
@@ -15622,7 +15622,6 @@ export type components = {
             api_base: string;
             token_prefix: string[];
             callback_url: string;
-            webhook_url: string;
         };
         Connection: {
             /** Format: uuid */

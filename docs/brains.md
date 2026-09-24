@@ -29,6 +29,14 @@ Workspace settings → **Brains**. Two lists:
 | **Scope** | *Only me* — a personal key, invisible to everyone else in the workspace, in the list and to any session but yours. *Everyone in the workspace* — a shared key; adding or removing one is an admin's call. |
 | **Base URL** | Optional for a key (it overrides the provider's default, which is how you point at a proxy or a gateway), required for an endpoint that has no default. |
 
+A base URL you type is where the api itself sends every call on that credential, so on a team
+instance it has to be a **public address** (ADR-0173): one that is, or resolves to, loopback, a
+private range, link-local or carrier-grade NAT is refused with a `422` when the credential is added,
+and the model list (**Test**) is fetched through the same checks. The provider's own default and a
+`PERCH_OLLAMA_URL` are the operator's, not a member's, and are exempt — so the instance's Ollama
+still works. In laptop mode private addresses are allowed; a team instance whose models live on a
+private network can allow them with `PERCH_OUTBOUND_ALLOW_PRIVATE=on`.
+
 The key is typed once. It is encrypted with the instance vault before it touches the database and
 never comes back: the API answers with a hint, which is enough to tell two keys apart and useless
 to anyone who reads it. No route, transcript, bus event, or log line carries a key
@@ -78,6 +86,7 @@ Google do not publish that shape, so their model ids are typed rather than picke
 | Variable | Does |
 |---|---|
 | `PERCH_OLLAMA_URL` | An extra place to look for a local Ollama, tried before the default port. Comma-separated for several. |
+| `PERCH_OUTBOUND_ALLOW_PRIVATE` | Whether a base URL a member types may be a private, loopback or link-local address. On in laptop mode, off in team mode (ADR-0173). |
 
 ## Roles
 

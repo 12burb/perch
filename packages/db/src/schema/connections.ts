@@ -56,6 +56,10 @@ export type ConnectionMetadata = {
   tokenEndpoint?: string;
   /** The client id used, which is public in every lane; a secret, when there is one, is vaulted. */
   clientId?: string;
+  /** The RFC 8707 resource the token was issued for, so a refresh asks for the same one. */
+  resource?: string;
+  /** RFC 7009: where the token is handed back when the connection is removed (ADR-0173). */
+  revocationEndpoint?: string;
 };
 
 export const connections = pgTable(

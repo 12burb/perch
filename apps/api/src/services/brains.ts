@@ -30,6 +30,14 @@ import type { Logger } from "pino";
 import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import {
+  type FetchLike,
+  type OutboundPolicy,
+  outboundFetch,
+  PUBLIC_ONLY,
+  requireReachable,
+  sameUrl,
+} from "../net/outbound.ts";
+import {
   defaultProfile,
   deleteCredential,
   deleteProfile,
@@ -51,6 +59,13 @@ export type BrainsDeps = {
   log: Logger;
   /** Where a local Ollama might be, beyond the default port (PERCH_OLLAMA_URL). */
   ollamaUrls?: readonly string[];
+  /**
+   * What a base URL a member typed may reach (ADR-0173). Absent means public addresses only; boot
+   * passes laptop mode's (or the operator's) allowance.
+   */
+  outbound?: OutboundPolicy | undefined;
+  /** What makes the catalog request under the outbound checks (tests stand in for a provider). */
+  fetch?: FetchLike | undefined;
 };
 
 /** A credential as a caller may see it: everything except the secret. */
@@ -142,6 +157,11 @@ export class BrainsService {
     if (input.kind === "endpoint" && !baseUrl && !info.baseUrl) {
       throw PerchError.validation("an endpoint credential needs a base URL");
     }
+    // A base URL is where every call on this credential goes, from the api's own network: one a
+    // member typed has to be somewhere public, unless it is one the operator configured (ADR-0173).
+    if (baseUrl && !this.operatorConfigured(input.provider, baseUrl)) {
+      await requireReachable(baseUrl, "base_url", { policy: this.policy() });
+    }
     const row = await insertCredential(this.deps.db, {
       workspaceId: input.workspaceId,
       scope: input.scope,
@@ -193,11 +213,17 @@ export class BrainsService {
    */
   async models(row: ProviderCredential): Promise<CatalogModel[]> {
     const secret = await this.secret(row);
+    // The catalog request goes through the outbound checks unless the URL is the operator's own.
+    const guarded =
+      row.baseUrl && !this.operatorConfigured(row.provider, row.baseUrl)
+        ? outboundFetch({ policy: this.policy(), transport: this.deps.fetch })
+        : this.deps.fetch;
     try {
       const models = await listModels({
         provider: row.provider,
         baseUrl: row.baseUrl,
         apiKey: secret || null,
+        ...(guarded ? { fetch: guarded } : {}),
       });
       if (row.status !== "active") await setCredentialStatus(this.deps.db, row.id, "active");
       return models;
@@ -336,6 +362,20 @@ export class BrainsService {
    */
   async secretOf(row: ProviderCredential): Promise<string> {
     return this.secret(row);
+  }
+
+  private policy(): OutboundPolicy {
+    return this.deps.outbound ?? PUBLIC_ONLY;
+  }
+
+  /**
+   * Whether a base URL is one the operator put there rather than one a member typed: the provider's
+   * own default, or a PERCH_OLLAMA_URL. Those are not a member's say-so, so they are exempt from the
+   * outbound checks (ADR-0173).
+   */
+  private operatorConfigured(provider: string, baseUrl: string): boolean {
+    const known = [providerInfo(provider)?.baseUrl, ...(this.deps.ollamaUrls ?? [])];
+    return known.some((url) => sameUrl(url, baseUrl));
   }
 
   private async secret(row: ProviderCredential): Promise<string> {

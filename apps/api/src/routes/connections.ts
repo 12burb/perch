@@ -6,7 +6,7 @@
  * it speaks as, and a hint — never the secret. The test call doubles as proof it still works.
  */
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
-import { AUTH_KINDS, CIMD_PATH, clientMetadata, lanesOf, webhookUrl } from "@perch/connect";
+import { AUTH_KINDS, CIMD_PATH, clientMetadata, lanesOf } from "@perch/connect";
 import { type ConnectionGrant, GRANT_SUBJECTS } from "@perch/db";
 import { actorOf, authorize } from "../auth/authorize.ts";
 import { currentUser, requireUser } from "../auth/middleware.ts";
@@ -31,9 +31,11 @@ const providerSchema = z
     lanes: z.array(z.enum(AUTH_KINDS)),
     api_base: z.string(),
     token_prefix: z.array(z.string()),
-    /** Prefilled for the wizard, so nobody has to work out their own public URL. */
+    /**
+     * Prefilled for the wizard, so nobody has to work out their own public URL. A webhook URL is
+     * not here: each one belongs to an endpoint made under `.../webhooks`, whose id is in it.
+     */
     callback_url: z.string(),
-    webhook_url: z.string(),
   })
   .openapi("ConnectionProvider");
 
@@ -60,7 +62,7 @@ const providersRoute = createRoute({
   method: "get",
   path: "/api/workspaces/{ws}/connection-providers",
   tags: ["connections"],
-  summary: "The services this instance can connect to, with its callback and webhook URLs",
+  summary: "The services this instance can connect to, with the callback URL each one needs",
   middleware: [requireUser] as const,
   security: SESSION_OR_BEARER,
   request: { params: wsParam },
@@ -439,7 +441,6 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
           api_base: manifest.api_base,
           token_prefix: manifest.token_prefix,
           callback_url: connections.callback(manifest.id),
-          webhook_url: webhookUrl(deps.env.publicUrl, manifest.id, ws),
         })),
       },
       200,
@@ -524,10 +525,16 @@ export function registerConnections(app: OpenAPIHono<AppEnv>, deps: Deps): void 
       return c.redirect(`${back}?error=${encodeURIComponent(reason)}`, 302);
     }
     try {
+      // Whoever is signed in on this browser, if anybody. The service finishes only for the person
+      // who started the flow (RFC 6749 §10.12), and records the connection as theirs, from the
+      // state — this browser's session is checked against it, never trusted in its place.
+      const signedIn = c.get("user");
       const row = await connections.finishOAuth({
         state: query.state,
         code: query.code,
-        by: actorOf(c),
+        provider,
+        userId: signedIn?.id ?? null,
+        meta: signedIn ? actorOf(c).meta : { requestId: c.get("requestId") },
       });
       return c.redirect(`${back}?connected=${encodeURIComponent(row.provider)}`, 302);
     } catch (error) {
