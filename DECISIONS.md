@@ -6924,297 +6924,6 @@ token as far as it can.
   the tests above, not by a built image; the image build in CI is the first real run of the root
   agent, `setpriv` and `perch-as` together.
 
-## ADR-0178: Code mode's client keeps what it was told, and a change of person starts the tab over
-
-**Status:** accepted · **Task:** code review, batch web-code-mode · **Spec:** §1.6, §1.7, §4, §5.1, §5.5, §7.2, §7.8, ADR-0167
-
-Twenty review findings on Code mode's panes and the web client's plumbing, under five decisions.
-
-**The transcript feed reads until it has caught up, and never folds a new ask into an old read.**
-`TranscriptFeed.catchUp` fetched one page of 1,000 events and stopped, so a session with long
-streamed replies opened without its later turns or its pending permission; it now reads page after
-page until it reaches the `last_seq` the api answers with (a page that moves nothing ends the run,
-so an odd answer cannot spin it). An ask that arrived while a read was on its way used to join that
-read, and an event committed after it (a permission, the moment before `needs_you`) was never
-fetched; a run now records the ask and reads once more from where it got to, one extra read however
-many asks joined. Both are in `apps/web/test/transcript-feed.test.ts`.
-
-**A permission is live only while the api can still take its answer.** Answers are not session
-events (a person's answer reaches the engine, and only the live `session.permission_answered`
-envelope says what it was), so a replay brought back every permission ever asked with active
-Allow / Deny buttons, each of which answered 404. `reduceTranscript` now takes the session's status
-and offers buttons only on the last permission, only while nothing that ends its round follows it,
-and only when the session `needs_you` (or the moment before the status catches up: running or not
-yet known, with the permission the very last record). Every other permission shows the answer the
-pane saw live, or a neutral "Answered". The deviation: spec §5.1 describes the prompt with its three
-answers and says nothing of replays; persisting the answer as a session event would let a replay say
-which answer was given, and is left for a change to the §7.6 event set rather than made here. The
-`TranscriptItem` permission's `answer` gains the `"answered"` value in `@perch/ui`.
-
-**What the person typed or queued is not dropped on a refusal or a race.** A save that answers late
-moves only the saved snapshot (`markSaved`), so typing done meanwhile stays, dirty. A turn the api
-refuses keeps its context chips and gives the Composer its text back (the Composer now restores the
-text when `onSend` rejects). A ⌘K prompt action waits on the action queue, not on a mount: the pane
-subscribes to its project's entry, sends it once the session is loaded and neither running nor
-waiting on a person, takes it off the queue only then, and puts it back when a round started in
-between (409). A run action is typed into a connected terminal at once (the drawer subscribes to
-the terminal queue), and Reconnect reattaches to the saved shell; only New shell forgets it. The
-session pane is keyed by session, so a dialog, a rename form or accepted hunks never carry over to
-another session. A branch switch invalidates the project's file queries under the key they really
-have and reloads the open buffers from the new branch (an unsaved edit goes with the old branch's
-text rather than being written onto the new one).
-
-**A change of person starts the tab over.** Nothing in the web client was keyed by user: the query
-cache (`["me"]`, `["workspaces"]`, the inbox), the editor's buffers, chips and queues all survived
-sign-out, and `ensureQueryData` handed the next person the previous one's identity and workspaces.
-Signing out, signing in and signing up now end in a full page load (`startFresh` in
-`apps/web/src/lib/fresh-start.ts`): the one reset that cannot miss a store somebody adds later, at
-the cost of one page load at a moment the person expects one. Sign-out first releases the device's
-push subscription while the session still works (Perch deletes the row, then the browser
-unsubscribes, bounded to five seconds and never blocking the sign-out), so the signed-out person's
-previews stop arriving on a shared machine.
-
-**The client reads what the api answered, and only that.** `unwrap` treats an ok response with no
-body (a 204) as the success it is, and `RequestFailed` narrows the error body to the §7.8 shape
-before reading it, so a proxy's HTML 502 is "request failed with 502", not a TypeError. The file
-tree and its search say why a request failed instead of showing an empty tree or "No matches". The
-Database panel draws tables and result rows a hundred at a time (`shownRows`) and is registered in
-the perf net with the paging as its proof. `modeFromPath` matches `/settings` exactly, and the api
-reserves the web app's top-level route names and the server's own prefixes as workspace slugs
-(`RESERVED_SLUGS`: an explicit one is a 422, one derived from a name gets a suffix). Existing
-workspaces with such a slug keep it; renaming one away is the owner's choice. The accessibility
-sweep audits Code mode's Projects page too.
-
-## ADR-0177: The queue holds every branch to its checks, and the api settles what a restart cut off
-
-**Status:** accepted · **Task:** code review, batch merge-queue-work-restart · **Spec:** §5.7, §6, §7.1, §7.6, §8, §9.1, ADR-0069, ADR-0131, ADR-0133, ADR-0165
-
-Findings X-spec-04, A-sm-08, A-sm-09, A-sm-15, X-data-13, A-sm-16, A-sm-24, X-data-18, X-data-03,
-X-data-14, A-sm-12, A-co-16 and A-co-17. One rule under all of them: a promise Perch makes (a branch
-lands behind its checks, an item has one agent, a race waits for its entrants) has to survive the
-paths nobody drew — a failed runner call, a double click, a restart.
-
-**The queue never lands a branch unchecked, never makes one, and runs as whoever queued it.** A
-missing worktree used to mean "skip the checks": any `worktree.create` failure (the branch checked
-out in the project directory, a timeout, a name the runner's schema refuses) landed the branch
-unchecked. A project with a check command now fails the entry (`runner`, with the reason) when
-there is nowhere to run them; a branch checked out in the project directory says so. Before any of
-that the queue lists the project's branches (`git.branch`) and fails `no such branch` for a branch
-or base that is not there, so a typo is no longer made from the base and reported "landed"; the
-lookup no longer passes a base, so nothing on the queue's path creates a branch. `land()` runs as
-`entry.requestedBy` (falling back to the project's creator) instead of the user whose `add()` started
-the pump. The agent is asked to fix only what it can fix — a conflict or red checks; a runner
-failure is the card's and the item's to say, not a turn telling the agent its checks failed.
-
-**The queue picks itself up.** ADR-0165's lease was checked only when something new was queued, so
-after a restart nothing moved. `MergeQueueService.start()` (called only by the process that owns
-the work, below) resumes every project with waiting or landing entries on a timer — a minute by
-default, the first tick a minute after boot so runners have reconnected — and from `start()` on, a
-landing claimed before the process started is failed at once rather than after its lease: the
-process that claimed it is gone. This assumes one api process lands branches, which is the
-deployment spec §8 describes; a second api would have its in-flight landing failed by the other's
-boot.
-
-**A restart ends what it cut off.** Rounds, pending permissions and engine handles live in the
-process; after a restart nothing finishes them, so races waited for ever, board items stayed
-`running`, and agent presence listed ghosts. At boot the owning process marks `coding_sessions` in
-`running`/`needs_you` as `error` with "interrupted by a restart", appends that error to the
-transcript and publishes `session.error` and `session.status` (so the board moves the item to Needs
-you, a race counts the entrant as failed, and background cards follow), marks `bot_runs` in
-`running` as `error` and publishes `bot.run_failed` (the owner's inbox hears it), and marks
-`bot_chains` hops in `running` as `error` (no event: the hop's run already has one, and
-`bot.chain_breaker` means the rails paused a thread, which is not what happened). `error` rather
-than `ended`: a person can send the session another turn and carry on. It runs after every
-subscriber is listening, before the server serves.
-
-**Only the owner settles.** `boot()` takes `recover` (default on: the api, laptop mode, tests). The
-supervisor, a separate `worker`, `backup` and `restore` boot with it off, because they start beside
-a running api and settling from there failed the api's own in-flight setups — and would now fail its
-sessions and queue. The option name is `recover` rather than the `resetSetups` the review plan
-suggested, because it now covers setups, sessions, bot runs and the queue.
-
-**A worktree is not pulled out from under a round.** Deciding a race, or closing an item, removed
-worktrees (`git worktree remove --force`) under sessions that were still running.
-`releaseWorktrees()` (in `services/work.ts`, shared with races) groups sessions by worktree — an
-item's sessions share its branch — drops a worktree nobody is in, and for one with a round going
-cancels the round and leaves the directory; the board's and the races' `session.status` subscribers
-drop it when that round reaches `ended` or `error`. A cancel now also clears the permission the round
-was stopped on (the engine answers it no); left in place it held an unattended session at `idle`
-for ever, because auto-settle waits until nobody owes an answer. That last change is in
-`services/sessions.ts`.
-
-**One agent per item.** `startSession` checked the snapshot its route loaded; two starts at once both
-passed and put two agents in one worktree. The item is claimed in-process before the first await (a
-second start is a 409), and the final write is conditional (`claimWorkItem`: `session_id` set only
-where it is null), so a start from another process that loses finds nothing to take, ends its
-unused session without a turn, and answers 409. The review suggested claiming first with a
-placeholder; `work_items.session_id` references `coding_sessions`, so a placeholder would need a
-schema change, and the conditional write plus the in-process claim give the same guarantee without one.
-
-**A unique violation is recognised by its code.** drizzle wraps the driver's error, and its message
-is the failed SQL, so the retries for `KEY-123` numbers and queue positions that read the message
-never ran. `isUniqueViolation(error, constraint?)` in `src/errors.ts` reads SQLSTATE 23505 and the
-constraint name (`constraint` on PGlite, `constraint_name` on postgres.js) from the error or its
-`cause`. Mapping a leftover violation to a 409 in the error handler is left to the batch that owns
-that mapping.
-
-**The server stops first.** The api entrypoint discarded the server handle, so on SIGTERM requests
-were served after the audit, inbox and bot subscribers were gone. `shutdown()` stops the server
-(`stop(true)`: no new connections; handlers already running finish, for up to five seconds), then
-the jobs worker or the supervisor, then `close()`.
-
-## ADR-0175: One backup format, a schema it carries, one Perch per data directory, and schedules that outlive a bad night
-
-**Status:** accepted · **Task:** code review, batch jobs-backups-db · **Spec:** §2 (laptop mode, packages/jobs), §6 (`jobs`, `policies`, `repo_index`), §7.1 (`/api/admin/backup`), §8 (backups), §9.1
-
-### Context
-The review found the backup path, the queue under it and the laptop data directory each able to
-lose data quietly. A second opener of a laptop data directory (the desktop app beside `perch dev`,
-`perch backup` or `perch doctor` on a live instance) succeeded, and whichever PGlite closed last
-overwrote the other's committed rows. `perch backup` and the api wrote two manifest formats that
-could not read each other, so the documented laptop-to-team migration did not exist, and the CLI
-always copied the vault key although the docs said a backup never carries it by default. A restore
-did not know the schema its rows came from: a newer backup lost tables and columns silently, an
-older one skipped data migrations. A cron job that failed five times in a row was never claimed
-again, boot moved an overdue nightly run to the next night, and one database error in the worker
-loop ended the process. Backups also lost every bot schedule, paged with OFFSET, hung on a full
-disk, and deleted the fresh backup when pruning an old one failed. Policies could be saved twice
-for the same key, and a reindex never dropped chunks of deleted files.
-
-### Decision
-**One Perch per data directory.** Laptop mode (`perch dev`, `perch demo`, the desktop app in both
-layouts), `perch backup`, `perch restore` and `perch doctor`'s database check hold
-`<dataDir>/perch.lock`, created with O_EXCL and holding pid, start time, command and the served
-URL. A lock is a leftover, taken over, only when its pid no longer runs, or when it carries this
-process's pid and this process never took it (a container restarted at pid 1). Doctor reports the
-holder instead of opening the database; the desktop app prints the holder and exits. A pid reused
-by an unrelated process after a crash makes the lock look held; the message names the file, and
-removing it is the remedy.
-
-**One backup format.** `perch backup` writes `perch-instance-backup` v1, the api's format, with
-`mode: laptop`, `driver: pglite` and `pglite.tar.gz` as an extra exact copy. The api's reader
-(Zod-validated, names confined to the backup directory) also maps the older `perch-backup` v2
-manifest; `perch restore` reads all of them, including the pglite-only v1 and team backups (dump
-only). The key is opt-in in laptop mode too (`--include-key` or `PERCH_BACKUP_INCLUDE_KEY=on`);
-otherwise the manifest records its fingerprint and restore says whether the key present matches,
-or that the backup does not say. Backup directories are 0700, their files 0600.
-
-**A dump that carries its schema.** The dump header (backup version 2) records the applied
-migration count; a version-1 header's schema is read off the tables it walked, capped at the forty
-migrations every earlier build had. `restoreDatabase` takes the `DbHandle`, refuses a newer schema,
-migrates a database no migration has reached the backup's schema on up to it
-(`DbHandle.migrateTo`, one dedicated connection like `migrate`), loads the rows naming only the
-columns they carry (values bound through the column encoders, ADR-0061), and migrates forward, so
-data migrations apply as in an upgrade. A database already past the backup's schema is refused with
-what to do. For that to work in team mode the api's `restore` entrypoint now runs before boot;
-`BackupsService.restore` on a booted instance still loads same-schema backups (the tests, `force`).
-Pages are walked by primary key, not OFFSET. The queue's schedules (`jobs` rows with a cron
-expression) are backed up and restored unlocked with attempts at zero, keeping a schedule the
-target already made; one-off jobs stay out and the queue does not count against "empty". Both
-writers share `dumpGzipped`, which races the drain wait against the pipeline, and pruning runs after
-a backup is complete, in its own try/catch.
-
-**Schedules that outlive a bad night.** `fail()` on an exhausted cron row resets attempts and moves
-`run_at` to the next occurrence, keeping `last_error`. `schedule()` with an unchanged expression and
-zone keeps an earlier (due) `run_at`, so a night missed while the instance was off runs when it
-comes back. The worker loop reports a queue error through `onLoopError`, sleeps a poll and carries
-on; a `fail()` that cannot be written is reported the same way.
-
-**Smaller ones.** Policies get two partial unique indexes (migration 0040, which first removes
-duplicates keeping the newest) and `savePolicy` is one upsert that increments `version`. A reindex
-replaces the project's rows in one transaction. A closing PGlite handle races its drain against
-the deadline.
-
-### Consequences
-A restore of an older backup needs a database nothing has migrated; operators who started the api
-against the empty database first are told to recreate it. A data migration must stay valid against
-the rows of the schema before it, which is true of every migration today. Rows of a table a later
-migration dropped are skipped on restore (none exist). Laptop backups no longer carry the key
-unless asked, so restoring one elsewhere needs the original `master.key`, which restore says.
-Backups written by this build (version-2 headers) are refused by earlier builds, which is the point.
-The laptop's `projects/` directory is still not part of a laptop backup (unchanged; noted for a
-later batch). The review's finding that `laptop.stop()` skipped `booted.close()` was not a defect:
-`RunningServer.stop()` closes the instance.
-
-## ADR-0176: The bot platform keeps its own rules on every road in, and a bot's code cannot outlive its run
-
-**Status:** accepted · **Task:** code review, batch bot-platform · **Spec:** §5.3, §5.4, §7.3, §7.8, §9.1; ADR-0033, ADR-0096, ADR-0112
-
-The review found the bot platform enforcing its rules on the main road and not on the side ones:
-the Forge checked `bots.admin` and the Hub, a `bot.yaml` sync and the Nest did not all do the
-same; the socket checked which bot an event was for and not which workspace; and a code bot's tool
-that answered after the run had ended crashed the api. These are the decisions this batch made.
-
-**A code bot's run owns everything it started.** The sandbox keeps a `disposed` flag set in the
-run's `finally`; a host tool that settles after that is dropped rather than written into a freed
-QuickJS context (which threw inside a voided promise callback and ended the process). Each tool is
-handed an `AbortSignal` that fires when the run ends, and the promises nobody answered are freed
-before the context, so the runtime is disposed whole instead of tripping QuickJS's leak assertion.
-The 32-call ceiling is counted when a call is made, not when it settles, so a loop that fires calls
-without awaiting them is held to it too.
-
-**Tool output cannot close its own wrapper.** `untrusted()` escapes every `<` in the body instead of
-stripping tags (a strip rejoins a tag split around another), and the `source` label is narrowed to
-`[A-Za-z0-9_./-]`, because an upstream MCP tool's name lands in it.
-
-**Keywords are phrases, and a bot's regex has a budget.** `match` is split on commas only, and each
-trimmed phrase matches whole, with whitespace inside it as `\s+`; the shipped templates fired on
-"this", "at", "show" and "notes" before. A `regex: true` pattern is refused where it is saved — the
-Forge's create and patch, a Hub install, and a `bot.yaml` sync all go through `triggersProblem` —
-when it is over 200 characters, does not compile, repeats a group that itself repeats or
-alternates, or refers back to a group. The exponential shapes are refused; the polynomial ones
-(`.*.*x` takes seconds on 2,000 characters in JavaScriptCore) cannot be recognized statically, so
-every bot pattern runs in one small QuickJS runtime whose matcher honours the interrupt handler:
-the first 4,000 characters of a message, 25 ms, and no match when time runs out. Until that runtime
-has loaded (tens of milliseconds after boot) a regex trigger does not fire; failing closed there is
-the choice, over running a user's pattern on the event loop.
-
-**A bot hears its own workspace and nothing else.** Every transport asks one function,
-`deliversTo(event, bot)`: an event from another workspace never; an addressed one only to the bot
-it names; an unaddressed one only when it is the workspace's own news (`session.completed`,
-`work_item.updated`) — a button pressed on a block a person posted belongs to no bot. `users.info`
-answers only for members of the bot's workspace. Spec §7.3's HMAC-signed webhook transport is not
-built; the socket is the one transport, and the docs that described a webhook now say so.
-
-**`work.create` is on the Bot API** (closing the deferral in ADR-0112): `POST /api/bot/work.create`
-behind `work:write`, the project resolved in the bot's workspace, `thread_ts` in a channel the bot is
-in, the item made by `WorkService.create` with source `bot`. The SDK has it as `bot.work.create`.
-
-**An outside bot is on the chain rails.** `app_mention` carries the chain state spec §5.4 keeps:
-`BotsService.mentionRails` evaluates `mayHop` over the thread's `chainState`, as `offer()` does,
-and returns the hop, the mode a bot tagged with and what is left of the thread's allowance; a hop
-the rails refuse, or a mention in a stopped thread, is not delivered and trips the breaker. A
-mention of a bot the native runtime does not answer is recorded as a hop at no cost, so two
-outside bots tagging each other meet the hop limit and the repeat-pair breaker. Tag modes are kept
-(bounded to the last thousand) rather than consumed, because two readers now look at them. The
-Bot API's mention parser is the native one (`mentionsIn`), so a handle with a dot is heard by both.
-
-**The Hub, a sync and the Nest keep the Forge's rules.** A Hub bot is one the whole workspace talks
-to, so its install is authorized as `bots.admin`; its channel is resolved with `channelFor`, so a
-private room the installer is not in is a 404; a Hub skill changes a bot only when its installer
-owns it or is an admin, and somebody else's private bot is a 404. A `bot.yaml` sync resolves the
-syncer's role itself (the Git panel's push route did not change): an admin's sync applies the file
-as written and a file that does not say `visibility` is workspace-visible, as before; anybody
-else's makes their bots private and non-orchestrator, says so in `failed`, and leaves bots somebody
-else synced as they were, changed or removed in the repository or not. `parseSpecBot` now returns
-`visibility: null` when the file does not say, and the sync decides. Installing the Nest checks a
-roster handle against the workspace's people before anything is made and reports it in a new
-`taken` list, so a conflict no longer aborts the install after tokens were minted.
-
-**Smaller rules, written down.** Listing pending bot tool calls shows only calls asked in channels
-the caller can read, as deciding one already required. A bot's `chat_post` and a deploy card
-thread only under a message in their own channel (404 otherwise, as `chat.postMessage` already
-did). The demo's bots are installed in #general and #the-nest. `conversations.history`'s `oldest`
-is documented as a page cursor, not a tail (ids are made at insert, not commit), with socket mode as
-the way to follow a channel. The SDK reports a throwing handler to `onError` (default
-`console.error`) and keeps running the others, tells `onClose` when the socket drops after hello,
-and puts the close code and reason into `connect()`'s rejection; it does not reconnect by itself.
-The SDK's docs say it is not on npm until the repository has an `NPM_TOKEN`, and how to build and
-install it from a checkout meanwhile.
-
-**Spec deviations.** §7.3's HMAC-signed webhook transport remains unbuilt (socket only). Nothing
-else here departs from the spec; the rest brings the code to it.
-
 ## ADR-0172: The request edge — tokens keep their scopes everywhere, cookies come from Perch's own pages, and nothing secret is logged
 
 **Status:** accepted · **Task:** code review, batch api-edge-auth · **Spec:** §1.6, §6 (`api_tokens`), §7.1, §7.2, §7.8, §8, §9.1; amends ADR-0162, extends ADR-0045, ADR-0046, ADR-0057
@@ -7450,3 +7159,294 @@ path segment a second time: the router already has, and a literal `%` was a thro
 answers, edits and deletes are serialized per message by a row lock, which costs one short
 transaction per edit or answer (streaming rewrites stay a single statement). The Later list is a
 paged, workspace-scoped read. No migration: the change is in queries and services.
+
+## ADR-0175: One backup format, a schema it carries, one Perch per data directory, and schedules that outlive a bad night
+
+**Status:** accepted · **Task:** code review, batch jobs-backups-db · **Spec:** §2 (laptop mode, packages/jobs), §6 (`jobs`, `policies`, `repo_index`), §7.1 (`/api/admin/backup`), §8 (backups), §9.1
+
+### Context
+The review found the backup path, the queue under it and the laptop data directory each able to
+lose data quietly. A second opener of a laptop data directory (the desktop app beside `perch dev`,
+`perch backup` or `perch doctor` on a live instance) succeeded, and whichever PGlite closed last
+overwrote the other's committed rows. `perch backup` and the api wrote two manifest formats that
+could not read each other, so the documented laptop-to-team migration did not exist, and the CLI
+always copied the vault key although the docs said a backup never carries it by default. A restore
+did not know the schema its rows came from: a newer backup lost tables and columns silently, an
+older one skipped data migrations. A cron job that failed five times in a row was never claimed
+again, boot moved an overdue nightly run to the next night, and one database error in the worker
+loop ended the process. Backups also lost every bot schedule, paged with OFFSET, hung on a full
+disk, and deleted the fresh backup when pruning an old one failed. Policies could be saved twice
+for the same key, and a reindex never dropped chunks of deleted files.
+
+### Decision
+**One Perch per data directory.** Laptop mode (`perch dev`, `perch demo`, the desktop app in both
+layouts), `perch backup`, `perch restore` and `perch doctor`'s database check hold
+`<dataDir>/perch.lock`, created with O_EXCL and holding pid, start time, command and the served
+URL. A lock is a leftover, taken over, only when its pid no longer runs, or when it carries this
+process's pid and this process never took it (a container restarted at pid 1). Doctor reports the
+holder instead of opening the database; the desktop app prints the holder and exits. A pid reused
+by an unrelated process after a crash makes the lock look held; the message names the file, and
+removing it is the remedy.
+
+**One backup format.** `perch backup` writes `perch-instance-backup` v1, the api's format, with
+`mode: laptop`, `driver: pglite` and `pglite.tar.gz` as an extra exact copy. The api's reader
+(Zod-validated, names confined to the backup directory) also maps the older `perch-backup` v2
+manifest; `perch restore` reads all of them, including the pglite-only v1 and team backups (dump
+only). The key is opt-in in laptop mode too (`--include-key` or `PERCH_BACKUP_INCLUDE_KEY=on`);
+otherwise the manifest records its fingerprint and restore says whether the key present matches,
+or that the backup does not say. Backup directories are 0700, their files 0600.
+
+**A dump that carries its schema.** The dump header (backup version 2) records the applied
+migration count; a version-1 header's schema is read off the tables it walked, capped at the forty
+migrations every earlier build had. `restoreDatabase` takes the `DbHandle`, refuses a newer schema,
+migrates a database no migration has reached the backup's schema on up to it
+(`DbHandle.migrateTo`, one dedicated connection like `migrate`), loads the rows naming only the
+columns they carry (values bound through the column encoders, ADR-0061), and migrates forward, so
+data migrations apply as in an upgrade. A database already past the backup's schema is refused with
+what to do. For that to work in team mode the api's `restore` entrypoint now runs before boot;
+`BackupsService.restore` on a booted instance still loads same-schema backups (the tests, `force`).
+Pages are walked by primary key, not OFFSET. The queue's schedules (`jobs` rows with a cron
+expression) are backed up and restored unlocked with attempts at zero, keeping a schedule the
+target already made; one-off jobs stay out and the queue does not count against "empty". Both
+writers share `dumpGzipped`, which races the drain wait against the pipeline, and pruning runs after
+a backup is complete, in its own try/catch.
+
+**Schedules that outlive a bad night.** `fail()` on an exhausted cron row resets attempts and moves
+`run_at` to the next occurrence, keeping `last_error`. `schedule()` with an unchanged expression and
+zone keeps an earlier (due) `run_at`, so a night missed while the instance was off runs when it
+comes back. The worker loop reports a queue error through `onLoopError`, sleeps a poll and carries
+on; a `fail()` that cannot be written is reported the same way.
+
+**Smaller ones.** Policies get two partial unique indexes (migration 0040, which first removes
+duplicates keeping the newest) and `savePolicy` is one upsert that increments `version`. A reindex
+replaces the project's rows in one transaction. A closing PGlite handle races its drain against
+the deadline.
+
+### Consequences
+A restore of an older backup needs a database nothing has migrated; operators who started the api
+against the empty database first are told to recreate it. A data migration must stay valid against
+the rows of the schema before it, which is true of every migration today. Rows of a table a later
+migration dropped are skipped on restore (none exist). Laptop backups no longer carry the key
+unless asked, so restoring one elsewhere needs the original `master.key`, which restore says.
+Backups written by this build (version-2 headers) are refused by earlier builds, which is the point.
+The laptop's `projects/` directory is still not part of a laptop backup (unchanged; noted for a
+later batch). The review's finding that `laptop.stop()` skipped `booted.close()` was not a defect:
+`RunningServer.stop()` closes the instance.
+
+## ADR-0176: The bot platform keeps its own rules on every road in, and a bot's code cannot outlive its run
+
+**Status:** accepted · **Task:** code review, batch bot-platform · **Spec:** §5.3, §5.4, §7.3, §7.8, §9.1; ADR-0033, ADR-0096, ADR-0112
+
+The review found the bot platform enforcing its rules on the main road and not on the side ones:
+the Forge checked `bots.admin` and the Hub, a `bot.yaml` sync and the Nest did not all do the
+same; the socket checked which bot an event was for and not which workspace; and a code bot's tool
+that answered after the run had ended crashed the api. These are the decisions this batch made.
+
+**A code bot's run owns everything it started.** The sandbox keeps a `disposed` flag set in the
+run's `finally`; a host tool that settles after that is dropped rather than written into a freed
+QuickJS context (which threw inside a voided promise callback and ended the process). Each tool is
+handed an `AbortSignal` that fires when the run ends, and the promises nobody answered are freed
+before the context, so the runtime is disposed whole instead of tripping QuickJS's leak assertion.
+The 32-call ceiling is counted when a call is made, not when it settles, so a loop that fires calls
+without awaiting them is held to it too.
+
+**Tool output cannot close its own wrapper.** `untrusted()` escapes every `<` in the body instead of
+stripping tags (a strip rejoins a tag split around another), and the `source` label is narrowed to
+`[A-Za-z0-9_./-]`, because an upstream MCP tool's name lands in it.
+
+**Keywords are phrases, and a bot's regex has a budget.** `match` is split on commas only, and each
+trimmed phrase matches whole, with whitespace inside it as `\s+`; the shipped templates fired on
+"this", "at", "show" and "notes" before. A `regex: true` pattern is refused where it is saved — the
+Forge's create and patch, a Hub install, and a `bot.yaml` sync all go through `triggersProblem` —
+when it is over 200 characters, does not compile, repeats a group that itself repeats or
+alternates, or refers back to a group. The exponential shapes are refused; the polynomial ones
+(`.*.*x` takes seconds on 2,000 characters in JavaScriptCore) cannot be recognized statically, so
+every bot pattern runs in one small QuickJS runtime whose matcher honours the interrupt handler:
+the first 4,000 characters of a message, 25 ms, and no match when time runs out. Until that runtime
+has loaded (tens of milliseconds after boot) a regex trigger does not fire; failing closed there is
+the choice, over running a user's pattern on the event loop.
+
+**A bot hears its own workspace and nothing else.** Every transport asks one function,
+`deliversTo(event, bot)`: an event from another workspace never; an addressed one only to the bot
+it names; an unaddressed one only when it is the workspace's own news (`session.completed`,
+`work_item.updated`) — a button pressed on a block a person posted belongs to no bot. `users.info`
+answers only for members of the bot's workspace. Spec §7.3's HMAC-signed webhook transport is not
+built; the socket is the one transport, and the docs that described a webhook now say so.
+
+**`work.create` is on the Bot API** (closing the deferral in ADR-0112): `POST /api/bot/work.create`
+behind `work:write`, the project resolved in the bot's workspace, `thread_ts` in a channel the bot is
+in, the item made by `WorkService.create` with source `bot`. The SDK has it as `bot.work.create`.
+
+**An outside bot is on the chain rails.** `app_mention` carries the chain state spec §5.4 keeps:
+`BotsService.mentionRails` evaluates `mayHop` over the thread's `chainState`, as `offer()` does,
+and returns the hop, the mode a bot tagged with and what is left of the thread's allowance; a hop
+the rails refuse, or a mention in a stopped thread, is not delivered and trips the breaker. A
+mention of a bot the native runtime does not answer is recorded as a hop at no cost, so two
+outside bots tagging each other meet the hop limit and the repeat-pair breaker. Tag modes are kept
+(bounded to the last thousand) rather than consumed, because two readers now look at them. The
+Bot API's mention parser is the native one (`mentionsIn`), so a handle with a dot is heard by both.
+
+**The Hub, a sync and the Nest keep the Forge's rules.** A Hub bot is one the whole workspace talks
+to, so its install is authorized as `bots.admin`; its channel is resolved with `channelFor`, so a
+private room the installer is not in is a 404; a Hub skill changes a bot only when its installer
+owns it or is an admin, and somebody else's private bot is a 404. A `bot.yaml` sync resolves the
+syncer's role itself (the Git panel's push route did not change): an admin's sync applies the file
+as written and a file that does not say `visibility` is workspace-visible, as before; anybody
+else's makes their bots private and non-orchestrator, says so in `failed`, and leaves bots somebody
+else synced as they were, changed or removed in the repository or not. `parseSpecBot` now returns
+`visibility: null` when the file does not say, and the sync decides. Installing the Nest checks a
+roster handle against the workspace's people before anything is made and reports it in a new
+`taken` list, so a conflict no longer aborts the install after tokens were minted.
+
+**Smaller rules, written down.** Listing pending bot tool calls shows only calls asked in channels
+the caller can read, as deciding one already required. A bot's `chat_post` and a deploy card
+thread only under a message in their own channel (404 otherwise, as `chat.postMessage` already
+did). The demo's bots are installed in #general and #the-nest. `conversations.history`'s `oldest`
+is documented as a page cursor, not a tail (ids are made at insert, not commit), with socket mode as
+the way to follow a channel. The SDK reports a throwing handler to `onError` (default
+`console.error`) and keeps running the others, tells `onClose` when the socket drops after hello,
+and puts the close code and reason into `connect()`'s rejection; it does not reconnect by itself.
+The SDK's docs say it is not on npm until the repository has an `NPM_TOKEN`, and how to build and
+install it from a checkout meanwhile.
+
+**Spec deviations.** §7.3's HMAC-signed webhook transport remains unbuilt (socket only). Nothing
+else here departs from the spec; the rest brings the code to it.
+
+## ADR-0177: The queue holds every branch to its checks, and the api settles what a restart cut off
+
+**Status:** accepted · **Task:** code review, batch merge-queue-work-restart · **Spec:** §5.7, §6, §7.1, §7.6, §8, §9.1, ADR-0069, ADR-0131, ADR-0133, ADR-0165
+
+Findings X-spec-04, A-sm-08, A-sm-09, A-sm-15, X-data-13, A-sm-16, A-sm-24, X-data-18, X-data-03,
+X-data-14, A-sm-12, A-co-16 and A-co-17. One rule under all of them: a promise Perch makes (a branch
+lands behind its checks, an item has one agent, a race waits for its entrants) has to survive the
+paths nobody drew — a failed runner call, a double click, a restart.
+
+**The queue never lands a branch unchecked, never makes one, and runs as whoever queued it.** A
+missing worktree used to mean "skip the checks": any `worktree.create` failure (the branch checked
+out in the project directory, a timeout, a name the runner's schema refuses) landed the branch
+unchecked. A project with a check command now fails the entry (`runner`, with the reason) when
+there is nowhere to run them; a branch checked out in the project directory says so. Before any of
+that the queue lists the project's branches (`git.branch`) and fails `no such branch` for a branch
+or base that is not there, so a typo is no longer made from the base and reported "landed"; the
+lookup no longer passes a base, so nothing on the queue's path creates a branch. `land()` runs as
+`entry.requestedBy` (falling back to the project's creator) instead of the user whose `add()` started
+the pump. The agent is asked to fix only what it can fix — a conflict or red checks; a runner
+failure is the card's and the item's to say, not a turn telling the agent its checks failed.
+
+**The queue picks itself up.** ADR-0165's lease was checked only when something new was queued, so
+after a restart nothing moved. `MergeQueueService.start()` (called only by the process that owns
+the work, below) resumes every project with waiting or landing entries on a timer — a minute by
+default, the first tick a minute after boot so runners have reconnected — and from `start()` on, a
+landing claimed before the process started is failed at once rather than after its lease: the
+process that claimed it is gone. This assumes one api process lands branches, which is the
+deployment spec §8 describes; a second api would have its in-flight landing failed by the other's
+boot.
+
+**A restart ends what it cut off.** Rounds, pending permissions and engine handles live in the
+process; after a restart nothing finishes them, so races waited for ever, board items stayed
+`running`, and agent presence listed ghosts. At boot the owning process marks `coding_sessions` in
+`running`/`needs_you` as `error` with "interrupted by a restart", appends that error to the
+transcript and publishes `session.error` and `session.status` (so the board moves the item to Needs
+you, a race counts the entrant as failed, and background cards follow), marks `bot_runs` in
+`running` as `error` and publishes `bot.run_failed` (the owner's inbox hears it), and marks
+`bot_chains` hops in `running` as `error` (no event: the hop's run already has one, and
+`bot.chain_breaker` means the rails paused a thread, which is not what happened). `error` rather
+than `ended`: a person can send the session another turn and carry on. It runs after every
+subscriber is listening, before the server serves.
+
+**Only the owner settles.** `boot()` takes `recover` (default on: the api, laptop mode, tests). The
+supervisor, a separate `worker`, `backup` and `restore` boot with it off, because they start beside
+a running api and settling from there failed the api's own in-flight setups — and would now fail its
+sessions and queue. The option name is `recover` rather than the `resetSetups` the review plan
+suggested, because it now covers setups, sessions, bot runs and the queue.
+
+**A worktree is not pulled out from under a round.** Deciding a race, or closing an item, removed
+worktrees (`git worktree remove --force`) under sessions that were still running.
+`releaseWorktrees()` (in `services/work.ts`, shared with races) groups sessions by worktree — an
+item's sessions share its branch — drops a worktree nobody is in, and for one with a round going
+cancels the round and leaves the directory; the board's and the races' `session.status` subscribers
+drop it when that round reaches `ended` or `error`. A cancel now also clears the permission the round
+was stopped on (the engine answers it no); left in place it held an unattended session at `idle`
+for ever, because auto-settle waits until nobody owes an answer. That last change is in
+`services/sessions.ts`.
+
+**One agent per item.** `startSession` checked the snapshot its route loaded; two starts at once both
+passed and put two agents in one worktree. The item is claimed in-process before the first await (a
+second start is a 409), and the final write is conditional (`claimWorkItem`: `session_id` set only
+where it is null), so a start from another process that loses finds nothing to take, ends its
+unused session without a turn, and answers 409. The review suggested claiming first with a
+placeholder; `work_items.session_id` references `coding_sessions`, so a placeholder would need a
+schema change, and the conditional write plus the in-process claim give the same guarantee without one.
+
+**A unique violation is recognised by its code.** drizzle wraps the driver's error, and its message
+is the failed SQL, so the retries for `KEY-123` numbers and queue positions that read the message
+never ran. `isUniqueViolation(error, constraint?)` in `src/errors.ts` reads SQLSTATE 23505 and the
+constraint name (`constraint` on PGlite, `constraint_name` on postgres.js) from the error or its
+`cause`. Mapping a leftover violation to a 409 in the error handler is left to the batch that owns
+that mapping.
+
+**The server stops first.** The api entrypoint discarded the server handle, so on SIGTERM requests
+were served after the audit, inbox and bot subscribers were gone. `shutdown()` stops the server
+(`stop(true)`: no new connections; handlers already running finish, for up to five seconds), then
+the jobs worker or the supervisor, then `close()`.
+
+## ADR-0178: Code mode's client keeps what it was told, and a change of person starts the tab over
+
+**Status:** accepted · **Task:** code review, batch web-code-mode · **Spec:** §1.6, §1.7, §4, §5.1, §5.5, §7.2, §7.8, ADR-0167
+
+Twenty review findings on Code mode's panes and the web client's plumbing, under five decisions.
+
+**The transcript feed reads until it has caught up, and never folds a new ask into an old read.**
+`TranscriptFeed.catchUp` fetched one page of 1,000 events and stopped, so a session with long
+streamed replies opened without its later turns or its pending permission; it now reads page after
+page until it reaches the `last_seq` the api answers with (a page that moves nothing ends the run,
+so an odd answer cannot spin it). An ask that arrived while a read was on its way used to join that
+read, and an event committed after it (a permission, the moment before `needs_you`) was never
+fetched; a run now records the ask and reads once more from where it got to, one extra read however
+many asks joined. Both are in `apps/web/test/transcript-feed.test.ts`.
+
+**A permission is live only while the api can still take its answer.** Answers are not session
+events (a person's answer reaches the engine, and only the live `session.permission_answered`
+envelope says what it was), so a replay brought back every permission ever asked with active
+Allow / Deny buttons, each of which answered 404. `reduceTranscript` now takes the session's status
+and offers buttons only on the last permission, only while nothing that ends its round follows it,
+and only when the session `needs_you` (or the moment before the status catches up: running or not
+yet known, with the permission the very last record). Every other permission shows the answer the
+pane saw live, or a neutral "Answered". The deviation: spec §5.1 describes the prompt with its three
+answers and says nothing of replays; persisting the answer as a session event would let a replay say
+which answer was given, and is left for a change to the §7.6 event set rather than made here. The
+`TranscriptItem` permission's `answer` gains the `"answered"` value in `@perch/ui`.
+
+**What the person typed or queued is not dropped on a refusal or a race.** A save that answers late
+moves only the saved snapshot (`markSaved`), so typing done meanwhile stays, dirty. A turn the api
+refuses keeps its context chips and gives the Composer its text back (the Composer now restores the
+text when `onSend` rejects). A ⌘K prompt action waits on the action queue, not on a mount: the pane
+subscribes to its project's entry, sends it once the session is loaded and neither running nor
+waiting on a person, takes it off the queue only then, and puts it back when a round started in
+between (409). A run action is typed into a connected terminal at once (the drawer subscribes to
+the terminal queue), and Reconnect reattaches to the saved shell; only New shell forgets it. The
+session pane is keyed by session, so a dialog, a rename form or accepted hunks never carry over to
+another session. A branch switch invalidates the project's file queries under the key they really
+have and reloads the open buffers from the new branch (an unsaved edit goes with the old branch's
+text rather than being written onto the new one).
+
+**A change of person starts the tab over.** Nothing in the web client was keyed by user: the query
+cache (`["me"]`, `["workspaces"]`, the inbox), the editor's buffers, chips and queues all survived
+sign-out, and `ensureQueryData` handed the next person the previous one's identity and workspaces.
+Signing out, signing in and signing up now end in a full page load (`startFresh` in
+`apps/web/src/lib/fresh-start.ts`): the one reset that cannot miss a store somebody adds later, at
+the cost of one page load at a moment the person expects one. Sign-out first releases the device's
+push subscription while the session still works (Perch deletes the row, then the browser
+unsubscribes, bounded to five seconds and never blocking the sign-out), so the signed-out person's
+previews stop arriving on a shared machine.
+
+**The client reads what the api answered, and only that.** `unwrap` treats an ok response with no
+body (a 204) as the success it is, and `RequestFailed` narrows the error body to the §7.8 shape
+before reading it, so a proxy's HTML 502 is "request failed with 502", not a TypeError. The file
+tree and its search say why a request failed instead of showing an empty tree or "No matches". The
+Database panel draws tables and result rows a hundred at a time (`shownRows`) and is registered in
+the perf net with the paging as its proof. `modeFromPath` matches `/settings` exactly, and the api
+reserves the web app's top-level route names and the server's own prefixes as workspace slugs
+(`RESERVED_SLUGS`: an explicit one is a 422, one derived from a name gets a suffix). Existing
+workspaces with such a slug keep it; renaming one away is the owner's choice. The accessibility
+sweep audits Code mode's Projects page too.
