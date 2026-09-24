@@ -6923,3 +6923,64 @@ token as far as it can.
   base images), so the Dockerfile is checked by `scripts/dockerfiles.test.ts` and the mechanisms by
   the tests above, not by a built image; the image build in CI is the first real run of the root
   agent, `setpriv` and `perch-as` together.
+
+## ADR-0178: Code mode's client keeps what it was told, and a change of person starts the tab over
+
+**Status:** accepted · **Task:** code review, batch web-code-mode · **Spec:** §1.6, §1.7, §4, §5.1, §5.5, §7.2, §7.8, ADR-0167
+
+Twenty review findings on Code mode's panes and the web client's plumbing, under five decisions.
+
+**The transcript feed reads until it has caught up, and never folds a new ask into an old read.**
+`TranscriptFeed.catchUp` fetched one page of 1,000 events and stopped, so a session with long
+streamed replies opened without its later turns or its pending permission; it now reads page after
+page until it reaches the `last_seq` the api answers with (a page that moves nothing ends the run,
+so an odd answer cannot spin it). An ask that arrived while a read was on its way used to join that
+read, and an event committed after it (a permission, the moment before `needs_you`) was never
+fetched; a run now records the ask and reads once more from where it got to, one extra read however
+many asks joined. Both are in `apps/web/test/transcript-feed.test.ts`.
+
+**A permission is live only while the api can still take its answer.** Answers are not session
+events (a person's answer reaches the engine, and only the live `session.permission_answered`
+envelope says what it was), so a replay brought back every permission ever asked with active
+Allow / Deny buttons, each of which answered 404. `reduceTranscript` now takes the session's status
+and offers buttons only on the last permission, only while nothing that ends its round follows it,
+and only when the session `needs_you` (or the moment before the status catches up: running or not
+yet known, with the permission the very last record). Every other permission shows the answer the
+pane saw live, or a neutral "Answered". The deviation: spec §5.1 describes the prompt with its three
+answers and says nothing of replays; persisting the answer as a session event would let a replay say
+which answer was given, and is left for a change to the §7.6 event set rather than made here. The
+`TranscriptItem` permission's `answer` gains the `"answered"` value in `@perch/ui`.
+
+**What the person typed or queued is not dropped on a refusal or a race.** A save that answers late
+moves only the saved snapshot (`markSaved`), so typing done meanwhile stays, dirty. A turn the api
+refuses keeps its context chips and gives the Composer its text back (the Composer now restores the
+text when `onSend` rejects). A ⌘K prompt action waits on the action queue, not on a mount: the pane
+subscribes to its project's entry, sends it once the session is loaded and neither running nor
+waiting on a person, takes it off the queue only then, and puts it back when a round started in
+between (409). A run action is typed into a connected terminal at once (the drawer subscribes to
+the terminal queue), and Reconnect reattaches to the saved shell; only New shell forgets it. The
+session pane is keyed by session, so a dialog, a rename form or accepted hunks never carry over to
+another session. A branch switch invalidates the project's file queries under the key they really
+have and reloads the open buffers from the new branch (an unsaved edit goes with the old branch's
+text rather than being written onto the new one).
+
+**A change of person starts the tab over.** Nothing in the web client was keyed by user: the query
+cache (`["me"]`, `["workspaces"]`, the inbox), the editor's buffers, chips and queues all survived
+sign-out, and `ensureQueryData` handed the next person the previous one's identity and workspaces.
+Signing out, signing in and signing up now end in a full page load (`startFresh` in
+`apps/web/src/lib/fresh-start.ts`): the one reset that cannot miss a store somebody adds later, at
+the cost of one page load at a moment the person expects one. Sign-out first releases the device's
+push subscription while the session still works (Perch deletes the row, then the browser
+unsubscribes, bounded to five seconds and never blocking the sign-out), so the signed-out person's
+previews stop arriving on a shared machine.
+
+**The client reads what the api answered, and only that.** `unwrap` treats an ok response with no
+body (a 204) as the success it is, and `RequestFailed` narrows the error body to the §7.8 shape
+before reading it, so a proxy's HTML 502 is "request failed with 502", not a TypeError. The file
+tree and its search say why a request failed instead of showing an empty tree or "No matches". The
+Database panel draws tables and result rows a hundred at a time (`shownRows`) and is registered in
+the perf net with the paging as its proof. `modeFromPath` matches `/settings` exactly, and the api
+reserves the web app's top-level route names and the server's own prefixes as workspace slugs
+(`RESERVED_SLUGS`: an explicit one is a 422, one derived from a name gets a suffix). Existing
+workspaces with such a slug keep it; renaming one away is the owner's choice. The accessibility
+sweep audits Code mode's Projects page too.
