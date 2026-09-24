@@ -8,14 +8,19 @@
 import type { TranscriptRecord } from "./transcript.ts";
 
 export type FeedRow = TranscriptRecord;
-/** The replay: every event after a seq, for one session. */
-export type FetchRows = (sessionId: string, afterSeq: number) => Promise<FeedRow[]>;
+/** One page of the replay, and the session's latest seq when the page was read. */
+export type FeedPage = { rows: FeedRow[]; lastSeq: number };
+/** The replay: one page of the events after a seq, for one session. */
+export type FetchRows = (sessionId: string, afterSeq: number) => Promise<FeedPage>;
+
+/** A catch-up on its way; `again` records an ask that came in while it ran. */
+type Run = { again: boolean; done: Promise<void> };
 
 export class TranscriptFeed {
   private sessionId = "";
   private records: TranscriptRecord[] = [];
   private lastSeq = 0;
-  private inFlight: Promise<void> | null = null;
+  private inFlight: Run | null = null;
   /** Bumped on every switch; a replay that comes back under an older number is dropped. */
   private generation = 0;
 
@@ -39,21 +44,43 @@ export class TranscriptFeed {
     this.onChange(this.records);
   }
 
-  /** Fetch what came after the last seq seen: one at a time, and a late answer for an old session lands nowhere. */
+  /**
+   * Fetch what came after the last seq seen, one run at a time, and a late answer for an old
+   * session lands nowhere. A run reads page after page until it reaches the session's last seq
+   * (a long transcript is more than one page). An ask that comes in while a run is on its way joins
+   * it, and the run then reads once more from where it got to: the event that prompted the ask may
+   * have been committed after the running read, and it would otherwise never be fetched.
+   */
   catchUp(): Promise<void> {
-    if (this.inFlight) return this.inFlight;
-    const generation = this.generation;
-    const run = this.fetchRows(this.sessionId, this.lastSeq)
-      .then((rows) => {
-        if (generation !== this.generation) return;
-        this.merge(rows);
-      })
-      .finally(() => {
-        // Only this run's own mark: a newer session's replay may be in flight by now.
-        if (this.inFlight === run) this.inFlight = null;
-      });
+    const running = this.inFlight;
+    if (running) {
+      running.again = true;
+      return running.done;
+    }
+    const run: Run = { again: false, done: Promise.resolve() };
+    run.done = this.drain(run, this.generation, this.sessionId).finally(() => {
+      // Only this run's own mark: a newer session's replay may be in flight by now.
+      if (this.inFlight === run) this.inFlight = null;
+    });
     this.inFlight = run;
-    return run;
+    return run.done;
+  }
+
+  private async drain(run: Run, generation: number, sessionId: string): Promise<void> {
+    for (;;) {
+      const after = this.lastSeq;
+      const page = await this.fetchRows(sessionId, after);
+      if (generation !== this.generation) return;
+      this.merge(page.rows);
+      // Another page when this one moved the feed on and the session has more; a page that moved
+      // nothing ends the run, so a server that answers oddly cannot spin it.
+      if (this.lastSeq > after && this.lastSeq < page.lastSeq) continue;
+      if (run.again) {
+        run.again = false;
+        continue;
+      }
+      return;
+    }
   }
 
   /** A streamed delta: appended when it is the next seq, otherwise a catch-up fills the gap. */

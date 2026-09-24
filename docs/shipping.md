@@ -40,7 +40,9 @@ own card.
 ## Database
 
 Choose **Database** in the same drawer. It lists every table in the connection's database with its
-columns, and takes one statement.
+columns, and takes one statement. The table list and a statement's rows are drawn a hundred at a
+time, with **Show more** for the next hundred, so a schema with thousands of tables or a `select *`
+over a big table does not build the whole of it into the page.
 
 Nothing here speaks any vendor's REST API. A provider with a database has an MCP server with tools
 for it, and Perch already proxies those with the connection's own token, an allow-list, and an audit

@@ -13,7 +13,7 @@ import { type CodeBlock, type PermissionAnswerKind, SessionTranscript } from "@p
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitFork, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, unwrap } from "../lib/api.ts";
+import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import {
   checkpointsQuery,
   fsKey,
@@ -27,7 +27,7 @@ import { type ContextChip, useContextChips, withChips } from "./context-store.ts
 import { editorFor, useEditorStore } from "./editor-store.ts";
 import { useTerminalQueue } from "./terminal-store.ts";
 import { reduceTranscript, type TranscriptRecord } from "./transcript.ts";
-import { type FeedRow, TranscriptFeed } from "./transcript-feed.ts";
+import { type FeedPage, TranscriptFeed } from "./transcript-feed.ts";
 
 type Mode = "plan" | "build";
 type SessionMode = Mode;
@@ -45,17 +45,27 @@ export type ProjectActionView = {
   reasoning: Reasoning | null;
 };
 
-/** The replay: every event after a seq, as the api keeps them (task 1.8). */
-async function fetchRows(sessionId: string, afterSeq: number): Promise<FeedRow[]> {
+/**
+ * One page of the replay: the events after a seq, as the api keeps them (task 1.8), and the
+ * session's latest seq, which tells the feed whether another page follows.
+ */
+async function fetchRows(sessionId: string, afterSeq: number): Promise<FeedPage> {
   const result = unwrap(
     await api.GET("/api/sessions/{s}/events", {
       params: { path: { s: sessionId }, query: { after_seq: afterSeq, limit: 1000 } },
     }),
   );
-  return (result.events as SessionEventRecord[]).map((row) => ({
-    seq: row.seq,
-    event: row.event as TranscriptRecord["event"],
-  }));
+  return {
+    rows: (result.events as SessionEventRecord[]).map((row) => ({
+      seq: row.seq,
+      event: row.event as TranscriptRecord["event"],
+    })),
+    lastSeq: result.last_seq,
+  };
+}
+
+function messageOf(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure);
 }
 
 /** The transcript so far: a replay, then every event the topic announces (deltas inline). */
@@ -138,9 +148,11 @@ export function SessionPane(props: SessionPaneProps) {
   const { records, answers, catchUp } = useTranscript(sessionId);
   const status = session.data?.status ?? "idle";
   const running = status === "running" || status === "needs_you";
+  // The status as known (undefined while it loads) decides which permission is still live.
+  const knownStatus = session.data?.status;
   const transcript = useMemo(
-    () => reduceTranscript(records, answers, status === "running"),
-    [records, answers, status],
+    () => reduceTranscript(records, answers, knownStatus),
+    [records, answers, knownStatus],
   );
   const [mode, setMode] = useState<Mode>("build");
   const [renaming, setRenaming] = useState(false);
@@ -199,7 +211,7 @@ export function SessionPane(props: SessionPaneProps) {
         await run();
         refresh();
       } catch (failure) {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(messageOf(failure));
       }
     },
     [refresh],
@@ -210,26 +222,38 @@ export function SessionPane(props: SessionPaneProps) {
   const projectId = props.projectId;
   const chips = useContextChips((store) => store.byProject[projectId] ?? EMPTY_CHIPS);
   const dropChip = useContextChips((store) => store.remove);
-  const clearChips = useContextChips((store) => store.clear);
   const queueCommand = useTerminalQueue((store) => store.run);
-  const takeAction = useActionQueue((store) => store.take);
   const actions = props.actions ?? EMPTY_ACTIONS;
 
+  /**
+   * One turn. The chips it carried are dropped only once the api took it: a refused turn (a round
+   * already running, a budget, a policy) keeps them for the next try. A failure is shown and then
+   * thrown again, so the Composer puts the typed text back.
+   */
   const sendTurn = useCallback(
-    (text: string, options: { mode?: SessionMode; reasoning?: Reasoning } = {}) =>
-      act(async () => {
-        const turn = await api.POST("/api/sessions/{s}/turns", {
-          params: { path: { s: sessionId } },
-          body: {
-            text: withChips(text, chips),
-            mode: options.mode ?? mode,
-            ...(options.reasoning ? { reasoning: options.reasoning } : {}),
-          },
-        });
-        clearChips(projectId);
-        return unwrap(turn);
-      }),
-    [act, sessionId, mode, chips, clearChips, projectId],
+    async (text: string, options: { mode?: SessionMode; reasoning?: Reasoning } = {}) => {
+      setError(null);
+      const carried = chips;
+      try {
+        unwrap(
+          await api.POST("/api/sessions/{s}/turns", {
+            params: { path: { s: sessionId } },
+            body: {
+              text: withChips(text, carried),
+              mode: options.mode ?? mode,
+              ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+            },
+          }),
+        );
+      } catch (failure) {
+        setError(messageOf(failure));
+        throw failure;
+      }
+      // Only the chips that rode on this turn: one added while it was on its way waits for the next.
+      for (const chip of carried) dropChip(projectId, chip.id);
+      refresh();
+    },
+    [sessionId, mode, chips, dropChip, projectId, refresh],
   );
 
   const send = useCallback((text: string) => sendTurn(text), [sendTurn]);
@@ -260,23 +284,63 @@ export function SessionPane(props: SessionPaneProps) {
         return;
       }
       if (action.prompt) {
-        void sendTurn(action.prompt, {
+        // A refusal is already on screen (sendTurn shows it); there is no draft to put back.
+        sendTurn(action.prompt, {
           ...(action.mode ? { mode: action.mode } : {}),
           ...(action.reasoning ? { reasoning: action.reasoning } : {}),
-        });
+        }).catch(() => undefined);
       }
     },
     [projectId, props.onRunCommand, queueCommand, sendTurn],
   );
 
-  // An action ⌘K fired while this pane was not mounted (task 2.18): it waited, and now it runs.
+  // An action ⌘K queued for this project (task 2.18), whether this pane was open already or just
+  // mounted for it. It waits while the session is still loading (its status is not known yet) and
+  // while a round runs or waits on a person, since the api refuses a second turn then; it is taken
+  // off the queue only when it is sent. A turn refused because a round started meanwhile goes back
+  // on the queue and runs when that round ends.
+  const waitingAction = useActionQueue((store) => store.queued[projectId] ?? null);
+  const dispatching = useRef(false);
   useEffect(() => {
-    if (status === "running" || actions.length === 0) return;
-    const waiting = takeAction(projectId);
-    if (!waiting) return;
-    const action = actions.find((one) => one.id === waiting);
-    if (action) runAction(action);
-  }, [actions, projectId, runAction, status, takeAction]);
+    if (!waitingAction || dispatching.current || !session.data || running) return;
+    useActionQueue.getState().take(projectId);
+    const action = actions.find((one) => one.id === waitingAction);
+    if (!action) return;
+    if (action.kind === "run" || !action.prompt) {
+      runAction(action);
+      return;
+    }
+    dispatching.current = true;
+    const prompt = action.prompt;
+    void (async () => {
+      try {
+        await sendTurn(prompt, {
+          ...(action.mode ? { mode: action.mode } : {}),
+          ...(action.reasoning ? { reasoning: action.reasoning } : {}),
+        });
+      } catch (failure) {
+        if (!(failure instanceof RequestFailed) || failure.status !== 409) return;
+        await queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+        const now = queryClient.getQueryData(sessionQuery(sessionId).queryKey)?.status;
+        if (now === "running" || now === "needs_you") {
+          dispatching.current = false;
+          useActionQueue.getState().run(projectId, action.id);
+        }
+      } finally {
+        dispatching.current = false;
+      }
+    })();
+  }, [
+    waitingAction,
+    session.data,
+    running,
+    actions,
+    projectId,
+    runAction,
+    sendTurn,
+    queryClient,
+    sessionId,
+  ]);
 
   const cancel = useCallback(
     () =>

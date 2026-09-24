@@ -41,6 +41,7 @@ export type ComposerProps = {
   /** Where this composer lives; drafts persist per key. */
   draftKey: string;
   placeholder?: string;
+  /** A promise that rejects gives the text back to the box, so a refused message is not lost. */
   onSend: (text: string) => void | Promise<void>;
   /** Called on Esc while a turn is running. */
   onCancel?: () => void;
@@ -118,7 +119,12 @@ export function Composer(props: ComposerProps) {
     const value = text.trim();
     if (!value || props.disabled) return;
     setText("");
-    await props.onSend(value);
+    try {
+      await props.onSend(value);
+    } catch {
+      // Refused (the owner says why): what was typed comes back, unless something new is there.
+      setText((current) => (current === "" ? value : current));
+    }
   }, [text, props.disabled, props.onSend]);
 
   /** Puts the token in place of what was typed, and leaves a space after it. */

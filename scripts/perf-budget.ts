@@ -340,6 +340,26 @@ export const LIST_SURFACES = [
     list: "the drawer's tabs",
     how: { bounded: "the fixed set Code mode passes in: terminal, console, git, problems" },
   },
+  // Two lists in the drawer's scroller, which the net below does not see either (ADR-0167): the
+  // proof is the paging in the panel itself, a page of `PAGE = 100` rows at a time.
+  {
+    file: "apps/web/src/code/ship-panel.tsx",
+    list: "a database's tables, in the Database tab",
+    how: {
+      capped: 100,
+      in: "apps/web/src/code/ship-panel.tsx",
+      proof: "shownRows(tables.data ?? [], tablePages)",
+    },
+  },
+  {
+    file: "apps/web/src/code/ship-panel.tsx#result",
+    list: "a read query's result rows, in the Database tab",
+    how: {
+      capped: 100,
+      in: "apps/web/src/code/ship-panel.tsx",
+      proof: "shownRows(result.rows, rowPages)",
+    },
+  },
   // Three lists in the page's own scroller, which the net below does not see (ADR-0167).
   {
     file: "apps/web/src/shell/sidebars.tsx",

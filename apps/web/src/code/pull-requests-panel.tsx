@@ -33,6 +33,8 @@ export function PullRequestsPanel(props: {
   const [connectionId, setConnectionId] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const [note, setNote] = useState("");
+  /** Said once the agent's session started, so the button never succeeds in silence. */
+  const [started, setStarted] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const list = useQuery(pullRequestsQuery(props.workspaceId, props.projectId, connectionId));
@@ -75,7 +77,15 @@ export function PullRequestsPanel(props: {
           body: { connection_id: connectionId },
         }),
       ),
-    onSuccess: (started) => props.onOpenSession?.(started.session_id),
+    onMutate: () => setStarted(null),
+    onSuccess: (made) => {
+      // The session list shows it, and the route opens it in the panel.
+      void queryClient.invalidateQueries({
+        queryKey: ["sessions", props.workspaceId, props.projectId],
+      });
+      setStarted(t("pr.addressStarted", { branch: made.branch }));
+      props.onOpenSession?.(made.session_id);
+    },
   });
 
   const usable = connections.data ?? [];
@@ -132,7 +142,14 @@ export function PullRequestsPanel(props: {
         </ul>
       ) : (
         <div className="flex flex-col gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setOpen(null);
+              setStarted(null);
+            }}
+          >
             {t("pr.back")}
           </Button>
           {one.isPending ? (
@@ -216,6 +233,11 @@ export function PullRequestsPanel(props: {
                   {t("pr.address")}
                 </Button>
               </span>
+              {started ? (
+                <span role="status" className="text-sm text-fg-muted">
+                  {started}
+                </span>
+              ) : null}
               {review.error || address.error ? (
                 <span role="alert" className="text-sm text-danger">
                   {said(review.error ?? address.error)}

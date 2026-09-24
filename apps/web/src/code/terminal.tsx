@@ -105,61 +105,60 @@ export function TerminalDrawer(props: TerminalProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<Status>("connecting");
   const [message, setMessage] = useState<string | null>(null);
+  /**
+   * Bumped to connect again. Reconnect reattaches to the saved shell (task 1.7: the shell outlives
+   * a dropped socket); only Restart forgets it, and it does so itself before bumping this, so a
+   * later project switch in the same drawer still reattaches that project's shell.
+   */
   const [generation, setGeneration] = useState(0);
   const latest = useRef(props);
   latest.current = props;
 
-  const connect = useCallback(
-    (term: Terminal, fit: FitAddon, projectId: string, fresh: boolean) => {
-      socketRef.current?.close();
-      const { workspaceId } = latest.current;
-      if (fresh) writePtyId(projectId, null);
-      const ptyId = readPtyId(projectId);
-      fit.fit();
-      const params = new URLSearchParams({ cols: String(term.cols), rows: String(term.rows) });
-      if (ptyId) params.set("pty_id", ptyId);
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(
-        `${protocol}://${window.location.host}/api/workspaces/${workspaceId}/projects/${projectId}/terminal?${params}`,
+  const connect = useCallback((term: Terminal, fit: FitAddon, projectId: string) => {
+    socketRef.current?.close();
+    const { workspaceId } = latest.current;
+    const ptyId = readPtyId(projectId);
+    fit.fit();
+    const params = new URLSearchParams({ cols: String(term.cols), rows: String(term.rows) });
+    if (ptyId) params.set("pty_id", ptyId);
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(
+      `${protocol}://${window.location.host}/api/workspaces/${workspaceId}/projects/${projectId}/terminal?${params}`,
+    );
+    socketRef.current = socket;
+    setStatus("connecting");
+    setMessage(null);
+    socket.onmessage = (event) => {
+      let frame: ServerFrame;
+      try {
+        frame = JSON.parse(String(event.data)) as ServerFrame;
+      } catch {
+        return;
+      }
+      if (frame.t === "open") {
+        writePtyId(projectId, frame.pty_id);
+        // The queued commands follow from the status (see the effect below).
+        setStatus(frame.reattached ? "reattached" : "connected");
+      } else if (frame.t === "o") {
+        term.write(frame.d);
+      } else if (frame.t === "x") {
+        writePtyId(projectId, null);
+        setStatus("ended");
+      } else if (frame.t === "e") {
+        writePtyId(projectId, null);
+        setStatus("error");
+        setMessage(frame.message);
+      }
+    };
+    socket.onclose = () => {
+      if (socketRef.current !== socket) return;
+      setStatus((current) =>
+        current === "ended" || current === "error" ? current : "disconnected",
       );
-      socketRef.current = socket;
-      setStatus("connecting");
-      setMessage(null);
-      socket.onmessage = (event) => {
-        let frame: ServerFrame;
-        try {
-          frame = JSON.parse(String(event.data)) as ServerFrame;
-        } catch {
-          return;
-        }
-        if (frame.t === "open") {
-          writePtyId(projectId, frame.pty_id);
-          setStatus(frame.reattached ? "reattached" : "connected");
-          // A quick action of the `run` kind is typed here, where its output belongs (task 2.18).
-          for (const command of useTerminalQueue.getState().take(projectId)) {
-            socket.send(JSON.stringify({ t: "i", d: `${command}\r` }));
-          }
-        } else if (frame.t === "o") {
-          term.write(frame.d);
-        } else if (frame.t === "x") {
-          writePtyId(projectId, null);
-          setStatus("ended");
-        } else if (frame.t === "e") {
-          writePtyId(projectId, null);
-          setStatus("error");
-          setMessage(frame.message);
-        }
-      };
-      socket.onclose = () => {
-        if (socketRef.current !== socket) return;
-        setStatus((current) =>
-          current === "ended" || current === "error" ? current : "disconnected",
-        );
-      };
-    },
-    [],
-  );
+    };
+  }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `generation` is the signal to connect again (Reconnect, Restart)
   useEffect(() => {
     const parent = host.current;
     if (!parent) return;
@@ -191,8 +190,7 @@ export function TerminalDrawer(props: TerminalProps) {
       }
     });
     observer.observe(parent);
-    // generation > 0: the person asked for a new shell, so the old pty_id is forgotten.
-    connect(term, fit, props.projectId, generation > 0);
+    connect(term, fit, props.projectId);
     return () => {
       observer.disconnect();
       socketRef.current?.close();
@@ -201,6 +199,20 @@ export function TerminalDrawer(props: TerminalProps) {
       termRef.current = null;
     };
   }, [connect, props.projectId, generation]);
+
+  // A quick action of the `run` kind is typed here, where its output belongs (task 2.18): as soon
+  // as a shell is there to take it, whether the command was queued before the drawer opened or
+  // while the terminal was already connected.
+  const waiting = useTerminalQueue((store) => store.queued[props.projectId]);
+  useEffect(() => {
+    if (!waiting || waiting.length === 0) return;
+    if (status !== "connected" && status !== "reattached") return;
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    for (const command of useTerminalQueue.getState().take(props.projectId)) {
+      socket.send(JSON.stringify({ t: "i", d: `${command}\r` }));
+    }
+  }, [waiting, status, props.projectId]);
 
   const statusText: Record<Status, string> = {
     connecting: t("terminal.connecting"),

@@ -12,6 +12,7 @@ import { Badge, Button, EmptyState, Field, Input, t } from "@perch/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
+import { shownRows } from "../lib/paged.ts";
 import { channelsQuery, connectionsQuery, projectsQuery } from "../lib/queries.ts";
 
 function message(error: unknown): string {
@@ -264,6 +265,10 @@ export function DbPanel(props: { workspaceId: string }) {
     columns: string[];
     rows: Record<string, unknown>[];
   } | null>(null);
+  // Ground rule 7: a schema with thousands of tables, or a `select *` over a big table, is drawn a
+  // page at a time, with a page more each time the person asks (ADR-0167's `shownRows`).
+  const [tablePages, setTablePages] = useState(1);
+  const [rowPages, setRowPages] = useState(1);
 
   // Which connections have a database Perch can browse comes from their manifests.
   const browsable = (connections.data ?? []).filter((row) => row.provider === "supabase");
@@ -290,6 +295,7 @@ export function DbPanel(props: { workspaceId: string }) {
       ),
     onSuccess: (rows) => {
       setError(null);
+      setRowPages(1);
       setResult(rows as { columns: string[]; rows: Record<string, unknown>[] });
     },
     onError: (err) => {
@@ -297,6 +303,9 @@ export function DbPanel(props: { workspaceId: string }) {
       setError(message(err));
     },
   });
+
+  const shownTables = shownRows(tables.data ?? [], tablePages);
+  const shownResult = result ? shownRows(result.rows, rowPages) : null;
 
   if (browsable.length === 0) {
     return <EmptyState title={t("db.noConnection")} hint={t("db.noConnectionHint")} />;
@@ -311,7 +320,10 @@ export function DbPanel(props: { workspaceId: string }) {
               {...control}
               className="h-9 rounded border border-border bg-surface px-2"
               value={chosen}
-              onChange={(event) => setConnectionId(event.target.value)}
+              onChange={(event) => {
+                setConnectionId(event.target.value);
+                setTablePages(1);
+              }}
             >
               {browsable.map((row) => (
                 <option key={row.id} value={row.id}>
@@ -334,7 +346,7 @@ export function DbPanel(props: { workspaceId: string }) {
         <EmptyState title={t("db.empty")} hint={t("db.emptyHint")} className="py-6" />
       ) : (
         <ul aria-label={t("db.tables")} className="flex flex-col gap-1">
-          {(tables.data ?? []).map((table) => {
+          {shownTables.rows.map((table) => {
             const key = `${table.schema}.${table.name}`;
             return (
               <li key={key} className="rounded border border-border">
@@ -365,6 +377,16 @@ export function DbPanel(props: { workspaceId: string }) {
           })}
         </ul>
       )}
+      {shownTables.hidden > 0 ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={() => setTablePages(tablePages + 1)}
+        >
+          {t("ui.showMore", { count: shownTables.hidden })}
+        </Button>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-2 [&>*:first-child]:flex-1">
         <Field id={`${id}-sql`} label={t("db.sql")} hint={t("db.sqlHint")}>
@@ -389,7 +411,7 @@ export function DbPanel(props: { workspaceId: string }) {
         </p>
       ) : null}
 
-      {result ? (
+      {result && shownResult ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm" aria-label={t("db.result")}>
             <thead>
@@ -402,7 +424,7 @@ export function DbPanel(props: { workspaceId: string }) {
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((row, index) => (
+              {shownResult.rows.map((row, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: a result set has no key of its own
                 <tr key={index} className="border-t border-border">
                   {result.columns.map((column) => (
@@ -414,6 +436,16 @@ export function DbPanel(props: { workspaceId: string }) {
               ))}
             </tbody>
           </table>
+          {shownResult.hidden > 0 ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-2"
+              onClick={() => setRowPages(rowPages + 1)}
+            >
+              {t("ui.showMore", { count: shownResult.hidden })}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

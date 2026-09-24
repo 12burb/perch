@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import { api, RequestFailed, unwrap } from "../lib/api.ts";
 import { connectionsQuery, gitBranchesQuery, gitStatusQuery } from "../lib/queries.ts";
+import { refreshAfterGit } from "./git-refresh.ts";
 
 function message(error: unknown): string {
   return error instanceof RequestFailed ? error.message : t("common.error");
@@ -66,11 +67,8 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
     setSelected((previous) => previous.filter((path) => paths.includes(path)));
   }, [paths]);
 
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["git", props.workspaceId, props.projectId] }),
-      queryClient.invalidateQueries({ queryKey: ["fs", props.workspaceId, props.projectId] }),
-    ]);
+  const refresh = (options: { checkout?: boolean } = {}) =>
+    refreshAfterGit(queryClient, props.workspaceId, props.projectId, options);
 
   const chosen = selected.length > 0 ? selected : paths;
 
@@ -179,10 +177,11 @@ export function GitPanel(props: { workspaceId: string; projectId: string }) {
           body: input,
         }),
       ),
-    onSuccess: async () => {
+    onSuccess: async (_made, input) => {
       setError(null);
       setNewBranch("");
-      await refresh();
+      // Switching to a branch that exists changes the files: the tree and the open buffers follow.
+      await refresh({ checkout: !input.create });
     },
     onError: (err: unknown) => setError(message(err)),
   });

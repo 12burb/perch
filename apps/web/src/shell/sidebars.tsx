@@ -243,9 +243,15 @@ function ProjectsSection(props: { workspace: MyWorkspace; empty: MessageKey }) {
                 if (shell.state.mobileSheet) {
                   shell.onStateChange({ ...shell.state, mobileSheet: null });
                 }
+                // The editor takes main (the Preview gives way), and the session in the panel
+                // stays open: a file is often opened to look at what the agent just changed.
                 void navigate({
                   to: "/$workspace/code/$project",
                   params: { workspace: props.workspace.slug, project: open.key },
+                  search: (previous: Record<string, unknown>) =>
+                    typeof previous.session === "string" && previous.session
+                      ? { session: previous.session }
+                      : {},
                 });
               }}
             />

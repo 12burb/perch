@@ -170,12 +170,15 @@ function ProjectCode() {
   }, [shell]);
 
   // The panel holds the session pane (spec §4: panel = agent session) while ?session= names one.
+  // Keyed by the session: a dialog, a rename form, a diff scope or accepted hunks belong to the
+  // session they were opened in, and a switch starts the next one clean.
   useEffect(() => {
     if (!workspaceId || !projectId || !sessionId) return;
     setPanel({
       title: t("session.openInPanel"),
       content: (
         <SessionPane
+          key={sessionId}
           workspaceId={workspaceId}
           projectId={projectId}
           sessionId={sessionId}
@@ -277,7 +280,11 @@ function ProjectCode() {
               <Suspense
                 fallback={<p className="p-2 text-sm text-fg-muted">{t("common.loading")}</p>}
               >
-                <PullRequestsPanel workspaceId={workspaceId} projectId={projectId} />
+                <PullRequestsPanel
+                  workspaceId={workspaceId}
+                  projectId={projectId}
+                  onOpenSession={openSession}
+                />
               </Suspense>
             ),
           },
@@ -324,7 +331,7 @@ function ProjectCode() {
       />,
     );
     return () => setDrawer(null);
-  }, [openFile, projectId, projectName, setDrawer, workspaceId, drawerTab]);
+  }, [openFile, openSession, projectId, projectName, setDrawer, workspaceId, drawerTab]);
 
   if (!workspace) return null;
   if (projects.isSuccess && !project) {

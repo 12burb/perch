@@ -23,7 +23,9 @@ The draft lands in the box, where it is yours to edit. Nothing is committed unti
 ## Branching
 
 The picker switches branches; the box beside it makes one. Both run in the project's own checkout on
-its runner, so a session working there sees the same branch you do.
+its runner, so a session working there sees the same branch you do. Switching reloads the file tree
+and every open editor tab from the branch now checked out; an unsaved edit in a tab is dropped with
+the old branch's text, rather than saved onto the new one.
 
 ## Push, and Open PR
 
@@ -69,8 +71,8 @@ changes that does not say what to change is not a request.
 
 ### Ask the agent to address it
 
-**Ask the agent to address it** opens a session on the pull request's own branch, in a worktree of
-its own, and the first turn is the review — every comment with its file and line, plus what the
+**Ask the agent to address it** starts a session on the pull request's own branch, in a worktree of
+its own, opens it in the panel, and says so under the button; the first turn is the review — every comment with its file and line, plus what the
 reviewers said, in the order they said it. It ends:
 
 > Change the code to answer them. Do not reply in the pull request; the push is the answer.

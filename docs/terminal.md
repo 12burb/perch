@@ -18,7 +18,11 @@ per person, that survives a reload, a closed drawer, and a dropped connection. S
   keeps the shell for ten minutes after the drawer disconnects.
 - **Reload keeps the shell.** The browser remembers the shell's `pty_id` per project (session
   storage); reopening the drawer or reloading the page reattaches to it and replays the last
-  64 KiB of output. **New shell** discards it; **Reconnect** appears after a dropped connection.
+  64 KiB of output. **Reconnect** appears after a dropped connection and reattaches the same way,
+  running process and scrollback included; only **New shell** discards the shell and starts another.
+- **Run actions type here.** A quick action of the `run` kind (task 2.18) is typed into this
+  terminal as soon as a shell is connected: at once when the drawer is already open, or when the
+  shell it opens for the action connects.
 - **File paths are links.** A path printed in the output (`src/app.ts`, `./notes.txt:12`,
   `packages/ui/src/x.tsx:3:7`) underlines on hover and opens in the editor on click, at the line when
   one was printed. URLs open in a new tab.

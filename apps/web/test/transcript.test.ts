@@ -69,7 +69,7 @@ describe("reduceTranscript", () => {
     );
     expect(failed.items.map((i) => i.kind)).toEqual(["tool", "text", "error"]);
     expect(failed.items[0]).toMatchObject({ status: "error" });
-    const live = reduceTranscript(records([{ type: "text", delta: "Hel" }]), new Map(), true);
+    const live = reduceTranscript(records([{ type: "text", delta: "Hel" }]), new Map(), "running");
     expect(live.items[0]).toMatchObject({ kind: "text", text: "Hel", streaming: true });
   });
 });
@@ -92,5 +92,80 @@ describe("reduceTranscript (task 1.13)", () => {
         i.kind === "turn" || i.kind === "restore" ? `${i.kind}:${i.turn}` : i.kind,
       ),
     ).toEqual(["turn:1", "text", "turn:2", "restore:1", "turn:3"]);
+  });
+});
+
+describe("reduceTranscript: replayed permissions (A-wc-14)", () => {
+  const asked = (id: string): SessionEvent => ({
+    type: "permission",
+    id,
+    tool: "Edit notes.txt",
+    args: {},
+  });
+  const permissions = (result: ReturnType<typeof reduceTranscript>) =>
+    result.items.filter((item) => item.kind === "permission");
+
+  test("a permission the round moved past is answered, with no answer seen live", () => {
+    const result = reduceTranscript(
+      records([
+        { type: "turn", text: "edit", mode: "build", userId: "u" },
+        { type: "tool_call", id: "c1", name: "Edit notes.txt", args: {} },
+        asked("p1"),
+        { type: "tool_result", id: "c1", output: "wrote" },
+        { type: "done" },
+      ]),
+      new Map(),
+      "idle",
+    );
+    expect(permissions(result)).toEqual([expect.objectContaining({ answer: "answered" })]);
+    expect(result.pendingPermission).toBeNull();
+  });
+
+  test("only the last permission of a session that needs you is live; earlier ones are answered", () => {
+    const result = reduceTranscript(
+      records([
+        { type: "turn", text: "edit", mode: "build", userId: "u" },
+        asked("p1"),
+        { type: "tool_result", id: "c1", output: "wrote" },
+        asked("p2"),
+      ]),
+      new Map(),
+      "needs_you",
+    );
+    const [first, second] = permissions(result);
+    expect(first).toMatchObject({ id: "p1", answer: "answered" });
+    expect(second).toMatchObject({ id: "p2" });
+    expect(second && "answer" in second ? second.answer : undefined).toBeUndefined();
+    expect(result.pendingPermission).toBe("p2");
+  });
+
+  test("a session that is no longer waiting has no live permission, even as its last record", () => {
+    for (const status of ["idle", "ended", "error"] as const) {
+      const result = reduceTranscript(records([asked("p1")]), new Map(), status);
+      expect(permissions(result)).toEqual([expect.objectContaining({ answer: "answered" })]);
+      expect(result.pendingPermission).toBeNull();
+    }
+  });
+
+  test("a permission that just arrived, before the status says so, is live; a round that ended is not", () => {
+    const fresh = reduceTranscript(records([asked("p1")]), new Map(), "running");
+    expect(fresh.pendingPermission).toBe("p1");
+    // Parked after the round ended: the status says needs_you, but the old permission is gone.
+    const parked = reduceTranscript(
+      records([asked("p1"), { type: "done" }]),
+      new Map(),
+      "needs_you",
+    );
+    expect(parked.pendingPermission).toBeNull();
+    expect(permissions(parked)).toEqual([expect.objectContaining({ answer: "answered" })]);
+  });
+
+  test("an answer seen live is kept as it was given", () => {
+    const result = reduceTranscript(
+      records([asked("p1"), { type: "done" }]),
+      new Map([["p1", "deny" as const]]),
+      "idle",
+    );
+    expect(permissions(result)).toEqual([expect.objectContaining({ answer: "deny" })]);
   });
 });

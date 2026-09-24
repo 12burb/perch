@@ -25,7 +25,20 @@ wanted). A selected session (`?session=<id>` on the project route) opens the pan
 
 Live updates come from the `session:<id>` topic: text deltas are applied as they arrive; every
 other event triggers a replay of what is new after the last seq (the bus payloads carry ids, not
-the full records).
+the full records). A replay reads page after page (1,000 events each) until it reaches the
+session's `last_seq`, so a long session opens whole; an event that asks for a replay while one is
+on its way is answered by one more read once that one is back, because the event may have been
+committed after the running read (ADR-0178).
+
+An answer to a permission is not a session event, so a replay cannot say how one was answered.
+Only the last permission of a session that is waiting on you (`needs_you`, or the moment before the
+status catches up) offers Allow / Always / Deny; every earlier one, and any whose round ended,
+shows as answered: "Allowed once" or "Denied" when this pane saw the answer, "Answered" otherwise.
+
+A turn the api refuses (a round already running, a budget, a policy) keeps what you typed in the
+composer and the context chips on it; they go only with a turn that was accepted. A quick action
+fired from ⌘K waits for the session: while it loads, and while a round runs or waits on you; it
+is sent when the session is free.
 
 ## `@codebase` (task 2.17)
 

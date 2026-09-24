@@ -17,7 +17,8 @@ and save from the browser or the desktop app, on any runner the project lives on
 - **CodeMirror 6** with the language picked from the filename (~40 languages, loaded on demand),
   line numbers, folding, bracket matching, multiple selections and rectangular selection,
   search/replace (⌘F / ⌘⌥F), history. ⌘S or the Save button writes the file back through the api
-  (`PUT …/fs/write`); a file over 2 MiB opens read-only with a notice.
+  (`PUT …/fs/write`); a file over 2 MiB opens read-only with a notice. Typing on while a save is on
+  its way is kept: the save marks what it sent as saved, and the tab stays dirty with the rest.
 - **Markdown** opens in preview (rendered from the @lezer/markdown tree straight into React: no HTML
   pass-through, so a README cannot script the app; CommonMark plus GFM tables, strikethrough, task
   lists) with a Source / Preview toggle.

@@ -102,8 +102,11 @@ export const NOT_SCREENS: Record<string, string> = {
   "setup.tsx": "the first-run wizard, audited by e2e/00-setup.e2e.ts where it can be run at all",
 };
 
-/** The four modes with no route of their own: `$mode.tsx` renders each. */
-const MODES = ["work", "bots", "inbox", "search"] as const;
+/**
+ * The modes `$mode.tsx` renders besides Home, which `SCREENS` already visits for that route file:
+ * five of them, each audited here. Code is the Projects table.
+ */
+const MODES = ["code", "work", "bots", "inbox", "search"] as const;
 
 test("every screen passes axe", async ({ page }, info) => {
   test.setTimeout(240_000);

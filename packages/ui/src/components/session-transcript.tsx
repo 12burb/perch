@@ -46,7 +46,14 @@ export type TranscriptItem =
       output?: string;
       diff?: TranscriptDiff[];
     }
-  | { kind: "permission"; id: string; tool: string; args: unknown; answer?: PermissionAnswerKind }
+  | {
+      kind: "permission";
+      id: string;
+      tool: string;
+      args: unknown;
+      /** How it was answered; "answered" when a replay shows it was, but not how. */
+      answer?: PermissionAnswerKind | "answered";
+    }
   | { kind: "error"; id: string; message: string };
 
 export type SessionStatusKind = "idle" | "running" | "needs_you" | "error" | "ended";

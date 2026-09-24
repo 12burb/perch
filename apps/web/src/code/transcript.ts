@@ -5,7 +5,7 @@
  * its answer (from the bus) into one prompt. Pure, so the pane can re-run it on every change.
  */
 import type { SessionEvent } from "@perch/events";
-import type { PermissionAnswerKind, TranscriptItem } from "@perch/ui/session";
+import type { PermissionAnswerKind, SessionStatusKind, TranscriptItem } from "@perch/ui/session";
 
 export type TranscriptRecord = { seq: number; event: SessionEvent };
 
@@ -18,11 +18,52 @@ export type Transcript = {
   pendingPermission: string | null;
 };
 
+/** Records after which a permission asked before them can no longer be waiting. */
+const ROUND_ENDS = new Set<SessionEvent["type"]>(["done", "error", "turn", "restore"]);
+
+/**
+ * Which permission, if any, can still be answered. The api keeps one pending permission per
+ * session and holds it only while the round runs, so it can only be the last one asked, and only
+ * while the round it belongs to has not ended. An answer is not a session event: the ones this
+ * pane saw live are in `answers`; every other permission a replay brings back was answered (or
+ * dropped with its round) before the pane looked, and must not offer Allow / Deny again.
+ * `status` is the session's as the pane knows it (undefined while it loads): needs_you says the
+ * last permission is waiting; running (or not yet known) says so only while it is the very last
+ * record, the moment between the permission landing and the status catching up.
+ */
+function livePermission(
+  records: TranscriptRecord[],
+  status: SessionStatusKind | undefined,
+): string | null {
+  let last = -1;
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    if (records[i]?.event.type === "permission") {
+      last = i;
+      break;
+    }
+  }
+  const record = records[last];
+  if (record?.event.type !== "permission") return null;
+  const after = records.slice(last + 1);
+  if (after.some((row) => ROUND_ENDS.has(row.event.type))) return null;
+  if (status === "needs_you") return record.event.id;
+  if ((status === "running" || status === undefined) && after.length === 0) {
+    return record.event.id;
+  }
+  return null;
+}
+
+/**
+ * Fold the records into the pane's items. `status` is the session's (it streams the last reply
+ * while running, and decides which permission is still live).
+ */
 export function reduceTranscript(
   records: TranscriptRecord[],
   answers: ReadonlyMap<string, PermissionAnswerKind> = new Map(),
-  streaming = false,
+  status?: SessionStatusKind,
 ): Transcript {
+  const streaming = status === "running";
+  const live = livePermission(records, status);
   const items: TranscriptItem[] = [];
   const usage: TranscriptUsage = { input: 0, output: 0, costUsd: 0 };
   let pendingPermission: string | null = null;
@@ -94,7 +135,7 @@ export function reduceTranscript(
       }
       case "permission": {
         closeText();
-        const answer = answers.get(event.id);
+        const answer = answers.get(event.id) ?? (event.id === live ? undefined : "answered");
         items.push({
           kind: "permission",
           id: event.id,

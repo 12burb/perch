@@ -37,7 +37,13 @@ type EditorState = {
   ) => void;
   failed: (project: string, path: string, error: string) => void;
   edit: (project: string, path: string, content: string) => void;
+  /** Something other than the buffer wrote the file (Apply): the buffer becomes what was written. */
   saved: (project: string, path: string, content: string) => void;
+  /**
+   * The buffer's own save answered: what was sent is now on disk. The buffer is left alone, since
+   * the person may have typed on while the write was on its way; that typing stays, and dirty.
+   */
+  markSaved: (project: string, path: string, savedContent: string) => void;
   setPreview: (project: string, path: string, preview: boolean) => void;
   revealed: (project: string, path: string) => void;
   /** Marks open files as stale after the disk changed underneath them (a restore, a rejected hunk); the pane fetches them again. */
@@ -131,6 +137,8 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((state) =>
       update(state, project, path, (open) => ({ ...open, original: content, content })),
     ),
+  markSaved: (project, path, savedContent) =>
+    set((state) => update(state, project, path, (open) => ({ ...open, original: savedContent }))),
   setPreview: (project, path, preview) =>
     set((state) => update(state, project, path, (open) => ({ ...open, preview }))),
   revealed: (project, path) =>

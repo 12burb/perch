@@ -68,7 +68,7 @@ function message(err: unknown): string {
 export function EditorPane(props: { workspaceId: string; projectId: string }) {
   const queryClient = useQueryClient();
   const editor = useEditorStore((state) => editorFor(state, props.projectId));
-  const { close, select, loaded, failed, edit, saved, setPreview, revealed } = useEditorStore();
+  const { close, select, loaded, failed, edit, markSaved, setPreview, revealed } = useEditorStore();
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<CodeEditorHandle>(null);
@@ -98,7 +98,8 @@ export function EditorPane(props: { workspaceId: string; projectId: string }) {
       return file;
     },
     onSuccess: (file) => {
-      saved(props.projectId, file.path, file.content);
+      // What was sent is on disk; anything typed since stays in the buffer, still dirty.
+      markSaved(props.projectId, file.path, file.content);
       setError(null);
       setNotice(t("editor.saved"));
       void queryClient.invalidateQueries({

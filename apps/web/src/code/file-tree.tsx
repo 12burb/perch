@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, File, Folder, Search } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RequestFailed } from "../lib/api.ts";
 import { type FsEntry, fsKey, fsListQuery, fsSearchQuery } from "../lib/queries.ts";
 import { getSocket } from "../lib/ws.ts";
 
@@ -23,6 +24,11 @@ type Row = { path: string; name: string; depth: number; entry: FsEntry; expanded
 
 function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
+}
+
+/** Why a listing or a search failed: the api's own words (a runner offline, a timeout). */
+function failure(error: unknown): string {
+  return error instanceof RequestFailed ? error.message : t("common.error");
 }
 
 export function FileTree(props: FileTreeProps) {
@@ -175,13 +181,20 @@ export function FileTree(props: FileTreeProps) {
       </form>
       {query.trim() ? (
         <div className="min-h-0 flex-1 overflow-auto px-2" data-testid="file-search-results">
-          <p className="px-1 py-1 text-sm text-fg-muted" role="status">
-            {search.isFetching
-              ? t("common.loading")
-              : matches.length === 0
-                ? t("files.searchEmpty")
-                : t("files.searchResults", { count: matches.length })}
-          </p>
+          {search.isError && !search.isFetching ? (
+            // A failed search is not an empty one: say what went wrong instead of "No matches".
+            <p className="px-1 py-1 text-sm text-danger" role="alert">
+              {failure(search.error)}
+            </p>
+          ) : (
+            <p className="px-1 py-1 text-sm text-fg-muted" role="status">
+              {search.isFetching
+                ? t("common.loading")
+                : matches.length === 0
+                  ? t("files.searchEmpty")
+                  : t("files.searchResults", { count: matches.length })}
+            </p>
+          )}
           <ul aria-label={t("files.search")} className="flex flex-col">
             {matches.map((match) => (
               <li key={`${match.path}:${match.line}:${match.column}`}>
@@ -210,7 +223,11 @@ export function FileTree(props: FileTreeProps) {
         </div>
       ) : (
         <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
-          {root.isSuccess && rows.length === 0 ? (
+          {root.isError ? (
+            <p className="px-3 py-2 text-sm text-danger" role="alert">
+              {failure(root.error)}
+            </p>
+          ) : root.isSuccess && rows.length === 0 ? (
             <p className="px-3 py-2 text-sm text-fg-subtle">{t("files.empty")}</p>
           ) : null}
           <div

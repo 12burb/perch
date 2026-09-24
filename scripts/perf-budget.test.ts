@@ -149,6 +149,18 @@ describe("the long-list check (task 2.20)", () => {
     }
   });
 
+  test("the Database panel's tables and result rows are registered, with the paging as proof (A-wc-19)", () => {
+    const ship = LIST_SURFACES.filter(
+      (one) => (one.file.split("#")[0] ?? one.file) === "apps/web/src/code/ship-panel.tsx",
+    );
+    expect(ship).toHaveLength(2);
+    for (const one of ship) {
+      expect(one.how).toMatchObject({ capped: 100, in: "apps/web/src/code/ship-panel.tsx" });
+    }
+    // And the proofs are in the panel as it is: nothing about it is reported.
+    expect(listVirtualization(root).filter((f) => f.file.includes("ship-panel"))).toEqual([]);
+  });
+
   test("a new scrolling list that nobody registered is reported", () => {
     const added = join(root, "apps/web/src/perf-budget-fixture.tsx");
     try {
