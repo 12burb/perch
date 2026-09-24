@@ -5,9 +5,7 @@
  * log), or filled by uploads. After setup the runner reads back .perch/project.json and
  * devcontainer.json (JSONC) and runs the devcontainer's postCreateCommand.
  */
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import {
   JSON_RPC_ERRORS,
@@ -18,6 +16,17 @@ import {
 } from "@perch/events";
 import { simpleGit } from "simple-git";
 import { childEnv } from "./env.ts";
+import {
+  asUser,
+  asUserFs,
+  asUserGit,
+  CREDENTIALED_GIT,
+  isolation,
+  prepareProjectDir,
+  prepareWorkspaceDir,
+  type RunAs,
+  userTempDir,
+} from "./identity.ts";
 import { realish } from "./paths.ts";
 
 export type ProjectsOptions = {
@@ -53,14 +62,20 @@ export function scrubUrl(text: string): string {
   return text.replace(/(\w+:\/\/)[^/@\s]+@/g, "$1***@");
 }
 
-/** Runs git with an explicit environment; returns its (scrubbed) output, throws on a non-zero exit. */
+/**
+ * Runs git with an explicit environment, as `user` (a member, nobody, or `CREDENTIALED_GIT` when it
+ * holds a credential; ADR-0171); returns its (scrubbed) output, throws on a non-zero exit.
+ */
 export async function runGit(
   args: string[],
-  options: { cwd: string; env: Record<string, string>; timeoutMs: number },
+  options: { cwd: string; env: Record<string, string>; timeoutMs: number; user: RunAs },
 ): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], {
+  // A workspace's repositories are its members' together (ADR-0171): see Isolation.git.
+  const safe = isolation() ? ["-c", "safe.directory=*"] : [];
+  const run = asUser(options.user, ["git", ...safe, ...args], options.env);
+  const proc = Bun.spawn(run.argv, {
     cwd: options.cwd,
-    env: options.env,
+    env: run.env,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -153,9 +168,13 @@ function parseJson(text: string, jsonc: boolean): { value: unknown } | { error: 
   }
 }
 
-/** .perch/project.json (JSON) and .devcontainer/devcontainer.json or .devcontainer.json (JSONC). */
+/**
+ * .perch/project.json (JSON) and .devcontainer/devcontainer.json or .devcontainer.json (JSONC), read
+ * with `user`'s filesystem credentials: either can be a link a member made (ADR-0171).
+ */
 export async function readProjectFiles(
   dir: string,
+  user: RunAs = null,
 ): Promise<
   Pick<ProjectSetupResult, "config" | "configError" | "devcontainer" | "devcontainerError">
 > {
@@ -163,20 +182,23 @@ export async function readProjectFiles(
     ProjectSetupResult,
     "config" | "configError" | "devcontainer" | "devcontainerError"
   > = { config: null, devcontainer: null };
-  const configPath = join(dir, ".perch", "project.json");
-  if (existsSync(configPath)) {
-    const parsed = parseJson(await Bun.file(configPath).text(), false);
+  const texts = asUserFs(user, () => {
+    const configPath = join(dir, ".perch", "project.json");
+    const config = existsSync(configPath) ? readFileSync(configPath, "utf8") : null;
+    const found = [
+      join(dir, ".devcontainer", "devcontainer.json"),
+      join(dir, ".devcontainer.json"),
+    ].find((p) => existsSync(p));
+    return { config, found, devcontainer: found ? readFileSync(found, "utf8") : null };
+  });
+  if (texts.config !== null) {
+    const parsed = parseJson(texts.config, false);
     if ("error" in parsed) out.configError = `.perch/project.json: ${parsed.error}`;
     else out.config = parsed.value;
   }
-  const candidates = [
-    join(dir, ".devcontainer", "devcontainer.json"),
-    join(dir, ".devcontainer.json"),
-  ];
-  const found = candidates.find((p) => existsSync(p));
-  if (found) {
-    const parsed = parseJson(await Bun.file(found).text(), true);
-    if ("error" in parsed) out.devcontainerError = `${relative(dir, found)}: ${parsed.error}`;
+  if (texts.found && texts.devcontainer !== null) {
+    const parsed = parseJson(texts.devcontainer, true);
+    if ("error" in parsed) out.devcontainerError = `${relative(dir, texts.found)}: ${parsed.error}`;
     else out.devcontainer = parsed.value;
   }
   return out;
@@ -198,12 +220,14 @@ export async function runPostCreate(
   dir: string,
   command: string,
   timeoutMs: number,
+  user: RunAs = null,
 ): Promise<{ command: string; exitCode: number; output: string }> {
-  const proc = Bun.spawn(["sh", "-c", command], {
+  const run = asUser(user, ["sh", "-c", command], childEnv(process.env, { CI: "1", PERCH: "1" }));
+  const proc = Bun.spawn(run.argv, {
     cwd: dir,
     stdout: "pipe",
     stderr: "pipe",
-    env: childEnv(process.env, { CI: "1", PERCH: "1" }),
+    env: run.env,
   });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -226,13 +250,19 @@ export async function runPostCreate(
  */
 export async function projectConfig(
   options: ProjectsOptions,
-  params: { workspace_id: string; project: string },
+  params: { workspace_id: string; user_id: string; project: string },
 ): Promise<ProjectConfigResult> {
   const dir = projectDir(options.root, params.workspace_id, params.project);
   if (!existsSync(dir)) {
     throw new RunnerRpcError(JSON_RPC_ERRORS.invalidParams, "the project is not on this runner");
   }
-  return readProjectFiles(dir);
+  return readProjectFiles(dir, params.user_id);
+}
+
+/** simple-git in a directory, as `user` (ADR-0171). */
+function gitIn(dir: string, user: RunAs) {
+  const run = asUserGit(user, cloneEnv(process.env, {}));
+  return simpleGit({ baseDir: dir, ...run.options }).env(run.env);
 }
 
 export async function setupProject(
@@ -240,19 +270,26 @@ export async function setupProject(
   params: Setup,
 ): Promise<ProjectSetupResult> {
   const dir = projectDir(options.root, params.workspace_id, params.project);
-  mkdirSync(join(options.root, params.workspace_id), { recursive: true });
+  prepareWorkspaceDir(join(options.root, params.workspace_id));
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  // Made here, before anything is put in it: on a hosted runner it is the workspace's, setgid and
+  // group-writable, whoever fills it (ADR-0171).
+  prepareProjectDir(dir);
+  const shared = isolation() !== null;
   const source = params.source;
   if (source.kind === "clone") {
     let keyDir: string | null = null;
+    // A clone that holds a credential runs as the account nothing else runs as, so neither the
+    // token in git's environment nor the key file is readable by the member's own processes.
+    const who: RunAs = source.auth ? CREDENTIALED_GIT : params.user_id;
     try {
       let keyFile: string | undefined;
       if (source.auth?.kind === "ssh") {
-        keyDir = await mkdtemp(join(tmpdir(), "perch-key-"));
-        keyFile = join(keyDir, "id");
         const key = source.auth.privateKey;
-        writeFileSync(keyFile, key.endsWith("\n") ? key : `${key}\n`, { mode: 0o600 });
-        chmodSync(keyFile, 0o600);
+        keyDir = userTempDir(who, "perch-key-", {
+          id: { content: key.endsWith("\n") ? key : `${key}\n`, mode: 0o600 },
+        });
+        keyFile = join(keyDir, "id");
       }
       const auth = gitAuth(source.auth, keyFile);
       // git is spawned directly: the credential helper and the ssh command are ours, the environment
@@ -260,6 +297,7 @@ export async function setupProject(
       const args = [
         ...auth.config.flatMap((entry) => ["-c", entry]),
         "clone",
+        ...(shared ? ["--config", "core.sharedRepository=group"] : []),
         ...(source.branch ? ["--branch", source.branch] : []),
         "--",
         source.url,
@@ -269,22 +307,23 @@ export async function setupProject(
         cwd: join(options.root, params.workspace_id),
         env: cloneEnv(process.env, auth.env),
         timeoutMs: options.cloneTimeoutMs ?? 600_000,
+        user: who,
       });
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       throw error;
     } finally {
-      if (keyDir) await rm(keyDir, { recursive: true, force: true });
+      const scratch = keyDir;
+      if (scratch) asUserFs(who, () => rmSync(scratch, { recursive: true, force: true }));
     }
   } else {
-    mkdirSync(dir, { recursive: true });
-    const git = simpleGit({ baseDir: dir }).env(cloneEnv(process.env, {}));
-    await git.init([
+    await gitIn(dir, params.user_id).init([
       "--initial-branch",
       source.kind === "empty" ? (source.defaultBranch ?? "main") : "main",
+      ...(shared ? ["--shared=group"] : []),
     ]);
   }
-  const git = simpleGit({ baseDir: dir }).env(cloneEnv(process.env, {}));
+  const git = gitIn(dir, params.user_id);
   let head: string | null = null;
   let defaultBranch: string | null = null;
   try {
@@ -298,11 +337,16 @@ export async function setupProject(
   } catch {
     defaultBranch = null; // detached HEAD
   }
-  const files = await readProjectFiles(dir);
+  const files = await readProjectFiles(dir, params.user_id);
   const result: ProjectSetupResult = { path: dir, defaultBranch, head, ...files };
   const command = postCreateCommandOf(files.devcontainer);
   if (command && params.postCreate !== false && source.kind !== "empty") {
-    result.postCreate = await runPostCreate(dir, command, options.postCreateTimeoutMs ?? 600_000);
+    result.postCreate = await runPostCreate(
+      dir,
+      command,
+      options.postCreateTimeoutMs ?? 600_000,
+      params.user_id,
+    );
   }
   return result;
 }
@@ -323,12 +367,14 @@ export async function writeProjectFile(
 ): Promise<{ bytes: number }> {
   const dir = projectDir(options.root, params.workspace_id, params.project);
   if (!existsSync(dir)) throw new Error("project directory does not exist on this runner");
-  const target = resolveInside(dir, params.path);
-  mkdirSync(join(target, ".."), { recursive: true });
   const bytes =
     params.encoding === "base64"
       ? Buffer.from(params.content, "base64")
       : Buffer.from(params.content, "utf8");
-  writeFileSync(target, bytes);
+  asUserFs(params.user_id, () => {
+    const target = resolveInside(dir, params.path);
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(target, bytes);
+  });
   return { bytes: bytes.length };
 }

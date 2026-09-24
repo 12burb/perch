@@ -15,6 +15,7 @@ import { STREAM_OPEN_TIMEOUT_MS } from "@perch/events";
 import type { IPty } from "bun-pty";
 import { spawn } from "bun-pty";
 import { childEnv } from "./env.ts";
+import { asUser, isolation } from "./identity.ts";
 import type { Notify } from "./notify.ts";
 import type { StreamOpener } from "./streams.ts";
 
@@ -140,7 +141,9 @@ export function shellEnv(
   env.PERCH = "1";
   env.PERCH_USER = user;
   if (!env.LANG) env.LANG = "C.UTF-8";
-  if (options.homes) {
+  // Where members run as their own uids the home is made, owned and set by the identity layer
+  // (ADR-0171); a root-owned directory made here first would only have to be handed over.
+  if (options.homes && !isolation()) {
     const home = join(options.homes, user);
     try {
       mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -217,12 +220,20 @@ export class PtyManager {
     if (!existsSync(cwd)) throw new Error(`cwd does not exist: ${params.cwd}`);
     const size = { cols: params.cols, rows: params.rows };
     const command = shellCommand(this.options, cwd, params.user, size);
-    const pty = spawn(command.file, command.args, {
+    // The shell is its member's, uid and HOME (ADR-0171): the verified user_id, not the free-text
+    // `user` the session is named for.
+    const run = asUser(
+      params.user_id,
+      [command.file, ...command.args],
+      shellEnv(this.options, params.user, process.env, params.env ?? {}),
+    );
+    const [file = command.file, ...args] = run.argv;
+    const pty = spawn(file, args, {
       name: "xterm-256color",
       cols: size.cols,
       rows: size.rows,
       cwd,
-      env: shellEnv(this.options, params.user, process.env, params.env ?? {}),
+      env: run.env,
     });
     let carry = "";
     const shell: Shell = {

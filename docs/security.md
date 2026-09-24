@@ -140,14 +140,30 @@ container holds that workspace's files and nobody else's (ADR-0171):
 - **Workspaces.** The container mounts `<workspace>/` of the homes volume and `<workspace>/` of the
   projects volume, never the whole of either. A member of one workspace, or an agent working for
   them, has no path to another workspace's projects or homes.
-- **The runner's token.** Each container carries a fresh connect token, and minting it revokes every
-  older token of that runner, so a token read out of a container that has since been replaced
-  cannot register as the runner.
+- **Members.** Inside a workspace's container every member runs as a uid of their own and their
+  home is theirs alone (mode 700), so one member's shell, agent or dev server cannot read another's
+  CLI logins. Projects are shared on purpose: group-writable, one checkout for the whole workspace.
+  What the root agent reads or writes for a member, it does with that member's filesystem
+  credentials. Git holding a connection token or the deploy key runs as an account nothing else runs
+  as, so the member's own agent cannot read the token out of git's environment either.
+- **The runner's token.** The agent is root and nothing it starts is, so no child can read its
+  environment. Each container carries a fresh connect token, and minting it revokes every older
+  token of that runner, so a token read out of a container that has since been replaced cannot
+  register as the runner. A local runner runs everything as its owner and makes itself
+  non-dumpable on Linux, which keeps its token out of what it starts; on macOS and Windows a
+  process of the owner's could still read it, which is the owner's own machine.
 
 Shared mode (`PERCH_RUNNER_MODE=shared`) is one container for the whole instance with the whole of
 both volumes mounted: every workspace's projects and every member's home are in that one container.
-It is for a single team that trusts itself, not for workspaces that must not see each other; use
-docker mode for those.
+Members still run as uids of their own there, so homes stay private, but group 1000 is every
+workspace's group: any member of any workspace can read and write every workspace's projects. It is
+for a single team that trusts itself, not for workspaces that must not see each other; use docker
+mode for those.
+
+What is not kept apart, in either mode: members of one workspace can change each other's project
+files and processes' output (that is what a shared checkout is), a dev server one member started
+serves everyone, and a file a member made private (mode 600) inside a project is left out of the
+nightly project backup, which the supervisor takes as an ordinary user.
 
 ## The invariants a report is measured against
 
@@ -160,7 +176,10 @@ Spec §1.6, repeated in `SECURITY.md`, and enforced in code:
 - Runners speak only the §7.6 protocol, and a local runner refuses requests for anybody but its
   owner unless a grant is attached. Nothing a runner starts — a shell, a session, `exec`, a dev
   server, `postCreateCommand`, an MCP server, git — sees the runner's own connect token, master
-  key or session secret (`docs/runners.md`, ADR-0160).
+  key or session secret: not in its own environment (ADR-0160) and not in the runner's, which it
+  runs as another uid than (hosted) or cannot read through `/proc` (a non-dumpable local runner on
+  Linux) (`docs/runners.md`, ADR-0171).
+- On a hosted runner a member's home is readable by that member only (ADR-0171).
 - Perch never forwards a caller's bearer token upstream; each connection uses its own delegated
   token.
 - Every route names an action `authorize()` knows, and a test proves it (`docs/audit.md`).

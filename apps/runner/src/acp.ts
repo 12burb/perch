@@ -19,6 +19,7 @@ import type {
   SessionMode,
 } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
+import { asUser, asUserFs, type RunAs } from "./identity.ts";
 import type { Notify } from "./notify.ts";
 import { projectRelative } from "./paths.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
@@ -260,6 +261,8 @@ export type AcpSessionOptions = {
   cwd: string;
   launch: AgentLaunch;
   env: Record<string, string>;
+  /** Whom the agent runs as, and whose filesystem credentials its file requests use (ADR-0171). */
+  user: RunAs;
   mode: SessionMode;
   policy: RunnerPolicy;
   mcpServers?: acp.McpServer[];
@@ -319,9 +322,11 @@ export class AcpSession {
 
   /** Spawns the agent, initializes, opens the session; rejects when any of that fails. */
   static async open(options: AcpSessionOptions): Promise<AcpSession> {
-    const proc = spawn(options.launch.file, options.launch.args, {
+    const launch = asUser(options.user, [options.launch.file, ...options.launch.args], options.env);
+    const [file = options.launch.file, ...args] = launch.argv;
+    const proc = spawn(file, args, {
       cwd: options.cwd,
-      env: options.env,
+      env: launch.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
     proc.stderr?.setEncoding("utf8");
@@ -679,8 +684,12 @@ export class AcpSession {
     } catch (error) {
       refuse(error instanceof Error ? error.message : String(error));
     }
-    if (!existsSync(absolute)) refuse(`no such file: ${rel}`);
-    const content = readFileSync(absolute, "utf8");
+    // Read as the member the agent works for: a link in the tree to someone else's home, or to
+    // the runner's own /proc, is theirs to be refused (ADR-0171).
+    const content = asUserFs(this.options.user, () => {
+      if (!existsSync(absolute)) refuse(`no such file: ${rel}`);
+      return readFileSync(absolute, "utf8");
+    });
     if (params.line == null && params.limit == null) return { content };
     const lines = content.split("\n");
     const start = Math.max(0, (params.line ?? 1) - 1);
@@ -699,9 +708,12 @@ export class AcpSession {
     } catch (error) {
       refuse(error instanceof Error ? error.message : String(error));
     }
-    const existed = existsSync(absolute) && statSync(absolute).isFile();
-    if (!existsSync(dirname(absolute))) refuse(`directory does not exist: ${dirname(rel)}`);
-    writeFileSync(absolute, params.content, "utf8");
+    const existed = asUserFs(this.options.user, () => {
+      const there = existsSync(absolute) && statSync(absolute).isFile();
+      if (!existsSync(dirname(absolute))) refuse(`directory does not exist: ${dirname(rel)}`);
+      writeFileSync(absolute, params.content, "utf8");
+      return there;
+    });
     this.options.notify?.({
       method: "fs.changed",
       params: {

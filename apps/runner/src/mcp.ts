@@ -13,6 +13,7 @@
 import { existsSync } from "node:fs";
 import { type RunnerRequestParams, type RunnerStream, STREAM_OPEN_TIMEOUT_MS } from "@perch/events";
 import { childEnv } from "./env.ts";
+import { asUser } from "./identity.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 import type { StreamOpener } from "./streams.ts";
@@ -59,12 +60,13 @@ export class McpHost {
       root: this.options.root,
     });
 
-    const proc = Bun.spawn([params.command, ...params.args], {
+    const run = asUser(params.user_id, [params.command, ...params.args], childEnv());
+    const proc = Bun.spawn(run.argv, {
       cwd,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      env: childEnv(),
+      env: run.env,
     });
     const live: Live = { proc, stream: null, buffered: [] };
     this.live.add(live);

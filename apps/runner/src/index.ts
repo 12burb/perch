@@ -80,6 +80,19 @@ export {
   resolveHermes,
 } from "./hermes.ts";
 export {
+  asUser,
+  asUserFs,
+  CREDENTIALED_GIT,
+  Isolation,
+  isolation,
+  isolationWanted,
+  makeUndumpable,
+  type Protection,
+  protectRunner,
+  type RunAs,
+  useIsolation,
+} from "./identity.ts";
+export {
   createInProcessRunner,
   IMPLEMENTED_METHODS,
   type InProcessRunner,

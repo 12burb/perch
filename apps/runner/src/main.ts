@@ -9,10 +9,14 @@
  *   PERCH_RUNNER_KIND        hosted | local | remote (default: hosted)
  *   PERCH_RUNNER_OWNER_USER  local and remote runners: the owner's user id
  *   PERCH_PROJECTS_DIR       where projects live (default: /data/projects)
+ *   PERCH_HOMES_DIR          where members' homes live (default: /data/homes)
+ *   PERCH_RUNNER_ISOLATION   `users` (the runner image): each member runs as a uid of their own;
+ *                            needs the agent to be root on Linux (ADR-0171)
  */
 import { hostname } from "node:os";
 import type { RunnerInfo } from "@perch/events";
 import { connectRunner, type RunnerLogger } from "./client.ts";
+import { protectRunner } from "./identity.ts";
 import { projectsRoot } from "./projects.ts";
 
 const log: RunnerLogger = (level, msg, fields) => {
@@ -59,10 +63,22 @@ if (import.meta.main) {
     log("error", error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
+  const root = projectsRoot();
+  try {
+    // Before anything is served: members apart (hosted), or at least the token out of /proc's reach.
+    protectRunner({
+      projectsRoot: root,
+      homesRoot: process.env.PERCH_HOMES_DIR ?? "/data/homes",
+      log,
+    });
+  } catch (error) {
+    log("error", error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
   const client = connectRunner({
     ...config,
     log,
-    handlerOptions: { projects: { root: projectsRoot() } },
+    handlerOptions: { projects: { root } },
   });
   const stop = async () => {
     log("info", "stopping");

@@ -12,6 +12,13 @@
  * runner's real environment underneath what it is given, and one rule for every child is easier
  * to hold than two. `extra` is applied as given — a caller that sets `PERCH_GIT_SECRET` for git's
  * credential helper means to.
+ *
+ * This keeps the secrets out of a child's *own* environment, and that is all it does. A child that
+ * runs as the runner's uid can still read the runner's environment from `/proc/<pid>/environ` —
+ * ADR-0160 said nothing the runner starts sees the token, and that was not so. What closes it is
+ * who the child runs as (ADR-0171, `identity.ts`): on a hosted runner the agent is root and every
+ * child an unprivileged uid, and any other Linux runner makes itself non-dumpable, which puts its
+ * `/proc` entries out of its children's reach.
  */
 export function childEnv(
   base: NodeJS.ProcessEnv = process.env,

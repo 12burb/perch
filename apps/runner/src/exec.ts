@@ -8,6 +8,7 @@ import { platform } from "node:os";
 import { resolve } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
 import { childEnv } from "./env.ts";
+import { asUser } from "./identity.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 
@@ -188,12 +189,19 @@ export async function exec(
   if (!existsSync(cwd)) throw new Error(`cwd does not exist: ${where}`);
   const started = performance.now();
   const { argv, group } = shell(params.command);
-  const proc = Bun.spawn(argv, {
+  // As the member who asked (ADR-0171): setpriv execs setsid execs sh, one pid all the way, so the
+  // process group a timeout kills is still this child's.
+  const run = asUser(
+    params.user_id,
+    argv,
+    childEnv(process.env, { PERCH: "1", CI: process.env.CI ?? "1" }),
+  );
+  const proc = Bun.spawn(run.argv, {
     cwd,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
-    env: childEnv(process.env, { PERCH: "1", CI: process.env.CI ?? "1" }),
+    env: run.env,
   });
   const out = collect(proc.stdout);
   const err = collect(proc.stderr);

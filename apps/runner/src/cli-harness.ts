@@ -9,6 +9,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EngineEvent, FileDiff, SessionMode } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
+import { asUser, type RunAs } from "./identity.ts";
 import { projectRelative } from "./paths.ts";
 
 export type CliHarnessSpec = {
@@ -308,6 +309,8 @@ export type CliHarnessSessionOptions = {
   sessionId: string;
   cwd: string;
   env: Record<string, string>;
+  /** Whom the CLI runs as (ADR-0171). */
+  user: RunAs;
   mode: SessionMode;
   spec: CliHarnessSpec;
   emit: (event: EngineEvent) => void;
@@ -399,9 +402,11 @@ export class CliHarnessSession {
       mode: mode ?? this.options.mode,
       resume: this.cliSessionId,
     });
-    const proc = spawn(spec.command, args, {
+    const run = asUser(this.options.user, [spec.command, ...args], this.options.env);
+    const [file = spec.command, ...rest] = run.argv;
+    const proc = spawn(file, rest, {
       cwd,
-      env: this.options.env,
+      env: run.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const turn: Turn = { proc, ended: false, cancelled: false };

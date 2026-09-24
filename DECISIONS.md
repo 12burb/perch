@@ -6780,3 +6780,78 @@ environment cannot register as the runner.
 
 **Shared mode is single-tenant.** `PERCH_RUNNER_MODE=shared` is one container for the instance and
 keeps the whole of both volumes; `docs/security.md` says what it does not keep apart.
+
+**3. Inside a container, every member is a uid of their own.** The runner image runs the agent as
+root with `PERCH_RUNNER_ISOLATION=users` (it keeps the `perch` user and group 1000 for ownership),
+and on Linux with root the agent starts nothing as root (`apps/runner/src/identity.ts`). A member
+gets a uid from 20000 on first sight, kept in `/data/homes/.perch-uids.json` (root's, 0600,
+written beside and renamed over, Zod-checked; a map that does not parse stops the runner rather
+than hand uids out again), a passwd entry `perch-u<uid>` in group 1000, and a home owned by that
+uid, mode 0700 (a home found with another owner — a legacy one — is handed over once). Every child
+goes through one helper, `asUser(argv, user)`, which prefixes `setpriv --reuid --regid=1000
+--clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs`: shells, exec, dev servers,
+postCreateCommand, MCP servers, ACP / OpenCode / cli-harness agents, git, ripgrep. simple-git
+accepts only `[binary, prefix]`, so its git goes through `/usr/local/bin/perch-as`, a four-line
+wrapper that reads the uid from `PERCH_AS_UID` and execs setpriv. A child that is nobody's (version
+probes, the screenshot browser) runs as uid 1000; the screenshot browser in particular is not run
+as the member who asked, because the page may be another member's code and Chromium runs there
+without its sandbox. The runner's read-only machine queries (lsof, netstat, pgrep, taskkill) run as
+the agent; `apps/runner/test/env.test.ts` fails on any other spawn site that does not go through
+the helper, and on an exemption whose site no longer exists.
+
+**Projects stay shared.** `/data/projects/<workspace>` is root's, group 1000, mode 3775 (sticky, so
+a member cannot rename a project directory the runner will later follow); every project directory
+the runner makes is root's, group 1000, setgid, 2775; the agent's umask is 002; repositories are
+`core.sharedRepository=group` (`git init --shared=group`, `git clone --config`); and git is told
+every checkout is safe (`safe.directory=*` in `/etc/gitconfig` for shells, and on the runner's own
+git command lines, which do not depend on the image). A project from before this — every file
+uid 1000's, 644/755 — is made group-writable and setgid once at start, by uid 1000 (whose files
+they are), never by a root process walking a tree someone else can change. Bun's `chmod` drops the
+setgid and sticky bits in every form, so those modes are set through libc.
+
+**4. What the root agent touches for a member, it touches as that member.** A root process
+following a path a member controls is the whole isolation undone by one symlink swapped in at the
+right moment — and an ACP agent's `fs/read_text_file` request was not even symlink-checked, so an
+agent could have asked the root runner for `/proc/1/environ` through a link. `fs.*`, an agent's
+file requests, a project's `.perch/project.json`, a restore's removals and the scratch directories
+the runner hands to a member's git all run under `asUserFs(user, fn)`: `setfsuid`/`setfsgid` on
+the calling thread (bun:ffi, libc) for exactly as long as a synchronous `fn` runs, checked after
+the call, restored in `finally`. The kernel then checks every open as it would the member's own.
+Scratch files a member's git needs (an index, a patch, a key) are written by root into a fresh
+directory before the directory is handed over, never after.
+
+**Credentialed git runs as an account of its own.** The design this implements ran git as the
+member; for a clone or push with a connection token or the deploy key that is not enough, because
+git's environment and the key file are readable by every process of the uid git runs as — the
+member's own agent among them (§1.6: no connection token reaches an engine). Those runs use
+`perch-git` (uid 19999, group 1000, its own home), which nothing else runs as.
+
+**5. The connect token.** ADR-0160 said nothing the runner starts sees its token; that was
+incomplete — it kept the token out of each child's own environment, while any child could read the
+runner's from `/proc/1/environ`. With the agent root and every child unprivileged, `/proc/1/environ`
+is out of their reach. A runner that is not isolated (a local runner, or a hosted one without root)
+makes itself non-dumpable at start on Linux (`prctl(PR_SET_DUMPABLE, 0)` through bun:ffi, best
+effort, one warning if it cannot), which makes its `/proc` entries root's; the in-process runner of
+laptop mode never does, being the api's own process. Asked for isolation and unable to drop to
+another uid, the hosted runner exits rather than serve without it.
+
+**What else changed with it.** The image's code, browsers and Hermes are root's now (a page or a
+member running as uid 1000 must not change what the root agent runs next). The supervisor takes
+the nightly project backup as an ordinary user, so a file a member made private is left out with a
+warning (`tar --ignore-failed-read`) instead of failing the backup. The runner's `HOME` for a member
+is set by the identity layer, not made root-owned first by the shell code.
+
+**Tests.** `apps/runner/test/identity.test.ts` switches uids for real where the test process is
+root on Linux (skipped, and saying so, elsewhere): stable uids across a restart of the map; a child
+as Alice cannot read Bob's home or the environment of a root parent (its own `/proc/self/status`
+shows four equal uids, no capabilities, no-new-privs); through the handlers, `exec` runs as Alice,
+a shell has her uid and HOME, `asUserFs` refuses Bob's files and the runner's `/proc`; a file
+written by Alice through `fs.write` or her own shell is changed by Bob, and both commit to one
+repository; a legacy project becomes shared at start; and a non-isolated runner's token is readable
+by a same-uid child without `makeUndumpable` and not with it.
+
+**Not done here.** Removing a whole project or worktree (`rm -rf` of a member-writable tree) is
+still the root agent's, relying on Bun's recursive removal not following links. The image could not
+be built in the sandbox this was written in (Docker Hub refused the base images), so the Dockerfile
+is checked by `scripts/dockerfiles.test.ts` and the mechanisms by the tests above, not by a built
+image.

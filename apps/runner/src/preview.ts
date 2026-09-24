@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import type { PreviewProcess, RunnerRequestParams } from "@perch/events";
 import { childEnv } from "./env.ts";
 import { cmdArgument, descendantsOf, killTree } from "./exec.ts";
+import { asUser } from "./identity.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir } from "./projects.ts";
 
@@ -131,12 +132,18 @@ export class PreviewManager {
     const fd = openSync(log, "w");
     let proc: Running["proc"];
     try {
-      proc = Bun.spawn(shellFor(params.command), {
+      // As the member who pressed Start (ADR-0171); the log is opened here and handed over.
+      const run = asUser(
+        params.user_id,
+        shellFor(params.command),
+        childEnv(process.env, { ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" }),
+      );
+      proc = Bun.spawn(run.argv, {
         cwd,
         stdin: "ignore",
         stdout: fd,
         stderr: fd,
-        env: childEnv(process.env, { ...(params.env ?? {}), PERCH: "1", FORCE_COLOR: "0" }),
+        env: run.env,
       });
     } finally {
       // The child has its own copy; this one would otherwise hold the file for as long as the

@@ -7,8 +7,6 @@
  * through the policy's fs.write rules first.
  */
 import { existsSync, rmSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type FileDiff,
@@ -18,6 +16,7 @@ import {
   splitPatches,
 } from "@perch/events";
 import type { GitOptions } from "./git.ts";
+import { asUserFs, type RunAs, userTempDir } from "./identity.ts";
 import { enforce } from "./policy.ts";
 import { cloneEnv, projectDir, runGit } from "./projects.ts";
 
@@ -64,23 +63,38 @@ const PLUMBING = [
   "core.safecrlf=false",
 ];
 
-function git(dir: string, args: string[], env: Record<string, string> = {}): Promise<string> {
+/** A scratch directory of `user`'s, removed with their credentials, never root's (ADR-0171). */
+function removeScratch(user: RunAs, dir: string): void {
+  asUserFs(user, () => rmSync(dir, { recursive: true, force: true }));
+}
+
+/** Plumbing, as the member who asked (ADR-0171). */
+function git(
+  dir: string,
+  user: RunAs,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<string> {
   return runGit([...PLUMBING, ...args], {
     cwd: dir,
     env: cloneEnv(process.env, env),
     timeoutMs: 120_000,
+    user,
   });
 }
 
-/** The working tree as a tree object: everything `git add -A` would stage, into a scratch index. */
-export async function snapshotTree(dir: string): Promise<string> {
-  const scratch = await mkdtemp(join(tmpdir(), "perch-index-"));
+/**
+ * The working tree as a tree object: everything `git add -A` would stage, into a scratch index the
+ * member's git can write.
+ */
+export async function snapshotTree(dir: string, user: RunAs = null): Promise<string> {
+  const scratch = userTempDir(user, "perch-index-");
   const env = { GIT_INDEX_FILE: join(scratch, "index") };
   try {
-    await git(dir, ["add", "-A", "--", "."], env);
-    return (await git(dir, ["write-tree"], env)).trim();
+    await git(dir, user, ["add", "-A", "--", "."], env);
+    return (await git(dir, user, ["write-tree"], env)).trim();
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    removeScratch(user, scratch);
   }
 }
 
@@ -90,10 +104,13 @@ export async function checkpoint(
   params: RunnerRequestParams<"session.checkpoint">,
 ): Promise<{ git_ref: string }> {
   const dir = repoDir(options.root, params);
-  const tree = await snapshotTree(dir);
+  const user = params.user_id;
+  const tree = await snapshotTree(dir, user);
   const message = `perch checkpoint ${params.session_id} turn ${params.turn}`;
-  const commit = (await git(dir, ["commit-tree", tree, "-m", message], PERCH_IDENTITY)).trim();
-  await git(dir, ["update-ref", checkpointRef(params.session_id, params.turn), commit]);
+  const commit = (
+    await git(dir, user, ["commit-tree", tree, "-m", message], PERCH_IDENTITY)
+  ).trim();
+  await git(dir, user, ["update-ref", checkpointRef(params.session_id, params.turn), commit]);
   return { git_ref: commit };
 }
 
@@ -103,13 +120,19 @@ export async function checkpoint(
  */
 async function resolveCheckpoint(
   dir: string,
+  user: RunAs,
   sessionId: string,
   turn: number,
   gitRef?: string,
 ): Promise<string> {
   for (const candidate of [...(gitRef ? [gitRef] : []), checkpointRef(sessionId, turn)]) {
     try {
-      const sha = await git(dir, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`]);
+      const sha = await git(dir, user, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${candidate}^{commit}`,
+      ]);
       if (sha.trim()) return sha.trim();
     } catch {
       // not here: try the next candidate
@@ -119,8 +142,13 @@ async function resolveCheckpoint(
 }
 
 /** `git diff --name-status -z` between two tree-ish objects, as [status, path] pairs. */
-async function changedPaths(dir: string, from: string, to: string): Promise<[string, string][]> {
-  const raw = await git(dir, ["diff", "--name-status", "--no-renames", "-z", from, to]);
+async function changedPaths(
+  dir: string,
+  user: RunAs,
+  from: string,
+  to: string,
+): Promise<[string, string][]> {
+  const raw = await git(dir, user, ["diff", "--name-status", "--no-renames", "-z", from, to]);
   const parts = raw.split("\0").filter((part) => part.length > 0);
   const out: [string, string][] = [];
   for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -139,9 +167,10 @@ export async function restore(
   params: RunnerRequestParams<"session.restore">,
 ): Promise<{ git_ref: string; files: string[] }> {
   const dir = repoDir(options.root, params);
-  const commit = await resolveCheckpoint(dir, params.session_id, params.turn, params.git_ref);
-  const now = await snapshotTree(dir);
-  const changes = await changedPaths(dir, commit, now);
+  const user = params.user_id;
+  const commit = await resolveCheckpoint(dir, user, params.session_id, params.turn, params.git_ref);
+  const now = await snapshotTree(dir, user);
+  const changes = await changedPaths(dir, user, commit, now);
   if (changes.length === 0) return { git_ref: commit, files: [] };
   for (const [, path] of changes) {
     enforce(options.policy, { kind: "fs.write", project: params.project, path });
@@ -151,18 +180,21 @@ export async function restore(
   const rewritten = changes
     .filter(([status]) => status !== "A" && status !== "D")
     .map(([, path]) => path);
-  const scratch = await mkdtemp(join(tmpdir(), "perch-index-"));
+  const scratch = userTempDir(user, "perch-index-");
   const env = { GIT_INDEX_FILE: join(scratch, "index") };
   try {
-    await git(dir, ["read-tree", commit], env);
+    await git(dir, user, ["read-tree", commit], env);
     const toWrite = [...recreated, ...rewritten];
     for (let i = 0; i < toWrite.length; i += 200) {
-      await git(dir, ["checkout-index", "-f", "--", ...toWrite.slice(i, i + 200)], env);
+      await git(dir, user, ["checkout-index", "-f", "--", ...toWrite.slice(i, i + 200)], env);
     }
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    removeScratch(user, scratch);
   }
-  for (const path of removed) rmSync(join(dir, path), { force: true });
+  // Removed as the member: a path under a directory someone swapped for a link is theirs to fail on.
+  asUserFs(user, () => {
+    for (const path of removed) rmSync(join(dir, path), { force: true });
+  });
   for (const [paths, kind] of [
     [rewritten, "change"],
     [recreated, "create"],
@@ -181,15 +213,15 @@ export async function restore(
  */
 export async function diffRange(
   options: Pick<GitOptions, "root">,
-  params: { workspace_id: string; project: string; from: string; to?: string },
+  params: { workspace_id: string; user_id: string; project: string; from: string; to?: string },
 ): Promise<{
   diff: string;
   files: { path: string; additions: number; deletions: number; binary: boolean }[];
   patches: FileDiff[];
 }> {
   const dir = repoDir(options.root, params);
-  const to = params.to ?? (await snapshotTree(dir));
-  const diff = await git(dir, [
+  const to = params.to ?? (await snapshotTree(dir, params.user_id));
+  const diff = await git(dir, params.user_id, [
     "diff",
     "--no-color",
     "--no-ext-diff",
@@ -230,11 +262,12 @@ export async function gitApply(
   for (const path of paths) {
     enforce(options.policy, { kind: "fs.write", project: params.project, path });
   }
-  const scratch = await mkdtemp(join(tmpdir(), "perch-patch-"));
+  const scratch = userTempDir(params.user_id, "perch-patch-", {
+    "changes.patch": { content: params.patch, mode: 0o600 },
+  });
   const file = join(scratch, "changes.patch");
   try {
-    await Bun.write(file, params.patch);
-    await git(dir, [
+    await git(dir, params.user_id, [
       "apply",
       ...(params.reverse ? ["--reverse"] : []),
       "--whitespace=nowarn",
@@ -244,7 +277,7 @@ export async function gitApply(
     const message = error instanceof Error ? error.message : String(error);
     throw new RunnerRpcError(JSON_RPC_ERRORS.invalidParams, `the patch does not apply: ${message}`);
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    removeScratch(params.user_id, scratch);
   }
   options.notify?.({
     method: "fs.changed",

@@ -40,6 +40,8 @@ not-yet-implemented methods are `-32601`; bad params `-32602`.
 | `PERCH_RUNNER_NAME` | shown on the Environments page (default: the container hostname) |
 | `PERCH_RUNNER_KIND` | `hosted` (default), `local`, or `remote` |
 | `PERCH_RUNNER_OWNER_USER` | local and remote runners: the owner's user id |
+| `PERCH_RUNNER_ISOLATION` | `users` (set by the image): each member runs as a uid of their own; needs the agent to be root on Linux, and the runner will not start without it once asked ([below](#who-a-process-runs-as-adr-0171)) |
+| `PERCH_HOMES_DIR` | where members' homes are (default `/data/homes`) |
 
 The supervisor (task 1.2) mints the token, starts the container with these variables, and watches
 `runner.online`. The agent reconnects with jittered backoff (1 s to 30 s) when the api restarts; a
@@ -206,13 +208,55 @@ session), otherwise `$SHELL -l` (`%COMSPEC%` on Windows). A shell whose stream c
 minutes (`graceMs`) with 64 KiB of scrollback (`scrollbackBytes`) replayed to the next stream. Its
 environment is the runner's with every `PERCH_*` variable blanked (the connect token never reaches
 a shell), plus `TERM=xterm-256color`, `PERCH=1`, `PERCH_USER=<user id>`, and, on a hosted runner,
-`HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use. See
+`HOME=/data/homes/<user>` (`PERCH_HOMES_DIR`), created on first use and, on a hosted runner,
+owned by the member's own uid (ADR-0171). See
 [`terminal.md`](terminal.md).
 
 The same blanking applies to everything else the runner starts — `exec`, a project's dev server
 and `postCreateCommand`, MCP servers, git (so a repository's hooks see nothing either), agent
 version probes, ripgrep and the screenshot browser — through one helper, `childEnv`, and a test
-that fails on any process the runner starts without it (ADR-0160).
+that fails on any process the runner starts without it (ADR-0160). Blanking keeps the token out of
+a child's own environment only: a child running as the runner's uid could read the runner's from
+`/proc`. Who a child runs as is what closes that (next section).
+
+### Who a process runs as (ADR-0171)
+
+A hosted runner is several people's. The runner image sets `PERCH_RUNNER_ISOLATION=users` and runs
+the agent as root, and on Linux with root the agent starts nothing as root:
+
+- **Every member runs as a uid of their own**, allocated from 20000 the first time the runner sees
+  them and kept in `/data/homes/.perch-uids.json` (root's, mode 600), so the same person gets the
+  same uid after a restart. Each gets a passwd entry (`perch-u<uid>`, group 1000) and a home,
+  `/data/homes/<user>`, owned by them and mode 700: nobody else's shell, agent or dev server can
+  read the CLI logins in it.
+- **Every child goes through one helper** (`asUser` in `apps/runner/src/identity.ts`), which puts
+  `setpriv --reuid=<uid> --regid=1000 --clear-groups --inh-caps=-all --bounding-set=-all
+  --no-new-privs --` in front of it: shells, `exec`, dev servers, `postCreateCommand`, MCP servers,
+  ACP, OpenCode and cli-harness agents, git, ripgrep. simple-git's git goes through
+  `/usr/local/bin/perch-as`, which does the same from a uid in its environment. A child that is
+  nobody's (a version probe, the screenshot browser, which may be looking at another member's page
+  without its sandbox) runs as uid 1000. The runner's own read-only queries of the machine (ports,
+  a pid's children) run as the agent; `apps/runner/test/env.test.ts` lists them and fails on any
+  other process started without the helper.
+- **What the runner reads and writes for a member** — `fs.*`, an agent's file requests, a
+  project's `.perch/project.json` — it reads and writes with that member's filesystem credentials
+  (`setfsuid`/`setfsgid`), so a link a member made leads the root agent nowhere the member could not
+  go themselves.
+- **A workspace's projects are its members' together.** `/data/projects/<workspace>` is root's,
+  group 1000, mode 3775; every project directory the runner makes is group 1000 and setgid, the
+  runner's umask is 002, and repositories are `core.sharedRepository=group`, so what one member
+  writes another can change. git accepts a checkout another member made (`safe.directory=*` in
+  `/etc/gitconfig`, and on the runner's own git command lines). A project from before this is made
+  group-writable once, when the runner starts.
+- **git holding a credential** (a clone or push with a token or the deploy key) runs as
+  `perch-git` (uid 19999), which nothing else runs as: git's environment and the key file are
+  readable by every process of the uid git runs as, and the member's own agent is one of those.
+
+The connect token is then out of every child's reach: `/proc/1/environ` is root's. A runner that is
+not isolated — a local runner (`perch runner connect`), a hosted one without root — runs its
+children as its own uid, and on Linux makes itself non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`) at
+start, which makes its `/proc` entries root's too; where that cannot be done it says so once in its
+log. The in-process runner of laptop mode is the api's own process and does neither.
 
 Everything a caller sends is a value on the runner's command lines, never an option (ADR-0164):
 a search query goes to ripgrep as the value of `--regexp`, git is told where its options end

@@ -7,10 +7,11 @@
  * also ship a second way of asking it for a picture (ADR-0108). Which browser is found in the
  * environment, so a laptop runner uses whatever Playwright already installed there.
  */
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { childEnv } from "./env.ts";
+import { asUser, asUserFs, userTempDir } from "./identity.ts";
 
 export class NoBrowser extends Error {
   constructor() {
@@ -173,10 +174,13 @@ export async function visit(
   const width = input.width ?? 1280;
   const height = input.height ?? 800;
   const budget = options.timeoutMs ?? 30_000;
-  const dir = mkdtempSync(join(tmpdir(), "perch-visit-"));
+  // Nobody's (uid 1000 where members are isolated, ADR-0171): the page may be another member's
+  // code, and the browser runs without its sandbox, so it is not handed anyone's uid or home.
+  const dir = userTempDir(null, "perch-visit-");
   const url = `http://127.0.0.1:${input.port}${input.path.startsWith("/") ? input.path : `/${input.path}`}`;
 
-  const proc = Bun.spawn(
+  const run = asUser(
+    null,
     [
       browser,
       "--headless",
@@ -188,8 +192,9 @@ export async function visit(
       `--window-size=${width},${height}`,
       "about:blank",
     ],
-    { stdout: "ignore", stderr: "pipe", env: childEnv() },
+    childEnv(),
   );
+  const proc = Bun.spawn(run.argv, { stdout: "ignore", stderr: "pipe", env: run.env });
 
   let socket: WebSocket | null = null;
   try {
@@ -239,7 +244,8 @@ export async function visit(
   } finally {
     socket?.close();
     proc.kill();
-    rmSync(dir, { recursive: true, force: true });
+    // Removed as whose it is: the browser could have left anything in it (ADR-0171).
+    asUserFs(null, () => rmSync(dir, { recursive: true, force: true }));
   }
 }
 

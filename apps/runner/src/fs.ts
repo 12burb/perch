@@ -2,6 +2,11 @@
  * fs.* on a runner (spec §7.6, task 1.5): list, read, write, stat, and search inside a project, every
  * path resolved inside the project directory, every call through the policy hook. Search is ripgrep
  * (`rg --json`) when the machine has it (the runner image does) and a walk in-process otherwise.
+ *
+ * On a hosted runner the agent is root, and a root process following a path a member can change
+ * is how a link swapped in at the right moment reads someone else's home. So every call here does
+ * its reading and writing with the requesting member's filesystem credentials (`asUserFs`), and
+ * ripgrep runs as that member (ADR-0171).
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -9,6 +14,7 @@ import {
   type Dirent,
   existsSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -18,10 +24,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { RunnerRequestParams } from "@perch/events";
 import { childEnv } from "./env.ts";
+import { asUser, asUserFs } from "./identity.ts";
 import type { Notify } from "./notify.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { projectDir, resolveInside } from "./projects.ts";
@@ -66,23 +72,26 @@ export async function fsList(
 ): Promise<{ entries: Entry[] }> {
   const dir = dirOf(options, params);
   enforce(options.policy, { kind: "fs.list", project: params.project, path: params.path });
-  const target = resolveInside(dir, params.path || ".");
-  const entries: Entry[] = [];
-  for (const dirent of readdirSync(target, { withFileTypes: true })) {
-    const full = join(target, dirent.name);
-    let stats: ReturnType<typeof lstatSync>;
-    try {
-      stats = lstatSync(full);
-    } catch {
-      continue;
+  const entries: Entry[] = asUserFs(params.user_id, () => {
+    const target = resolveInside(dir, params.path || ".");
+    const found: Entry[] = [];
+    for (const dirent of readdirSync(target, { withFileTypes: true })) {
+      const full = join(target, dirent.name);
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(full);
+      } catch {
+        continue;
+      }
+      found.push({
+        name: dirent.name,
+        type: typeOf(stats),
+        size: stats.isFile() ? stats.size : 0,
+        mtime: stats.mtime.toISOString(),
+      });
     }
-    entries.push({
-      name: dirent.name,
-      type: typeOf(stats),
-      size: stats.isFile() ? stats.size : 0,
-      mtime: stats.mtime.toISOString(),
-    });
-  }
+    return found;
+  });
   entries.sort((a, b) =>
     a.type === b.type
       ? a.name.localeCompare(b.name)
@@ -108,13 +117,15 @@ export async function fsRead(
 ): Promise<{ content: string; encoding: "utf8" | "base64"; size: number; truncated: boolean }> {
   const dir = dirOf(options, params);
   enforce(options.policy, { kind: "fs.read", project: params.project, path: params.path });
-  const target = resolveInside(dir, params.path);
-  const stats = statSync(target);
-  if (!stats.isFile()) throw new Error(`${params.path} is not a file`);
   const max = options.maxReadBytes ?? 2 * 1024 * 1024;
-  // Only as much as the cap: a build artifact or a dump in the project is not read whole into the
-  // runner's heap on every open, and `truncated` is answered from the size on disk.
-  const bytes = readAtMost(target, max);
+  const { bytes, stats } = asUserFs(params.user_id, () => {
+    const target = resolveInside(dir, params.path);
+    const found = statSync(target);
+    if (!found.isFile()) throw new Error(`${params.path} is not a file`);
+    // Only as much as the cap: a build artifact or a dump in the project is not read whole into
+    // the runner's heap on every open, and `truncated` is answered from the size on disk.
+    return { bytes: readAtMost(target, max), stats: found };
+  });
   const truncated = stats.size > max;
   if (looksBinary(bytes)) {
     return {
@@ -142,18 +153,22 @@ export async function fsWrite(
   params: RunnerRequestParams<"fs.write">,
 ): Promise<{ bytes: number }> {
   const dir = dirOf(options, params);
-  // Never through a symlink: a link committed in a repository or made from a shell could point a
-  // write at `.git` or outside the project, past the policy's paths (ADR-0164).
-  const target = resolveInside(dir, params.path, { throughSymlinks: false });
-  const relPath = toPosix(relative(dir, target));
-  enforce(options.policy, { kind: "fs.write", project: params.project, path: relPath });
-  const existed = existsSync(target);
-  await mkdir(dirname(target), { recursive: true });
   const bytes =
     params.encoding === "base64"
       ? Buffer.from(params.content, "base64")
       : Buffer.from(params.content, "utf8");
-  writeAtomically(target, bytes);
+  // As the member: the file is theirs, the shared group's, group-writable (ADR-0171).
+  const { relPath, existed } = asUserFs(params.user_id, () => {
+    // Never through a symlink: a link committed in a repository or made from a shell could point
+    // a write at `.git` or outside the project, past the policy's paths (ADR-0164).
+    const target = resolveInside(dir, params.path, { throughSymlinks: false });
+    const rel = toPosix(relative(dir, target));
+    enforce(options.policy, { kind: "fs.write", project: params.project, path: rel });
+    const there = existsSync(target);
+    mkdirSync(dirname(target), { recursive: true });
+    writeAtomically(target, bytes);
+    return { relPath: rel, existed: there };
+  });
   options.notify?.({
     method: "fs.changed",
     params: { project: params.project, paths: [relPath], kind: existed ? "change" : "create" },
@@ -167,18 +182,20 @@ export async function fsStat(
 ): Promise<{ exists: boolean; type?: Entry["type"]; size?: number; mtime?: string }> {
   const dir = dirOf(options, params);
   enforce(options.policy, { kind: "fs.stat", project: params.project, path: params.path });
-  const target = resolveInside(dir, params.path || ".");
-  try {
-    const stats = lstatSync(target);
-    return {
-      exists: true,
-      type: typeOf(stats),
-      size: stats.isFile() ? stats.size : 0,
-      mtime: stats.mtime.toISOString(),
-    };
-  } catch {
-    return { exists: false };
-  }
+  return asUserFs(params.user_id, () => {
+    const target = resolveInside(dir, params.path || ".");
+    try {
+      const stats = lstatSync(target);
+      return {
+        exists: true,
+        type: typeOf(stats),
+        size: stats.isFile() ? stats.size : 0,
+        mtime: stats.mtime.toISOString(),
+      };
+    } catch {
+      return { exists: false };
+    }
+  });
 }
 
 /** The first `max` bytes of a file, without reading the rest. */
@@ -267,11 +284,12 @@ async function searchWithRipgrep(
   if (params.glob) args.push(`--glob=${params.glob}`);
   // rg stops early on its own once every file has produced its matches; we cut at the limit.
   args.push("--max-count", String(limit), "--", ".");
-  const proc = Bun.spawn([rg, ...args], {
+  const run = asUser(params.user_id, [rg, ...args], childEnv());
+  const proc = Bun.spawn(run.argv, {
     cwd: dir,
     stdout: "pipe",
     stderr: "ignore",
-    env: childEnv(),
+    env: run.env,
   });
   const matches: SearchMatch[] = [];
   let truncated = false;
@@ -396,7 +414,7 @@ export async function fsSearch(
   const rg = ripgrep();
   const result = rg
     ? await searchWithRipgrep(rg, dir, params, limit)
-    : searchBuiltin(dir, params, limit);
+    : asUserFs(params.user_id, () => searchBuiltin(dir, params, limit));
   return {
     ...result,
     tookMs: Math.round(performance.now() - started),

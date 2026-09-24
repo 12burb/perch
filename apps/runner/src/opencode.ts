@@ -21,6 +21,7 @@ import {
 } from "@opencode-ai/sdk/client";
 import type { EngineEvent, FileDiff, PermissionAnswer, SessionMode } from "@perch/events";
 import { unifiedDiff } from "./diff.ts";
+import { asUser, type RunAs } from "./identity.ts";
 import { projectRelative } from "./paths.ts";
 
 export type OpenCodeOptions = {
@@ -132,13 +133,20 @@ async function serve(
   binary: string,
   cwd: string,
   env: Record<string, string>,
+  user: RunAs,
   timeoutMs: number,
   log?: (line: string) => void,
 ): Promise<{ url: string; proc: ChildProcess }> {
   const port = await freePort();
-  const proc = spawn(binary, ["serve", "--hostname=127.0.0.1", `--port=${port}`], {
+  // As the member whose sessions it serves: the server is theirs alone (serverKey), and so is its uid.
+  const run = asUser(user, [binary, "serve", "--hostname=127.0.0.1", `--port=${port}`], {
+    ...env,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(CONFIG),
+  });
+  const [file = binary, ...args] = run.argv;
+  const proc = spawn(file, args, {
     cwd,
-    env: { ...env, OPENCODE_CONFIG_CONTENT: JSON.stringify(CONFIG) },
+    env: run.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const url = await new Promise<string>((resolve, reject) => {
@@ -215,8 +223,13 @@ export class OpenCodeHost {
     return Boolean(this.options.baseUrl || opencodeBinary(this.options));
   }
 
-  private async server(cwd: string, env: Record<string, string>): Promise<Server> {
-    const key = serverKey(cwd, env, Boolean(this.options.baseUrl));
+  private async server(cwd: string, env: Record<string, string>, user: RunAs): Promise<Server> {
+    // Whom it runs as is part of what it is: two members never share a server (ADR-0171).
+    const key = serverKey(
+      cwd,
+      user === null ? env : { ...env, "perch:run-as": user },
+      Boolean(this.options.baseUrl),
+    );
     const existing = this.servers.get(key);
     if (existing) return existing;
     let url: string;
@@ -230,6 +243,7 @@ export class OpenCodeHost {
         binary,
         cwd,
         { ...env, ...(this.options.env ?? {}) },
+        user,
         this.options.startTimeoutMs ?? 60_000,
         this.options.log,
       );
@@ -260,7 +274,7 @@ export class OpenCodeHost {
   }
 
   async open(options: OpenCodeSessionOptions): Promise<OpenCodeSession> {
-    const server = await this.server(options.cwd, options.env);
+    const server = await this.server(options.cwd, options.env, options.user);
     const created = await server.client.session.create({
       body: { title: options.title ?? `Perch ${options.sessionId.slice(0, 8)}` },
     });
@@ -310,6 +324,8 @@ export type OpenCodeSessionOptions = {
   sessionId: string;
   cwd: string;
   env: Record<string, string>;
+  /** Whom the server runs as (ADR-0171). */
+  user: RunAs;
   mode: SessionMode;
   model?: { providerID: string; modelID: string };
   title?: string;

@@ -69,7 +69,61 @@ describe("what a child of the runner starts from (ADR-0160)", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  test("every process the runner starts runs as someone: the member, nobody, or credentialed git (ADR-0171)", () => {
+    const src = join(import.meta.dir, "..", "src");
+    const offenders: string[] = [];
+    const allowed = new Set<string>();
+    for (const name of readdirSync(src).sort()) {
+      if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+      // The one file that turns a user into a uid starts processes only through its own launch.
+      if (name === "identity.ts") continue;
+      const text = readFileSync(join(src, name), "utf8");
+      const launched = launchNames(text);
+      for (const site of spawnSites(text)) {
+        const key = RUNS_AS_THE_AGENT.find(
+          (entry) => entry.file === name && site.head.includes(entry.head),
+        );
+        if (key) {
+          allowed.add(`${key.file} ${key.head}`);
+          continue;
+        }
+        const goesThrough =
+          /\bas(?:User|UserGit)\(/.test(site.text) ||
+          launched.some((variable) => new RegExp(`\\b${variable}\\b`).test(site.text));
+        if (!goesThrough) offenders.push(`${name}:${site.line} ${site.head}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+    // Every entry on the list is still a site that exists: a stale exemption is how one spreads.
+    expect([...allowed].sort()).toEqual(
+      RUNS_AS_THE_AGENT.map((entry) => `${entry.file} ${entry.head}`).sort(),
+    );
+  });
 });
+
+/**
+ * The runner's own read-only system queries, which run as the agent: they read what every process
+ * on the machine is listening on or which pids a tree has, change nothing, and take nothing from a
+ * caller but a pid the runner itself holds.
+ */
+const RUNS_AS_THE_AGENT: { file: string; head: string; why: string }[] = [
+  { file: "exec.ts", head: 'Bun.spawnSync(["pgrep"', why: "children of a pid the runner started" },
+  {
+    file: "exec.ts",
+    head: 'Bun.spawnSync(["taskkill"',
+    why: "Windows: kills a tree the runner started",
+  },
+  { file: "ports.ts", head: 'Bun.spawnSync(["lsof"', why: "listening ports, macOS" },
+  { file: "ports.ts", head: 'Bun.spawnSync(["netstat"', why: "listening ports, Windows" },
+];
+
+/** Variables a file assigns from `asUser(…)` or `asUserGit(…)`: a spawn site may use one of them. */
+function launchNames(text: string): string[] {
+  return [...text.matchAll(/(?:const|let)\s+(\w+)\s*=\s*as(?:User|UserGit)\(/g)].flatMap((m) =>
+    m[1] ? [m[1]] : [],
+  );
+}
 
 /**
  * Every call that starts a process: `Bun.spawn`, `Bun.spawnSync`, a `spawn` imported from

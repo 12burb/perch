@@ -1,0 +1,18 @@
+#!/bin/sh
+# perch-as <command> [args...] — run a command as the member the runner named (ADR-0171).
+#
+# simple-git starts git as `<binary> [prefix] <args>` and takes nothing longer, so it cannot put
+# setpriv's own arguments in front of git. The runner (root) starts this instead, with the uid in
+# PERCH_AS_UID, and it drops to that uid, the shared group 1000, no supplementary groups, no
+# capabilities and no new privileges before it execs the command. Anyone but root running it gets
+# setpriv's refusal and nothing else.
+set -eu
+uid="${PERCH_AS_UID:-}"
+case "$uid" in
+  '' | *[!0-9]*)
+    echo "perch-as: PERCH_AS_UID must be a uid" >&2
+    exit 126
+    ;;
+esac
+unset PERCH_AS_UID
+exec setpriv --reuid="$uid" --regid=1000 --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- "$@"

@@ -39,4 +39,17 @@ describe("the Dockerfiles", () => {
     expect(runner).not.toContain("releases/download/bun-v");
     expect(runner).not.toContain("astral-sh/uv/releases/download");
   });
+
+  test("the runner image runs its agent as root and every member as a uid of their own (ADR-0171)", () => {
+    const runner = dockerfiles.find((file) => file.name === "Dockerfile.runner")?.text ?? "";
+    // No USER line: the agent is root so that nothing it starts is.
+    expect(runner).not.toMatch(/^USER /m);
+    expect(runner).toContain("ENV PERCH_RUNNER_ISOLATION=users");
+    // simple-git's git goes through the wrapper, and a checkout is the whole workspace's.
+    expect(runner).toContain("COPY --chmod=755 deploy/perch-as /usr/local/bin/perch-as");
+    expect(runner).toContain("git config --system safe.directory '*'");
+    // What the root agent runs is root's: nothing a member or a page runs as uid 1000 can change it.
+    expect(runner).not.toMatch(/--chown=perch/);
+    expect(runner).not.toMatch(/chown -R perch/);
+  });
 });

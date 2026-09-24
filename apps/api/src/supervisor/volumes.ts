@@ -32,13 +32,24 @@ export async function backupVolumes(
     return patch(dir, { file, bytes: 0, projects: 0 });
   }
   // tar rather than a walk in TypeScript: it keeps symlinks, modes and hard links, which a
-  // checked-out repository has and a naive copy quietly loses.
-  const proc = Bun.spawn(["tar", "-czf", out, "-C", source, "."], {
+  // checked-out repository has and a naive copy quietly loses. Members own their files now
+  // (ADR-0171) and one of them may have made a file private (mode 600): that file is left out and
+  // said so, rather than the whole night's backup failing on it.
+  const proc = Bun.spawn(["tar", "--ignore-failed-read", "-czf", out, "-C", source, "."], {
     stdout: "pipe",
     stderr: "pipe",
   });
   const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
   if (code !== 0) throw new Error(`tar exited with ${code}: ${stderr.trim()}`);
+  const unreadable = stderr
+    .split("\n")
+    .filter((line) => /Cannot open|Permission denied/.test(line));
+  if (unreadable.length > 0) {
+    log.warn(
+      { source, unreadable: unreadable.length, first: unreadable[0] },
+      "some project files were not readable by the supervisor and are not in the backup",
+    );
+  }
   return patch(dir, { file, bytes: statSync(out).size, projects });
 }
 

@@ -5,12 +5,11 @@
  * goes through the policy hook.
  */
 import { existsSync, rmSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BRANCH_NAME, type RunnerRequestParams, splitPatches } from "@perch/events";
 import { type SimpleGit, simpleGit } from "simple-git";
 import { diffRange } from "./checkpoints.ts";
+import { asUserFs, asUserGit, CREDENTIALED_GIT, type RunAs, userTempDir } from "./identity.ts";
 import type { Notify } from "./notify.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
 import { cloneEnv, gitAuth, projectDir, runGit } from "./projects.ts";
@@ -31,8 +30,10 @@ function dirOf(options: GitOptions, params: { workspace_id: string; project: str
   return dir;
 }
 
-function gitAt(dir: string, env: Record<string, string> = {}): SimpleGit {
-  return simpleGit({ baseDir: dir }).env(cloneEnv(process.env, env));
+/** simple-git in a directory, as the member who asked (ADR-0171). */
+function gitAt(dir: string, user: RunAs, env: Record<string, string> = {}): SimpleGit {
+  const run = asUserGit(user, cloneEnv(process.env, env));
+  return simpleGit({ baseDir: dir, ...run.options }).env(run.env);
 }
 
 /**
@@ -54,7 +55,7 @@ function identity(author?: { name: string; email: string }): Record<string, stri
 }
 
 export async function gitStatus(options: GitOptions, params: RunnerRequestParams<"git.status">) {
-  const status = await gitAt(dirOf(options, params)).status();
+  const status = await gitAt(dirOf(options, params), params.user_id).status();
   return {
     branch: status.current,
     tracking: status.tracking,
@@ -79,11 +80,12 @@ export async function gitDiff(options: GitOptions, params: RunnerRequestParams<"
     return diffRange(options, {
       workspace_id: params.workspace_id,
       project: params.project,
+      user_id: params.user_id,
       from: params.ref,
       ...(params.to ? { to: params.to } : {}),
     });
   }
-  const git = gitAt(dirOf(options, params));
+  const git = gitAt(dirOf(options, params), params.user_id);
   let diff: string;
   let files: { path: string; additions: number; deletions: number; binary: boolean }[];
   try {
@@ -120,7 +122,7 @@ export async function gitCommit(options: GitOptions, params: RunnerRequestParams
     project: params.project,
     paths: params.paths ?? [],
   });
-  const git = gitAt(dir, identity(params.author ?? undefined));
+  const git = gitAt(dir, params.user_id, identity(params.author ?? undefined));
   // `--` first: a path is a path, never an option (`--force` would stage what .gitignore hides,
   // past the secrets scan that only sees what git status shows; ADR-0164).
   if (params.paths && params.paths.length > 0) await git.add(["--", ...params.paths]);
@@ -140,7 +142,7 @@ export async function gitCommit(options: GitOptions, params: RunnerRequestParams
 
 export async function gitPush(options: GitOptions, params: RunnerRequestParams<"git.push">) {
   const dir = dirOf(options, params);
-  const git = gitAt(dir);
+  const git = gitAt(dir, params.user_id);
   const branch = params.branch ?? (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
   if (!branch || branch === "HEAD") throw new Error("no branch to push (detached HEAD)");
   // A branch name, not a refspec and not an option: `+HEAD:refs/heads/main` or `--force` would
@@ -148,15 +150,17 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
   assertBranchName(branch);
   enforce(options.policy, { kind: "git.push", project: params.project, branch });
   let keyDir: string | null = null;
+  // A push that holds a credential runs as the account nothing else runs as: git's environment and
+  // the key file are readable by every process of the uid git runs as (ADR-0171).
+  const who: RunAs = params.auth ? CREDENTIALED_GIT : params.user_id;
   try {
     let keyFile: string | undefined;
     if (params.auth?.kind === "ssh") {
-      keyDir = await mkdtemp(join(tmpdir(), "perch-key-"));
-      keyFile = join(keyDir, "id");
       const key = params.auth.privateKey;
-      await Bun.write(keyFile, key.endsWith("\n") ? key : `${key}\n`);
-      const { chmodSync } = await import("node:fs");
-      chmodSync(keyFile, 0o600);
+      keyDir = userTempDir(who, "perch-key-", {
+        id: { content: key.endsWith("\n") ? key : `${key}\n`, mode: 0o600 },
+      });
+      keyFile = join(keyDir, "id");
     }
     const auth = gitAuth(params.auth, keyFile);
     const output = await runGit(
@@ -172,17 +176,19 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
         cwd: dir,
         env: cloneEnv(process.env, auth.env),
         timeoutMs: options.pushTimeoutMs ?? 600_000,
+        user: who,
       },
     );
     return { pushed: true as const, remote: "origin", branch, output };
   } finally {
-    if (keyDir) await rm(keyDir, { recursive: true, force: true });
+    const scratch = keyDir;
+    if (scratch) asUserFs(who, () => rmSync(scratch, { recursive: true, force: true }));
   }
 }
 
 export async function gitBranch(options: GitOptions, params: RunnerRequestParams<"git.branch">) {
   const dir = dirOf(options, params);
-  const git = gitAt(dir);
+  const git = gitAt(dir, params.user_id);
   if (params.name) {
     // A name, never an option: `git checkout -f` resets the working tree (ADR-0164).
     assertBranchName(params.name);
@@ -229,7 +235,7 @@ export async function worktreeCreate(
     project: params.project,
     branch: params.branch,
   });
-  const git = gitAt(dir);
+  const git = gitAt(dir, params.user_id);
   const path = worktreePath(options.root, params.workspace_id, params.project, params.branch);
   // Asking twice is asking where it is (task 3.15): the merge queue needs the directory a branch
   // is checked out in, and making a second one for the same branch is what git would refuse.
@@ -263,10 +269,10 @@ export async function worktreeRemove(
   const path = worktreePath(options.root, params.workspace_id, params.project, params.branch);
   if (!existsSync(path)) return { removed: false };
   try {
-    await gitAt(dir).raw(["worktree", "remove", "--force", path]);
+    await gitAt(dir, params.user_id).raw(["worktree", "remove", "--force", path]);
   } catch {
     rmSync(path, { recursive: true, force: true });
-    await gitAt(dir).raw(["worktree", "prune"]);
+    await gitAt(dir, params.user_id).raw(["worktree", "prune"]);
   }
   return { removed: true };
 }
@@ -296,14 +302,14 @@ async function worktreeFor(git: SimpleGit, branch: string): Promise<string | nul
  */
 export async function gitMerge(options: GitOptions, params: RunnerRequestParams<"git.merge">) {
   const dir = dirOf(options, params);
-  const git = gitAt(dir, identity());
+  const git = gitAt(dir, params.user_id, identity());
   enforce(options.policy, { kind: "git.branch", project: params.project, branch: params.branch });
   const into = params.into ?? (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
   if (params.branch === into) return { merged: false, reason: "a branch cannot land on itself" };
 
   if (params.rebase !== false) {
     const where = (await worktreeFor(git, params.branch)) ?? dir;
-    const rebase = gitAt(where, identity());
+    const rebase = gitAt(where, params.user_id, identity());
     const onSpot = where === dir;
     try {
       // In the project directory the branch is not checked out, so say which one to rebase.

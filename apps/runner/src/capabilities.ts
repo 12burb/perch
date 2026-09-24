@@ -4,6 +4,7 @@ import { installedAgents } from "./acp.ts";
 import { agentVersions } from "./agents.ts";
 import { childEnv } from "./env.ts";
 import { hermesInstalled } from "./hermes.ts";
+import { asUser } from "./identity.ts";
 import { opencodeBinary, opencodeUrl } from "./opencode.ts";
 
 let toolVersions: Record<string, string> | undefined;
@@ -18,7 +19,8 @@ export function detectToolVersions(): Record<string, string> {
   ] as const) {
     if (!Bun.which(command)) continue;
     try {
-      const result = Bun.spawnSync([command, "--version"], { env: childEnv() });
+      const run = asUser(null, [command, "--version"], childEnv());
+      const result = Bun.spawnSync(run.argv, { env: run.env });
       const line = result.stdout.toString().split("\n")[0] ?? "";
       const version = /(\d+\.\d+(?:\.\d+)?)/.exec(line)?.[1];
       if (result.exitCode === 0 && version) out[name] = version;

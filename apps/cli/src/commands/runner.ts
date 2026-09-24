@@ -6,7 +6,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { connectRunner, type RunnerLogger, runnerPolicy } from "@perch/runner";
+import { connectRunner, protectRunner, type RunnerLogger, runnerPolicy } from "@perch/runner";
 import { dataDirFrom } from "../paths.ts";
 
 const HELP = `perch runner connect <api-url> [options]
@@ -111,18 +111,20 @@ async function runConnect(argv: string[]): Promise<number> {
     if (level === "error" || level === "warn") console.error(line);
     else console.log(line);
   };
+  // Projects live beside laptop mode's data, under ~/.perch/projects (or PERCH_PROJECTS_DIR).
+  const projectsRoot = process.env.PERCH_PROJECTS_DIR ?? join(dataDirFrom(undefined), "projects");
+  // Your own machine runs everything as you, so the most it can do for the connect token is keep
+  // it out of /proc's reach of what it starts (ADR-0171). It never isolates: it serves its owner.
+  protectRunner({ projectsRoot, homesRoot: projectsRoot, log, allowIsolation: false });
   const client = connectRunner({
     apiUrl: args.apiUrl,
     token: args.token,
     name: args.name,
     kind: args.runnerKind,
     log,
-    // Projects live beside laptop mode's data, under ~/.perch/projects (or PERCH_PROJECTS_DIR).
     // Your own machine: exec may run anywhere you could, not only inside the projects root.
     handlerOptions: {
-      projects: {
-        root: process.env.PERCH_PROJECTS_DIR ?? join(dataDirFrom(undefined), "projects"),
-      },
+      projects: { root: projectsRoot },
       policy: runnerPolicy({ execAnywhere: true }),
     },
   });

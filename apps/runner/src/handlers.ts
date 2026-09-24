@@ -14,6 +14,7 @@ import {
   worktreeRemove,
 } from "./git.ts";
 import { HttpTunnel } from "./http-tunnel.ts";
+import { isolation } from "./identity.ts";
 import { McpHost } from "./mcp.ts";
 import type { Notify } from "./notify.ts";
 import { type RunnerPolicy, runnerPolicy } from "./policy.ts";
@@ -84,8 +85,11 @@ export function createServices(options: HandlerOptions = {}): RunnerServices {
     policy,
     ...(options.notify ? { notify: options.notify } : {}),
   };
-  const homes =
-    process.env.PERCH_HOMES_DIR || existsSync("/data/homes")
+  // Isolated members' homes are wherever isolation keeps them (ADR-0171).
+  const isolated = isolation();
+  const homes = isolated
+    ? { homes: isolated.homesRoot }
+    : process.env.PERCH_HOMES_DIR || existsSync("/data/homes")
       ? { homes: process.env.PERCH_HOMES_DIR ?? "/data/homes" }
       : {};
   const ptys = new PtyManager({

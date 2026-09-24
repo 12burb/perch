@@ -5,7 +5,8 @@
 #
 # The CLIs are their own stage (`agents`), so CI can build and check just that layer — the four
 # report their versions — without the Chromium download and the Hermes checkout behind it.
-# Homes live at /data/homes/<user>; projects at /data/projects. Build from the repository root.
+# Homes live at /data/homes/<user>; projects at /data/projects/<workspace>/<project>. The agent runs as
+# root and every member as a uid of their own (ADR-0171). Build from the repository root.
 ARG UBUNTU_VERSION=24.04
 ARG BUN_VERSION=1.3.11
 ARG UV_VERSION=0.12.13
@@ -108,16 +109,25 @@ RUN set -eux; \
     ln -s /opt/hermes/venv/bin/hermes /usr/local/bin/hermes; \
     if [ -x /opt/hermes/venv/bin/hermes-acp ]; then ln -s /opt/hermes/venv/bin/hermes-acp /usr/local/bin/hermes-acp; fi
 
-# Ubuntu 24.04 ships a stock "ubuntu" account on uid/gid 1000; the runner user takes that id instead so
-# files on the homes and projects volumes carry one owner across images.
+# Ubuntu 24.04 ships a stock "ubuntu" account on uid/gid 1000; the image's `perch` account takes that
+# id instead. uid 1000 is who a child that is nobody's runs as, and group 1000 is the group every
+# member and every workspace file shares (ADR-0171).
 RUN (getent passwd ubuntu >/dev/null && userdel -r ubuntu) || true \
     && (getent group ubuntu >/dev/null && groupdel ubuntu) || true \
     && groupadd --gid 1000 perch && useradd --uid 1000 --gid perch --create-home --shell /bin/bash perch \
-    && mkdir -p /data/homes /data/projects && chown -R perch:perch /data /opt/pw-browsers /opt/hermes
-COPY --from=agent --chown=perch:perch /prod /opt/perch
+    && mkdir -p /data/homes /data/projects
+# The agent's code, the browsers and Hermes are root's: the agent runs as root, and nothing a member
+# or a page can run may change what it runs next.
+COPY --from=agent /prod /opt/perch
 # The manifest sits beside the agent tree the CLIs were installed from (task 4.6).
-COPY --chown=perch:perch deploy/agents.json /opt/perch/agents.json
-USER perch
+COPY deploy/agents.json /opt/perch/agents.json
+# Members run as uids of their own (ADR-0171): the agent is root and starts every child through
+# setpriv as the member it is for, simple-git's git through this wrapper. A checkout is the whole
+# workspace's, so git accepts one another member made.
+COPY --chmod=755 deploy/perch-as /usr/local/bin/perch-as
+RUN git config --system safe.directory '*' && setpriv --version && test -x /usr/local/bin/perch-as
+ENV PERCH_RUNNER_ISOLATION=users
 WORKDIR /data/projects
-# The runner agent (spec §7.6): PERCH_API_URL and PERCH_RUNNER_TOKEN come from the supervisor.
+# The runner agent (spec §7.6): PERCH_API_URL and PERCH_RUNNER_TOKEN come from the supervisor. It
+# runs as root so that nothing it starts does; see apps/runner/src/identity.ts.
 ENTRYPOINT ["bun", "/opt/perch/apps/runner/src/main.ts"]
