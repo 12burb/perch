@@ -30,12 +30,11 @@ import type { ActorContext } from "../auth/authorize.ts";
 import { PerchError } from "../errors.ts";
 import { listProfiles } from "../repos/brains.ts";
 import {
-  dropOtherCommits,
   type Hit,
   type IndexedChunk,
   type IndexStatus,
   indexStatus,
-  insertChunks,
+  replaceProjectIndex,
   searchVector,
   searchWords,
 } from "../repos/repo-index.ts";
@@ -138,8 +137,9 @@ export class RepoIndexService {
   }
 
   /**
-   * One pass over a project. The whole index for the commit is written before the older commit's
-   * rows are dropped, so a search during a reindex finds the old answer rather than none.
+   * One pass over a project. The pass's rows replace the project's in one transaction, so a search
+   * during a reindex finds the old answer rather than none, and a file deleted since the last pass
+   * is gone from the index after this one.
    */
   async index(input: {
     project: Project;
@@ -185,8 +185,7 @@ export class RepoIndexService {
     }
 
     const embedded = await this.addEmbeddings(project.workspaceId, input.userId, chunks);
-    await insertChunks(this.deps.db, chunks);
-    await dropOtherCommits(this.deps.db, project.id, commitSha);
+    await replaceProjectIndex(this.deps.db, project.id, chunks);
 
     const result: IndexResult = {
       commitSha,

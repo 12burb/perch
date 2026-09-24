@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInProcessRunner } from "@perch/runner";
@@ -306,6 +306,33 @@ describe("repo intelligence (task 2.17)", () => {
       `/api/workspaces/${ws}/projects/${project}/codebase?q=WEBHOOK_TIMEOUT_MS`,
     )) as { body: { hits: Hit[] } };
     expect(found.body.hits[0]?.path).toBe("src/webhooks.ts");
+  }, 60_000);
+
+  test("a reindex forgets a file that was deleted since the last one", async () => {
+    // The commit an index is keyed by does not move between passes (it is the setup-time head,
+    // or "working"), so the pass itself has to replace what the project had.
+    const [onDisk] = readdirSync(projectsDir, { recursive: true, encoding: "utf8" })
+      .filter((one) => one.replaceAll("\\", "/").endsWith("src/webhooks.ts"))
+      .map((one) => join(projectsDir, one));
+    if (!onDisk) throw new Error("src/webhooks.ts is not in the project directory");
+    rmSync(onDisk);
+    const before = (await call(`/api/workspaces/${ws}/projects/${project}/index`)) as {
+      body: { files: number };
+    };
+    const reindexed = (await call(`/api/workspaces/${ws}/projects/${project}/index`, {
+      method: "POST",
+      json: { wait: true },
+    })) as { status: number; body: Indexed };
+    expect(reindexed.status).toBe(202);
+    const after = (await call(`/api/workspaces/${ws}/projects/${project}/index`)) as {
+      body: { files: number; chunks: number };
+    };
+    expect(after.body.files).toBe(before.body.files - 1);
+    expect(after.body.chunks).toBe(reindexed.body.chunks);
+    const gone = (await call(
+      `/api/workspaces/${ws}/projects/${project}/codebase?q=WEBHOOK_TIMEOUT_MS`,
+    )) as { body: { hits: Hit[] } };
+    expect(gone.body.hits.map((one) => one.path)).not.toContain("src/webhooks.ts");
   }, 60_000);
 
   test("an @codebase question cites the right file, and the transcript keeps the person's words", async () => {

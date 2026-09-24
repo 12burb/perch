@@ -3,10 +3,10 @@
  *
  * Two ways to ask it a question, and one shape of answer. The words go through the generated
  * tsvector; the meaning goes through the embedding when a workspace has one. Everything is scoped
- * to a project, and a reindex replaces a commit rather than accumulating.
+ * to a project, and a reindex replaces the project's rows rather than accumulating.
  */
 import { type Db, type RepoChunk, schema } from "@perch/db";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const { repoIndex } = schema;
 
@@ -65,15 +65,23 @@ export async function insertChunks(db: Db, chunks: readonly IndexedChunk[]): Pro
   return written;
 }
 
-/** What an older commit left behind, once a newer one has been written in full. */
-export async function dropOtherCommits(
+/**
+ * One pass's rows become the project's index: everything the project had is removed and this
+ * pass's rows written, in one transaction. A pass cannot rely on the commit it is keyed by to tell
+ * old rows from new — that is the setup-time head, or "working", and it does not move — so a file
+ * deleted since the last pass, or the tail chunks of one that got shorter, would otherwise stay
+ * in @codebase answers for ever (ADR-0175). A search during the pass sees the previous index
+ * until it commits, never a half-written one.
+ */
+export async function replaceProjectIndex(
   db: Db,
   projectId: string,
-  commitSha: string,
-): Promise<void> {
-  await db
-    .delete(repoIndex)
-    .where(and(eq(repoIndex.projectId, projectId), ne(repoIndex.commitSha, commitSha)));
+  chunks: readonly IndexedChunk[],
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await tx.delete(repoIndex).where(eq(repoIndex.projectId, projectId));
+    return insertChunks(tx, chunks);
+  });
 }
 
 export type IndexStatus = {
