@@ -15,13 +15,20 @@ export const RUNNER_ROLE = "runner";
 
 export type RunnerLimits = { nanoCpus: number; memoryBytes: number; pids: number };
 
+/**
+ * A named volume in a container: the whole of it, or only one directory of it (`subpath`, which
+ * must already exist in the volume). A workspace's runner gets its own directory of each volume and
+ * nothing else (ADR-0171).
+ */
+export type VolumeMount = { volume: string; target: string; subpath?: string };
+
 export type RunnerContainerSpec = {
   name: string;
   image: string;
   labels: Record<string, string>;
   env: Record<string, string>;
   limits: RunnerLimits;
-  mounts: Array<{ volume: string; target: string }>;
+  mounts: VolumeMount[];
   network?: string;
   /** Overrides the image entrypoint (tests run a stock image). */
   cmd?: string[];
@@ -84,6 +91,63 @@ export function parseLimits(text: string): RunnerLimits {
   return limits;
 }
 
+/**
+ * A mount as the Engine API takes it, the fields this uses. (`@types/dockerode` marks every field of
+ * `VolumeOptions` required where the API has them all optional, so this is the honest shape and the
+ * client hands it over as the typings' one.)
+ */
+export type EngineMount =
+  | { Type: "volume"; Source: string; Target: string; VolumeOptions?: { Subpath: string } }
+  | { Type: "bind"; Source: string; Target: string };
+
+/** The Engine API that added `VolumeOptions.Subpath` (Docker Engine 26). */
+export const SUBPATH_API_VERSION = "1.45";
+
+/** `1.45` against `1.44`: the Engine's API versions are major.minor. */
+export function apiAtLeast(version: string, wanted: string): boolean {
+  const [major = 0, minor = 0] = version.split(".").map((part) => Number(part) || 0);
+  const [wantMajor = 0, wantMinor = 0] = wanted.split(".").map((part) => Number(part) || 0);
+  return major > wantMajor || (major === wantMajor && minor >= wantMinor);
+}
+
+/**
+ * The Engine's mounts for a runner's volumes (ADR-0171). A mount of one directory of a volume is a
+ * volume subpath where the Engine has them, and elsewhere a bind of that directory under the
+ * volume's own mountpoint (from `volume inspect`) — the same directory, reached the older way. A
+ * subpath mount with no mountpoint to fall back on is an error, never the whole volume.
+ */
+export function mountsFor(
+  mounts: VolumeMount[],
+  apiVersion: string,
+  mountpoints: Record<string, string>,
+): EngineMount[] {
+  const subpaths = apiAtLeast(apiVersion, SUBPATH_API_VERSION);
+  return mounts.map((mount) => {
+    if (mount.subpath === undefined) {
+      return { Type: "volume", Source: mount.volume, Target: mount.target };
+    }
+    if (subpaths) {
+      return {
+        Type: "volume",
+        Source: mount.volume,
+        Target: mount.target,
+        VolumeOptions: { Subpath: mount.subpath },
+      };
+    }
+    const root = mountpoints[mount.volume];
+    if (!root) {
+      throw new Error(
+        `the Engine (API ${apiVersion}) has no volume subpaths and volume ${mount.volume} has no mountpoint to bind ${mount.subpath} from`,
+      );
+    }
+    return {
+      Type: "bind",
+      Source: `${root.replace(/\/+$/, "")}/${mount.subpath}`,
+      Target: mount.target,
+    };
+  });
+}
+
 function summarize(info: Docker.ContainerInspectInfo): ContainerSummary {
   return {
     id: info.Id,
@@ -93,7 +157,13 @@ function summarize(info: Docker.ContainerInspectInfo): ContainerSummary {
   };
 }
 
-export function dockerodeClient(options: { socketPath?: string } = {}): DockerClient {
+export function dockerodeClient(
+  options: {
+    socketPath?: string;
+    /** Pretend the daemon speaks this API (tests of the bind fallback); asked of it otherwise. */
+    apiVersion?: string;
+  } = {},
+): DockerClient {
   const docker = new Docker(
     options.socketPath
       ? { socketPath: options.socketPath }
@@ -101,6 +171,12 @@ export function dockerodeClient(options: { socketPath?: string } = {}): DockerCl
         ? {}
         : { socketPath: "/var/run/docker.sock" },
   );
+  let apiVersion: string | undefined = options.apiVersion;
+  /** The daemon's API version, asked once: it decides how a directory of a volume is mounted. */
+  async function engineApi(): Promise<string> {
+    apiVersion ??= (await docker.version()).ApiVersion;
+    return apiVersion;
+  }
   return {
     async ping() {
       await docker.ping();
@@ -137,6 +213,14 @@ export function dockerodeClient(options: { socketPath?: string } = {}): DockerCl
       }));
     },
     async create(spec) {
+      const api = await engineApi();
+      const mountpoints: Record<string, string> = {};
+      if (!apiAtLeast(api, SUBPATH_API_VERSION)) {
+        for (const mount of spec.mounts) {
+          if (mount.subpath === undefined || mountpoints[mount.volume]) continue;
+          mountpoints[mount.volume] = (await docker.getVolume(mount.volume).inspect()).Mountpoint;
+        }
+      }
       const container = await docker.createContainer({
         name: spec.name,
         Image: spec.image,
@@ -148,7 +232,7 @@ export function dockerodeClient(options: { socketPath?: string } = {}): DockerCl
           Memory: spec.limits.memoryBytes,
           PidsLimit: spec.limits.pids,
           RestartPolicy: { Name: "unless-stopped" },
-          Mounts: spec.mounts.map((m) => ({ Type: "volume", Source: m.volume, Target: m.target })),
+          Mounts: mountsFor(spec.mounts, api, mountpoints) as unknown as Docker.MountConfig,
           ...(spec.network ? { NetworkMode: spec.network } : {}),
         },
       });

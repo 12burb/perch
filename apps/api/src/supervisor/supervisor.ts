@@ -5,13 +5,24 @@
  * PERCH_RUNNER_LIMITS, the homes and projects volumes, and a fresh connect token in the environment;
  * stops and removes containers whose runner has reported no sessions for PERCH_RUNNER_IDLE_MINUTES; and
  * reconciles rows against containers at start. ADR-0067.
+ *
+ * A workspace's container mounts only that workspace's directory of each volume, and its token is
+ * the only live one its runner has: a replaced container's token is revoked with it (ADR-0171).
+ * Shared mode is one container for the whole instance and mounts the whole of both volumes: it is
+ * for a single team, and says so in docs/security.md.
  */
 import type { Db, Runner } from "@perch/db";
 import { schema } from "@perch/db";
 import type { Queue, Worker } from "@perch/jobs";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { Logger } from "pino";
-import { findRunnerById, insertRunner, updateRunner } from "../repos/runners.ts";
+import {
+  findRunnerById,
+  insertRunner,
+  revokeOtherRunnerTokens,
+  updateRunner,
+} from "../repos/runners.ts";
+import { listMembers } from "../repos/workspaces.ts";
 import { mintRunnerToken } from "../services/runners.ts";
 import {
   type DockerClient,
@@ -19,9 +30,11 @@ import {
   RUNNER_LABELS,
   RUNNER_ROLE,
   type RunnerLimits,
+  type VolumeMount,
 } from "./docker.ts";
 import { SUPERVISOR_BACKUP_QUEUE, SUPERVISOR_QUEUE } from "./queue.ts";
 import { backupVolumes } from "./volumes.ts";
+import { assertWorkspaceId, prepareWorkspaceDirs, type VolumeRoots } from "./workspace-dirs.ts";
 
 export {
   requestRunner,
@@ -49,6 +62,12 @@ export type SupervisorConfig = {
   cmd?: string[];
   /** How often idle containers are looked for. */
   tickMs?: number;
+  /**
+   * Where this process has the homes and projects volumes mounted (default: /data/homes and
+   * /data/projects, as the compose file mounts them): a workspace's directories are made there
+   * before its container mounts them (ADR-0171).
+   */
+  volumeRoots?: VolumeRoots;
 };
 
 export type SupervisorDeps = {
@@ -122,8 +141,44 @@ export function createSupervisor(deps: SupervisorDeps) {
     return row ?? null;
   }
 
+  /**
+   * What a container mounts. A workspace's container: its own directory of each volume, at the
+   * paths the runner already uses (/data/homes, /data/projects/<workspace>), made first. The shared
+   * container: the whole of both.
+   */
+  async function mountsOf(
+    place: { homes: string; projects: string },
+    workspaceId: string | null,
+  ): Promise<VolumeMount[]> {
+    if (workspaceId === null) {
+      return [
+        { volume: place.homes, target: HOMES_TARGET },
+        { volume: place.projects, target: PROJECTS_TARGET },
+      ];
+    }
+    const members = (await listMembers(db, workspaceId)).map((row) => row.user.id);
+    prepareWorkspaceDirs(
+      config.volumeRoots ?? { homes: HOMES_TARGET, projects: PROJECTS_TARGET },
+      workspaceId,
+      members,
+      log,
+    );
+    return [
+      { volume: place.homes, target: HOMES_TARGET, subpath: workspaceId },
+      { volume: place.projects, target: `${PROJECTS_TARGET}/${workspaceId}`, subpath: workspaceId },
+    ];
+  }
+
   async function ensureNow(requested: string | null): Promise<EnsureResult> {
     const workspaceId = config.mode === "shared" ? null : requested;
+    if (config.mode === "docker") {
+      // One container per workspace: a request that names none would be a container that sees
+      // every workspace's files, which is what shared mode is, on purpose, and nothing else is.
+      if (workspaceId === null) {
+        throw new Error("docker mode runs a container per workspace; the request names none");
+      }
+      assertWorkspaceId(workspaceId);
+    }
     const scope = workspaceId ?? "shared";
     let runner =
       (await findHostedRunner(workspaceId)) ??
@@ -139,10 +194,14 @@ export function createSupervisor(deps: SupervisorDeps) {
       await updateRunner(db, runner.id, { containerId: null, status: "offline" });
     }
     const place = await placement();
-    const { token } = await mintRunnerToken(db, runner.id);
     await docker.ensureImage(config.image);
     await docker.ensureVolume(place.homes);
     await docker.ensureVolume(place.projects);
+    const mounts = await mountsOf(place, workspaceId);
+    // One live token per runner: the one this container carries. Whatever read an older one (a
+    // replaced container's environment) can no longer register as this runner (ADR-0171).
+    const { token, row } = await mintRunnerToken(db, runner.id);
+    const revoked = await revokeOtherRunnerTokens(db, runner.id, row.id);
     const containerId = await docker.create({
       name: `perch-runner-${runner.id.slice(0, 8)}`,
       image: config.image,
@@ -158,10 +217,7 @@ export function createSupervisor(deps: SupervisorDeps) {
         PERCH_RUNNER_KIND: "hosted",
       },
       limits: config.limits,
-      mounts: [
-        { volume: place.homes, target: HOMES_TARGET },
-        { volume: place.projects, target: PROJECTS_TARGET },
-      ],
+      mounts,
       network: place.network,
       cmd: config.cmd,
     });
@@ -172,7 +228,7 @@ export function createSupervisor(deps: SupervisorDeps) {
     await updateRunner(db, runner.id, { containerId, idleSince: null, lastSeenAt: new Date() });
     runner = (await findRunnerById(db, runner.id)) ?? runner;
     log.info(
-      { runner: runner.id, scope, container: containerId.slice(0, 12) },
+      { runner: runner.id, scope, container: containerId.slice(0, 12), revokedTokens: revoked },
       "runner container started",
     );
     return { runner, containerId, created: true };

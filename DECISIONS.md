@@ -6736,3 +6736,47 @@ downloaded again.
 **Consequences.** The image trusts Docker Hub's `oven/bun` and GHCR's `astral-sh/uv` as publishers
 (as the api image already trusts `oven/bun`), and GitHub's raw content for Node's keyring at a
 commit that cannot change under us.
+
+## ADR-0171: A hosted runner keeps workspaces, members, and the runner itself apart
+
+**Status:** accepted · **Task:** code review, runner isolation · **Spec:** §1.6, §3.1, §3.2, §7.6, ADR-0067, ADR-0160
+
+**Context.** A review confirmed that "one container per workspace" did not keep anything apart. The
+supervisor gave every workspace's container the whole homes volume and the whole projects volume, so
+a member of workspace A could read and write workspace B's projects and every user's home. Inside a
+container, the runner agent and everything it started ran as one uid, so any child could read the
+agent's connect token out of `/proc/1/environ` (ADR-0160 blanked it only in the children's own
+environment) and members of a workspace could read each other's homes, where personal CLI logins
+live (§1.6: personal subscription credentials are user-scoped). A replaced container's token stayed
+valid for thirty days.
+
+**1. A workspace's container mounts its own directory of each volume.** In docker mode the
+supervisor mounts `<workspace>/` of the homes volume at `/data/homes` and `<workspace>/` of the
+projects volume at `/data/projects/<workspace>`, so every path inside the runner
+(`/data/homes/<user>`, `/data/projects/<workspace>/<project>`) is what it was. The mount is a volume
+subpath (`Mount.VolumeOptions.Subpath`, Engine API 1.45 / Docker 26) when the daemon's API has it,
+and otherwise a bind of `<volume mountpoint>/<workspace>` from `volume inspect` — the same directory,
+which works for the default `local` driver; a subpath mount with no mountpoint to fall back on is an
+error, never the whole volume. A subpath must exist before a container mounts it, so the supervisor
+makes both directories through its own mounts of the volumes (compose mounts them at the same
+paths), and fails naming the volume it could not see or the directory it could not create. The api
+image now creates `/data/homes` and `/data/projects` owned by its user, so a new volume's root is
+the supervisor's to write. A request that names no workspace is refused in docker mode: a container
+for nobody in particular would be one that sees everyone's files. `apps/api/test/supervisor.docker.test.ts`
+proves it against a real Engine: the container lists what it sees into the one directory it can
+write, for the subpath lane and (where the test is root) the bind lane.
+
+**Homes are per workspace.** They were one per person across every workspace; they are one per
+person per workspace now, because a container sees only its workspace's directory. The first time a
+workspace's homes directory is made, each member's old home (`/data/homes/<user>` at the volume's
+root) is copied into it once — `cp -a` semantics in TypeScript: links as links, modes, times, and
+owners where the supervisor may set them — beside its final name and renamed into place, so a
+supervisor stopped halfway leaves nothing that looks finished. The old homes stay where they were;
+nothing reads them again.
+
+**2. One live token per hosted runner.** The token minted for a new container revokes every other
+live token of that runner (`revokeOtherRunnerTokens`), so whatever read an older container's
+environment cannot register as the runner.
+
+**Shared mode is single-tenant.** `PERCH_RUNNER_MODE=shared` is one container for the instance and
+keeps the whole of both volumes; `docs/security.md` says what it does not keep apart.

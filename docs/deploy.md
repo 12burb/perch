@@ -37,6 +37,15 @@ docker compose up -d
 docker compose logs -f api      # "perch api listening" once migrations ran
 ```
 
+Docker Engine 26 or later is best: each workspace's runner container mounts only its own directory of
+the homes and projects volumes, as a volume subpath (API 1.45). An older Engine gets the same directory
+as a bind of the volume's mountpoint, which works for the default `local` volume driver and not for a
+volume whose files live elsewhere (NFS, a driver plugin). The supervisor makes those directories
+through its own mounts of the two volumes, so its user (uid 1000) must be able to write the volumes'
+roots; the image makes that so for new volumes, and a volume created by an older release that is
+owned by root is fixed once with
+`docker run --rm -v perch_runner_homes:/v -v perch_projects:/w alpine chown 1000:1000 /v /w`.
+
 DNS must point the public hostname at the host; Caddy obtains the certificate automatically. With a
 preview domain, `*.<domain>` needs a wildcard DNS record and the DNS-challenge token (`CADDY_DNS_PROVIDER`,
 `CADDY_DNS_TOKEN`; the image is built with the matching `caddy-dns` module, see `deploy/Dockerfile.caddy`).

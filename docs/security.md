@@ -81,8 +81,9 @@ passes the scan fails again and somebody looks.
 All four live in `opt/node/lib/node_modules/**` — the tree the runner image installs Codex, Claude
 Code, Gemini CLI and OpenCode into. The entries are scoped to that path, so the same CVE appearing
 in Perch's own dependencies still fails the scan. And the runner is the sandbox: it runs agent code
-by design, one container per workspace, with the limits that container was given. A denial of
-service inside one is bounded by what it was already allowed to spend.
+by design, one container per workspace, with the limits that container was given (and, since
+ADR-0171, with only that workspace's files in it). A denial of service inside one is bounded by what
+it was already allowed to spend.
 
 The disclosure drill asserts that every entry here has a reason and a date that has not passed, so
 an exception cannot quietly become permanent.
@@ -130,6 +131,23 @@ a person, who:
 
 **Last run: 2026-09-17** (the scripted steps; the fork rehearsal is due with the next tagged
 release).
+
+## Runners: what is kept apart
+
+Team mode (`PERCH_RUNNER_MODE=docker`) runs one runner container per workspace (ADR-0067), and the
+container holds that workspace's files and nobody else's (ADR-0171):
+
+- **Workspaces.** The container mounts `<workspace>/` of the homes volume and `<workspace>/` of the
+  projects volume, never the whole of either. A member of one workspace, or an agent working for
+  them, has no path to another workspace's projects or homes.
+- **The runner's token.** Each container carries a fresh connect token, and minting it revokes every
+  older token of that runner, so a token read out of a container that has since been replaced
+  cannot register as the runner.
+
+Shared mode (`PERCH_RUNNER_MODE=shared`) is one container for the whole instance with the whole of
+both volumes mounted: every workspace's projects and every member's home are in that one container.
+It is for a single team that trusts itself, not for workspaces that must not see each other; use
+docker mode for those.
 
 ## The invariants a report is measured against
 

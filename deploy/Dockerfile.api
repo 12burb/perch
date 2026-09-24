@@ -54,7 +54,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=bun:bun /prod ./
-RUN mkdir -p /data/files /data/backups && chown -R bun:bun /data
+# /data/homes and /data/projects are where the supervisor mounts the runner volumes; owned by the
+# image's user so a new volume's root is too, and the supervisor can make each workspace's
+# directory in it (ADR-0171).
+RUN mkdir -p /data/files /data/backups /data/homes /data/projects && chown -R bun:bun /data
 USER bun
 VOLUME ["/data/files", "/data/backups"]
 EXPOSE 3000

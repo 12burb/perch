@@ -52,11 +52,27 @@ that mounts the Docker socket) runs the hosted runners:
 
 - **On demand.** The api enqueues `supervisor.ensure {workspaceId}` (jobs queue); the supervisor creates
   one container per workspace from `PERCH_RUNNER_IMAGE` with the limits of `PERCH_RUNNER_LIMITS`
-  (`cpus=2,memory=4g,pids=512`), the homes and projects volumes at `/data/homes` and `/data/projects`,
-  a fresh connect token, and the labels `dev.perch.role=runner`, `dev.perch.workspace=<id>`,
-  `dev.perch.runner=<runner id>`. A workspace whose container is already running gets nothing new.
+  (`cpus=2,memory=4g,pids=512`), a fresh connect token, and the labels `dev.perch.role=runner`,
+  `dev.perch.workspace=<id>`, `dev.perch.runner=<runner id>`. A workspace whose container is already
+  running gets nothing new.
+- **One workspace's files.** The container mounts only its own workspace's directory of each volume:
+  `<workspace>/` of the homes volume at `/data/homes`, and `<workspace>/` of the projects volume at
+  `/data/projects/<workspace>` — the paths the runner always used, so nothing inside it moved. The
+  supervisor makes both directories first, through its own mounts of the two volumes (compose puts
+  them at `/data/homes` and `/data/projects`), and fails with a message saying which one it could not
+  see or write. The mount is a volume subpath (Docker Engine 26, API 1.45, and later) or, on an older
+  Engine, a bind of the same directory under the volume's mountpoint (ADR-0171).
+- **One live token.** The token a new container carries is the only one its runner has: every older
+  one is revoked when it is minted, so the environment of a container that is gone is worth nothing.
+- **Homes are per workspace.** A person's home (`HOME`, where a CLI keeps its login) is
+  `/data/homes/<user>` inside their workspace's container, which is `<workspace>/<user>` of the volume.
+  Before ADR-0171 it was one home per person across every workspace; the first time a workspace's
+  homes directory is made, each member's old home is copied into it once, and from then on each
+  workspace's copy is its own.
 - **Shared mode.** `PERCH_RUNNER_MODE=shared` runs one container for the whole instance, on a runner row
-  without a workspace, which every workspace may use.
+  without a workspace, which every workspace may use. It mounts the whole of both volumes, so every
+  workspace's projects are in one container: it is for one team, not for tenants who must not see each
+  other ([security](security.md#runners-what-is-kept-apart)).
 - **Idle stop.** The api records `idle_since` on every heartbeat that carries no sessions; after
   `PERCH_RUNNER_IDLE_MINUTES` (30) the supervisor stops and removes the container and the next request
   starts a new one. A container whose runner has been offline for as long (a crashed agent) is removed

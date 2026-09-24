@@ -1,5 +1,5 @@
 import { type Db, type Runner, type RunnerCapabilities, type RunnerToken, schema } from "@perch/db";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 
 const { runners, runnerTokens } = schema;
 
@@ -110,6 +110,30 @@ export async function findRunnerTokenByHash(
     .where(eq(runnerTokens.tokenHash, tokenHash))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Revokes every live token of a runner but one: the supervisor mints a token per container, and a
+ * replaced container's token must not outlive it (ADR-0171). Returns how many were revoked.
+ */
+export async function revokeOtherRunnerTokens(
+  db: Db,
+  runnerId: string,
+  keepId: string,
+): Promise<number> {
+  const at = new Date();
+  const rows = await db
+    .update(runnerTokens)
+    .set({ revokedAt: at, updatedAt: at })
+    .where(
+      and(
+        eq(runnerTokens.runnerId, runnerId),
+        ne(runnerTokens.id, keepId),
+        isNull(runnerTokens.revokedAt),
+      ),
+    )
+    .returning({ id: runnerTokens.id });
+  return rows.length;
 }
 
 export async function revokeRunnerToken(db: Db, runnerId: string, id: string): Promise<boolean> {

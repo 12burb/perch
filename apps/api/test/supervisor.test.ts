@@ -1,8 +1,23 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { schema } from "@perch/db";
 import { eq } from "drizzle-orm";
 import type { Booted } from "../src/boot.ts";
 import { silentLogger } from "../src/logging.ts";
+import { authenticateRunnerToken } from "../src/services/runners.ts";
 import { completeSetup } from "../src/services/setup.ts";
 import { createWorkspace } from "../src/services/workspaces.ts";
 import type {
@@ -11,7 +26,7 @@ import type {
   RunnerContainerSpec,
   SelfInfo,
 } from "../src/supervisor/docker.ts";
-import { parseLimits } from "../src/supervisor/docker.ts";
+import { mountsFor, parseLimits } from "../src/supervisor/docker.ts";
 import {
   createSupervisor,
   requestRunner,
@@ -24,8 +39,10 @@ import { bootTestApp } from "../src/testing.ts";
  * Task 1.2 (spec §3.1, §3.2): two workspaces get two containers with limits, labels, volumes, and a
  * connect token; a request for a workspace that already has a running container is a no-op; idle
  * runners are stopped and removed after PERCH_RUNNER_IDLE_MINUTES; shared mode runs one container for
- * everyone; reconciliation forgets dead containers and removes orphans. The Docker Engine is a fake here;
- * supervisor.docker.test.ts drives the real one where a daemon exists.
+ * everyone; reconciliation forgets dead containers and removes orphans. A workspace's container sees
+ * its own directory of each volume and nothing else, and a new container's token is the only one
+ * its runner has (ADR-0171). The Docker Engine is a fake here; supervisor.docker.test.ts drives the
+ * real one where a daemon exists.
  */
 
 type FakeContainer = ContainerSummary & { spec: RunnerContainerSpec; started: boolean };
@@ -98,6 +115,9 @@ let booted: Booted;
 let wsA = "";
 let wsB = "";
 let adminId = "";
+/** Where this process sees the two volumes, as the compose file mounts them into the supervisor. */
+let volumes = "";
+let roots = { homes: "", projects: "" };
 
 beforeAll(async () => {
   booted = await bootTestApp({}, { setup: false });
@@ -121,10 +141,15 @@ beforeAll(async () => {
     by: { actor: { type: "user", id: adminId }, meta: { requestId: "test" } },
   });
   wsB = beta.id;
+  volumes = mkdtempSync(join(tmpdir(), "perch-supervisor-volumes-"));
+  roots = { homes: join(volumes, "homes"), projects: join(volumes, "projects") };
+  mkdirSync(roots.homes);
+  mkdirSync(roots.projects);
 }, 60_000);
 
 afterAll(async () => {
   await booted.close();
+  rmSync(volumes, { recursive: true, force: true });
 });
 
 function config(overrides: Partial<SupervisorConfig> = {}): SupervisorConfig {
@@ -137,6 +162,7 @@ function config(overrides: Partial<SupervisorConfig> = {}): SupervisorConfig {
     homesVolume: undefined,
     projectsVolume: undefined,
     network: undefined,
+    volumeRoots: roots,
     ...overrides,
   };
 }
@@ -200,9 +226,10 @@ describe("supervisor (task 1.2)", () => {
     expect(containerA.spec.env.PERCH_API_URL).toBe("http://api:3000");
     expect(containerA.spec.env.PERCH_RUNNER_KIND).toBe("hosted");
     expect(containerA.spec.env.PERCH_RUNNER_TOKEN).toMatch(/^prt_/);
+    // Its own workspace's directory of each volume, at the paths the runner already uses.
     expect(containerA.spec.mounts).toEqual([
-      { volume: "perch_runner_homes", target: "/data/homes" },
-      { volume: "perch_projects", target: "/data/projects" },
+      { volume: "perch_runner_homes", target: "/data/homes", subpath: wsA },
+      { volume: "perch_projects", target: `/data/projects/${wsA}`, subpath: wsA },
     ]);
     expect(containerA.spec.network).toBe("perch_default");
     expect(docker.volumes.has("perch_runner_homes")).toBe(true);
@@ -314,6 +341,11 @@ describe("supervisor (task 1.2)", () => {
     expect(a.runner.workspaceId).toBeNull();
     expect(a.runner.name).toBe("shared");
     expect(docker.containers.get(a.containerId)?.spec.labels["dev.perch.workspace"]).toBe("shared");
+    // One container for everyone sees everything: the whole of both volumes (single-tenant, ADR-0171).
+    expect(docker.containers.get(a.containerId)?.spec.mounts).toEqual([
+      { volume: "perch_runner_homes", target: "/data/homes" },
+      { volume: "perch_projects", target: "/data/projects" },
+    ]);
     // The registry treats a workspace-less runner as usable by every workspace (RunnerRegistry.forWorkspace).
     expect(booted.runners.forWorkspace(wsB)).toEqual([]);
   });
@@ -352,5 +384,150 @@ describe("supervisor (task 1.2)", () => {
       .from(schema.runners)
       .where(eq(schema.runners.id, a.runner.id));
     expect(rowA?.containerId).toBeNull();
+  });
+});
+
+describe("one workspace's container, one workspace's files (ADR-0171)", () => {
+  function supervise(
+    docker: ReturnType<typeof fakeDocker>,
+    overrides: Partial<SupervisorConfig> = {},
+  ) {
+    return createSupervisor({
+      db: booted.db.db,
+      queue: booted.queue,
+      docker: docker.client,
+      config: config(overrides),
+      log: silentLogger(),
+    });
+  }
+
+  test("a workspace's container mounts its own directory of each volume, never the whole volume and never another workspace's", async () => {
+    const docker = fakeDocker();
+    const supervisor = supervise(docker);
+    await supervisor.reconcile();
+    const a = await supervisor.ensure(wsA);
+    const b = await supervisor.ensure(wsB);
+    const mountsA = docker.containers.get(a.containerId)?.spec.mounts ?? [];
+    const mountsB = docker.containers.get(b.containerId)?.spec.mounts ?? [];
+    expect(mountsA).toEqual([
+      { volume: "perch_runner_homes", target: "/data/homes", subpath: wsA },
+      { volume: "perch_projects", target: `/data/projects/${wsA}`, subpath: wsA },
+    ]);
+    for (const mount of mountsA) {
+      expect(mount.subpath).toBe(wsA);
+      expect(JSON.stringify(mount)).not.toContain(wsB);
+    }
+    for (const mount of mountsB) expect(mount.subpath).toBe(wsB);
+    // The directories exist before a container asks for them: a subpath must, and so must a bind.
+    for (const ws of [wsA, wsB]) {
+      expect(statSync(join(roots.homes, ws)).isDirectory()).toBe(true);
+      expect(statSync(join(roots.projects, ws)).isDirectory()).toBe(true);
+    }
+  });
+
+  test("a new container's token is the only one its runner has: the older ones are revoked", async () => {
+    const docker = fakeDocker();
+    const supervisor = supervise(docker);
+    await supervisor.reconcile();
+    const first = await supervisor.ensure(wsA);
+    const firstToken = docker.containers.get(first.containerId)?.spec.env.PERCH_RUNNER_TOKEN ?? "";
+    expect((await authenticateRunnerToken(booted.db.db, firstToken))?.id).toBe(first.runner.id);
+    // The container dies; the next request starts a replacement with a token of its own.
+    docker.containers.delete(first.containerId);
+    const second = await supervisor.ensure(wsA);
+    expect(second.created).toBe(true);
+    const secondToken =
+      docker.containers.get(second.containerId)?.spec.env.PERCH_RUNNER_TOKEN ?? "";
+    expect(secondToken).not.toBe(firstToken);
+    expect((await authenticateRunnerToken(booted.db.db, secondToken))?.id).toBe(first.runner.id);
+    // Whoever read the first container's token can no longer register as this runner with it.
+    expect(await authenticateRunnerToken(booted.db.db, firstToken)).toBeNull();
+    const live = await booted.db.db
+      .select()
+      .from(schema.runnerTokens)
+      .where(eq(schema.runnerTokens.runnerId, first.runner.id));
+    expect(live.filter((row) => row.revokedAt === null)).toHaveLength(1);
+  });
+
+  test("a member's home from before workspaces had their own is copied in once, links and modes kept", async () => {
+    const ws = (
+      await createWorkspace(booted.db.db, booted.bus, {
+        name: "Gamma",
+        slug: "gamma",
+        by: { actor: { type: "user", id: adminId }, meta: { requestId: "test" } },
+      })
+    ).id;
+    // The layout before ADR-0171: /data/homes/<user>, one home per person across every workspace.
+    const legacy = join(roots.homes, adminId);
+    mkdirSync(join(legacy, ".config", "tool"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(legacy, ".config", "tool", "login.json"), '{"who":"admin"}', {
+      mode: 0o600,
+    });
+    symlinkSync(".config/tool/login.json", join(legacy, "login-link"));
+    const docker = fakeDocker();
+    const supervisor = supervise(docker);
+    await supervisor.reconcile();
+    const first = await supervisor.ensure(ws);
+    const copied = join(roots.homes, ws, adminId);
+    expect(readFileSync(join(copied, ".config", "tool", "login.json"), "utf8")).toBe(
+      '{"who":"admin"}',
+    );
+    expect(statSync(join(copied, ".config", "tool", "login.json")).mode & 0o777).toBe(0o600);
+    expect(lstatSync(join(copied, "login-link")).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(copied, "login-link"))).toBe(".config/tool/login.json");
+    // Once: the workspace's own copy is its own from now on, whatever happens to the old one.
+    writeFileSync(join(legacy, ".config", "tool", "login.json"), '{"who":"changed"}');
+    writeFileSync(join(copied, "mine"), "written in the workspace");
+    docker.containers.delete(first.containerId);
+    await supervisor.ensure(ws);
+    expect(readFileSync(join(copied, ".config", "tool", "login.json"), "utf8")).toBe(
+      '{"who":"admin"}',
+    );
+    expect(existsSync(join(copied, "mine"))).toBe(true);
+    // Only members are copied: a stranger's legacy home stays where it was.
+    expect(existsSync(join(roots.homes, ws, "0190f2d0-0000-7000-8000-00000000dead"))).toBe(false);
+  });
+
+  test("a supervisor that cannot see the volumes, or a workspace id that is not one, is refused plainly", async () => {
+    const docker = fakeDocker();
+    const blind = supervise(docker, {
+      volumeRoots: { homes: join(volumes, "nowhere"), projects: roots.projects },
+    });
+    await blind.reconcile();
+    await expect(blind.ensure(wsA)).rejects.toThrow(/homes volume.*\/nowhere/);
+    const supervisor = supervise(docker);
+    await expect(supervisor.ensure("../../etc")).rejects.toThrow(/not a workspace id/);
+    expect(existsSync(join(volumes, "etc"))).toBe(false);
+  });
+
+  test("a subpath where the Engine has them (API 1.45, Docker 26), a bind of the volume's directory where it does not", () => {
+    const mounts = [
+      { volume: "perch_runner_homes", target: "/data/homes", subpath: "ws-1" },
+      { volume: "perch_projects", target: "/data/projects" },
+    ];
+    expect(mountsFor(mounts, "1.45", {})).toEqual([
+      {
+        Type: "volume",
+        Source: "perch_runner_homes",
+        Target: "/data/homes",
+        VolumeOptions: { Subpath: "ws-1" },
+      },
+      { Type: "volume", Source: "perch_projects", Target: "/data/projects" },
+    ]);
+    expect(mountsFor(mounts, "1.54", {})[0]).toMatchObject({ VolumeOptions: { Subpath: "ws-1" } });
+    expect(
+      mountsFor(mounts, "1.44", {
+        perch_runner_homes: "/var/lib/docker/volumes/perch_runner_homes/_data",
+      }),
+    ).toEqual([
+      {
+        Type: "bind",
+        Source: "/var/lib/docker/volumes/perch_runner_homes/_data/ws-1",
+        Target: "/data/homes",
+      },
+      { Type: "volume", Source: "perch_projects", Target: "/data/projects" },
+    ]);
+    // A bind with no directory to bind is not a mount of the whole volume by accident.
+    expect(() => mountsFor(mounts, "1.41", {})).toThrow(/perch_runner_homes/);
   });
 });
