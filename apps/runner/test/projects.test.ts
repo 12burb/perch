@@ -84,15 +84,21 @@ describe("projects on a runner", () => {
   });
 
   test("a token goes through git's credential helper via the environment, never the command line", () => {
-    const auth = gitAuth({ kind: "token", token: "ghp_secret" });
+    const origin = { scheme: "https" as const, host: "github.com" };
+    const auth = gitAuth({ kind: "token", token: "ghp_secret" }, undefined, origin);
     expect(auth.config.join("\n")).not.toContain("ghp_secret");
-    expect(auth.config[0]).toMatch(/^credential\.helper=/);
+    // Every other helper is dropped, and Perch's answers for the remote's host only (ADR-0171).
+    expect(auth.config).toContain("credential.helper=");
+    expect(
+      auth.config.some((entry) => entry.startsWith("credential.https://github.com.helper=")),
+    ).toBe(true);
     expect(auth.env.PERCH_GIT_SECRET).toBe("ghp_secret");
     expect(auth.env.PERCH_GIT_USERNAME).toBe("x-access-token");
     expect(auth.env.GIT_TERMINAL_PROMPT).toBe("0");
-    expect(gitAuth({ kind: "token", username: "oauth2", token: "t" }).env.PERCH_GIT_USERNAME).toBe(
-      "oauth2",
-    );
+    expect(
+      gitAuth({ kind: "token", username: "oauth2", token: "t" }, undefined, origin).env
+        .PERCH_GIT_USERNAME,
+    ).toBe("oauth2");
   });
 
   test("a deploy key goes through GIT_SSH_COMMAND with a key file and no prompts", () => {
@@ -101,6 +107,8 @@ describe("projects on a runner", () => {
     expect(auth.env.GIT_SSH_COMMAND).toContain("BatchMode=yes");
     expect(auth.env.GIT_SSH_COMMAND).not.toContain("PRIVATE");
     expect(() => gitAuth({ kind: "ssh", privateKey: "PRIVATE" })).toThrow(/key file/);
+    expect(auth.config).toContain("core.hooksPath=/dev/null");
+    expect(auth.config).toContain("protocol.ssh.allow=always");
     expect(gitAuth(undefined)).toEqual({ config: [], env: {} });
   });
 

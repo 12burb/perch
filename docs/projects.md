@@ -43,6 +43,12 @@ from the name when omitted. Every route needs `projects.read` / `projects.create
 A `repo_url` with embedded credentials (`https://user:token@…`), a `file://` URL, or a local path is
 refused with 422.
 
+A credential is only ever offered to the host the clone URL names, over https (a token) or ssh (the
+deploy key), with no repository hook running and no other credential helper asked; later pushes
+with a credential must go back to that host, and one that would go elsewhere (a changed remote, an
+`insteadOf` rewrite) is refused before git runs ([runners](runners.md#projects-on-a-runner),
+ADR-0171).
+
 ## Changing one afterwards
 
 `PATCH /api/workspaces/{ws}/projects/{project}` takes `name`, `default_branch`, and `repo_url`.

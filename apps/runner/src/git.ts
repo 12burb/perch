@@ -6,9 +6,23 @@
  */
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { BRANCH_NAME, type RunnerRequestParams, splitPatches } from "@perch/events";
+import {
+  BRANCH_NAME,
+  JSON_RPC_ERRORS,
+  type RunnerRequestParams,
+  RunnerRpcError,
+  splitPatches,
+} from "@perch/events";
 import { type SimpleGit, simpleGit } from "simple-git";
 import { diffRange } from "./checkpoints.ts";
+import {
+  assertPushRemote,
+  type RemoteOrigin,
+  recordedOrigin,
+  recordOrigin,
+  riskyTransportConfig,
+  runnerStateDir,
+} from "./git-auth.ts";
 import { asUserFs, asUserGit, CREDENTIALED_GIT, type RunAs, userTempDir } from "./identity.ts";
 import type { Notify } from "./notify.ts";
 import { enforce, type RunnerPolicy } from "./policy.ts";
@@ -140,6 +154,38 @@ export async function gitCommit(options: GitOptions, params: RunnerRequestParams
   };
 }
 
+/**
+ * Before a credentialed push (ADR-0171): where it would really go — `origin`'s push URL with every
+ * rewrite applied — must be the credential's own transport on the host the project was cloned from
+ * (recorded then; a project never cloned here records its first credentialed push's host), and the
+ * repository's own config must not reroute or re-trust the transport. Read as the account that will
+ * push, with the configuration it will push with.
+ */
+async function checkPushRemote(
+  options: GitOptions,
+  params: RunnerRequestParams<"git.push">,
+  dir: string,
+  who: RunAs,
+): Promise<RemoteOrigin> {
+  const auth = params.auth;
+  if (!auth) throw new Error("only a credentialed push is checked");
+  const read = (args: string[]) =>
+    runGit(args, { cwd: dir, env: cloneEnv(process.env, {}), timeoutMs: 30_000, user: who });
+  const pushUrl = (await read(["remote", "get-url", "--push", "origin"])).trim();
+  const state = runnerStateDir(options.root);
+  const recorded = recordedOrigin(state, params.workspace_id, params.project);
+  const origin = assertPushRemote(auth, pushUrl, recorded);
+  const risky = riskyTransportConfig(await read(["config", "--show-scope", "--list"]));
+  if (risky.length > 0) {
+    throw new RunnerRpcError(
+      JSON_RPC_ERRORS.invalidParams,
+      `this repository's own config changes how git reaches its remote (${risky.join(", ")}); a credential is not sent through it`,
+    );
+  }
+  if (!recorded) recordOrigin(state, params.workspace_id, params.project, origin);
+  return origin;
+}
+
 export async function gitPush(options: GitOptions, params: RunnerRequestParams<"git.push">) {
   const dir = dirOf(options, params);
   const git = gitAt(dir, params.user_id);
@@ -153,6 +199,7 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
   // A push that holds a credential runs as the account nothing else runs as: git's environment and
   // the key file are readable by every process of the uid git runs as (ADR-0171).
   const who: RunAs = params.auth ? CREDENTIALED_GIT : params.user_id;
+  const origin = params.auth ? await checkPushRemote(options, params, dir, who) : undefined;
   try {
     let keyFile: string | undefined;
     if (params.auth?.kind === "ssh") {
@@ -162,7 +209,7 @@ export async function gitPush(options: GitOptions, params: RunnerRequestParams<"
       });
       keyFile = join(keyDir, "id");
     }
-    const auth = gitAuth(params.auth, keyFile);
+    const auth = gitAuth(params.auth, keyFile, origin);
     const output = await runGit(
       [
         ...auth.config.flatMap((entry) => ["-c", entry]),

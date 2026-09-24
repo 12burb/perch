@@ -144,6 +144,19 @@ runner strips `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_SSH*`, and `GIT_CONFIG_*` from 
 spawns `git` directly (no URL or secret on the command line comes from Perch), and scrubs
 `scheme://user@` from error messages. See [`projects.md`](projects.md).
 
+Git holding a credential — a clone, or `git.push` with `auth` — is told on its own command line,
+which git reads after every config file (ADR-0171): `core.hooksPath=/dev/null` (no hook runs; a
+repository's `core.hooksPath` can point anywhere in the tree), `credential.helper=` (every helper
+anyone configured is dropped) and then Perch's helper as `credential.<scheme>://<host>.helper`, so it
+answers for the remote's own host only, `http.sslVerify=true`, and `protocol.allow=never` with only
+the remote's own transport allowed. A token goes only over https (plain http only to this machine),
+a deploy key only over ssh. Before a credentialed push the runner reads `git remote get-url --push
+origin` (every `insteadOf` rewrite applied) and refuses, before git pushes, a URL on another host
+than the one the project was cloned from (recorded at clone time in `.perch-remotes.json`, beside
+the runner's other state where no member can write; a project that was never cloned here records
+its first credentialed push's host), or a repository whose own config sets a proxy, a CA, TLS
+verification or a pinned address for the transport.
+
 ## fs, git, ports, and exec on a runner (task 1.5)
 
 Every runner answers these §7.6 methods through `defaultHandlers()` (apps/runner/src/handlers.ts);

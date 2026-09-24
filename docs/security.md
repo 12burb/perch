@@ -146,6 +146,10 @@ container holds that workspace's files and nobody else's (ADR-0171):
   What the root agent reads or writes for a member, it does with that member's filesystem
   credentials. Git holding a connection token or the deploy key runs as an account nothing else runs
   as, so the member's own agent cannot read the token out of git's environment either.
+- **Credentials in git.** A clone or push holding a connection token or the deploy key runs no
+  repository hook, asks no credential helper but Perch's, and Perch's answers for the remote's own
+  host only; a push whose effective URL leads to another host than the project came from, or whose
+  repository config sets its own proxy or CA, is refused before git runs.
 - **The runner's token.** The agent is root and nothing it starts is, so no child can read its
   environment. Each container carries a fresh connect token, and minting it revokes every older
   token of that runner, so a token read out of a container that has since been replaced cannot

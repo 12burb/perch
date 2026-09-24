@@ -17,6 +17,14 @@ import {
 import { simpleGit } from "simple-git";
 import { childEnv } from "./env.ts";
 import {
+  assertCredentialTransport,
+  gitAuth,
+  type RemoteOrigin,
+  recordOrigin,
+  remoteOrigin,
+  runnerStateDir,
+} from "./git-auth.ts";
+import {
   asUser,
   asUserFs,
   asUserGit,
@@ -132,33 +140,7 @@ export function resolveInside(
 
 type Setup = RunnerRequestParams<"project.setup">;
 
-/** What git needs for a clone with a token or a deploy key: config and environment, never argv. */
-export function gitAuth(
-  auth: Extract<Setup["source"], { kind: "clone" }>["auth"],
-  keyFile?: string,
-) {
-  if (!auth) return { config: [] as string[], env: {} as Record<string, string> };
-  if (auth.kind === "token") {
-    return {
-      config: [
-        'credential.helper=!f() { echo "username=$PERCH_GIT_USERNAME"; echo "password=$PERCH_GIT_SECRET"; }; f',
-      ],
-      env: {
-        PERCH_GIT_USERNAME: auth.username ?? "x-access-token",
-        PERCH_GIT_SECRET: auth.token,
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    };
-  }
-  if (!keyFile) throw new Error("ssh auth needs a key file");
-  return {
-    config: [] as string[],
-    env: {
-      GIT_SSH_COMMAND: `ssh -i ${JSON.stringify(keyFile)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes`,
-      GIT_TERMINAL_PROMPT: "0",
-    },
-  };
-}
+export { gitAuth } from "./git-auth.ts";
 
 function parseJson(text: string, jsonc: boolean): { value: unknown } | { error: string } {
   try {
@@ -277,6 +259,8 @@ export async function setupProject(
   prepareProjectDir(dir);
   const shared = isolation() !== null;
   const source = params.source;
+  // Where the clone came from, recorded once it has: a later credentialed push must go there.
+  let cloned: RemoteOrigin | null = null;
   if (source.kind === "clone") {
     let keyDir: string | null = null;
     // A clone that holds a credential runs as the account nothing else runs as, so neither the
@@ -291,7 +275,12 @@ export async function setupProject(
         });
         keyFile = join(keyDir, "id");
       }
-      const auth = gitAuth(source.auth, keyFile);
+      // A credential goes only over its own transport, to the host the URL names, and git holding
+      // it runs no hook and asks no helper but Perch's, which answers for that host only (ADR-0171).
+      let origin: RemoteOrigin | null = remoteOrigin(source.url);
+      if (source.auth) origin = assertCredentialTransport(source.auth, origin);
+      cloned = origin;
+      const auth = gitAuth(source.auth, keyFile, origin ?? undefined);
       // git is spawned directly: the credential helper and the ssh command are ours, the environment
       // is explicit, and no URL or token is ever placed on the command line by this code.
       const args = [
@@ -323,6 +312,8 @@ export async function setupProject(
       ...(shared ? ["--shared=group"] : []),
     ]);
   }
+  if (cloned)
+    recordOrigin(runnerStateDir(options.root), params.workspace_id, params.project, cloned);
   const git = gitIn(dir, params.user_id);
   let head: string | null = null;
   let defaultBranch: string | null = null;

@@ -6867,3 +6867,38 @@ runner the server also runs as the member's uid, under their own socket director
 `apps/runner/test/pty.test.ts` opens two people's shells in two directories and reads each one's
 `HOME`, `PERCH_USER` and project variable back; on the old code the first shell even landed on a
 default server left from another run and printed its environment.
+
+**7. Git holding a credential gives it to the remote's own host and to nothing else.** A clone or
+push with a token had the token in git's environment while repository hooks ran (`core.hooksPath`
+can point into the tree, so a hook is a file any member can write), repository-configured
+credential helpers were asked beside Perch's (and `store` is handed the token after a push), and
+Perch's helper answered any host, so a changed remote or a `url.*.insteadOf` rewrite sent the token
+elsewhere. Every credentialed run now carries, after every config file: `core.hooksPath=/dev/null`,
+`core.fsmonitor=false`, `credential.helper=` and then Perch's helper as
+`credential.<scheme>://<host>.helper`, `http.sslVerify=true`, and `protocol.allow=never` with the
+remote's own transport allowed (and `ext`, `file` refused by name, since a repository's
+`protocol.<name>.allow` would beat a general `never`). A token travels only over https — plain http
+only to this machine, which is how the api's tests run a git host — and the deploy key only over
+ssh. Before a credentialed push the runner reads `git remote get-url --push origin`, rewrites
+applied, and refuses before git runs a URL whose host is not the one the project was cloned from,
+and a repository whose own config (local or worktree scope) sets a proxy, a CA, `sslVerify` or a
+pinned address for the transport — URL-specific settings in the repository beat anything generic
+on the command line, so those are refused, not overridden.
+
+The expected host comes from the runner, not the protocol: §7.6's `git.push` carries no host, and
+the clone URL is the host the credential was first given to. It is recorded at clone time in
+`.perch-remotes.json` in the runner's state directory — the homes directory where members are
+isolated (root's, on the workspace's own volume, so it survives the container), the projects root
+on one person's machine. A project never cloned here (empty, a template, an upload, or cloned before
+this) records the host of its first credentialed push. That first push is trust on first use, the
+residual this leaves; closing it needs the api to say which host a connection's token is for, which
+is a change to §7.6 and to the connections service and is left for when a connection carries its
+host. For the same reason the runner cannot stop a clone URL that names a host the connection was
+never for: that check belongs to the api, which knows the connection.
+
+`apps/runner/test/git-auth.test.ts` runs a push end to end against a git host on this machine that
+asks for the token the way a real one does: a `pre-push` hook the tree points at does not run, a
+helper the repository configured never sees the token, an `insteadOf` rewrite to a second listening
+host is refused with neither host hearing anything, and a repository `http.proxy` is refused; each
+of those failed on the old code (the hook ran, the rewrite sent the token to the second host, the
+proxy was used).

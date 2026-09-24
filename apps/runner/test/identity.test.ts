@@ -30,6 +30,7 @@ import {
 import { runnerPolicy } from "../src/policy.ts";
 import { PtyManager, tmux, tmuxSessionName } from "../src/pty.ts";
 import { createStreamPair } from "../src/streams.ts";
+import { startGitHost } from "./helpers/git-http.ts";
 import { removeTree } from "./helpers/tmp.ts";
 
 /**
@@ -399,6 +400,52 @@ describe.skipIf(!rootOnLinux)(
       },
       60_000,
     );
+
+    test("credentialed git runs as its own account, and the member works on what it cloned", async () => {
+      const host = startGitHost("ghs_isolated-token");
+      const project = "0190f2d0-0000-7000-8000-0000000000c2";
+      const ctx = { workspace_id: WS, cap: "test", project } as const;
+      try {
+        await services.handlers["project.setup"]?.({
+          ...ctx,
+          user_id: ALICE,
+          source: {
+            kind: "clone",
+            url: host.url,
+            auth: { kind: "token", token: "ghs_isolated-token" },
+          },
+        });
+        const checkout = join(projects, WS, project);
+        // Cloned by perch-git, in the workspace's group, and shared.
+        expect(statSync(join(checkout, "README.md")).uid).toBe(GIT_UID);
+        expect(statSync(join(checkout, "README.md")).gid).toBe(PERCH_GID);
+        // Alice changes it and commits as herself; the push goes out as perch-git again.
+        await services.handlers["fs.write"]?.({
+          ...ctx,
+          user_id: ALICE,
+          path: "README.md",
+          content: "# changed by alice\n",
+        });
+        await services.handlers["git.commit"]?.({
+          ...ctx,
+          user_id: ALICE,
+          message: "alice's change",
+          author: { name: "Alice", email: "alice@perch.test" },
+        });
+        const pushed = await services.handlers["git.push"]?.({
+          ...ctx,
+          user_id: ALICE,
+          auth: { kind: "token", token: "ghs_isolated-token" },
+        });
+        expect(pushed).toMatchObject({ pushed: true, branch: "main" });
+        const landed = Bun.spawnSync(["git", "--git-dir", host.bare, "log", "-1", "--format=%s"]);
+        expect(landed.stdout.toString().trim()).toBe("alice's change");
+        // The record of where it came from is the runner's, in the root-owned homes directory.
+        expect(statSync(join(homes, ".perch-remotes.json")).uid).toBe(0);
+      } finally {
+        host.stop();
+      }
+    }, 60_000);
 
     test("a project from before isolation is made the workspace's on the runner's start", () => {
       const legacyWs = "0190f2d0-0000-7000-8000-0000000000fe";
