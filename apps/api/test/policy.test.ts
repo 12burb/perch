@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { schema } from "@perch/db";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Booted } from "../src/boot.ts";
+import { savePolicy } from "../src/repos/policy.ts";
 import { type RunningServer, serve } from "../src/server.ts";
 import { capped } from "../src/services/bots.ts";
 import { bootTestApp } from "../src/testing.ts";
@@ -257,6 +260,44 @@ describe("the policy engine (task 2.11)", () => {
       allow: false,
       rule: "budgets.dailyUsd",
     });
+  }, 30_000);
+
+  test("two first saves at once leave one document, and the later save is the one kept", async () => {
+    // A double-submitted first save used to insert two rows, and enforcement read whichever
+    // came back first (ADR-0175). Both saves start before either has written anything.
+    const made = (await call("/api/workspaces", ada.cookie, {
+      method: "POST",
+      json: { name: "Race Nest" },
+    })) as { body: { id: string } };
+    const raced = made.body.id;
+    const documents = ['commands:\n  deny: ["rm -rf /"]\n', "budgets:\n  dailyUsd: 7\n"];
+    const saved = await Promise.all(
+      documents.map((yaml) =>
+        savePolicy(booted.db.db, { workspaceId: raced }, { yaml, rules: {}, userId: ada.id }),
+      ),
+    );
+    expect(saved.map((row) => row?.version).sort()).toEqual([1, 2]);
+    const rows = await booted.db.db
+      .select()
+      .from(schema.policies)
+      .where(and(eq(schema.policies.workspaceId, raced), isNull(schema.policies.projectId)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.version).toBe(2);
+    const read = (await call(`/api/workspaces/${raced}/policy`, ada.cookie)) as {
+      body: { yaml: string };
+    };
+    expect(documents).toContain(read.body.yaml);
+    expect(read.body.yaml).toBe(rows[0]?.yaml ?? "");
+    // An empty document still takes the row away.
+    await call(`/api/workspaces/${raced}/policy`, ada.cookie, {
+      method: "PUT",
+      json: { yaml: "" },
+    });
+    const gone = await booted.db.db
+      .select()
+      .from(schema.policies)
+      .where(eq(schema.policies.workspaceId, raced));
+    expect(gone).toHaveLength(0);
   }, 30_000);
 
   test("a ceiling narrows a bot's own budget, and the rails narrow its hops", async () => {

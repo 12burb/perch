@@ -168,7 +168,14 @@ export const policies = pgTable(
       .references(() => users.id, { onDelete: "restrict" }),
     ...timestamps(),
   },
-  (t) => [index("policies_workspace_project_idx").on(t.workspaceId, t.projectId)],
+  // One document per workspace and one per project (ADR-0175). Two partial indexes, because a
+  // plain unique index treats every NULL project_id as distinct and would let a workspace have two.
+  (t) => [
+    uniqueIndex("policies_workspace_idx").on(t.workspaceId).where(sql`${t.projectId} is null`),
+    uniqueIndex("policies_workspace_project_idx")
+      .on(t.workspaceId, t.projectId)
+      .where(sql`${t.projectId} is not null`),
+  ],
 );
 
 export const previewShares = pgTable(

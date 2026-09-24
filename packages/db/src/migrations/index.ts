@@ -40,6 +40,7 @@ import m36 from "../../drizzle/0036_work_views_and_relations.sql" with { type: "
 import m37 from "../../drizzle/0037_virtual_keys_and_usage.sql" with { type: "text" };
 import m38 from "../../drizzle/0038_budgets.sql" with { type: "text" };
 import m39 from "../../drizzle/0039_project_template_source.sql" with { type: "text" };
+import m40 from "../../drizzle/0040_policies_unique.sql" with { type: "text" };
 
 export type MigrationSource = {
   idx: number;
@@ -114,4 +115,5 @@ export const migrationSources: MigrationSource[] = [
     breakpoints: true,
     sql: m39,
   },
+  { idx: 40, tag: "0040_policies_unique", when: 1790290113585, breakpoints: true, sql: m40 },
 ];
