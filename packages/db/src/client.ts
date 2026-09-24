@@ -7,7 +7,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { type MigrateResult, migrateOnOneConnection } from "./migrate.ts";
+import { type MigrateResult, migrateOnOneConnection, migrateTo } from "./migrate.ts";
 import * as schema from "./schema/index.ts";
 
 export type Schema = typeof schema;
@@ -24,6 +24,8 @@ export type DbHandle = {
   location: string;
   /** Applies pending embedded migrations under an advisory lock on a single dedicated connection. */
   migrate: () => Promise<MigrateResult>;
+  /** Applies only the first `count` embedded migrations, the same way (a restore's older schema). */
+  migrateTo: (count: number) => Promise<MigrateResult>;
   close: () => Promise<void>;
 };
 
@@ -153,6 +155,7 @@ export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
       location: dataDir ?? "memory",
       // PGlite is a single connection, so the pool handle is the migration connection.
       migrate: () => migrateOnOneConnection(db),
+      migrateTo: (count) => migrateTo(db, count),
       close: async () => {
         // Whatever was already running finishes; whatever comes after is refused (ADR-0109).
         await guard.closing();
@@ -170,17 +173,20 @@ export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
     db,
     driver: "postgres",
     location: redactUrl(options.url),
-    migrate: async () => {
-      // A dedicated one-connection client so the advisory lock and the DDL share a session.
-      const single = postgres(options.url, { max: 1, onnotice: () => {} });
-      try {
-        return await migrateOnOneConnection(drizzlePostgres(single, { schema }));
-      } finally {
-        await single.end({ timeout: 5 });
-      }
-    },
+    migrate: () => onOneConnection(options.url, migrateOnOneConnection),
+    migrateTo: (count) => onOneConnection(options.url, (one) => migrateTo(one, count)),
     close: () => client.end({ timeout: 5 }),
   };
+}
+
+/** A dedicated one-connection client, so the advisory lock and the DDL share a session. */
+async function onOneConnection<T>(url: string, run: (db: Db) => Promise<T>): Promise<T> {
+  const single = postgres(url, { max: 1, onnotice: () => {} });
+  try {
+    return await run(drizzlePostgres(single, { schema }));
+  } finally {
+    await single.end({ timeout: 5 });
+  }
 }
 
 export function redactUrl(url: string): string {

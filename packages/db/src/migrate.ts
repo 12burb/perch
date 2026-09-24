@@ -56,6 +56,11 @@ async function migrationsTableExists(db: Db): Promise<boolean> {
   return Boolean(rowsOf<{ ok: boolean }>(result)[0]?.ok);
 }
 
+/** How many migrations have run on this database: 0 for one nothing has touched yet. */
+export async function appliedMigrationCount(db: Db): Promise<number> {
+  return (await migrationsTableExists(db)) ? await appliedCount(db) : 0;
+}
+
 /**
  * Applies pending migrations through `db`, which must be bound to exactly one connection so the advisory
  * lock and the migration statements share a session. Use `DbHandle.migrate()` instead of calling this
@@ -80,8 +85,10 @@ export async function migrateOnOneConnection(db: Db): Promise<MigrateResult> {
 
 /**
  * Applies only the first `count` embedded migrations, leaving the database at the schema Perch had
- * that many releases' worth of changes ago. Nothing in the product calls this: it is how the
- * upgrade drill (task 4.10) gets a database at an older schema to migrate forward.
+ * that many releases' worth of changes ago. The upgrade drill (task 4.10) uses it to get a database
+ * at an older schema; a restore uses it (through `DbHandle.migrateTo`) to load an older backup at
+ * the schema it was written at before migrating it forward (ADR-0175). Like `migrate`, the handle's
+ * version runs on one dedicated connection.
  */
 export async function migrateTo(db: Db, count: number): Promise<MigrateResult> {
   const migrations = embeddedMigrations().slice(0, count);

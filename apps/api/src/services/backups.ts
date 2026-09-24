@@ -10,6 +10,9 @@
  * The directory is the record. There is no backups table: what exists on disk is what can be
  * restored, and a row claiming otherwise would be a second source of truth about the one thing
  * that has to be true when everything else is gone.
+ *
+ * `perch backup` writes this same format, with the PGlite data directory as one more file beside
+ * the dump, so either kind of instance restores the other's backups (ADR-0175).
  */
 import {
   createReadStream,
@@ -25,18 +28,21 @@ import {
 import { cp } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { createGunzip, createGzip } from "node:zlib";
+import { createGunzip } from "node:zlib";
 import {
-  type BackupCounts,
+  createDb,
   type DbHandle,
   databaseIsEmpty,
-  dumpDatabase,
+  dumpGzipped,
   linesOf,
+  type RestoreResult,
   restoreDatabase,
 } from "@perch/db";
 import type { Logger } from "pino";
+import { z } from "zod";
+import { loadEnv } from "../env.ts";
 import { PerchError } from "../errors.ts";
+import { createLogger } from "../logging.ts";
 
 export const BACKUPS_QUEUE = "backups";
 /** The schedule's identity in the jobs table; scheduling it again moves it rather than adding one. */
@@ -44,25 +50,57 @@ export const NIGHTLY_KEY = "backup:nightly";
 
 export const BACKUP_FORMAT = "perch-instance-backup";
 export const BACKUP_VERSION = 1;
+/** The dump's name inside a backup directory, whichever writer made it. */
+export const DUMP_FILE = "database.jsonl.gz";
 
-export type BackupManifest = {
-  format: typeof BACKUP_FORMAT;
-  version: typeof BACKUP_VERSION;
-  createdAt: string;
-  perchVersion: string;
-  mode: "laptop" | "team";
-  driver: "postgres" | "pglite";
-  database: { file: string; tables: number; rows: number; bytes: number };
-  files: { dir: string; count: number; bytes: number };
+/**
+ * A name inside the backup directory: no separators, no `..`, nothing hidden. A manifest is read
+ * from wherever a backup came from, and a restore copies what it names; a name that climbed out of
+ * the directory would copy some other directory into the files store (ADR-0175).
+ */
+const inside = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+const count = z.number().int().nonnegative();
+
+const manifestSchema = z.object({
+  format: z.literal(BACKUP_FORMAT),
+  version: z.literal(BACKUP_VERSION),
+  createdAt: z.string(),
+  perchVersion: z.string(),
+  mode: z.enum(["laptop", "team"]),
+  driver: z.enum(["postgres", "pglite"]),
+  /** `migrations` is the schema the rows were read at (absent on backups from before it was kept). */
+  database: z.object({
+    file: inside,
+    tables: count,
+    rows: count,
+    bytes: count,
+    migrations: count.optional(),
+  }),
+  files: z.object({ dir: inside, count, bytes: count }),
   /**
    * The vault key. `included` writes it into the backup, which makes the backup as sensitive as
    * the instance; the fingerprint is always there, so a restore can tell whether the key it has is
-   * the key these rows were encrypted with.
+   * the key these rows were encrypted with. Empty when the backup does not say.
    */
-  masterKey: { included: boolean; fingerprint: string };
+  masterKey: z.object({ included: z.boolean(), fingerprint: z.string() }),
   /** Written by the supervisor when it has taken the project volumes (see `projects.json`). */
-  projects?: { file: string; bytes: number; projects: number } | null;
-};
+  projects: z.object({ file: inside, bytes: count, projects: count }).nullable().optional(),
+  /** Laptop backups: PGlite's own data directory as a tarball, the exact copy `perch restore` prefers. */
+  pglite: inside.optional(),
+});
+
+export type BackupManifest = z.infer<typeof manifestSchema>;
+
+/** What `perch backup` wrote before it wrote the format above (versions 1 and 2). */
+const laptopManifestSchema = z.object({
+  format: z.literal("perch-backup"),
+  version: z.union([z.literal(1), z.literal(2)]),
+  createdAt: z.string(),
+  pglite: inside,
+  database: z.object({ file: inside, tables: count, rows: count }).optional(),
+  files: z.boolean(),
+  masterKey: z.boolean(),
+});
 
 export type BackupSummary = {
   /** The directory's name, which is also its id: `perch-2026-09-16T03-00-00Z`. */
@@ -104,7 +142,8 @@ export function backupId(at: Date): string {
     .replace(/:/g, "-")}`;
 }
 
-function sizeOf(path: string): { count: number; bytes: number } {
+/** How many files, and how many bytes, are at `path` (a file or a directory tree). */
+export function sizeOf(path: string): { count: number; bytes: number } {
   if (!existsSync(path)) return { count: 0, bytes: 0 };
   let count = 0;
   let bytes = 0;
@@ -124,15 +163,59 @@ function sizeOf(path: string): { count: number; bytes: number } {
   return { count, bytes };
 }
 
+/** What an older `perch backup` wrote, read as the one format; null when it is not one. */
+function fromLaptopManifest(dir: string, raw: unknown): BackupManifest | null {
+  const parsed = laptopManifestSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const old = parsed.data;
+  if (!old.database) {
+    throw new Error(
+      `${dir} was taken before backups carried a portable dump; only \`perch restore\` can load it`,
+    );
+  }
+  const keyPath = join(dir, "master.key");
+  const included = old.masterKey && existsSync(keyPath);
+  const files = old.files ? sizeOf(join(dir, "files")) : { count: 0, bytes: 0 };
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    createdAt: old.createdAt,
+    perchVersion: "unknown",
+    mode: "laptop",
+    driver: "pglite",
+    database: { ...old.database, bytes: sizeOf(join(dir, old.database.file)).bytes },
+    files: { dir: "files", ...files },
+    // Those backups carried the key itself or nothing: its fingerprint, or no claim at all.
+    masterKey: {
+      included,
+      fingerprint: included ? fingerprintKey(readFileSync(keyPath, "utf8").trim()) : "",
+    },
+    projects: null,
+    pglite: old.pglite,
+  };
+}
+
 export function readManifest(dir: string): BackupManifest {
   const path = join(dir, "manifest.json");
   if (!existsSync(path)) throw new Error(`${dir} is not a Perch backup (no manifest.json)`);
-  const manifest = JSON.parse(readFileSync(path, "utf8")) as Partial<BackupManifest>;
-  if (manifest.format !== BACKUP_FORMAT) throw new Error(`${dir} is not a Perch backup`);
-  if (manifest.version !== BACKUP_VERSION) {
-    throw new Error(`this Perch reads backup version ${BACKUP_VERSION}, not ${manifest.version}`);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error(`${dir} is not a Perch backup (manifest.json is not JSON)`);
   }
-  return manifest as BackupManifest;
+  const laptop = fromLaptopManifest(dir, raw);
+  if (laptop) return laptop;
+  const version = (raw as { format?: unknown; version?: unknown } | null)?.version;
+  if (
+    (raw as { format?: unknown } | null)?.format === BACKUP_FORMAT &&
+    version !== BACKUP_VERSION
+  ) {
+    throw new Error(`this Perch reads backup version ${BACKUP_VERSION}, not ${String(version)}`);
+  }
+  const parsed = manifestSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`${dir} is not a Perch backup`);
+  return parsed.data;
 }
 
 export class BackupsService {
@@ -172,18 +255,15 @@ export class BackupsService {
     const id = backupId(at);
     const dir = join(root, id);
     if (existsSync(dir)) throw new Error(`${dir} already exists`);
-    mkdirSync(dir, { recursive: true });
+    // Everything in here is as sensitive as the instance: only its owner reads it.
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
 
-    let counts: BackupCounts = { tables: 0, rows: 0 };
+    let summary: BackupSummary;
     try {
-      const gzip = createGzip();
-      const out = createWriteStream(join(dir, "database.jsonl.gz"));
-      const done = pipeline(gzip, out);
-      counts = await dumpDatabase(this.deps.db.db, async (line) => {
-        if (!gzip.write(line)) await new Promise<void>((r) => gzip.once("drain", () => r()));
-      });
-      gzip.end();
-      await done;
+      const counts = await dumpGzipped(
+        this.deps.db.db,
+        createWriteStream(join(dir, DUMP_FILE), { mode: 0o600 }),
+      );
 
       const files = sizeOf(this.deps.env.filesDir);
       if (files.count > 0) {
@@ -203,10 +283,11 @@ export class BackupsService {
         mode: this.deps.env.mode,
         driver: this.deps.db.driver,
         database: {
-          file: "database.jsonl.gz",
+          file: DUMP_FILE,
           tables: counts.tables,
           rows: counts.rows,
-          bytes: sizeOf(join(dir, "database.jsonl.gz")).bytes,
+          bytes: sizeOf(join(dir, DUMP_FILE)).bytes,
+          migrations: counts.migrations,
         },
         files: { dir: "files", count: files.count, bytes: files.bytes },
         masterKey: { included: this.deps.env.backup.includeKey, fingerprint },
@@ -217,13 +298,26 @@ export class BackupsService {
       // manifest when it has: a backup is complete when that line is there.
       await this.deps.requestVolumes?.(dir);
       this.deps.log.info({ backup: id, rows: counts.rows, files: files.count }, "took a backup");
-      this.prune(options.keep ?? this.deps.env.backup.keep, root);
-      return { id, path: dir, createdAt: manifest.createdAt, bytes: sizeOf(dir).bytes, manifest };
+      summary = {
+        id,
+        path: dir,
+        createdAt: manifest.createdAt,
+        bytes: sizeOf(dir).bytes,
+        manifest,
+      };
     } catch (error) {
       // A half-written backup is worse than none: it would be the one restored from.
       rmSync(dir, { recursive: true, force: true });
       throw error;
     }
+    // Outside the try: the backup above is complete, and an older one that will not go away is
+    // no reason to delete it (ADR-0175).
+    try {
+      this.prune(options.keep ?? this.deps.env.backup.keep, root);
+    } catch (error) {
+      this.deps.log.warn({ err: error, backup: id }, "could not remove an older backup");
+    }
+    return summary;
   }
 
   /** What is on disk, newest first. A directory without a readable manifest is not a backup. */
@@ -263,15 +357,18 @@ export class BackupsService {
 
   /**
    * Loads a backup into this instance. The database must be empty unless `force` says otherwise,
-   * because a restore on top of live rows is a merge nobody asked for.
+   * because a restore on top of live rows is a merge nobody asked for. A backup from an older
+   * Perch needs a database no migration has run on (see `restoreDatabase`), which is what the
+   * `restore` entrypoint gives it by running before boot.
    *
    * The key is checked, not replaced: a running instance already booted with one, and quietly
-   * decrypting nothing would look like an empty vault rather than the wrong key.
+   * decrypting nothing would look like an empty vault rather than the wrong key. `keyMatches` is
+   * null when the backup does not say which key it was taken with.
    */
   async restore(
     dir: string,
     options: { force?: boolean } = {},
-  ): Promise<BackupCounts & { files: number; keyMatches: boolean }> {
+  ): Promise<RestoreResult & { files: number; keyMatches: boolean | null }> {
     const manifest = readManifest(dir);
     if (!options.force && !(await databaseIsEmpty(this.deps.db.db))) {
       throw new PerchError(
@@ -286,7 +383,7 @@ export class BackupsService {
     const stream = Readable.toWeb(
       createReadStream(dump).pipe(createGunzip()),
     ) as ReadableStream<Uint8Array>;
-    const counts = await restoreDatabase(this.deps.db.db, linesOf(stream));
+    const counts = await restoreDatabase(this.deps.db, linesOf(stream));
 
     let files = 0;
     const from = join(dir, manifest.files.dir);
@@ -294,14 +391,62 @@ export class BackupsService {
       await cp(from, this.deps.env.filesDir, { recursive: true, force: true });
       files = sizeOf(this.deps.env.filesDir).count;
     }
-    const keyMatches = manifest.masterKey.fingerprint === fingerprintKey(this.deps.env.masterKey);
-    if (!keyMatches) {
+    const keyMatches = manifest.masterKey.fingerprint
+      ? manifest.masterKey.fingerprint === fingerprintKey(this.deps.env.masterKey)
+      : null;
+    if (keyMatches === false) {
       this.deps.log.warn(
         { backup: manifest.createdAt },
         "restored rows were encrypted with a different master key; credentials will not decrypt",
       );
     }
-    this.deps.log.info({ rows: counts.rows, files, keyMatches }, "restored a backup");
+    this.deps.log.info(
+      { rows: counts.rows, files, keyMatches, schema: counts.schema },
+      "restored a backup",
+    );
     return { ...counts, files, keyMatches };
+  }
+}
+
+/**
+ * `bun apps/api/src/index.ts restore <dir> [--force]`: runs before boot, so a database nothing has
+ * migrated stays that way until the backup says which schema its rows were written at; they load
+ * at that schema and migrate forward, as they would have in an upgrade (ADR-0175). Returns the
+ * process's exit code.
+ */
+export async function restoreEntrypoint(argv: string[]): Promise<number> {
+  const dir = argv.find((one) => !one.startsWith("--"));
+  if (!dir) {
+    console.error("usage: restore <backup-dir> [--force]");
+    return 2;
+  }
+  const env = loadEnv();
+  const log = createLogger({ level: env.logLevel, pretty: env.logPretty });
+  const db = await createDb({ url: env.databaseUrl });
+  try {
+    // A restore writes no manifest, so the version it would record is never read.
+    const service = new BackupsService({ env, db, log, version: { version: "restore" } });
+    const result = await service.restore(dir, { force: argv.includes("--force") });
+    console.log(`restored ${result.rows} rows and ${result.files} files from ${dir}`);
+    if (result.schema.backup < result.schema.current) {
+      console.log(
+        `  loaded at schema ${result.schema.backup}, the one it was taken at, and migrated to ${result.schema.current}`,
+      );
+    }
+    if (result.keyMatches === false) {
+      console.error(
+        "warning: this instance's PERCH_MASTER_KEY is not the one these rows were encrypted with; credentials will not decrypt",
+      );
+    } else if (result.keyMatches === null) {
+      console.error(
+        "note: this backup does not record which master key it was taken with; credentials decrypt only with that key",
+      );
+    }
+    return 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  } finally {
+    await db.close();
   }
 }

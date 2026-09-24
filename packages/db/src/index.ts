@@ -3,14 +3,17 @@ export {
   BACKUP_VERSION,
   type BackupCounts,
   type BackupHeader,
+  backupSchema,
   backupTables,
+  type DumpCounts,
   databaseIsEmpty,
   dumpDatabase,
+  dumpGzipped,
   keyColumns,
   linesOf,
   parseHeader,
+  type RestoreResult,
   restoreDatabase,
-  SKIPPED_TABLES,
 } from "./backup.ts";
 export {
   type CreateDbOptions,
@@ -28,6 +31,7 @@ export {
 export { bytea, citext, tsvector } from "./columns.ts";
 export { newId } from "./id.ts";
 export {
+  appliedMigrationCount,
   embeddedMigrations,
   MIGRATION_LOCK_KEY,
   MIGRATIONS_TABLE,

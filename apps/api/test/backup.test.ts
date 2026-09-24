@@ -1,5 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { schema } from "@perch/db";
@@ -7,7 +16,7 @@ import { generateMasterKey } from "@perch/vault";
 import { eq } from "drizzle-orm";
 import type { Booted } from "../src/boot.ts";
 import { type RunningServer, serve } from "../src/server.ts";
-import { BackupsService } from "../src/services/backups.ts";
+import { BackupsService, fingerprintKey, readManifest } from "../src/services/backups.ts";
 import { bootTestApp, TEST_ADMIN } from "../src/testing.ts";
 
 /**
@@ -96,6 +105,13 @@ beforeAll(async () => {
   expect(credential.status).toBe(201);
   // And a file beside the database.
   writeFileSync(join(filesOne, "hello.txt"), "hi");
+  // A bot's scheduled trigger, which lives nowhere but its row in the queue.
+  await one.queue.schedule({
+    key: "bot:digest:0",
+    queue: "bots",
+    cron: "0 9 * * 1-5",
+    payload: { botId: "digest", index: 0 },
+  });
 }, 120_000);
 
 afterAll(async () => {
@@ -118,9 +134,18 @@ describe("backups (task 4.4)", () => {
     expect(existsSync(join(backupsDir, backup.id, "master.key"))).toBe(false);
     const manifest = JSON.parse(
       readFileSync(join(backupsDir, backup.id, "manifest.json"), "utf8"),
-    ) as { masterKey: { included: boolean; fingerprint: string } };
+    ) as {
+      masterKey: { included: boolean; fingerprint: string };
+      database: { migrations: number };
+    };
     expect(manifest.masterKey.included).toBe(false);
     expect(manifest.masterKey.fingerprint).toHaveLength(16);
+    // The schema the rows were read at travels with them.
+    expect(manifest.database.migrations).toBeGreaterThan(40);
+    // A backup holds everything: only its owner may look inside (not on Windows, which has no modes).
+    if (process.platform !== "win32") {
+      expect(statSync(join(backupsDir, backup.id)).mode & 0o777).toBe(0o700);
+    }
 
     const listed = await call("/api/admin/backup");
     expect(listed.status).toBe(200);
@@ -167,6 +192,75 @@ describe("backups (task 4.4)", () => {
     }
   }, 120_000);
 
+  test("a failure to prune an older backup keeps the one just taken", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "perch-prune-"));
+    try {
+      // An older directory that cannot be removed (a file busy on Windows, a permission).
+      class Stuck extends BackupsService {
+        override prune(): string[] {
+          throw new Error("EBUSY: resource busy or locked");
+        }
+      }
+      const service = new Stuck({
+        env: { ...one.env, backup: { ...one.env.backup, dir, keep: 1 } },
+        db: one.db,
+        log: one.log,
+        version: { version: "test" },
+        now: () => new Date(Date.UTC(2026, 1, 1, 3)),
+      });
+      const taken = await service.create();
+      expect(existsSync(join(taken.path, "manifest.json"))).toBe(true);
+      expect(existsSync(join(taken.path, "database.jsonl.gz"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("a laptop backup's manifest reads as an instance backup, and a manifest cannot point outside its directory", () => {
+    const [backup] = one.backups.list();
+    if (!backup) throw new Error("no backup to copy");
+    const dir = mkdtempSync(join(tmpdir(), "perch-laptop-manifest-"));
+    try {
+      // What `perch backup` wrote before both writers shared one format.
+      cpSync(join(backup.path, "database.jsonl.gz"), join(dir, "database.jsonl.gz"));
+      mkdirSync(join(dir, "files"));
+      writeFileSync(join(dir, "files", "a.txt"), "a");
+      writeFileSync(join(dir, "master.key"), `${masterKey}\n`);
+      writeFileSync(
+        join(dir, "manifest.json"),
+        JSON.stringify({
+          format: "perch-backup",
+          version: 2,
+          createdAt: "2026-09-01T00:00:00.000Z",
+          dataDir: "/home/someone/.perch",
+          pglite: "pglite.tar.gz",
+          database: { file: "database.jsonl.gz", tables: 60, rows: 12 },
+          files: true,
+          masterKey: true,
+        }),
+      );
+      const read = readManifest(dir);
+      expect(read).toMatchObject({
+        format: "perch-instance-backup",
+        mode: "laptop",
+        driver: "pglite",
+        database: { file: "database.jsonl.gz", rows: 12 },
+        files: { dir: "files", count: 1 },
+        masterKey: { included: true, fingerprint: fingerprintKey(masterKey) },
+        pglite: "pglite.tar.gz",
+      });
+
+      // A manifest naming a path outside the backup is refused before anything is read or copied.
+      writeFileSync(
+        join(dir, "manifest.json"),
+        JSON.stringify({ ...backup.manifest, files: { dir: "../../etc", count: 1, bytes: 1 } }),
+      );
+      expect(() => readManifest(dir)).toThrow("not a Perch backup");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a backup restores into an empty instance and the workspace is all there", async () => {
     const [backup] = one.backups.list();
     expect(backup).toBeDefined();
@@ -200,6 +294,13 @@ describe("backups (task 4.4)", () => {
 
       // The uploaded file came across too.
       expect(readFileSync(join(filesTwo, "hello.txt"), "utf8")).toBe("hi");
+
+      // And the bot's schedule, which lived nowhere but the queue.
+      const schedules = await two.db.db
+        .select()
+        .from(schema.jobs)
+        .where(eq(schema.jobs.key, "bot:digest:0"));
+      expect(schedules.map((job) => job.cron)).toEqual(["0 9 * * 1-5"]);
 
       // And the vault still opens what it was given, because the key is the same key.
       const [credential] = await two.db.db

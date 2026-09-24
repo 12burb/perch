@@ -329,7 +329,7 @@ export async function upgradeDrill(): Promise<Row[]> {
     });
     await target.migrate();
     const restored = await restoreDatabase(
-      target.db,
+      target,
       (async function* () {
         for (const line of lines) yield line.trimEnd();
       })(),

@@ -4,7 +4,7 @@
  * `worker` runs only the jobs worker; `supervisor` owns the Docker socket and runs the runner
  * containers (task 1.2); `backup` and `restore` take and load an instance backup and exit, which
  * is how a team instance is restored — `docker compose run --rm api restore /data/backups/<id>`
- * against an empty database (task 4.4).
+ * against an empty database (task 4.4). `restore` runs before boot (ADR-0175).
  *   bun src/index.ts            # api
  *   bun src/index.ts worker
  *   bun src/index.ts supervisor
@@ -22,12 +22,18 @@ import {
 import { repoIndexJobHandlers } from "./jobs/repo-index.ts";
 import { type RunningServer, serve } from "./server.ts";
 import { AUDIT_QUEUE } from "./services/audit.ts";
-import { BACKUPS_QUEUE } from "./services/backups.ts";
+import { BACKUPS_QUEUE, restoreEntrypoint } from "./services/backups.ts";
 import { REPO_INDEX_QUEUE } from "./services/repo-index.ts";
 import { dockerodeClient } from "./supervisor/docker.ts";
 import { createSupervisor, supervisorConfigFromEnv } from "./supervisor/supervisor.ts";
 
 const entrypoint = process.argv[2] ?? "api";
+
+if (entrypoint === "restore") {
+  // Before boot, whose migrations would take an empty database past the schema an older backup's
+  // rows were written at; the restore migrates it itself, to that schema and then forward (ADR-0175).
+  process.exit(await restoreEntrypoint(process.argv.slice(3)));
+}
 
 const booted = await boot({
   app: { webDist: resolve(import.meta.dir, "..", "..", "web", "dist") },
@@ -84,31 +90,16 @@ if (entrypoint === "worker" || entrypoint === "api") {
   process.on("SIGTERM", stop);
 }
 
-if (entrypoint === "backup" || entrypoint === "restore") {
-  // Both run to a finish and exit: nothing is served, and the process is the whole operation.
+if (entrypoint === "backup") {
+  // Runs to a finish and exits: nothing is served, and the process is the whole operation.
   const rest = process.argv.slice(3);
   const dir = rest.find((one) => !one.startsWith("--"));
   try {
-    if (entrypoint === "backup") {
-      const backup = await booted.backups.create(dir ? { dir } : {});
-      console.log(`backup ${backup.id} written to ${backup.path}`);
-      console.log(
-        `  ${backup.manifest.database.rows} rows, ${backup.manifest.files.count} files, key ${backup.manifest.masterKey.fingerprint}`,
-      );
-    } else {
-      if (!dir) {
-        console.error("usage: restore <backup-dir> [--force]");
-        await booted.close();
-        process.exit(2);
-      }
-      const result = await booted.backups.restore(dir, { force: rest.includes("--force") });
-      console.log(`restored ${result.rows} rows and ${result.files} files from ${dir}`);
-      if (!result.keyMatches) {
-        console.error(
-          "warning: this instance's PERCH_MASTER_KEY is not the one these rows were encrypted with; credentials will not decrypt",
-        );
-      }
-    }
+    const backup = await booted.backups.create(dir ? { dir } : {});
+    console.log(`backup ${backup.id} written to ${backup.path}`);
+    console.log(
+      `  ${backup.manifest.database.rows} rows, ${backup.manifest.files.count} files, key ${backup.manifest.masterKey.fingerprint}`,
+    );
     await booted.close();
     process.exit(0);
   } catch (error) {

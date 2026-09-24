@@ -123,14 +123,14 @@ export async function restoreBackup(
     ? `${layout.pglite}.restore-${Date.now()}`
     : layout.pglite;
   if (portable) {
-    // An empty database, its migrations, and then the rows: the same path a team instance takes.
+    // An empty database: the rows go in at the schema they were written at and migrate forward,
+    // the same path a team instance takes (ADR-0175).
     const handle = await createDb({ url: `pglite://${target}`, pglite: runtime });
     try {
-      await handle.migrate();
       const stream = Readable.toWeb(
         createReadStream(dumpPath).pipe(createGunzip()),
       ) as ReadableStream<Uint8Array>;
-      await restoreDatabase(handle.db, linesOf(stream));
+      await restoreDatabase(handle, linesOf(stream));
     } finally {
       await handle.close();
     }
